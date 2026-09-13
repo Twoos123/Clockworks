@@ -47,10 +47,22 @@ ThreeRingsSharp and imported through the `ImportAssets` commandlet into
 tiles and props. Pipeline and limits: `Docs/SpiralKnightsAssetPipeline.md`;
 re-run with `python Tools/SKImport/stage_and_import.py --import`. In use:
 `BP_TrainingDummy` shows the Wolver, `BP_ClockworksCharacter` the rigged
-player knight (coat armour), both as single-node looping idles with mesh
-rotation roll -90 / yaw 90 (Clyde is Z-up, glTF is Y-up). Decision: enemies
-and the knight use the Spiral Knights animations directly; `BP_GA_SwordAttack`
-has no montage until a knight attack montage exists.
+player knight (coat armour), mesh rotation roll -90 / yaw -90 (Clyde is Z-up,
+glTF is Y-up). Decision: enemies and the knight use the Spiral Knights
+animations directly. `ABP_Knight` and `ABP_Wolver` (Content/TopDown/Blueprints)
+blend idle/run by speed and expose a `DefaultSlot` for montages; the graphs
+were authored over MCP and the assets themselves must be created in the editor
+(the tools cannot attach a skeleton).
+
+**Sword combo (04b):** `UClockworksSwordAttackAbility` runs `ComboSteps`
+(montage, windup/active/recovery, recovery lock, lunge, damage multiplier per
+swing). A press during a swing queues the next step through the ability
+system's replicated input (`EClockworksAbilityInputID`, abilities granted
+with an input ID, `AbilityLocalInputPressed`). Swing 1 has no recovery;
+swings 2 and 3 plant the feet via `State.MovementLocked`. The dodge plays
+`DodgeMontage`. Montages are the knight's `*_fire` clips under `Content/SK`.
+Play-In-Editor is set to one player for now (user's performance); switch back
+to two players / listen server for any networking work.
 
 **Keep this section current.** When a system exists, describe it here in a line
 or two. This is the first thing you should read and the last thing you should

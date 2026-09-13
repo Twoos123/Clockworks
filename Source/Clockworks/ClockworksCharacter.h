@@ -122,10 +122,12 @@ protected:
 	/** Connects this character to the PlayerState's ability system. Server and clients. */
 	void InitAbilitySystem();
 
-	/** Pushes the MoveSpeed attribute and the attacking slow into the movement component. */
+	/** Pushes the MoveSpeed attribute, the attacking slow and the recovery lock into the movement component. */
 	void RefreshMaxWalkSpeed();
 
 	void OnMoveSpeedChanged(const FOnAttributeChangeData& Data);
+
+	/** Bound to State.Attacking and State.MovementLocked; both just re-evaluate the walk speed. */
 	void OnAttackingTagChanged(const FGameplayTag Tag, int32 NewCount);
 
 private:

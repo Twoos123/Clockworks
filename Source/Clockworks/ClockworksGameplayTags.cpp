@@ -10,6 +10,7 @@ namespace ClockworksTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Attacking, "State.Attacking", "Owned for the whole sword swing. Blocks other actions and slows movement.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Dodging, "State.Dodging", "Owned for the whole dodge. Blocks other actions.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_RotationLocked, "State.RotationLocked", "Cursor aiming is suspended while present (windup + active swing).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_MovementLocked, "State.MovementLocked", "Walk speed is zero while present (recovery of a committed combo swing).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Invulnerable, "State.Invulnerable", "Damage is ignored while present (dodge i-frames).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Dead, "State.Dead", "Health reached zero. No further damage or actions.");
 

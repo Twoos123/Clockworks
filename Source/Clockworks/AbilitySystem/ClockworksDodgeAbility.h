@@ -6,6 +6,8 @@
 #include "ClockworksGameplayAbility.h"
 #include "ClockworksDodgeAbility.generated.h"
 
+class UAnimMontage;
+
 /**
  * Dodge (Shift + right mouse): a short burst in the direction of movement, or the facing direction
  * when standing still, with a window of invulnerability and a cooldown. Blocked while attacking and
@@ -44,4 +46,11 @@ protected:
 	/** Seconds after activation before the next dodge is allowed. */
 	UPROPERTY(EditDefaultsOnly, Category = "Dodge", meta = (ClampMin = "0.0"))
 	float CooldownSeconds = 0.8f;
+
+	/** Optional. Visuals only; the numbers above set the timing. Needs a DefaultSlot in the Animation Blueprint. */
+	UPROPERTY(EditDefaultsOnly, Category = "Dodge|Animation")
+	TObjectPtr<UAnimMontage> DodgeMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Dodge|Animation", meta = (ClampMin = "0.01"))
+	float MontagePlayRate = 1.f;
 };

@@ -3,6 +3,7 @@
 #include "ClockworksCharacter.h"
 #include "ClockworksAttributeSet.h"
 #include "ClockworksDodgeAbility.h"
+#include "ClockworksGameplayAbility.h"
 #include "ClockworksGameplayTags.h"
 #include "ClockworksPlayerState.h"
 #include "ClockworksSwordAttackAbility.h"
@@ -129,6 +130,7 @@ void AClockworksCharacter::InitAbilitySystem()
 		BoundAbilitySystemComponent = AbilitySystemComponent;
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UClockworksAttributeSet::GetMoveSpeedAttribute()).AddUObject(this, &AClockworksCharacter::OnMoveSpeedChanged);
 		AbilitySystemComponent->RegisterGameplayTagEvent(ClockworksTags::State_Attacking, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AClockworksCharacter::OnAttackingTagChanged);
+		AbilitySystemComponent->RegisterGameplayTagEvent(ClockworksTags::State_MovementLocked, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AClockworksCharacter::OnAttackingTagChanged);
 	}
 
 	if (HasAuthority())
@@ -154,7 +156,17 @@ void AClockworksCharacter::InitAbilitySystem()
 			{
 				if (AbilityClass)
 				{
-					AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(AbilityClass, 1, INDEX_NONE, this));
+					// The input ID lets a button press reach an ability that is already running
+					// (combo follow-ups) on both the client and the server.
+					int32 InputID = INDEX_NONE;
+					if (const UClockworksGameplayAbility* Defaults = AbilityClass->GetDefaultObject<UClockworksGameplayAbility>())
+					{
+						if (Defaults->GetAbilityInputID() != EClockworksAbilityInputID::None)
+						{
+							InputID = static_cast<int32>(Defaults->GetAbilityInputID());
+						}
+					}
+					AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(AbilityClass, 1, InputID, this));
 				}
 			}
 			AbilitySystemComponent->AddLooseGameplayTag(ClockworksTags::Faction_Player, 1, EGameplayTagReplicationState::None);
@@ -178,7 +190,11 @@ void AClockworksCharacter::RefreshMaxWalkSpeed()
 		{
 			Speed = Attributes->GetMoveSpeed();
 		}
-		if (AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Attacking))
+		if (AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_MovementLocked))
+		{
+			Speed = 0.f;
+		}
+		else if (AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Attacking))
 		{
 			Speed *= AttackMoveSpeedMultiplier;
 		}
@@ -258,12 +274,13 @@ void AClockworksCharacter::Move(const FInputActionValue& Value)
 }
 
 // Runs on: owning client only. This is intent: the ability system predicts locally and asks the
-// server, which runs its own copy and decides everything that matters.
+// server, which runs its own copy and decides everything that matters. A press on an ability that
+// is already running is forwarded to it as a replicated input event (the sword combo listens for it).
 void AClockworksCharacter::OnAttackInput()
 {
 	if (UAbilitySystemComponent* AbilitySystemComponent = GetAbilitySystemComponent())
 	{
-		AbilitySystemComponent->TryActivateAbilitiesByTag(FGameplayTagContainer(ClockworksTags::Ability_Attack_Sword));
+		AbilitySystemComponent->AbilityLocalInputPressed(static_cast<int32>(EClockworksAbilityInputID::Attack));
 	}
 }
 
@@ -272,6 +289,6 @@ void AClockworksCharacter::OnDodgeInput()
 {
 	if (UAbilitySystemComponent* AbilitySystemComponent = GetAbilitySystemComponent())
 	{
-		AbilitySystemComponent->TryActivateAbilitiesByTag(FGameplayTagContainer(ClockworksTags::Ability_Dodge));
+		AbilitySystemComponent->AbilityLocalInputPressed(static_cast<int32>(EClockworksAbilityInputID::Dodge));
 	}
 }

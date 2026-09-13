@@ -5,7 +5,9 @@
 #include "ClockworksGameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_ApplyRootMotionConstantForce.h"
+#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
+#include "Animation/AnimMontage.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/RootMotionSource.h"
@@ -14,6 +16,7 @@
 UClockworksDodgeAbility::UClockworksDodgeAbility()
 {
 	SetAssetTags(FGameplayTagContainer(ClockworksTags::Ability_Dodge));
+	AbilityInputID = EClockworksAbilityInputID::Dodge;
 
 	ActivationOwnedTags.AddTag(ClockworksTags::State_Dodging);
 
@@ -62,6 +65,13 @@ void UClockworksDodgeAbility::ActivateAbility(const FGameplayAbilitySpecHandle H
 		ERootMotionFinishVelocityMode::SetVelocity, FVector::ZeroVector, 0.f, /*bEnableGravity*/ false);
 	Dash->OnFinish.AddDynamic(this, &UClockworksDodgeAbility::OnDodgeFinished);
 	Dash->ReadyForActivation();
+
+	// Visuals only. The ability system replicates the montage to other clients on its own.
+	if (DodgeMontage && ActorInfo && ActorInfo->GetAnimInstance())
+	{
+		UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, DodgeMontage, MontagePlayRate, NAME_None, /*bStopWhenAbilityEnds*/ true);
+		MontageTask->ReadyForActivation();
+	}
 
 	AddLocalTag(ClockworksTags::State_Invulnerable);
 

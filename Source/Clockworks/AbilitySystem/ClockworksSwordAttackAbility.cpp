@@ -6,8 +6,10 @@
 #include "ClockworksGameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
-#include "Abilities/Tasks/AbilityTask_WaitDelay.h"
+#include "Abilities/Tasks/AbilityTask_ApplyRootMotionConstantForce.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
+#include "Abilities/Tasks/AbilityTask_WaitDelay.h"
+#include "Abilities/Tasks/AbilityTask_WaitInputPress.h"
 #include "Animation/AnimMontage.h"
 #include "CollisionQueryParams.h"
 #include "DrawDebugHelpers.h"
@@ -20,6 +22,7 @@
 UClockworksSwordAttackAbility::UClockworksSwordAttackAbility()
 {
 	SetAssetTags(FGameplayTagContainer(ClockworksTags::Ability_Attack_Sword));
+	AbilityInputID = EClockworksAbilityInputID::Attack;
 
 	// Owned for the whole activation: slows movement (character) and blocks the dodge.
 	ActivationOwnedTags.AddTag(ClockworksTags::State_Attacking);
@@ -27,6 +30,36 @@ UClockworksSwordAttackAbility::UClockworksSwordAttackAbility()
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Attacking);
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Dodging);
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Dead);
+
+	// Calibur-style three-hit combo. A single press is one quick swing with no recovery; the
+	// follow-ups are where the knight commits and cannot walk out.
+	FClockworksSwordComboStep First;
+	First.WindupSeconds = 0.15f;
+	First.ActiveSeconds = 0.15f;
+	First.RecoverySeconds = 0.f;
+	ComboSteps.Add(First);
+
+	FClockworksSwordComboStep Second;
+	Second.WindupSeconds = 0.15f;
+	Second.ActiveSeconds = 0.15f;
+	Second.RecoverySeconds = 0.3f;
+	Second.bLockMovementDuringRecovery = true;
+	ComboSteps.Add(Second);
+
+	FClockworksSwordComboStep Third;
+	Third.WindupSeconds = 0.2f;
+	Third.ActiveSeconds = 0.2f;
+	Third.RecoverySeconds = 0.5f;
+	Third.bLockMovementDuringRecovery = true;
+	Third.DamageMultiplier = 1.5f;
+	ComboSteps.Add(Third);
+}
+
+// Runs on: wherever the instance runs. Always valid: a class with no steps configured still gets one.
+const FClockworksSwordComboStep& UClockworksSwordAttackAbility::GetCurrentStep() const
+{
+	static const FClockworksSwordComboStep Fallback;
+	return ComboSteps.IsValidIndex(CurrentStepIndex) ? ComboSteps[CurrentStepIndex] : Fallback;
 }
 
 // Runs on: owning client (predicted) and server, each on its own instance. Super is deliberately
@@ -39,32 +72,75 @@ void UClockworksSwordAttackAbility::ActivateAbility(const FGameplayAbilitySpecHa
 		return;
 	}
 
+	CurrentStepIndex = 0;
+	bNextStepQueued = false;
+	StartStep(0);
+}
+
+// Runs on: owning client and server.
+void UClockworksSwordAttackAbility::StartStep(int32 StepIndex)
+{
+	CurrentStepIndex = StepIndex;
+	bNextStepQueued = false;
 	HitActors.Reset();
 
-	// Windup: face where you were facing when you pressed the button.
+	const FClockworksSwordComboStep& Step = GetCurrentStep();
+
+	// Windup: face where you were facing when you pressed the button. A committed recovery from
+	// the previous step is over once the next swing starts.
+	RemoveLocalTag(ClockworksTags::State_MovementLocked);
 	AddLocalTag(ClockworksTags::State_RotationLocked);
 
 	// Visuals only. The ability system replicates the montage to other clients on its own.
-	if (AttackMontage && ActorInfo && ActorInfo->GetAnimInstance())
+	if (Step.Montage && CurrentActorInfo && CurrentActorInfo->GetAnimInstance())
 	{
-		UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, AttackMontage, MontagePlayRate, NAME_None, /*bStopWhenAbilityEnds*/ true);
+		UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, Step.Montage, Step.MontagePlayRate, NAME_None, /*bStopWhenAbilityEnds*/ true);
 		MontageTask->ReadyForActivation();
 	}
 
-	UAbilityTask_WaitDelay* Windup = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(WindupSeconds));
+	// Listen for the follow-up press. The press arrives here on the client directly and on the
+	// server through the ability system's replicated input event, so both copies chain together.
+	if (InputTask)
+	{
+		InputTask->EndTask();
+		InputTask = nullptr;
+	}
+	if (ComboSteps.IsValidIndex(StepIndex + 1))
+	{
+		InputTask = UAbilityTask_WaitInputPress::WaitInputPress(this, /*bTestAlreadyPressed*/ false);
+		InputTask->OnPress.AddDynamic(this, &UClockworksSwordAttackAbility::OnAttackPressed);
+		InputTask->ReadyForActivation();
+	}
+
+	UAbilityTask_WaitDelay* Windup = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(Step.WindupSeconds));
 	Windup->OnFinish.AddDynamic(this, &UClockworksSwordAttackAbility::OnWindupFinished);
 	Windup->ReadyForActivation();
+}
+
+// Runs on: owning client and server, when the attack button is pressed during a step.
+void UClockworksSwordAttackAbility::OnAttackPressed(float TimeWaited)
+{
+	bNextStepQueued = true;
 }
 
 // Runs on: owning client and server. The hitbox only opens on the server.
 void UClockworksSwordAttackAbility::OnWindupFinished()
 {
 	ACharacter* Avatar = GetAvatarCharacter();
+	const FClockworksSwordComboStep& Step = GetCurrentStep();
 
-	if (Avatar && LungeSpeed > 0.f)
+	if (Avatar && Step.LungeSpeed > 0.f)
 	{
-		// LaunchCharacter does not replicate; both the predicting client and the server call it.
-		Avatar->LaunchCharacter(Avatar->GetActorForwardVector() * LungeSpeed, true, false);
+		// The forward step of the swing. A root motion source rather than a launch so ground friction
+		// cannot eat it; the movement component predicts it on the owning client and reconciles it
+		// with the server like any other move. The clips cannot supply this as animation root motion
+		// because the exported skeleton's root bone never moves.
+		FVector Direction = Avatar->GetActorForwardVector();
+		Direction.Z = 0.f;
+		UAbilityTask_ApplyRootMotionConstantForce* Lunge = UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(
+			this, NAME_None, Direction.GetSafeNormal(), Step.LungeSpeed, ClampPhaseSeconds(Step.ActiveSeconds), /*bIsAdditive*/ false, /*StrengthOverTime*/ nullptr,
+			ERootMotionFinishVelocityMode::SetVelocity, FVector::ZeroVector, 0.f, /*bEnableGravity*/ false);
+		Lunge->ReadyForActivation();
 	}
 
 	if (HasServerAuthority())
@@ -76,7 +152,7 @@ void UClockworksSwordAttackAbility::OnWindupFinished()
 		}
 	}
 
-	UAbilityTask_WaitDelay* Active = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(ActiveSeconds));
+	UAbilityTask_WaitDelay* Active = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(Step.ActiveSeconds));
 	Active->OnFinish.AddDynamic(this, &UClockworksSwordAttackAbility::OnActiveFinished);
 	Active->ReadyForActivation();
 }
@@ -162,12 +238,12 @@ void UClockworksSwordAttackAbility::ApplyDamageTo(UAbilitySystemComponent* Targe
 	{
 		AttackPower = SourceAttributes->GetAttackPower();
 	}
-	SpecHandle.Data->SetSetByCallerMagnitude(ClockworksTags::Data_Damage, BaseDamage + AttackPower);
+	SpecHandle.Data->SetSetByCallerMagnitude(ClockworksTags::Data_Damage, BaseDamage * GetCurrentStep().DamageMultiplier + AttackPower);
 
 	SourceAbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data, TargetAbilitySystemComponent);
 }
 
-// Runs on: owning client and server.
+// Runs on: owning client and server. Either chains into the queued step or starts recovery.
 void UClockworksSwordAttackAbility::OnActiveFinished()
 {
 	if (UWorld* World = GetWorld())
@@ -175,10 +251,30 @@ void UClockworksSwordAttackAbility::OnActiveFinished()
 		World->GetTimerManager().ClearTimer(HitCheckTimer);
 	}
 
-	// Recovery: can turn again, still can't act, still slowed.
+	// Loose tags are counted, so every StartStep's add needs exactly one remove or the aim lock
+	// outlives the combo. The next step adds it back for its own windup.
 	RemoveLocalTag(ClockworksTags::State_RotationLocked);
 
-	UAbilityTask_WaitDelay* Recovery = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(RecoverySeconds));
+	if (bNextStepQueued && ComboSteps.IsValidIndex(CurrentStepIndex + 1))
+	{
+		StartStep(CurrentStepIndex + 1);
+		return;
+	}
+
+	// Recovery: can turn again, still can't act. Committed swings also plant the feet.
+	const FClockworksSwordComboStep& Step = GetCurrentStep();
+	if (Step.RecoverySeconds <= 0.f)
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		return;
+	}
+
+	if (Step.bLockMovementDuringRecovery)
+	{
+		AddLocalTag(ClockworksTags::State_MovementLocked);
+	}
+
+	UAbilityTask_WaitDelay* Recovery = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(Step.RecoverySeconds));
 	Recovery->OnFinish.AddDynamic(this, &UClockworksSwordAttackAbility::OnRecoveryFinished);
 	Recovery->ReadyForActivation();
 }
@@ -196,7 +292,13 @@ void UClockworksSwordAttackAbility::EndAbility(const FGameplayAbilitySpecHandle 
 	{
 		World->GetTimerManager().ClearTimer(HitCheckTimer);
 	}
+	if (InputTask)
+	{
+		InputTask->EndTask();
+		InputTask = nullptr;
+	}
 	RemoveLocalTag(ClockworksTags::State_RotationLocked);
+	RemoveLocalTag(ClockworksTags::State_MovementLocked);
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

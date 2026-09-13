@@ -11,6 +11,18 @@ class ACharacter;
 class UAbilitySystemComponent;
 
 /**
+ * Which button an ability answers to. Granted abilities carry this as their input ID so a press
+ * on an already-running ability reaches it (combo follow-ups) instead of being dropped.
+ */
+UENUM(BlueprintType)
+enum class EClockworksAbilityInputID : uint8
+{
+	None = 0,
+	Attack,
+	Dodge
+};
+
+/**
  * Base for Clockworks abilities. Instanced per actor and locally predicted: the owning client runs
  * its copy immediately for responsiveness, the server runs its own copy and is the only one that
  * changes gameplay state (damage, tags that gate damage). Each machine's instance manages its own
@@ -25,7 +37,13 @@ public:
 
 	UClockworksGameplayAbility();
 
+	EClockworksAbilityInputID GetAbilityInputID() const { return AbilityInputID; }
+
 protected:
+
+	/** Set in the subclass constructor. None means the ability is never driven by a button. */
+	UPROPERTY(VisibleDefaultsOnly, Category = "Input")
+	EClockworksAbilityInputID AbilityInputID = EClockworksAbilityInputID::None;
 
 	/** The character this ability is acting through, or null. */
 	ACharacter* GetAvatarCharacter() const;

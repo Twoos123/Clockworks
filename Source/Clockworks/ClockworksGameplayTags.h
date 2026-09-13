@@ -18,6 +18,7 @@ namespace ClockworksTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Attacking);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Dodging);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_RotationLocked);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_MovementLocked);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Invulnerable);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Dead);
 
