@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ClockworksPlayerController.h"
+#include "ClockworksGameplayTags.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Character.h"
 #include "Components/CapsuleComponent.h"
@@ -8,6 +9,8 @@
 #include "Engine/World.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemInterface.h"
 #include "Clockworks.h"
 
 // Runs on: all machines (class default object and every spawned instance).
@@ -60,6 +63,17 @@ void AClockworksPlayerController::UpdateAimFromCursor()
 	if (!ControlledCharacter)
 	{
 		return;
+	}
+
+	// A committed swing keeps the facing it started with. The frozen yaw keeps travelling in the
+	// move packet, so the server's copy freezes with it.
+	if (const IAbilitySystemInterface* AbilityInterface = Cast<IAbilitySystemInterface>(ControlledCharacter))
+	{
+		const UAbilitySystemComponent* AbilitySystemComponent = AbilityInterface->GetAbilitySystemComponent();
+		if (AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_RotationLocked))
+		{
+			return;
+		}
 	}
 
 	// Ray from the camera through the mouse cursor. Fails when the cursor is outside the

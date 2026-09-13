@@ -56,6 +56,19 @@ frames and iteration time for detail the camera is too far away to show.
 **Epic Online Services for sessions.** Free, and it handles NAT punch-through.
 Invite-only to start; matchmaking is a separate project.
 
+**Spiral Knights controls, the reference (saved 2026-09-13).** Movement (WASD)
+is bound to absolute screen directions, 8-way, regardless of where the
+character or mouse looks. Aiming: the mesh always faces the cursor's hit point
+on the floor plane. The two are decoupled, so you can run away while attacking
+backward. LMB attacks toward the cursor; during a melee swing combo, movement
+is dramatically reduced or briefly locked forward. RMB raises the shield.
+Shift+LMB (Shield Bash) and Shift+RMB (Dash) go in the movement direction if
+moving, else toward the cursor. Full key sheet: Move W/A/S/D · Attack LMB ·
+Defend hold RMB · Shield Bash Shift+LMB · Dash Shift+RMB (limited
+invulnerability) · Aim = cursor · Switch weapon mouse wheel or Space · Sprite
+skills 1–3 · Quickslots 4–7. Our mapping so far: attack LMB, dodge Shift+RMB,
+RMB reserved for the shield, Space reserved for weapon switch.
+
 ---
 
 ## Build order

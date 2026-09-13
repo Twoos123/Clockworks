@@ -20,13 +20,17 @@ public class Clockworks : ModuleRules
 			"GameplayStateTreeModule",
 			"Niagara",
 			"UMG",
-			"Slate"
+			"Slate",
+			"GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"Clockworks",
+			"Clockworks/AbilitySystem",
 			"Clockworks/Variant_Strategy",
 			"Clockworks/Variant_Strategy/UI",
 			"Clockworks/Variant_TwinStick",
