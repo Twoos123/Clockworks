@@ -45,7 +45,9 @@ MODELS = [
     (r"character\npc\monster\trainingtarget\model.glb",    "Monsters", "TrainingTarget"),
     # Knights
     (r"character\npc\crew\model.glb",                      "Knights",  "CrewKnight"),
-    (r"character\pc\model.glb",                            "Knights",  "PlayerKnight"),
+    # Rigged knight: character/pc/model.dat re-typed from ProjectXModelConfig to ArticulatedConfig
+    # (see Docs/SpiralKnightsAssetPipeline.md), wearing the cap helm and coat armour.
+    (r"_fixed\PlayerKnight.glb",                           "Knights",  "PlayerKnight"),
     # Weapons and gear (static)
     (r"item\weapon\sword\calibur\model.glb",               "Weapons",  "Calibur"),
     (r"item\gear\helm\cap\model.glb",                      "Gear",     "HelmCap"),
@@ -67,6 +69,25 @@ MODELS = [
 ]
 
 
+def fix_glb(src, dst):
+    """Copy a ThreeRingsSharp .glb, dropping scene-root entries for nodes that also have a
+    parent. ThreeRingsSharp lists skeleton bones both under their parent and as scene roots,
+    which is invalid glTF; Unreal then re-roots those bones and the skin explodes."""
+    import struct
+    data = open(src, "rb").read()
+    json_len = struct.unpack("<I", data[12:16])[0]
+    js = json.loads(data[20:20 + json_len])
+    rest = data[20 + json_len:]  # BIN chunk, already 4-byte aligned by the patched exporter
+    parented = {c for n in js.get("nodes", []) for c in n.get("children", [])}
+    for scene in js.get("scenes", []):
+        scene["nodes"] = [i for i in scene["nodes"] if i not in parented]
+    body = json.dumps(js, separators=(",", ":")).encode("utf-8")
+    body += b" " * ((4 - len(body) % 4) % 4)
+    out = struct.pack("<III", 0x46546C67, 2, 12 + 8 + len(body) + len(rest))
+    out += struct.pack("<II", len(body), 0x4E4F534A) + body + rest
+    open(dst, "wb").write(out)
+
+
 def stage(only=None):
     groups = {}
     missing = []
@@ -80,7 +101,7 @@ def stage(only=None):
         dst_dir = os.path.join(STAGING, category.replace("/", os.sep))
         os.makedirs(dst_dir, exist_ok=True)
         dst = os.path.join(dst_dir, name + ".glb")
-        shutil.copyfile(src, dst)
+        fix_glb(src, dst)
         groups.setdefault(category, []).append(dst)
 
     cfg = {"ImportGroups": [

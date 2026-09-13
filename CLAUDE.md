@@ -45,7 +45,12 @@ ThreeRingsSharp and imported through the `ImportAssets` commandlet into
 `Content/SK/` (git-ignored, Grey Havens/SEGA property, placeholders only):
 14 monsters with skeletons and animations, sword/helm/shield/armour, Clockworks
 tiles and props. Pipeline and limits: `Docs/SpiralKnightsAssetPipeline.md`;
-re-run with `python Tools/SKImport/stage_and_import.py --import`.
+re-run with `python Tools/SKImport/stage_and_import.py --import`. In use:
+`BP_TrainingDummy` shows the Wolver, `BP_ClockworksCharacter` the rigged
+player knight (coat armour), both as single-node looping idles with mesh
+rotation roll -90 / yaw 90 (Clyde is Z-up, glTF is Y-up). Decision: enemies
+and the knight use the Spiral Knights animations directly; `BP_GA_SwordAttack`
+has no montage until a knight attack montage exists.
 
 **Keep this section current.** When a system exists, describe it here in a line
 or two. This is the first thing you should read and the last thing you should

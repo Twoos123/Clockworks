@@ -45,7 +45,45 @@ Content\SK\<Category>\<Name>\{SkeletalMeshes,StaticMeshes,Materials,Textures}
    an untraversable direct path (sound pitch/file on animations) are logged and
    skipped instead of aborting the model.
 
+4. `DataHandlers/Model/ArticulatedConfigHandler.cs` — a skinned attachment that
+   borrows the parent's skeleton (knight armour) is added to the list that
+   receives the parent's animations; otherwise the knight exports with none.
+
 `DataHandlers/Parameters/XDirect.cs` also gained a descriptive exception message.
+
+The staging script also rewrites each `.glb` (`fix_glb`): ThreeRingsSharp lists
+skeleton bones both under their parent and as scene roots, which is invalid
+glTF; Unreal re-roots those bones and the skin explodes into loose triangles.
+
+### The rigged player knight
+
+`character/pc/model.dat` is a `ProjectXModelConfig`, which ThreeRingsSharp
+refuses. The re-typed copy lives at `D:\Dev\SKAssets\_fixed\PlayerKnight.xml`:
+the game config dumped to XML with `SKConfigDump`, the implementation class
+renamed to `com.threerings.opengl.model.config.ArticulatedConfig`, the
+`stepEffect` field removed, helmet/armour attachments pointed at
+`item/gear/helm/cap` and `item/gear/armor/coat`, and run/attack/dodge/death
+animation mappings added (they normally come from weapon configs). Convert and
+export with:
+
+```bash
+SKExport.exe --xml2dat D:\Dev\SKAssets\_fixed\PlayerKnight.xml D:\Dev\SKAssets\_fixed\PlayerKnight.dat
+SKExport.exe --rsrc "<rsrc>" --out D:\Dev\SKAssets\_fixed --embed --no-scale100 --quiet D:\Dev\SKAssets\_fixed\PlayerKnight.dat
+```
+
+Armour textures are greyscale masks that the game tints at runtime, so the
+knight renders grey in Unreal.
+
+### Orientation and scale in Unreal
+
+Clyde is Z-up and glTF is Y-up; the exporter does no conversion, so Interchange
+imports every mesh lying down with its up axis on +Y and its face toward +Z.
+On a Character mesh component use **rotation roll -90, yaw 90** and location
+Z = minus the capsule half height. Units come through at 100 uu per Clyde unit
+(a wolver ≈ 90 uu tall, the knight ≈ 116 uu).
+
+Some Spiral Knights idles (`standing_idle` on the wolver) animate the root
+bone's scale; use the plain `standing` clip for a static idle.
 
 ### Config references
 

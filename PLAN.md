@@ -69,6 +69,13 @@ invulnerability) · Aim = cursor · Switch weapon mouse wheel or Space · Sprite
 skills 1–3 · Quickslots 4–7. Our mapping so far: attack LMB, dodge Shift+RMB,
 RMB reserved for the shield, Space reserved for weapon switch.
 
+**Spiral Knights animations, used directly (2026-09-13).** Enemies and the
+player knight play the extracted Spiral Knights clips rather than the
+mannequin set, so timing and silhouettes match the reference. The extracted
+assets stay local placeholders under `Content/SK/` (git-ignored, Grey Havens /
+SEGA property) until replaced with original art. Phase 05 enemies: Wolver
+(charger), Gunpuppy (shooter), Mechaknight or Zombie (armoured).
+
 ---
 
 ## Build order
