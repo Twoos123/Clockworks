@@ -2,33 +2,24 @@
 
 #include "ClockworksPlayerController.h"
 #include "GameFramework/Pawn.h"
-#include "Blueprint/AIBlueprintHelperLibrary.h"
-#include "NiagaraSystem.h"
-#include "NiagaraFunctionLibrary.h"
+#include "GameFramework/Character.h"
+#include "Components/CapsuleComponent.h"
 #include "ClockworksCharacter.h"
 #include "Engine/World.h"
-#include "EnhancedInputComponent.h"
-#include "Navigation/PathFollowingComponent.h"
-#include "InputActionValue.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "Clockworks.h"
 
+// Runs on: all machines (class default object and every spawned instance).
 AClockworksPlayerController::AClockworksPlayerController()
 {
-	bIsTouch = false;
-	bMoveToMouseCursor = false;
-
-	// create the path following comp
-	PathFollowingComponent = CreateDefaultSubobject<UPathFollowingComponent>(TEXT("Path Following Component"));
-
 	// configure the controller
 	bShowMouseCursor = true;
 	DefaultMouseCursor = EMouseCursor::Default;
-	CachedDestination = FVector::ZeroVector;
-	FollowTime = 0.f;
 }
 
+// Runs on: owning client only (guarded by IsLocalPlayerController). The server's copy of a
+// remote player's controller has no local player and does nothing here.
 void AClockworksPlayerController::SetupInputComponent()
 {
 	// set up gameplay key bindings
@@ -37,102 +28,71 @@ void AClockworksPlayerController::SetupInputComponent()
 	// Only set up input on local player controllers
 	if (IsLocalPlayerController())
 	{
-		// Add Input Mapping Context
+		// Add Input Mapping Context. Action bindings live on AClockworksCharacter.
 		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 		{
 			Subsystem->AddMappingContext(DefaultMappingContext, 0);
 		}
-
-		// Set up action bindings
-		if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent))
-		{
-			// Setup mouse input events
-			EnhancedInputComponent->BindAction(SetDestinationClickAction, ETriggerEvent::Started, this, &AClockworksPlayerController::OnInputStarted);
-			EnhancedInputComponent->BindAction(SetDestinationClickAction, ETriggerEvent::Triggered, this, &AClockworksPlayerController::OnSetDestinationTriggered);
-			EnhancedInputComponent->BindAction(SetDestinationClickAction, ETriggerEvent::Completed, this, &AClockworksPlayerController::OnSetDestinationReleased);
-			EnhancedInputComponent->BindAction(SetDestinationClickAction, ETriggerEvent::Canceled, this, &AClockworksPlayerController::OnSetDestinationReleased);
-
-			// Setup touch input events
-			EnhancedInputComponent->BindAction(SetDestinationTouchAction, ETriggerEvent::Started, this, &AClockworksPlayerController::OnInputStarted);
-			EnhancedInputComponent->BindAction(SetDestinationTouchAction, ETriggerEvent::Triggered, this, &AClockworksPlayerController::OnTouchTriggered);
-			EnhancedInputComponent->BindAction(SetDestinationTouchAction, ETriggerEvent::Completed, this, &AClockworksPlayerController::OnTouchReleased);
-			EnhancedInputComponent->BindAction(SetDestinationTouchAction, ETriggerEvent::Canceled, this, &AClockworksPlayerController::OnTouchReleased);
-		}
-		else
-		{
-			UE_LOG(LogClockworks, Error, TEXT("'%s' Failed to find an Enhanced Input Component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
-		}
 	}
 }
 
-void AClockworksPlayerController::OnInputStarted()
+// Runs on: owning client only. The engine calls PlayerTick only on controllers that own a
+// PlayerInput, i.e. the local player's controller (the listen-server host included). The
+// server's copy of a remote player's controller never runs this; it gets that player's control
+// rotation from the CharacterMovementComponent's move packet instead.
+void AClockworksPlayerController::PlayerTick(float DeltaTime)
 {
-	StopMovement();
+	// Aim before Super so this frame's UpdateRotation faces the pawn and the movement
+	// component records the new yaw in the move it sends to the server.
+	UpdateAimFromCursor();
 
-	// Update the move destination to wherever the cursor is pointing at
-	UpdateCachedDestination();
+	Super::PlayerTick(DeltaTime);
 }
 
-void AClockworksPlayerController::OnSetDestinationTriggered()
+// Runs on: owning client only (called from PlayerTick). Sets control rotation only. The
+// character faces it via bUseControllerRotationYaw, and the engine replicates the result:
+// control rotation travels in the move packet, the server re-applies it to its own copy, and
+// the resulting actor rotation reaches other clients through ReplicatedMovement. Nothing here
+// is authoritative and the cursor position never leaves this machine.
+void AClockworksPlayerController::UpdateAimFromCursor()
 {
-	// We flag that the input is being pressed
-	FollowTime += GetWorld()->GetDeltaSeconds();
-	
-	// Update the move destination to wherever the cursor is pointing at
-	UpdateCachedDestination();
-	
-	// Move towards mouse pointer or touch
-	APawn* ControlledPawn = GetPawn();
-	if (ControlledPawn != nullptr)
+	ACharacter* ControlledCharacter = Cast<ACharacter>(GetPawn());
+	if (!ControlledCharacter)
 	{
-		FVector WorldDirection = (CachedDestination - ControlledPawn->GetActorLocation()).GetSafeNormal();
-		ControlledPawn->AddMovementInput(WorldDirection, 1.0, false);
+		return;
 	}
-}
 
-void AClockworksPlayerController::OnSetDestinationReleased()
-{
-	// If it was a short press
-	if (FollowTime <= ShortPressThreshold)
+	// Ray from the camera through the mouse cursor. Fails when the cursor is outside the
+	// viewport; keep the last yaw in that case.
+	FVector RayOrigin;
+	FVector RayDirection;
+	if (!DeprojectMousePositionToWorld(RayOrigin, RayDirection))
 	{
-		// We move there and spawn some particles
-		UAIBlueprintHelperLibrary::SimpleMoveToLocation(this, CachedDestination);
-		UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, FXCursor, CachedDestination, FRotator::ZeroRotator, FVector(1.f, 1.f, 1.f), true, true, ENCPoolMethod::None, true);
+		return;
 	}
 
-	FollowTime = 0.f;
-}
-
-// Triggered every frame when the input is held down
-void AClockworksPlayerController::OnTouchTriggered()
-{
-	bIsTouch = true;
-	OnSetDestinationTriggered();
-}
-
-void AClockworksPlayerController::OnTouchReleased()
-{
-	bIsTouch = false;
-	OnSetDestinationReleased();
-}
-
-void AClockworksPlayerController::UpdateCachedDestination()
-{
-	// We look for the location in the world where the player has pressed the input
-	FHitResult Hit;
-	bool bHitSuccessful = false;
-	if (bIsTouch)
+	// A ray parallel to the floor never reaches it.
+	if (FMath::IsNearlyZero(RayDirection.Z))
 	{
-		bHitSuccessful = GetHitResultUnderFinger(ETouchIndex::Touch1, ECollisionChannel::ECC_Visibility, true, Hit);
-	}
-	else
-	{
-		bHitSuccessful = GetHitResultUnderCursor(ECollisionChannel::ECC_Visibility, true, Hit);
+		return;
 	}
 
-	// If we hit a surface, cache the location
-	if (bHitSuccessful)
+	// Intersect with a horizontal plane at the character's feet, so the yaw matches where the
+	// cursor visually sits on the floor. A math plane rather than a physics trace: the cursor
+	// passing over a tall object must not skew the aim.
+	const FVector CharacterLocation = ControlledCharacter->GetActorLocation();
+	const float FeetZ = CharacterLocation.Z - ControlledCharacter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FPlane FloorPlane(FVector(0.f, 0.f, FeetZ), FVector::UpVector);
+	const FVector CursorOnFloor = FMath::RayPlaneIntersection(RayOrigin, RayDirection, FloorPlane);
+
+	FVector ToCursor = CursorOnFloor - CharacterLocation;
+	ToCursor.Z = 0.f;
+
+	// Cursor on top of the character: no meaningful direction, keep the last yaw.
+	if (ToCursor.SizeSquared() < 1.f)
 	{
-		CachedDestination = Hit.Location;
+		return;
 	}
+
+	SetControlRotation(FRotator(0.f, ToCursor.Rotation().Yaw, 0.f));
 }

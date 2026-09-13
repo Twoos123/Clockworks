@@ -14,7 +14,16 @@ no dedicated server build.
 
 ## Where the project actually is right now
 
-A fresh Top Down C++ template. Nothing custom has been built yet.
+Phase 03 done: Spiral Knights controls. `AClockworksCharacter` moves with WASD
+relative to a fixed camera (pitch -45, yaw 0, arm 1500, 400 uu/s) and faces its
+control yaw; `AClockworksPlayerController::PlayerTick` sets that yaw from the
+mouse cursor projected onto the floor plane. Aim reaches the server inside the
+CharacterMovementComponent move packet; no custom RPCs or replicated properties
+exist yet. The game runs `BP_ClockworksCharacter` / `BP_ClockworksController`,
+thin children of the C++ classes assigned in `BP_TopDownGameMode`. The template's
+`BP_TopDownCharacter` / `BP_TopDownController` derive from engine classes, hold
+the old click-to-move, and are unused. Verified in two-player listen-server PIE
+on 2026-09-13.
 
 **Keep this section current.** When a system exists, describe it here in a line
 or two. This is the first thing you should read and the last thing you should
@@ -99,6 +108,13 @@ plugins, started with `ModelContextProtocol.StartServer` in the editor console.
   editor is saved and the repo is committed. The plugin is experimental.
 - After modifying anything, save the affected packages and **list what changed
   by asset path**, so I can review it even though the diff is binary.
+- To save a newly spawned actor, use `AssetTools.save_assets` with an empty
+  list (save all dirty packages). `SceneTools.save_actor` fails on an actor
+  that has never been saved: this map uses One File Per Actor, so each placed
+  actor is its own package under `Content/__ExternalActors__/`, and the tool
+  can't find a package that isn't on disk yet. Check nothing unrelated is
+  dirty first, then confirm the save with `git status`. The map file itself
+  won't change.
 - If an MCP call fails, stop and report it. Don't retry variations more than
   once — a half-applied editor change is worse than none.
 - Live Coding doesn't cover header changes, new `UCLASS`/`USTRUCT` members, or
