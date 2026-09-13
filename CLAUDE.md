@@ -14,16 +14,31 @@ no dedicated server build.
 
 ## Where the project actually is right now
 
-Phase 03 done: Spiral Knights controls. `AClockworksCharacter` moves with WASD
-relative to a fixed camera (pitch -45, yaw 0, arm 1500, 400 uu/s) and faces its
-control yaw; `AClockworksPlayerController::PlayerTick` sets that yaw from the
-mouse cursor projected onto the floor plane. Aim reaches the server inside the
-CharacterMovementComponent move packet; no custom RPCs or replicated properties
-exist yet. The game runs `BP_ClockworksCharacter` / `BP_ClockworksController`,
-thin children of the C++ classes assigned in `BP_TopDownGameMode`. The template's
-`BP_TopDownCharacter` / `BP_TopDownController` derive from engine classes, hold
-the old click-to-move, and are unused. Verified in two-player listen-server PIE
-on 2026-09-13.
+Phases 03 and 04 done (2026-09-13).
+
+**Controls (03):** `AClockworksCharacter` moves with WASD relative to a fixed
+camera (pitch -45, yaw 0, arm 1500) and faces its control yaw, which
+`AClockworksPlayerController::PlayerTick` sets from the cursor projected onto
+the floor plane. Aim reaches the server inside the CharacterMovementComponent
+move packet. The game runs `BP_ClockworksCharacter` / `BP_ClockworksController`
+(thin children of the C++ classes, set in `BP_TopDownGameMode`); the template's
+`BP_TopDown*` Blueprints derive from engine classes and are unused.
+
+**Combat spine (04, GAS):** `AClockworksPlayerState` hosts the player's
+AbilitySystemComponent and `UClockworksAttributeSet` (Health, MaxHealth, Shield,
+MaxShield, AttackPower, DefensePower, MoveSpeed, meta Damage). Native tags in
+`ClockworksGameplayTags`. Abilities under `Source/Clockworks/AbilitySystem/`:
+sword attack (windup/active/recovery from tunables, server-only sphere hitbox,
+faction-gated, optional montage) and dodge (Shift+RMB, root-motion burst,
+i-frames tag, SetByCaller cooldown). `UClockworksDamageEffect` feeds the Damage
+meta attribute; the target's attribute set applies defense and shield.
+`AClockworksEnemyCharacter` (ASC on the pawn) is the enemy base: knockback,
+multicast hit flash, death. Assets: `BP_GA_SwordAttack`, `BP_GA_Dodge` (tune
+numbers there), `BP_TrainingDummy` (two placed in `Lvl_TopDown`), `IA_Attack`,
+`IA_Dodge`, `IA_ShiftModifier` (chorded in `IMC_Default`), montage
+`MM_Attack_01_Montage`. Verified in two-player listen-server PIE: both players
+granted abilities, dummies at 50 health, hits/flash/knockback and dodge
+confirmed by the user.
 
 **Keep this section current.** When a system exists, describe it here in a line
 or two. This is the first thing you should read and the last thing you should
@@ -104,6 +119,15 @@ plugins, started with `ModelContextProtocol.StartServer` in the editor console.
 - `ModelContextProtocol.StartServer` must be run in the editor console **every
   time the editor is reopened**. The server does not persist across restarts;
   until it's run, there is no connection and every MCP call will fail.
+- Launching the editor from a shell with
+  `UnrealEditor.exe Clockworks.uproject -ExecCmds=ModelContextProtocol.StartServer`
+  starts the server automatically; the endpoint answers while the level is
+  still loading, so wait for `SceneTools.get_current_level` before using it.
+  The MCP client session dies with the editor process; reconnect after a
+  restart. Editor tools can create assets, Blueprints, set class defaults
+  (instanced sub-objects: pass `{"refPath": "<class path>"}` to create one),
+  place actors and close the editor window gracefully. They cannot trigger
+  Live Coding or create AnimMontages; close, rebuild, relaunch instead.
 - Before any MCP call that modifies a level or an asset, check with me that the
   editor is saved and the repo is committed. The plugin is experimental.
 - After modifying anything, save the affected packages and **list what changed

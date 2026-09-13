@@ -4,9 +4,11 @@
 #include "ClockworksDodgeCooldownEffect.h"
 #include "ClockworksGameplayTags.h"
 #include "AbilitySystemComponent.h"
+#include "Abilities/Tasks/AbilityTask_ApplyRootMotionConstantForce.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/RootMotionSource.h"
 
 // Runs on: all machines (class default object).
 UClockworksDodgeAbility::UClockworksDodgeAbility()
@@ -51,18 +53,21 @@ void UClockworksDodgeAbility::ActivateAbility(const FGameplayAbilitySpecHandle H
 	}
 	Direction = Direction.GetSafeNormal();
 
-	// LaunchCharacter does not replicate; the predicting client and the server each call it.
-	Avatar->LaunchCharacter(Direction * DodgeSpeed, true, true);
+	// A constant-velocity root motion source rather than a launch: ground braking can't eat it, so the
+	// distance is exactly DodgeSpeed x DodgeSeconds. The movement component predicts it on the owning
+	// client and reconciles it with the server like any other move. Velocity is zeroed at the end for
+	// a crisp stop; gravity is off for the burst so it doesn't dip on slopes.
+	UAbilityTask_ApplyRootMotionConstantForce* Dash = UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(
+		this, NAME_None, Direction, DodgeSpeed, ClampPhaseSeconds(DodgeSeconds), /*bIsAdditive*/ false, /*StrengthOverTime*/ nullptr,
+		ERootMotionFinishVelocityMode::SetVelocity, FVector::ZeroVector, 0.f, /*bEnableGravity*/ false);
+	Dash->OnFinish.AddDynamic(this, &UClockworksDodgeAbility::OnDodgeFinished);
+	Dash->ReadyForActivation();
 
 	AddLocalTag(ClockworksTags::State_Invulnerable);
 
 	UAbilityTask_WaitDelay* Invulnerability = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(InvulnerableSeconds));
 	Invulnerability->OnFinish.AddDynamic(this, &UClockworksDodgeAbility::OnInvulnerabilityFinished);
 	Invulnerability->ReadyForActivation();
-
-	UAbilityTask_WaitDelay* Duration = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(DodgeSeconds));
-	Duration->OnFinish.AddDynamic(this, &UClockworksDodgeAbility::OnDodgeFinished);
-	Duration->ReadyForActivation();
 }
 
 // Runs on: owning client and server.
@@ -71,7 +76,7 @@ void UClockworksDodgeAbility::OnInvulnerabilityFinished()
 	RemoveLocalTag(ClockworksTags::State_Invulnerable);
 }
 
-// Runs on: owning client and server.
+// Runs on: owning client and server, when the dash's duration elapses.
 void UClockworksDodgeAbility::OnDodgeFinished()
 {
 	EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
@@ -94,7 +99,7 @@ void UClockworksDodgeAbility::ApplyCooldown(const FGameplayAbilitySpecHandle Han
 	}
 }
 
-// Runs on: owning client and server, including on cancel.
+// Runs on: owning client and server, including on cancel. Ending the ability also ends the dash task.
 void UClockworksDodgeAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
 {
 	RemoveLocalTag(ClockworksTags::State_Invulnerable);
