@@ -92,6 +92,9 @@ Units: **1 uu = 1 cm**.
 The editor exposes MCP through the `ModelContextProtocol` and `AllToolsets`
 plugins, started with `ModelContextProtocol.StartServer` in the editor console.
 
+- `ModelContextProtocol.StartServer` must be run in the editor console **every
+  time the editor is reopened**. The server does not persist across restarts;
+  until it's run, there is no connection and every MCP call will fail.
 - Before any MCP call that modifies a level or an asset, check with me that the
   editor is saved and the repo is committed. The plugin is experimental.
 - After modifying anything, save the affected packages and **list what changed
