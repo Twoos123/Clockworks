@@ -40,6 +40,13 @@ numbers there), `BP_TrainingDummy` (two placed in `Lvl_TopDown`), `IA_Attack`,
 granted abilities, dummies at 50 health, hits/flash/knockback and dodge
 confirmed by the user.
 
+**Reference assets (2026-09-13):** Spiral Knights models extracted with
+ThreeRingsSharp and imported through the `ImportAssets` commandlet into
+`Content/SK/` (git-ignored, Grey Havens/SEGA property, placeholders only):
+14 monsters with skeletons and animations, sword/helm/shield/armour, Clockworks
+tiles and props. Pipeline and limits: `Docs/SpiralKnightsAssetPipeline.md`;
+re-run with `python Tools/SKImport/stage_and_import.py --import`.
+
 **Keep this section current.** When a system exists, describe it here in a line
 or two. This is the first thing you should read and the last thing you should
 update.
