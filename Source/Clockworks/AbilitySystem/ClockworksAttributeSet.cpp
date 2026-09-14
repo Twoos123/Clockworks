@@ -107,7 +107,11 @@ void UClockworksAttributeSet::PostGameplayEffectExecute(const FGameplayEffectMod
 		HitDirection = ToTarget.IsNearlyZero() ? Causer->GetActorForwardVector() : ToTarget.GetSafeNormal();
 	}
 
-	OnDamaged.Broadcast(InstigatorActor, Causer, Mitigated, HitDirection);
+	// How hard this particular hit shoves, relative to the target's own knockback speed. Absent
+	// on most hits; the sword's finisher and charge set it above one.
+	const float KnockbackMultiplier = Data.EffectSpec.GetSetByCallerMagnitude(ClockworksTags::Data_Knockback, /*WarnIfNotFound*/ false, /*DefaultIfNotFound*/ 1.f);
+
+	OnDamaged.Broadcast(InstigatorActor, Causer, Mitigated, HitDirection, KnockbackMultiplier);
 
 	if (OldHealth > 0.f && NewHealth <= 0.f)
 	{

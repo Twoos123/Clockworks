@@ -42,4 +42,30 @@ protected:
 
 	/** Points the control yaw at the mouse cursor projected onto the floor plane. Owning client only. */
 	void UpdateAimFromCursor();
+
+	/**
+	 * Measures the real view frustum (window shape, FOV rules) and tells the server, so enemy aggro
+	 * can test "is it on my screen" against what this player actually sees. Owning client only.
+	 */
+	void ReportViewExtents();
+
+	/** Intent from the owning client: the tangents of its half view angles. Server stores them. */
+	UFUNCTION(Server, Unreliable)
+	void ServerSetViewExtents(float TanHalfX, float TanHalfY);
+
+public:
+
+	/** Server: the owning client's view half-angle tangents, or false until the client has reported. */
+	bool GetViewExtents(float& OutTanHalfX, float& OutTanHalfY) const;
+
+private:
+
+	/** Set by ServerSetViewExtents; also set directly on a listen host. */
+	float ViewTanHalfX = 0.f;
+	float ViewTanHalfY = 0.f;
+
+	/** Last values sent, so the client only talks when the window changes. */
+	float SentTanHalfX = 0.f;
+	float SentTanHalfY = 0.f;
+	float ViewReportCooldown = 0.f;
 };

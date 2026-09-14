@@ -20,7 +20,7 @@
 #endif
 
 /** Fired on the server after damage has been applied. Instigator is the ASC owner (PlayerState for players), Causer the attacking actor. */
-DECLARE_MULTICAST_DELEGATE_FourParams(FClockworksDamagedSignature, AActor* /*Instigator*/, AActor* /*Causer*/, float /*Amount*/, FVector /*HitDirection*/);
+DECLARE_MULTICAST_DELEGATE_FiveParams(FClockworksDamagedSignature, AActor* /*Instigator*/, AActor* /*Causer*/, float /*Amount*/, FVector /*HitDirection*/, float /*KnockbackMultiplier*/);
 
 /**
  * Attributes shared by players and enemies. Lives as a subobject of whatever actor owns the

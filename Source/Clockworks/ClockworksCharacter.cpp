@@ -21,6 +21,7 @@
 #include "AbilitySystemComponent.h"
 #include "Abilities/GameplayAbility.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimSequenceBase.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -80,6 +81,12 @@ AClockworksCharacter::AClockworksCharacter()
 	FaceMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FaceMesh"));
 	FaceMesh->SetupAttachment(GetMesh(), TEXT("bone_helmet"));
 	FaceMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// Main-hand weapon. Cosmetic only: the sword ability's hitbox is its own sphere, so the blade
+	// mesh never needs collision.
+	WeaponMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMesh"));
+	WeaponMesh->SetupAttachment(GetMesh(), TEXT("bone_weapon_r"));
+	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	// The C++ abilities by default; BP_ClockworksCharacter can swap in Blueprint children for tuning.
 	DefaultAbilities.Add(UClockworksSwordAttackAbility::StaticClass());
@@ -152,6 +159,7 @@ void AClockworksCharacter::InitAbilitySystem()
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UClockworksAttributeSet::GetMoveSpeedAttribute()).AddUObject(this, &AClockworksCharacter::OnMoveSpeedChanged);
 		AbilitySystemComponent->RegisterGameplayTagEvent(ClockworksTags::State_Attacking, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AClockworksCharacter::OnAttackingTagChanged);
 		AbilitySystemComponent->RegisterGameplayTagEvent(ClockworksTags::State_MovementLocked, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AClockworksCharacter::OnAttackingTagChanged);
+		AbilitySystemComponent->RegisterGameplayTagEvent(ClockworksTags::State_Charging, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AClockworksCharacter::OnAttackingTagChanged);
 
 		// The attribute set outlives the pawn (it lives on the PlayerState), so each new body binds
 		// its own reactions. The old body's bindings die with it.
@@ -241,6 +249,11 @@ void AClockworksCharacter::RefreshMaxWalkSpeed()
 		{
 			Speed = 0.f;
 		}
+		else if (AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Charging))
+		{
+			// Charging is part of the attack ability, so State.Attacking is also present; the charge speed wins.
+			Speed *= ChargeMoveSpeedMultiplier;
+		}
 		else if (AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Attacking))
 		{
 			Speed *= AttackMoveSpeedMultiplier;
@@ -270,7 +283,7 @@ bool AClockworksCharacter::IsDead() const
 }
 
 // Runs on: server only (bound to the attribute set on the server).
-void AClockworksCharacter::HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection)
+void AClockworksCharacter::HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection, float KnockbackMultiplier)
 {
 	if (!bDeathHandled)
 	{
@@ -380,6 +393,7 @@ void AClockworksCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInpu
 	if (AttackAction)
 	{
 		EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Started, this, &AClockworksCharacter::OnAttackInput);
+		EnhancedInputComponent->BindAction(AttackAction, ETriggerEvent::Completed, this, &AClockworksCharacter::OnAttackInputReleased);
 	}
 	else
 	{
@@ -424,6 +438,16 @@ void AClockworksCharacter::OnAttackInput()
 	}
 }
 
+// Runs on: owning client only. The release is what turns a held attack into a charge; the sword
+// ability waits for it through the same replicated input path.
+void AClockworksCharacter::OnAttackInputReleased()
+{
+	if (UAbilitySystemComponent* AbilitySystemComponent = GetAbilitySystemComponent())
+	{
+		AbilitySystemComponent->AbilityLocalInputReleased(static_cast<int32>(EClockworksAbilityInputID::Attack));
+	}
+}
+
 // Runs on: owning client only. Same shape as OnAttackInput.
 void AClockworksCharacter::OnDodgeInput()
 {
@@ -431,4 +455,76 @@ void AClockworksCharacter::OnDodgeInput()
 	{
 		AbilitySystemComponent->AbilityLocalInputPressed(static_cast<int32>(EClockworksAbilityInputID::Dodge));
 	}
+}
+
+// Runs on: the local machine only. A dynamic montage in DefaultSlot; the ability decides who plays it.
+void AClockworksCharacter::PlaySlotAnimation(UAnimSequenceBase* Anim, float PlayRate, bool bLoop)
+{
+	UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr;
+	if (!Anim || !AnimInstance)
+	{
+		return;
+	}
+
+	StopSlotAnimation(0.05f);
+	// A loop count of zero builds a zero-length segment that never shows; "forever" is a big number here.
+	ActiveSlotMontage = AnimInstance->PlaySlotAnimationAsDynamicMontage(Anim, TEXT("DefaultSlot"), /*BlendIn*/ 0.05f, /*BlendOut*/ 0.1f, FMath::Max(PlayRate, 0.01f), bLoop ? 1000 : 1);
+}
+
+// Runs on: the local machine only.
+void AClockworksCharacter::StopSlotAnimation(float BlendOutSeconds)
+{
+	if (UAnimMontage* Montage = ActiveSlotMontage.Get())
+	{
+		if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+		{
+			AnimInstance->Montage_Stop(BlendOutSeconds, Montage);
+		}
+	}
+	ActiveSlotMontage = nullptr;
+}
+
+// Runs on: all machines (multicast from the server). Cosmetic. The owning client already played
+// this clip when it predicted the ability, so it skips; the listen-server host is both owner and
+// authority and plays it here.
+void AClockworksCharacter::MulticastPlaySlotAnimation_Implementation(UAnimSequenceBase* Anim, float PlayRate, bool bLoop)
+{
+	if (!HasAuthority() && IsLocallyControlled())
+	{
+		return;
+	}
+	PlaySlotAnimation(Anim, PlayRate, bLoop);
+}
+
+// Runs on: all machines (multicast from the server). Cosmetic.
+void AClockworksCharacter::MulticastStopSlotAnimation_Implementation()
+{
+	if (!HasAuthority() && IsLocallyControlled())
+	{
+		return;
+	}
+	StopSlotAnimation();
+}
+
+// Runs on: the local machine only. Reuses the hit-flash overlay slot, so a hit and a charge-ready
+// flash in the same instant simply show the later one.
+void AClockworksCharacter::PlayChargeReadyFlash()
+{
+	UMaterialInterface* Material = ChargeReadyFlashMaterial ? ChargeReadyFlashMaterial : HitFlashMaterial;
+	if (!Material)
+	{
+		return;
+	}
+	GetMesh()->SetOverlayMaterial(Material);
+	GetWorldTimerManager().SetTimer(HitFlashTimer, this, &AClockworksCharacter::ClearHitFlash, FMath::Max(ChargeReadyFlashSeconds, 0.01f), false);
+}
+
+// Runs on: all machines (multicast from the server). Cosmetic; same owner-skip as the animation.
+void AClockworksCharacter::MulticastChargeReadyFlash_Implementation()
+{
+	if (!HasAuthority() && IsLocallyControlled())
+	{
+		return;
+	}
+	PlayChargeReadyFlash();
 }

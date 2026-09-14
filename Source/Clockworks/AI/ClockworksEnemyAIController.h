@@ -88,6 +88,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "AI", meta = (ClampMin = "-0.5", ClampMax = "1.0"))
 	float ScreenEdgeMargin = 0.0f;
 
+	/** Logged once per enemy so a missing navigation mesh is visible in the log without spam. */
+	bool bWarnedNoPath = false;
+
 private:
 
 	TWeakObjectPtr<AActor> TargetActor;

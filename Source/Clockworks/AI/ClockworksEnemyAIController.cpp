@@ -2,6 +2,9 @@
 
 #include "ClockworksEnemyAIController.h"
 #include "ClockworksCharacter.h"
+#include "ClockworksPlayerController.h"
+#include "Clockworks.h"
+#include "Navigation/PathFollowingComponent.h"
 #include "ClockworksEnemyCharacter.h"
 #include "ClockworksGameplayTags.h"
 #include "AbilitySystemComponent.h"
@@ -64,9 +67,17 @@ bool AClockworksEnemyAIController::IsOnScreenOf(const AClockworksCharacter* Play
 		return false; // behind the camera
 	}
 
-	const float TanHalfHorizontal = FMath::Tan(FMath::DegreesToRadians(Camera->FieldOfView * 0.5f));
-	const float Aspect = Camera->AspectRatio > KINDA_SMALL_NUMBER ? Camera->AspectRatio : (16.f / 9.f);
-	const float TanHalfVertical = TanHalfHorizontal / Aspect;
+	// The real frustum comes from the player's controller once its client has measured the window.
+	// Until then, assume the camera's FOV as horizontal at its own aspect ratio.
+	float TanHalfHorizontal = 0.f;
+	float TanHalfVertical = 0.f;
+	const AClockworksPlayerController* PlayerController = Cast<AClockworksPlayerController>(Player->GetController());
+	if (!PlayerController || !PlayerController->GetViewExtents(TanHalfHorizontal, TanHalfVertical))
+	{
+		TanHalfHorizontal = FMath::Tan(FMath::DegreesToRadians(Camera->FieldOfView * 0.5f));
+		const float Aspect = Camera->AspectRatio > KINDA_SMALL_NUMBER ? Camera->AspectRatio : (16.f / 9.f);
+		TanHalfVertical = TanHalfHorizontal / Aspect;
+	}
 	const float Scale = 1.f + ScreenEdgeMargin;
 
 	return FMath::Abs(Local.Y) <= Local.X * TanHalfHorizontal * Scale
@@ -219,6 +230,17 @@ void AClockworksEnemyAIController::Tick(float DeltaSeconds)
 	{
 		RepathTimer = RepathSeconds;
 		State = EClockworksEnemyState::Chase;
-		MoveToActor(Target, Range * 0.5f, /*bStopOnOverlap*/ true, /*bUsePathfinding*/ true, /*bCanStrafe*/ false);
+		const EPathFollowingRequestResult::Type Result = MoveToActor(Target, Range * 0.5f, /*bStopOnOverlap*/ true, /*bUsePathfinding*/ true, /*bCanStrafe*/ false);
+		if (Result == EPathFollowingRequestResult::Failed)
+		{
+			// No usable navigation mesh (still building, or not covering this spot). Walking straight at
+			// the target beats standing still; walls will stop it, but the player can at least be reached.
+			if (!bWarnedNoPath)
+			{
+				bWarnedNoPath = true;
+				UE_LOG(LogClockworks, Warning, TEXT("%s: pathfinding failed toward %s; falling back to a straight line. Is the navigation mesh built?"), *GetNameSafe(MyPawn), *GetNameSafe(Target));
+			}
+			MoveToActor(Target, Range * 0.5f, /*bStopOnOverlap*/ true, /*bUsePathfinding*/ false, /*bCanStrafe*/ false);
+		}
 	}
 }

@@ -38,7 +38,7 @@ public:
 protected:
 
 	/** Server: knockback and the flash broadcast. */
-	void HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection);
+	void HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection, float KnockbackMultiplier);
 
 	/** Server: death. */
 	void HandleOutOfHealth();

@@ -61,6 +61,20 @@ system's replicated input (`EClockworksAbilityInputID`, abilities granted
 with an input ID, `AbilityLocalInputPressed`). Swing 1 has no recovery;
 swings 2 and 3 plant the feet via `State.MovementLocked`. The dodge plays
 `DodgeMontage`. Montages are the knight's `*_fire` clips under `Content/SK`.
+Calibur data (2026-09-14, read from the game's `attack.xml` / `item.xml`
+dumps in `D:\Dev\Tools\ThreeRingsSharp\ThreeRingsSharp\ConfigRefs`): swing
+timings, per-swing lunge delay/length and a `Data.Knockback` multiplier are
+the C++ defaults. **Charge attack:** hold after a swing → `State.Charging`
+(hold clip loops, full walk speed, aim free), ready after `ChargeSeconds`
+(3, aura flash via `MulticastChargeReadyFlash`), release → release clip,
+spin clip with four hit samples behind/left/front/right (a target can be
+hit more than once), one-tile step, locked recovery. Release early loses
+it. Attack phases play raw `UAnimSequence` clips fitted to the phase
+length through `AClockworksCharacter::PlaySlotAnimation` (dynamic montage
+in `DefaultSlot`, multicast from the server, owner predicts) so no montage
+assets are needed; the knight export carries `charge_sword_hold`,
+`charge_sword_release`, `charge_sword_spin`. `WeaponMesh` on
+`bone_weapon_r` holds the Calibur (`Content/SK/Weapons/Calibur`).
 Play-In-Editor is set to one player for now (user's performance); switch back
 to two players / listen server for any networking work.
 
@@ -75,8 +89,14 @@ face the target once, windup, root-motion lunge with a live hitbox, recovery
 with `State.MovementLocked`, then `Cooldown.Attack` via
 `UClockworksAttackCooldownEffect`. `AClockworksEnemyCharacter` grants
 `DefaultAbilities`, orients to movement and auto-possesses the AI controller.
-Aggro is "am I on a player's screen" (the fixed camera lets the server
-rebuild each view). Enemies carry `AttackRange`, `bAttackNeedsLineOfSight`,
+Aggro is "am I on a player's screen": each owning client measures its real
+view frustum from the projection matrix and sends it to the server
+(`AClockworksPlayerController::ServerSetViewExtents`), so window shape
+does not matter; the camera's FOV/aspect is only the fallback. If
+pathfinding fails (navigation mesh still building or missing) the brain
+walks straight at the target and logs one warning. The navigation mesh
+must be built (Build → Build Paths) and the level saved, or it rebuilds
+on every editor launch and enemies stand still until it finishes. Enemies carry `AttackRange`, `bAttackNeedsLineOfSight`,
 `InitialAttackPower/DefensePower`; stationary ones (MoveSpeed 0) turn to track.
 `UClockworksEnemyRangedAbility` + `AClockworksProjectile` (replicated bolt,
 server-only hits, faction-gated, blocked by walls) are the shooter. Attack

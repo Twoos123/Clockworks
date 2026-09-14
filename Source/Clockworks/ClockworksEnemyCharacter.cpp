@@ -88,14 +88,14 @@ void AClockworksEnemyCharacter::OnMovementLockChanged(const FGameplayTag Tag, in
 
 // Runs on: server only (bound to the attribute set on the server). Knockback is gameplay: this actor
 // is server-controlled, so the resulting movement reaches clients through normal replication.
-void AClockworksEnemyCharacter::HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection)
+void AClockworksEnemyCharacter::HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection, float KnockbackMultiplier)
 {
 	if (bDead)
 	{
 		return;
 	}
 
-	LaunchCharacter(HitDirection * KnockbackSpeed, true, false);
+	LaunchCharacter(HitDirection * KnockbackSpeed * FMath::Max(KnockbackMultiplier, 0.f), true, false);
 	MulticastHitFlash();
 }
 

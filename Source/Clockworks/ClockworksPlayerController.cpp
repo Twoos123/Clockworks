@@ -9,6 +9,8 @@
 #include "Engine/World.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
+#include "Engine/GameViewportClient.h"
+#include "SceneView.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "Clockworks.h"
@@ -48,6 +50,7 @@ void AClockworksPlayerController::PlayerTick(float DeltaTime)
 	// Aim before Super so this frame's UpdateRotation faces the pawn and the movement
 	// component records the new yaw in the move it sends to the server.
 	UpdateAimFromCursor();
+	ReportViewExtents();
 
 	Super::PlayerTick(DeltaTime);
 }
@@ -109,4 +112,73 @@ void AClockworksPlayerController::UpdateAimFromCursor()
 	}
 
 	SetControlRotation(FRotator(0.f, ToCursor.Rotation().Yaw, 0.f));
+}
+
+// Runs on: owning client only (from PlayerTick). Throttled; sends only when the shape changes.
+void AClockworksPlayerController::ReportViewExtents()
+{
+	ViewReportCooldown -= GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
+	if (ViewReportCooldown > 0.f)
+	{
+		return;
+	}
+	ViewReportCooldown = 0.5f;
+
+	ULocalPlayer* LocalPlayer = GetLocalPlayer();
+	if (!LocalPlayer || !LocalPlayer->ViewportClient || !LocalPlayer->ViewportClient->Viewport)
+	{
+		return;
+	}
+
+	// The projection matrix already folds in the window's aspect ratio and the engine's FOV axis
+	// rule: the visible half-extent at depth z is z / M[0][0] horizontally and z / M[1][1] vertically.
+	FSceneViewProjectionData ProjectionData;
+	if (!LocalPlayer->GetProjectionData(LocalPlayer->ViewportClient->Viewport, ProjectionData))
+	{
+		return;
+	}
+	const FMatrix& Projection = ProjectionData.ProjectionMatrix;
+	if (FMath::IsNearlyZero(Projection.M[0][0]) || FMath::IsNearlyZero(Projection.M[1][1]))
+	{
+		return;
+	}
+	const float TanHalfX = 1.f / Projection.M[0][0];
+	const float TanHalfY = 1.f / Projection.M[1][1];
+
+	if (FMath::IsNearlyEqual(TanHalfX, SentTanHalfX, 0.01f) && FMath::IsNearlyEqual(TanHalfY, SentTanHalfY, 0.01f))
+	{
+		return;
+	}
+	SentTanHalfX = TanHalfX;
+	SentTanHalfY = TanHalfY;
+
+	if (HasAuthority())
+	{
+		ViewTanHalfX = TanHalfX; // listen host: no round trip needed
+		ViewTanHalfY = TanHalfY;
+	}
+	else
+	{
+		ServerSetViewExtents(TanHalfX, TanHalfY);
+	}
+}
+
+// Runs on: server only (RPC from the owning client). The client's screen shape is the client's
+// fact; the server only clamps it to something sane.
+void AClockworksPlayerController::ServerSetViewExtents_Implementation(float TanHalfX, float TanHalfY)
+{
+	ViewTanHalfX = FMath::Clamp(TanHalfX, 0.05f, 10.f);
+	ViewTanHalfY = FMath::Clamp(TanHalfY, 0.05f, 10.f);
+}
+
+// Runs on: server only (read by the enemy brain).
+bool AClockworksPlayerController::GetViewExtents(float& OutTanHalfX, float& OutTanHalfY) const
+{
+	if (ViewTanHalfX <= 0.f || ViewTanHalfY <= 0.f)
+	{
+		return false;
+	}
+	OutTanHalfX = ViewTanHalfX;
+	OutTanHalfY = ViewTanHalfY;
+	return true;
 }

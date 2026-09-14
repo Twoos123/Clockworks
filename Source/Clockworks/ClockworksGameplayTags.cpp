@@ -16,6 +16,7 @@ namespace ClockworksTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_MovementLocked, "State.MovementLocked", "Walk speed is zero while present (recovery of a committed combo swing).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Invulnerable, "State.Invulnerable", "Damage is ignored while present (dodge i-frames).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Dead, "State.Dead", "Health reached zero. No further damage or actions.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Charging, "State.Charging", "Holding the attack button to charge the weapon. Movement runs at the weapon's charge speed instead of the attack slow.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Dodge, "Cooldown.Dodge", "Granted by the dodge cooldown effect; dodge cannot activate while present.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Attack, "Cooldown.Attack", "Granted by the attack cooldown effect; an enemy's attack cannot activate while present.");
@@ -25,4 +26,5 @@ namespace ClockworksTags
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Damage, "Data.Damage", "SetByCaller magnitude: raw damage before the target's defense.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Cooldown, "Data.Cooldown", "SetByCaller magnitude: cooldown duration in seconds.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Data_Knockback, "Data.Knockback", "SetByCaller magnitude: knockback multiplier for this hit (1 when absent). Combo finishers and charges shove harder.");
 }

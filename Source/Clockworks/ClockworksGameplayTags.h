@@ -24,6 +24,7 @@ namespace ClockworksTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_MovementLocked);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Invulnerable);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Dead);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Charging);
 
 	// Cooldowns
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Dodge);
@@ -36,4 +37,5 @@ namespace ClockworksTags
 	// SetByCaller data keys on gameplay effects
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Data_Damage);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Data_Cooldown);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Data_Knockback);
 }

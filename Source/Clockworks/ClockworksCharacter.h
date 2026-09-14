@@ -9,6 +9,7 @@
 #include "ClockworksCharacter.generated.h"
 
 class UAnimMontage;
+class UAnimSequenceBase;
 class UCameraComponent;
 class UStaticMeshComponent;
 class USpringArmComponent;
@@ -49,6 +50,14 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UStaticMeshComponent> FaceMesh;
+
+	/**
+	 * The weapon in the main hand, riding bone_weapon_r. Spiral Knights weapons are separate models
+	 * snapped onto that bone. Phase 08 swaps the mesh when gear changes; until then the Blueprint
+	 * assigns the Calibur.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> WeaponMesh;
 
 protected:
 
@@ -94,6 +103,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Combat|Feel", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float AttackMoveSpeedMultiplier = 0.25f;
 
+	/** Fraction of walk speed kept while charging a weapon. Spiral Knights: 1 for most swords, about 0.85 for slow ones and guns. */
+	UPROPERTY(EditDefaultsOnly, Category="Combat|Feel", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ChargeMoveSpeedMultiplier = 1.f;
+
+	/** Drawn over the mesh for a moment when a charge becomes ready (the yellow aura). Falls back to HitFlashMaterial. */
+	UPROPERTY(EditDefaultsOnly, Category="Combat|Feedback")
+	TObjectPtr<UMaterialInterface> ChargeReadyFlashMaterial;
+
+	UPROPERTY(EditDefaultsOnly, Category="Combat|Feedback", meta = (ClampMin = "0.0"))
+	float ChargeReadyFlashSeconds = 0.25f;
+
 	/** Drawn over the mesh for a moment when hit. Same material the enemies use reads consistently. */
 	UPROPERTY(EditDefaultsOnly, Category="Combat|Feedback")
 	TObjectPtr<UMaterialInterface> HitFlashMaterial;
@@ -117,6 +137,33 @@ public:
 
 	/** True once the server has declared this knight dead. Valid on every machine (replicated tag). */
 	bool IsDead() const;
+
+	/**
+	 * Plays a raw animation clip in the Animation Blueprint's DefaultSlot as a throwaway montage, so
+	 * attack phases need no montage assets. Cosmetic. Rate stretches or squeezes the clip; the ability
+	 * derives it from the phase length so timing always comes from the numbers, never the animation.
+	 * Local machine only; the ability decides whether to also broadcast it.
+	 */
+	void PlaySlotAnimation(UAnimSequenceBase* Anim, float PlayRate, bool bLoop);
+
+	/** Stops whatever PlaySlotAnimation started. Local machine only. */
+	void StopSlotAnimation(float BlendOutSeconds = 0.1f);
+
+	/**
+	 * Cosmetic only. Everyone plays the clip; the owning client skips it because it already predicted
+	 * the same clip locally. Nothing gameplay-relevant happens here.
+	 */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastPlaySlotAnimation(UAnimSequenceBase* Anim, float PlayRate, bool bLoop);
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastStopSlotAnimation();
+
+	/** Cosmetic only: the charge-ready aura. Local machine. */
+	void PlayChargeReadyFlash();
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastChargeReadyFlash();
 
 	/** Constructor */
 	AClockworksCharacter();
@@ -152,6 +199,7 @@ protected:
 
 	/** Attack and dodge input. Owning client only. */
 	void OnAttackInput();
+	void OnAttackInputReleased();
 	void OnDodgeInput();
 
 	/** Connects this character to the PlayerState's ability system. Server and clients. */
@@ -166,7 +214,7 @@ protected:
 	void OnAttackingTagChanged(const FGameplayTag Tag, int32 NewCount);
 
 	/** Server: something damaged this knight. Only the flash broadcast; the attribute set did the maths. */
-	void HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection);
+	void HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection, float KnockbackMultiplier);
 
 	/** Server: health reached zero. Marks the knight dead, stops it, and schedules the respawn. */
 	void HandleOutOfHealth();
@@ -191,6 +239,9 @@ private:
 
 	FTimerHandle HitFlashTimer;
 	FTimerHandle RespawnTimer;
+
+	/** The throwaway montage PlaySlotAnimation is currently playing, so it can be stopped. */
+	TWeakObjectPtr<UAnimMontage> ActiveSlotMontage;
 
 	/** Server-side guard so death handling runs once per life. */
 	bool bDeathHandled = false;
