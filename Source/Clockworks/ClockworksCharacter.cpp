@@ -20,6 +20,13 @@
 #include "InputActionValue.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/GameplayAbility.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "GameFramework/GameModeBase.h"
+#include "Materials/MaterialInterface.h"
+#include "TimerManager.h"
 #include "Clockworks.h"
 
 // Runs on: all machines (class default object and every spawned instance, server and clients).
@@ -59,6 +66,20 @@ AClockworksCharacter::AClockworksCharacter()
 
 	TopDownCameraComponent->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	TopDownCameraComponent->bUsePawnControlRotation = false;
+
+	// A respawn must never fail because something stands on the PlayerStart (the other player, a
+	// corpse, an enemy). Nudge aside if possible, spawn regardless.
+	SpawnCollisionHandlingMethod = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+	// Head pieces ride the helmet bone. The exported bone frame and the exported rigid meshes share
+	// the same axis convention, so an identity offset lines them up.
+	HelmetMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HelmetMesh"));
+	HelmetMesh->SetupAttachment(GetMesh(), TEXT("bone_helmet"));
+	HelmetMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	FaceMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FaceMesh"));
+	FaceMesh->SetupAttachment(GetMesh(), TEXT("bone_helmet"));
+	FaceMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	// The C++ abilities by default; BP_ClockworksCharacter can swap in Blueprint children for tuning.
 	DefaultAbilities.Add(UClockworksSwordAttackAbility::StaticClass());
@@ -131,10 +152,36 @@ void AClockworksCharacter::InitAbilitySystem()
 		AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UClockworksAttributeSet::GetMoveSpeedAttribute()).AddUObject(this, &AClockworksCharacter::OnMoveSpeedChanged);
 		AbilitySystemComponent->RegisterGameplayTagEvent(ClockworksTags::State_Attacking, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AClockworksCharacter::OnAttackingTagChanged);
 		AbilitySystemComponent->RegisterGameplayTagEvent(ClockworksTags::State_MovementLocked, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AClockworksCharacter::OnAttackingTagChanged);
+
+		// The attribute set outlives the pawn (it lives on the PlayerState), so each new body binds
+		// its own reactions. The old body's bindings die with it.
+		if (HasAuthority())
+		{
+			if (UClockworksAttributeSet* Attributes = ClockworksPlayerState->GetAttributeSet())
+			{
+				Attributes->OnDamaged.AddUObject(this, &AClockworksCharacter::HandleDamaged);
+				Attributes->OnOutOfHealth.AddUObject(this, &AClockworksCharacter::HandleOutOfHealth);
+			}
+		}
 	}
 
 	if (HasAuthority())
 	{
+		// A respawned knight arrives with the PlayerState's old, empty health. Refill it and clear the
+		// death mark before anything can read them.
+		if (ClockworksPlayerState->bAttributesInitialised)
+		{
+			if (UClockworksAttributeSet* Attributes = ClockworksPlayerState->GetAttributeSet())
+			{
+				if (Attributes->GetHealth() <= 0.f)
+				{
+					Attributes->SetHealth(Attributes->GetMaxHealth());
+					Attributes->SetShield(Attributes->GetMaxShield());
+				}
+			}
+			AbilitySystemComponent->SetLooseGameplayTagCount(ClockworksTags::State_Dead, 0, EGameplayTagReplicationState::TagAndCountToAll);
+		}
+
 		if (!ClockworksPlayerState->bAttributesInitialised)
 		{
 			if (UClockworksAttributeSet* Attributes = ClockworksPlayerState->GetAttributeSet())
@@ -213,6 +260,99 @@ void AClockworksCharacter::OnMoveSpeedChanged(const FOnAttributeChangeData& Data
 void AClockworksCharacter::OnAttackingTagChanged(const FGameplayTag Tag, int32 NewCount)
 {
 	RefreshMaxWalkSpeed();
+}
+
+// Runs on: all machines. The tag is replicated to everyone by HandleOutOfHealth.
+bool AClockworksCharacter::IsDead() const
+{
+	const UAbilitySystemComponent* AbilitySystemComponent = GetAbilitySystemComponent();
+	return AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Dead);
+}
+
+// Runs on: server only (bound to the attribute set on the server).
+void AClockworksCharacter::HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection)
+{
+	if (!bDeathHandled)
+	{
+		MulticastHitFlash();
+	}
+}
+
+// Runs on: all machines (multicast from the server). Cosmetic.
+void AClockworksCharacter::MulticastHitFlash_Implementation()
+{
+	if (HitFlashMaterial)
+	{
+		GetMesh()->SetOverlayMaterial(HitFlashMaterial);
+		GetWorldTimerManager().SetTimer(HitFlashTimer, this, &AClockworksCharacter::ClearHitFlash, FMath::Max(HitFlashSeconds, 0.01f), false);
+	}
+
+	// The flinch. Played straight on the animation instance so it can interrupt an attack montage
+	// visually without touching the ability's timing.
+	if (HurtMontage)
+	{
+		if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+		{
+			AnimInstance->Montage_Play(HurtMontage);
+		}
+	}
+}
+
+// Runs on: all machines.
+void AClockworksCharacter::ClearHitFlash()
+{
+	GetMesh()->SetOverlayMaterial(nullptr);
+}
+
+// Runs on: server only. The death itself: a replicated tag everyone can read (abilities are blocked
+// by it on the predicting client too), movement off, the clip, then a respawn timer.
+void AClockworksCharacter::HandleOutOfHealth()
+{
+	if (bDeathHandled)
+	{
+		return;
+	}
+	bDeathHandled = true;
+
+	if (UAbilitySystemComponent* AbilitySystemComponent = GetAbilitySystemComponent())
+	{
+		AbilitySystemComponent->AddLooseGameplayTag(ClockworksTags::State_Dead, 1, EGameplayTagReplicationState::TagAndCountToAll);
+		AbilitySystemComponent->CancelAllAbilities();
+	}
+
+	SetActorEnableCollision(false);
+	GetCharacterMovement()->DisableMovement();
+	MulticastPlayDeathMontage();
+
+	GetWorldTimerManager().SetTimer(RespawnTimer, this, &AClockworksCharacter::HandleRespawn, FMath::Max(DeathRespawnSeconds, 0.01f), false);
+}
+
+// Runs on: all machines (multicast from the server). Cosmetic, plus stopping the local body so a
+// predicting client doesn't keep sliding its corpse before the server's movement mode arrives.
+void AClockworksCharacter::MulticastPlayDeathMontage_Implementation()
+{
+	GetCharacterMovement()->DisableMovement();
+	if (UAnimInstance* AnimInstance = GetMesh() ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		if (DeathMontage)
+		{
+			AnimInstance->Montage_Play(DeathMontage);
+		}
+	}
+}
+
+// Runs on: server only. The GameMode spawns a new pawn at a PlayerStart and possesses the
+// controller with it; InitAbilitySystem on the new body refills health and clears the death mark.
+void AClockworksCharacter::HandleRespawn()
+{
+	AController* MyController = GetController();
+	AGameModeBase* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode() : nullptr;
+	if (MyController && GameMode)
+	{
+		MyController->UnPossess();
+		GameMode->RestartPlayer(MyController);
+	}
+	Destroy();
 }
 
 // Runs on: owning client only. The engine calls this only for a pawn possessed by a local

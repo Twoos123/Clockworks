@@ -1,0 +1,116 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "ClockworksGameplayAbility.h"
+#include "ClockworksEnemyMeleeAbility.generated.h"
+
+class UAbilitySystemComponent;
+class UAnimMontage;
+struct FOverlapResult;
+
+/**
+ * An enemy's melee attack, the "read it, evade it, punish it" loop in one ability:
+ *   windup   - the telegraph. The enemy turns to face its target once, then commits to that line.
+ *   lunge    - bursts forward along that line with the hitbox live. The player who read the windup
+ *              has already stepped out of it.
+ *   recovery - can't act or move; the punish window. Then a cooldown before the next attempt.
+ *
+ * Runs on the server only: enemies are server-controlled, their ability system component lives on
+ * the pawn, and nothing here needs predicting. Damage goes through the same damage effect as the
+ * sword; the target's attribute set applies defense and shield. The AI controller activates this
+ * by tag and reads State.Attacking to know when the enemy is busy.
+ */
+UCLASS()
+class UClockworksEnemyMeleeAbility : public UClockworksGameplayAbility
+{
+	GENERATED_BODY()
+
+public:
+
+	UClockworksEnemyMeleeAbility();
+
+protected:
+
+	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
+	virtual void ApplyCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const override;
+
+	UFUNCTION() void OnWindupFinished();
+	UFUNCTION() void OnLungeFinished();
+	UFUNCTION() void OnRecoveryFinished();
+
+	/** Plays a montage through the ability system (replicated to clients) if it and an anim instance exist. */
+	void PlayPhaseMontage(UAnimMontage* Montage);
+
+	/** One sweep of the hitbox. */
+	void DoHitCheck();
+
+	/** Build and apply the damage effect to one target. */
+	void ApplyDamageTo(UAbilitySystemComponent* TargetAbilitySystemComponent, const FOverlapResult& Overlap);
+
+	/** Seconds of telegraph before the lunge. Longer is fairer; this is the number that makes the enemy readable. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Timing", meta = (ClampMin = "0.0"))
+	float WindupSeconds = 0.5f;
+
+	/** Seconds the lunge lasts. The hitbox is live for exactly this long. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Timing", meta = (ClampMin = "0.0"))
+	float LungeSeconds = 0.25f;
+
+	/** Seconds after the lunge during which the enemy cannot act or move. The punish window. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Timing", meta = (ClampMin = "0.0"))
+	float RecoverySeconds = 0.6f;
+
+	/** Seconds after activation before the next attack may start. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Timing", meta = (ClampMin = "0.0"))
+	float CooldownSeconds = 1.5f;
+
+	/** Lunge speed along the committed facing, in cm/s. Distance = LungeSpeed x LungeSeconds. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Feel", meta = (ClampMin = "0.0"))
+	float LungeSpeed = 900.f;
+
+	/** Raw damage before the attacker's AttackPower and the target's DefensePower. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Damage", meta = (ClampMin = "0.0"))
+	float BaseDamage = 10.f;
+
+	/** Radius of the sphere swept in front of the enemy while lunging, in cm. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Hitbox", meta = (ClampMin = "0.0"))
+	float HitRadius = 80.f;
+
+	/** Distance from the enemy's centre to the sphere's centre along its facing, in cm. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Hitbox", meta = (ClampMin = "0.0"))
+	float HitForwardOffset = 70.f;
+
+	/**
+	 * Optional. Played at the start of the windup. When set, AttackMontage waits for the lunge and
+	 * RecoveryMontage for the recovery, so a three-clip attack (start / fire / end) lines up with the
+	 * three phases. When unset, AttackMontage plays from the start and is expected to span the whole attack.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Animation")
+	TObjectPtr<UAnimMontage> WindupMontage;
+
+	/** Visuals only; the numbers above set the timing. Needs a DefaultSlot in the enemy's Animation Blueprint. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Animation")
+	TObjectPtr<UAnimMontage> AttackMontage;
+
+	/** Optional. Played when the recovery starts, only if WindupMontage is set. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Animation")
+	TObjectPtr<UAnimMontage> RecoveryMontage;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Animation", meta = (ClampMin = "0.01"))
+	float MontagePlayRate = 1.f;
+
+	/** Draws the hitbox sphere while it is live. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Debug")
+	bool bDrawDebugHitbox = false;
+
+private:
+
+	static constexpr float HitCheckInterval = 1.f / 30.f;
+
+	FTimerHandle HitCheckTimer;
+
+	/** Targets already hit by this lunge. Each takes damage once per activation. */
+	TSet<TWeakObjectPtr<AActor>> HitActors;
+};

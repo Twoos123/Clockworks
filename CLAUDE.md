@@ -64,6 +64,43 @@ swings 2 and 3 plant the feet via `State.MovementLocked`. The dodge plays
 Play-In-Editor is set to one player for now (user's performance); switch back
 to two players / listen server for any networking work.
 
+**Enemies (05, in progress):** `AClockworksEnemyAIController`
+(`Source/Clockworks/AI/`) is every enemy's brain: a C++ state machine
+(Idle / Chase / Attack) over AI Perception sight, nearest visible player wins,
+`MoveToActor` for pathing, attacks by activating `Ability.Attack.Melee`. It is
+C++ rather than a Behavior Tree because the MCP tree toolsets are read-only
+and the logic stays diffable; swap to a tree later if the visual editor is
+wanted. `UClockworksEnemyMeleeAbility` (server-only) is the telegraphed lunge:
+face the target once, windup, root-motion lunge with a live hitbox, recovery
+with `State.MovementLocked`, then `Cooldown.Attack` via
+`UClockworksAttackCooldownEffect`. `AClockworksEnemyCharacter` grants
+`DefaultAbilities`, orients to movement and auto-possesses the AI controller.
+Aggro is "am I on a player's screen" (the fixed camera lets the server
+rebuild each view). Enemies carry `AttackRange`, `bAttackNeedsLineOfSight`,
+`InitialAttackPower/DefensePower`; stationary ones (MoveSpeed 0) turn to track.
+`UClockworksEnemyRangedAbility` + `AClockworksProjectile` (replicated bolt,
+server-only hits, faction-gated, blocked by walls) are the shooter. Attack
+abilities take windup / attack / recovery montages. The three enemies:
+Wolver (`BP_Wolver`, bite lunge), Mechaknight (`BP_Mechaknight`, defense 6,
+slow, borrows the knight's sword clips via a re-exported config), Gunpuppy
+(`BP_Gunpuppy`, turret, line of sight, `BP_GunpuppyBolt`). All have idle,
+move, attack and dying clips through `ABP_*`; `BP_TrainingDummy` has
+AutoPossessAI disabled. Player side: hit flash + `HurtMontage`, death with
+`DeathMontage` and respawn after `DeathRespawnSeconds`, directional run clips
+in `ABP_Knight`. Verified: wolver two-player; Mechaknight and Gunpuppy in
+single-player (defense applied, bolt fired and hit).
+Heads: Spiral Knights heads are rigid pieces on `bone_helmet`, not part of
+the skin, so `AClockworksCharacter` has `HelmetMesh` + `FaceMesh` and
+`AClockworksEnemyCharacter` has `HeadMesh` (static-mesh components attached
+to that bone; Blueprints assign the meshes and an override material).
+Interchange bakes a rigid piece's rest position into the static mesh, so the
+pieces inside a character export float a head-height too high when attached
+to the bone; `Tools/SKImport/extract_rigid_nodes.py` re-exports them in
+bone space instead (`_fixed\PlayerKnightHelmet.glb`, `PlayerKnightFace.glb`,
+`MechaknightHead.glb`, imported under `Content/SK` with those names).
+Player respawn uses `AdjustIfPossibleButAlwaysSpawn` so a body or another
+player on the PlayerStart cannot block it.
+
 **Keep this section current.** When a system exists, describe it here in a line
 or two. This is the first thing you should read and the last thing you should
 update.

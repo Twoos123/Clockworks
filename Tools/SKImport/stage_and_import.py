@@ -34,7 +34,11 @@ MODELS = [
     (r"character\npc\monster\lichen\model.glb",            "Monsters", "Lichen"),
     (r"character\npc\monster\gunpuppy\model.glb",          "Monsters", "Gunpuppy"),
     (r"character\npc\monster\zombie\model.glb",            "Monsters", "Zombie"),
-    (r"character\npc\monster\mechaknight\model.glb",       "Monsters", "Mechaknight"),
+    # Re-exported with the knight's sword clips mapped in (its own config only lists idle/run/hurt).
+    (r"_fixed\Mechaknight.glb",                            "Monsters", "Mechaknight"),
+    # Its head (mesh_helmet + mesh_icon) exports as orphan nodes; extract_rigid_nodes.py re-bases
+    # them into bone_helmet space so BP_Mechaknight's HeadMesh attaches with an identity offset.
+    (r"_fixed\MechaknightHead.glb",                        "Monsters", "MechaknightHead"),
     (r"character\npc\monster\spookat\model.glb",           "Monsters", "Spookat"),
     (r"character\npc\monster\snarbolax\model.glb",         "Monsters", "Snarbolax"),
     (r"character\npc\monster\royaljelly\model.glb",        "Monsters", "RoyalJelly"),
@@ -48,6 +52,11 @@ MODELS = [
     # Rigged knight: character/pc/model.dat re-typed from ProjectXModelConfig to ArticulatedConfig
     # (see Docs/SpiralKnightsAssetPipeline.md), wearing the cap helm and coat armour.
     (r"_fixed\PlayerKnight.glb",                           "Knights",  "PlayerKnight"),
+    # Helmet and face as separate static meshes in bone_helmet space (extract_rigid_nodes.py);
+    # Interchange bakes the bone's rest position into the pieces inside PlayerKnight.glb, so those
+    # float a head-height too high when attached to the bone.
+    (r"_fixed\PlayerKnightHelmet.glb",                     "Knights",  "PlayerKnightHelmet"),
+    (r"_fixed\PlayerKnightFace.glb",                       "Knights",  "PlayerKnightFace"),
     # Weapons and gear (static)
     (r"item\weapon\sword\calibur\model.glb",               "Weapons",  "Calibur"),
     (r"item\gear\helm\cap\model.glb",                      "Gear",     "HelmCap"),

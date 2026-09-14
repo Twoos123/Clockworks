@@ -5,6 +5,9 @@
 namespace ClockworksTags
 {
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Attack_Sword, "Ability.Attack.Sword", "Activates the sword attack ability.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Attack, "Ability.Attack", "Parent of every attack. The enemy brain activates by this so it works for melee and ranged alike.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Attack_Melee, "Ability.Attack.Melee", "Activates an enemy's melee attack (bite, swipe).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Attack_Ranged, "Ability.Attack.Ranged", "Activates an enemy's ranged attack (a projectile).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Dodge, "Ability.Dodge", "Activates the dodge ability.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Attacking, "State.Attacking", "Owned for the whole sword swing. Blocks other actions and slows movement.");
@@ -15,6 +18,7 @@ namespace ClockworksTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Dead, "State.Dead", "Health reached zero. No further damage or actions.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Dodge, "Cooldown.Dodge", "Granted by the dodge cooldown effect; dodge cannot activate while present.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Attack, "Cooldown.Attack", "Granted by the attack cooldown effect; an enemy's attack cannot activate while present.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Faction_Player, "Faction.Player", "Player characters. No friendly fire.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Faction_Enemy, "Faction.Enemy", "Enemies and training dummies.");

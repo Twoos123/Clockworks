@@ -8,11 +8,14 @@
 #include "GameplayTagContainer.h"
 #include "ClockworksCharacter.generated.h"
 
+class UAnimMontage;
 class UCameraComponent;
+class UStaticMeshComponent;
 class USpringArmComponent;
 class UInputAction;
 class UGameplayAbility;
 class UAbilitySystemComponent;
+class UMaterialInterface;
 struct FInputActionValue;
 struct FOnAttributeChangeData;
 
@@ -36,6 +39,16 @@ private:
 	/** Camera boom positioning the camera above the character */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<USpringArmComponent> CameraBoom;
+
+	/**
+	 * The knight's helmet and face are rigid pieces riding the head bone, not part of the skinned
+	 * body (that is how Spiral Knights builds a knight). Blueprint children assign the meshes.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> HelmetMesh;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UStaticMeshComponent> FaceMesh;
 
 protected:
 
@@ -81,7 +94,29 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="Combat|Feel", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float AttackMoveSpeedMultiplier = 0.25f;
 
+	/** Drawn over the mesh for a moment when hit. Same material the enemies use reads consistently. */
+	UPROPERTY(EditDefaultsOnly, Category="Combat|Feedback")
+	TObjectPtr<UMaterialInterface> HitFlashMaterial;
+
+	UPROPERTY(EditDefaultsOnly, Category="Combat|Feedback", meta = (ClampMin = "0.0"))
+	float HitFlashSeconds = 0.1f;
+
+	/** Optional. A short flinch played on every hit, over whatever the knight was doing. Cosmetic. */
+	UPROPERTY(EditDefaultsOnly, Category="Combat|Feedback")
+	TObjectPtr<UAnimMontage> HurtMontage;
+
+	/** Optional. Played on death; the body stays until the respawn. Needs a DefaultSlot in the Animation Blueprint. */
+	UPROPERTY(EditDefaultsOnly, Category="Combat|Feedback")
+	TObjectPtr<UAnimMontage> DeathMontage;
+
+	/** Seconds between dying and respawning at a PlayerStart with full health. */
+	UPROPERTY(EditDefaultsOnly, Category="Combat", meta = (ClampMin = "0.0"))
+	float DeathRespawnSeconds = 5.f;
+
 public:
+
+	/** True once the server has declared this knight dead. Valid on every machine (replicated tag). */
+	bool IsDead() const;
 
 	/** Constructor */
 	AClockworksCharacter();
@@ -130,8 +165,33 @@ protected:
 	/** Bound to State.Attacking and State.MovementLocked; both just re-evaluate the walk speed. */
 	void OnAttackingTagChanged(const FGameplayTag Tag, int32 NewCount);
 
+	/** Server: something damaged this knight. Only the flash broadcast; the attribute set did the maths. */
+	void HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection);
+
+	/** Server: health reached zero. Marks the knight dead, stops it, and schedules the respawn. */
+	void HandleOutOfHealth();
+
+	/** Server: spawns a fresh knight for the controller and removes this one. */
+	void HandleRespawn();
+
+	/** Cosmetic only. Everyone shows the flash; nothing gameplay-relevant happens here. */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastHitFlash();
+
+	void ClearHitFlash();
+
+	/** Cosmetic only: the death clip on every machine. The server has already decided the death. */
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPlayDeathMontage();
+
 private:
 
 	/** Which component the delegates are bound to, so a re-init doesn't bind twice. */
 	TWeakObjectPtr<UAbilitySystemComponent> BoundAbilitySystemComponent;
+
+	FTimerHandle HitFlashTimer;
+	FTimerHandle RespawnTimer;
+
+	/** Server-side guard so death handling runs once per life. */
+	bool bDeathHandled = false;
 };

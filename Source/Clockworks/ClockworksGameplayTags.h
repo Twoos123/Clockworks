@@ -11,7 +11,10 @@
 namespace ClockworksTags
 {
 	// Ability activation tags
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Attack);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Attack_Sword);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Attack_Melee);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Attack_Ranged);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Ability_Dodge);
 
 	// Character state
@@ -24,6 +27,7 @@ namespace ClockworksTags
 
 	// Cooldowns
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Dodge);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Attack);
 
 	// Factions. Members of the same faction never damage each other.
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Faction_Player);

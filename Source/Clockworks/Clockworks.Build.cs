@@ -31,6 +31,7 @@ public class Clockworks : ModuleRules
 		PublicIncludePaths.AddRange(new string[] {
 			"Clockworks",
 			"Clockworks/AbilitySystem",
+			"Clockworks/AI",
 			"Clockworks/Variant_Strategy",
 			"Clockworks/Variant_Strategy/UI",
 			"Clockworks/Variant_TwinStick",
