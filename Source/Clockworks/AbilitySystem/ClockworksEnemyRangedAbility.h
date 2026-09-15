@@ -8,6 +8,7 @@
 
 class AClockworksProjectile;
 class UAnimMontage;
+class USoundBase;
 
 /**
  * An enemy's ranged attack: turn to the target, telegraph, fire one projectile along that line,
@@ -80,6 +81,10 @@ protected:
 
 	/** Plays a montage through the ability system (replicated to clients) if it and an anim instance exist. */
 	void PlayPhaseMontage(UAnimMontage* Montage);
+
+	/** The shot. Server only, multicast: everyone must hear a bolt leaving a turret. */
+	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Sound")
+	TObjectPtr<USoundBase> FireSound;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Animation", meta = (ClampMin = "0.01"))
 	float MontagePlayRate = 1.f;

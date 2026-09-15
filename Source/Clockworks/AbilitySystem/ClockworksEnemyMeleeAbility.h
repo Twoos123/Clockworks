@@ -8,6 +8,8 @@
 
 class UAbilitySystemComponent;
 class UAnimMontage;
+class UAnimSequenceBase;
+class USoundBase;
 struct FOverlapResult;
 
 /**
@@ -43,6 +45,13 @@ protected:
 
 	/** Plays a montage through the ability system (replicated to clients) if it and an anim instance exist. */
 	void PlayPhaseMontage(UAnimMontage* Montage);
+
+	/**
+	 * Shows one phase: the raw clip when there is one, fitted to PhaseSeconds, otherwise the montage
+	 * at its own length. Raw clips are preferred because the Spiral Knights exports are plain
+	 * sequences and montage assets can only be made by hand in the editor.
+	 */
+	void PlayPhase(UAnimSequenceBase* Anim, UAnimMontage* Montage, float PhaseSeconds);
 
 	/** One sweep of the hitbox. */
 	void DoHitCheck();
@@ -101,7 +110,32 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Melee|Animation", meta = (ClampMin = "0.01"))
 	float MontagePlayRate = 1.f;
 
+	/**
+	 * The telegraph, the strike and the follow-through as raw clips, each squeezed to fit its phase.
+	 * Preferred over the montages above; set these and the montages can stay empty. The windup clip
+	 * is the one the player reads, so an enemy without it has no tell at all.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Animation")
+	TObjectPtr<UAnimSequenceBase> WindupAnim;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Animation")
+	TObjectPtr<UAnimSequenceBase> AttackAnim;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Animation")
+	TObjectPtr<UAnimSequenceBase> RecoveryAnim;
+
 	/** Draws the hitbox sphere while it is live. */
+	/**
+	 * The telegraph the player hears: played the moment the windup starts, not when the hit lands,
+	 * so it is a warning rather than a report. Server only, multicast to everyone.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Sound")
+	TObjectPtr<USoundBase> AttackSound;
+
+	/** Played on the enemy when the swing connects with something. */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Sound")
+	TObjectPtr<USoundBase> HitSound;
+
 	UPROPERTY(EditDefaultsOnly, Category = "Melee|Debug")
 	bool bDrawDebugHitbox = false;
 

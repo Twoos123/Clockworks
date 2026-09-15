@@ -1,0 +1,8426 @@
+{
+ "_about": "Written by mine_scenes.py. One entry per decoded Spiral Knights scene; geometry lives in the 'decoded' file under D:/Dev/SKAssets/_scenes.",
+ "scenes": [
+  {
+   "folder": "scenesmain",
+   "file": "1",
+   "sceneId": "1",
+   "procedural": false,
+   "name": "%town:m.haven_town_square",
+   "levelName": "Haven|Town Square",
+   "tilesets": {
+    "Haven": 17451,
+    "Null": 130,
+    "Water": 84,
+    "Null, no-walk": 46
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -81,
+    "maxX": 86,
+    "minY": -82,
+    "maxY": 70
+   },
+   "sizeTiles": [
+    168,
+    153
+   ],
+   "counts": {
+    "tiles": 17711,
+    "placeables": 1717,
+    "areas": 6
+   },
+   "overlaps": 14,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1.json",
+   "modelFiles": 101
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741824",
+   "sceneId": "1073741824",
+   "procedural": true,
+   "name": "%dungeon:m.ct_gremlin_rescues_and_recycling",
+   "levelName": "Supply Yard",
+   "tilesets": {
+    "Clockworks": 5209,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -38,
+    "maxX": 173,
+    "minY": -81,
+    "maxY": 10
+   },
+   "sizeTiles": [
+    212,
+    92
+   ],
+   "counts": {
+    "tiles": 5217,
+    "placeables": 797,
+    "areas": 15
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741824.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741825",
+   "sceneId": "1073741825",
+   "procedural": true,
+   "name": "%dungeon:m.dz_knight_rescue_vanilla_rescues_and_recycling",
+   "levelName": "Deconstruction Site",
+   "tilesets": {
+    "Clockworks": 4868
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -34,
+    "maxX": 33,
+    "minY": -48,
+    "maxY": 78
+   },
+   "sizeTiles": [
+    68,
+    127
+   ],
+   "counts": {
+    "tiles": 4868,
+    "placeables": 539,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741825.json",
+   "modelFiles": 21
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741826",
+   "sceneId": "1073741826",
+   "procedural": true,
+   "name": "%dungeon:m.pc_construct_shocking_sentient_sentries",
+   "levelName": "Patrol Path",
+   "tilesets": {
+    "Clockworks Shock": 6473
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -37,
+    "maxX": 80,
+    "minY": -211,
+    "maxY": 7
+   },
+   "sizeTiles": [
+    118,
+    219
+   ],
+   "counts": {
+    "tiles": 6473,
+    "placeables": 671,
+    "areas": 42
+   },
+   "overlaps": 17,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741826.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741827",
+   "sceneId": "1073741827",
+   "procedural": true,
+   "name": "%dungeon:m.bp_construct_shocking_sentient_sentries",
+   "levelName": "Heavy Weapons Facility",
+   "tilesets": {
+    "Clockworks": 7209,
+    "Traps and Hazards": 17
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -45,
+    "maxX": 43,
+    "minY": -3,
+    "maxY": 211
+   },
+   "sizeTiles": [
+    89,
+    215
+   ],
+   "counts": {
+    "tiles": 7226,
+    "placeables": 400,
+    "areas": 8
+   },
+   "overlaps": 32,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741827.json",
+   "modelFiles": 40
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741831",
+   "sceneId": "1073741831",
+   "procedural": true,
+   "name": "%dungeon:m.ww_fiend_silent_legion",
+   "levelName": "Poisoned Minds",
+   "tilesets": {
+    "Clockworks Poison": 4015,
+    "Traps and Hazards": 3
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -28,
+    "maxX": 75,
+    "minY": -150,
+    "maxY": 11
+   },
+   "sizeTiles": [
+    104,
+    162
+   ],
+   "counts": {
+    "tiles": 4018,
+    "placeables": 564,
+    "areas": 13
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741831.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741832",
+   "sceneId": "1073741832",
+   "procedural": true,
+   "name": "%dungeon:m.dd_freeze_silent_legion",
+   "levelName": "Cold Hearts",
+   "tilesets": {
+    "City, Base": 4646,
+    "Null, no-walk no-shoot": 54,
+    "Traps and Hazards": 12
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -55,
+    "maxX": 53,
+    "minY": -112,
+    "maxY": 11
+   },
+   "sizeTiles": [
+    109,
+    124
+   ],
+   "counts": {
+    "tiles": 4712,
+    "placeables": 867,
+    "areas": 9
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741832.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741834",
+   "sceneId": "1073741834",
+   "procedural": true,
+   "name": "%dungeon:m.devilish_drudgery_shock_the_gauntlet",
+   "levelName": "Shock and Awe",
+   "tilesets": {
+    "City, Base": 3733,
+    "Null, no-walk no-shoot": 64,
+    "Traps and Hazards": 12
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -76,
+    "maxX": 36,
+    "minY": -6,
+    "maxY": 122
+   },
+   "sizeTiles": [
+    113,
+    129
+   ],
+   "counts": {
+    "tiles": 3809,
+    "placeables": 877,
+    "areas": 9
+   },
+   "overlaps": 11,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741834.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741835",
+   "sceneId": "1073741835",
+   "procedural": true,
+   "name": "%dungeon:m.deconstruction_zone_fire_the_gauntlet",
+   "levelName": "Reign of Fire",
+   "tilesets": {
+    "Clockworks Fire": 4255
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -34,
+    "maxX": 74,
+    "minY": -34,
+    "maxY": 63
+   },
+   "sizeTiles": [
+    109,
+    98
+   ],
+   "counts": {
+    "tiles": 4255,
+    "placeables": 525,
+    "areas": 1
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741835.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741836",
+   "sceneId": "1073741836",
+   "procedural": true,
+   "name": "%dungeon:m.ba_gauntlet",
+   "levelName": "Last Stand",
+   "tilesets": {
+    "Castle": 7168,
+    "Haven": 385,
+    "Sky Islands, Autumn": 298,
+    "Traps and Hazards": 12
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -30,
+    "maxX": 17,
+    "minY": -22,
+    "maxY": 316
+   },
+   "sizeTiles": [
+    48,
+    339
+   ],
+   "counts": {
+    "tiles": 7863,
+    "placeables": 668,
+    "areas": 0
+   },
+   "overlaps": 3,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741836.json",
+   "modelFiles": 42
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741841",
+   "sceneId": "1073741841",
+   "procedural": true,
+   "name": "%dungeon:m.candlestick_keep_shock_alone_in_dark",
+   "levelName": "Pitch Black",
+   "tilesets": {
+    "Castle": 6288,
+    "Traps and Hazards": 5
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -142,
+    "maxX": 72,
+    "minY": -55,
+    "maxY": 40
+   },
+   "sizeTiles": [
+    215,
+    96
+   ],
+   "counts": {
+    "tiles": 6293,
+    "placeables": 420,
+    "areas": 21
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741841.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741843",
+   "sceneId": "1073741843",
+   "procedural": true,
+   "name": "%dungeon:m.cc_undead_alone_in_dark",
+   "levelName": "Out in the Cold",
+   "tilesets": {
+    "Clockworks Freeze": 5207
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -96,
+    "maxX": 103,
+    "minY": -140,
+    "maxY": 10
+   },
+   "sizeTiles": [
+    200,
+    151
+   ],
+   "counts": {
+    "tiles": 5207,
+    "placeables": 608,
+    "areas": 16
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741843.json",
+   "modelFiles": 29
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741844",
+   "sceneId": "1073741844",
+   "procedural": true,
+   "name": "%dungeon:m.candlestick_keep_vanilla_whipping_mishandling",
+   "levelName": "Darkness Above",
+   "tilesets": {
+    "Castle": 6234
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -190,
+    "maxX": 10,
+    "minY": -10,
+    "maxY": 82
+   },
+   "sizeTiles": [
+    201,
+    93
+   ],
+   "counts": {
+    "tiles": 6234,
+    "placeables": 454,
+    "areas": 12
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741844.json",
+   "modelFiles": 29
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741845",
+   "sceneId": "1073741845",
+   "procedural": true,
+   "name": "%dungeon:m.graveyard_alone_in_dark",
+   "levelName": "Final Resting Place",
+   "tilesets": {
+    "Graveyard": 4574,
+    "Null, no-walk no-shoot": 5,
+    "Traps and Hazards": 1
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -51,
+    "maxX": 39,
+    "minY": -8,
+    "maxY": 239
+   },
+   "sizeTiles": [
+    91,
+    248
+   ],
+   "counts": {
+    "tiles": 4580,
+    "placeables": 383,
+    "areas": 0
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741845.json",
+   "modelFiles": 38
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741846",
+   "sceneId": "1073741846",
+   "procedural": true,
+   "name": "%dungeon:m.core_1",
+   "levelName": "The Core|A Step Beyond",
+   "tilesets": {
+    "Whitespace": 4084,
+    "Null, no-walk": 349,
+    "Clockworks White": 226,
+    "Clockworks": 40
+   },
+   "clockworksShare": 0.057,
+   "bounds": {
+    "minX": -92,
+    "maxX": 88,
+    "minY": -1020,
+    "maxY": 41
+   },
+   "sizeTiles": [
+    181,
+    1062
+   ],
+   "counts": {
+    "tiles": 4700,
+    "placeables": 546,
+    "areas": 2
+   },
+   "overlaps": 3,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741846.json",
+   "modelFiles": 29
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741848",
+   "sceneId": "1073741848",
+   "procedural": true,
+   "name": "%dungeon:m.core_1",
+   "levelName": "The Core|A Step Beyond",
+   "tilesets": {
+    "Whitespace": 3521,
+    "Null, no-walk": 255,
+    "Clockworks": 73,
+    "000_Dev": 1
+   },
+   "clockworksShare": 0.019,
+   "bounds": {
+    "minX": -94,
+    "maxX": 19,
+    "minY": -1020,
+    "maxY": 151
+   },
+   "sizeTiles": [
+    114,
+    1172
+   ],
+   "counts": {
+    "tiles": 3850,
+    "placeables": 451,
+    "areas": 7
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741848.json",
+   "modelFiles": 19
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741850",
+   "sceneId": "1073741850",
+   "procedural": true,
+   "name": "%dungeon:m.ct_construct_spark_roar",
+   "levelName": "The Cold March",
+   "tilesets": {
+    "Clockworks Freeze": 4811,
+    "Sky Islands, Winter": 3538
+   },
+   "clockworksShare": 0.576,
+   "bounds": {
+    "minX": -102,
+    "maxX": 24,
+    "minY": -236,
+    "maxY": 13
+   },
+   "sizeTiles": [
+    127,
+    250
+   ],
+   "counts": {
+    "tiles": 8349,
+    "placeables": 882,
+    "areas": 20
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741850.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741851",
+   "sceneId": "1073741851",
+   "procedural": true,
+   "name": "%dungeon:m.dz_freeze_spark_roar",
+   "levelName": "The Iron Tundra",
+   "tilesets": {
+    "Clockworks Freeze": 3805
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -19,
+    "maxX": 74,
+    "minY": -19,
+    "maxY": 63
+   },
+   "sizeTiles": [
+    94,
+    83
+   ],
+   "counts": {
+    "tiles": 3805,
+    "placeables": 411,
+    "areas": 2
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741851.json",
+   "modelFiles": 20
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741852",
+   "sceneId": "1073741852",
+   "procedural": true,
+   "name": "%dungeon:m.ima_construct_spark_roar",
+   "levelName": "The Bitter Battle",
+   "tilesets": {
+    "Clockworks Freeze": 5595
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -38,
+    "maxX": 36,
+    "minY": -5,
+    "maxY": 316
+   },
+   "sizeTiles": [
+    75,
+    322
+   ],
+   "counts": {
+    "tiles": 5595,
+    "placeables": 802,
+    "areas": 5
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741852.json",
+   "modelFiles": 50
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741856",
+   "sceneId": "1073741856",
+   "procedural": true,
+   "name": "%dungeon:m.wolver_den_fire_high_temperature_hostages",
+   "levelName": "Tracking",
+   "tilesets": {
+    "Sky Islands, Day": 4363
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -16,
+    "maxX": 172,
+    "minY": -40,
+    "maxY": 25
+   },
+   "sizeTiles": [
+    189,
+    66
+   ],
+   "counts": {
+    "tiles": 4363,
+    "placeables": 1063,
+    "areas": 4
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741856.json",
+   "modelFiles": 24
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741857",
+   "sceneId": "1073741857",
+   "procedural": true,
+   "name": "%dungeon:m.ww_fiend_plan_of_attack",
+   "levelName": "Toxic Cavern",
+   "tilesets": {
+    "Clockworks Poison": 5914
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -193,
+    "maxX": 12,
+    "minY": -24,
+    "maxY": 118
+   },
+   "sizeTiles": [
+    206,
+    143
+   ],
+   "counts": {
+    "tiles": 5914,
+    "placeables": 638,
+    "areas": 15
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741857.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741858",
+   "sceneId": "1073741858",
+   "procedural": true,
+   "name": "%dungeon:m.bf_construct_high_temperature_hostages",
+   "levelName": "Resistance",
+   "tilesets": {
+    "Clockworks Fire": 5790,
+    "Traps and Hazards": 6
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -123,
+    "maxX": 55,
+    "minY": -46,
+    "maxY": 78
+   },
+   "sizeTiles": [
+    179,
+    125
+   ],
+   "counts": {
+    "tiles": 5796,
+    "placeables": 440,
+    "areas": 30
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741858.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741859",
+   "sceneId": "1073741859",
+   "procedural": true,
+   "name": "%dungeon:m.ct_construct_toy_soldiers",
+   "levelName": "Factory Floor",
+   "tilesets": {
+    "Clockworks": 5507
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -93,
+    "maxX": 44,
+    "minY": -8,
+    "maxY": 103
+   },
+   "sizeTiles": [
+    138,
+    112
+   ],
+   "counts": {
+    "tiles": 5507,
+    "placeables": 383,
+    "areas": 13
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741859.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741860",
+   "sceneId": "1073741860",
+   "procedural": true,
+   "name": "%dungeon:m.dz_bp_knight_rescue_fire",
+   "levelName": "Extraction",
+   "tilesets": {
+    "Clockworks Fire": 5303
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -34,
+    "maxX": 48,
+    "minY": -19,
+    "maxY": 93
+   },
+   "sizeTiles": [
+    83,
+    113
+   ],
+   "counts": {
+    "tiles": 5303,
+    "placeables": 580,
+    "areas": 8
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741860.json",
+   "modelFiles": 24
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741861",
+   "sceneId": "1073741861",
+   "procedural": true,
+   "name": "%dungeon:m.bp_construct_toy_soldiers",
+   "levelName": "Production Center",
+   "tilesets": {
+    "Clockworks": 6673,
+    "Traps and Hazards": 9
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -45,
+    "maxX": 43,
+    "minY": -3,
+    "maxY": 194
+   },
+   "sizeTiles": [
+    89,
+    198
+   ],
+   "counts": {
+    "tiles": 6682,
+    "placeables": 326,
+    "areas": 8
+   },
+   "overlaps": 29,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741861.json",
+   "modelFiles": 27
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741864",
+   "sceneId": "1073741864",
+   "procedural": true,
+   "name": "%dungeon:m.ct_beast",
+   "levelName": "Clockwork Tunnels|Wild Path",
+   "tilesets": {
+    "Clockworks": 5701,
+    "Traps and Hazards": 20
+   },
+   "clockworksShare": 0.997,
+   "bounds": {
+    "minX": -45,
+    "maxX": 121,
+    "minY": -10,
+    "maxY": 119
+   },
+   "sizeTiles": [
+    167,
+    130
+   ],
+   "counts": {
+    "tiles": 5721,
+    "placeables": 674,
+    "areas": 20
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741864.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741866",
+   "sceneId": "1073741866",
+   "procedural": true,
+   "name": "%dungeon:m.graveyard_occurance_at_owlite_keep",
+   "levelName": "The Dead March",
+   "tilesets": {
+    "Graveyard": 4902,
+    "Traps and Hazards": 1
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -8,
+    "maxX": 159,
+    "minY": -98,
+    "maxY": 9
+   },
+   "sizeTiles": [
+    168,
+    108
+   ],
+   "counts": {
+    "tiles": 4903,
+    "placeables": 430,
+    "areas": 6
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741866.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741868",
+   "sceneId": "1073741868",
+   "procedural": true,
+   "name": "%dungeon:m.ck_freeze_owlite_tome",
+   "levelName": "The Forgotten Library",
+   "tilesets": {
+    "Castle": 6778,
+    "Graveyard": 309
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -25,
+    "maxX": 145,
+    "minY": -10,
+    "maxY": 134
+   },
+   "sizeTiles": [
+    171,
+    145
+   ],
+   "counts": {
+    "tiles": 7087,
+    "placeables": 621,
+    "areas": 18
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741868.json",
+   "modelFiles": 39
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741873",
+   "sceneId": "1073741873",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_poison_sewer_stash",
+   "levelName": "Wasteworks Access",
+   "tilesets": {
+    "Sky Islands, Night": 5280
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -31,
+    "maxX": 49,
+    "minY": -61,
+    "maxY": 161
+   },
+   "sizeTiles": [
+    81,
+    223
+   ],
+   "counts": {
+    "tiles": 5280,
+    "placeables": 637,
+    "areas": 9
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741873.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741874",
+   "sceneId": "1073741874",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_fire_terminal_meltdown",
+   "levelName": "Code Yellow",
+   "tilesets": {
+    "Sky Islands, Night": 4997
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -85,
+    "maxX": 25,
+    "minY": -1,
+    "maxY": 186
+   },
+   "sizeTiles": [
+    111,
+    188
+   ],
+   "counts": {
+    "tiles": 4997,
+    "placeables": 582,
+    "areas": 10
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741874.json",
+   "modelFiles": 22
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741875",
+   "sceneId": "1073741875",
+   "procedural": true,
+   "name": "%dungeon:m.wolver_den_fire_terminal_meltdown",
+   "levelName": "Code Orange",
+   "tilesets": {
+    "Sky Islands, Autumn": 5665,
+    "Clockworks Fire": 3371,
+    "Traps and Hazards": 42
+   },
+   "clockworksShare": 0.371,
+   "bounds": {
+    "minX": -13,
+    "maxX": 146,
+    "minY": -6,
+    "maxY": 206
+   },
+   "sizeTiles": [
+    160,
+    213
+   ],
+   "counts": {
+    "tiles": 9078,
+    "placeables": 1105,
+    "areas": 23
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741875.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741876",
+   "sceneId": "1073741876",
+   "procedural": true,
+   "name": "%dungeon:m.bf_slime_fuel_depot",
+   "levelName": "Red Alert",
+   "tilesets": {
+    "Clockworks Fire": 6278,
+    "Traps and Hazards": 7
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -192,
+    "maxX": 71,
+    "minY": -84,
+    "maxY": 10
+   },
+   "sizeTiles": [
+    264,
+    95
+   ],
+   "counts": {
+    "tiles": 6285,
+    "placeables": 773,
+    "areas": 18
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741876.json",
+   "modelFiles": 38
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741879",
+   "sceneId": "1073741879",
+   "procedural": true,
+   "name": "%dungeon:m.cc_beast_frostifur_fandango",
+   "levelName": "On the Hunt",
+   "tilesets": {
+    "Clockworks Freeze": 5329,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -146,
+    "maxX": 27,
+    "minY": -35,
+    "maxY": 97
+   },
+   "sizeTiles": [
+    174,
+    133
+   ],
+   "counts": {
+    "tiles": 5333,
+    "placeables": 561,
+    "areas": 17
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741879.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741880",
+   "sceneId": "1073741880",
+   "procedural": true,
+   "name": "%dungeon:m.cc_construct_crimson_chaos",
+   "levelName": "Frost Chamber",
+   "tilesets": {
+    "Clockworks Freeze": 6932
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -126,
+    "maxX": 6,
+    "minY": -6,
+    "maxY": 152
+   },
+   "sizeTiles": [
+    133,
+    159
+   ],
+   "counts": {
+    "tiles": 6932,
+    "placeables": 530,
+    "areas": 30
+   },
+   "overlaps": 11,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741880.json",
+   "modelFiles": 29
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741881",
+   "sceneId": "1073741881",
+   "procedural": true,
+   "name": "%dungeon:m.wolver_den_freeze_frostifur_fandango",
+   "levelName": "Den of the Snowclaw Pack",
+   "tilesets": {
+    "Sky Islands, Day": 4418
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -53,
+    "maxX": 18,
+    "minY": -129,
+    "maxY": 30
+   },
+   "sizeTiles": [
+    72,
+    160
+   ],
+   "counts": {
+    "tiles": 4418,
+    "placeables": 1045,
+    "areas": 5
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741881.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741882",
+   "sceneId": "1073741882",
+   "procedural": true,
+   "name": "%dungeon:m.compound_freeze_crimson_chaos",
+   "levelName": "The Frozen Compound",
+   "tilesets": {
+    "Clockworks Freeze": 6380,
+    "Sky Islands, Winter": 5649,
+    "Traps and Hazards": 26
+   },
+   "clockworksShare": 0.529,
+   "bounds": {
+    "minX": -13,
+    "maxX": 229,
+    "minY": -199,
+    "maxY": 13
+   },
+   "sizeTiles": [
+    243,
+    213
+   ],
+   "counts": {
+    "tiles": 12055,
+    "placeables": 1120,
+    "areas": 25
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741882.json",
+   "modelFiles": 82
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741883",
+   "sceneId": "1073741883",
+   "procedural": true,
+   "name": "%dungeon:m.candlestick_keep_poison_weight_of_darkness",
+   "levelName": "The Forsaken",
+   "tilesets": {
+    "Castle": 5839
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -122,
+    "maxX": 60,
+    "minY": -129,
+    "maxY": 15
+   },
+   "sizeTiles": [
+    183,
+    145
+   ],
+   "counts": {
+    "tiles": 5839,
+    "placeables": 471,
+    "areas": 17
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741883.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741884",
+   "sceneId": "1073741884",
+   "procedural": true,
+   "name": "%dungeon:m.devilish_drudgery_poison_weight_of_darkness",
+   "levelName": "Inner Demons",
+   "tilesets": {
+    "City, Base": 3594,
+    "Null, no-walk no-shoot": 58,
+    "Traps and Hazards": 21
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -109,
+    "maxX": 23,
+    "minY": -11,
+    "maxY": 124
+   },
+   "sizeTiles": [
+    133,
+    136
+   ],
+   "counts": {
+    "tiles": 3673,
+    "placeables": 894,
+    "areas": 13
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741884.json",
+   "modelFiles": 35
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741885",
+   "sceneId": "1073741885",
+   "procedural": true,
+   "name": "%dungeon:m.vfa_undead_weight_of_darkness",
+   "levelName": "Eternal Struggle",
+   "tilesets": {
+    "Clockworks Poison": 5800
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -38,
+    "maxX": 36,
+    "minY": -13,
+    "maxY": 321
+   },
+   "sizeTiles": [
+    75,
+    335
+   ],
+   "counts": {
+    "tiles": 5800,
+    "placeables": 869,
+    "areas": 6
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741885.json",
+   "modelFiles": 45
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741886",
+   "sceneId": "1073741886",
+   "procedural": true,
+   "name": "%dungeon:m.cc_undead_chilled_to_bone",
+   "levelName": "The Cold Approach",
+   "tilesets": {
+    "Clockworks Freeze": 4297,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -123,
+    "maxX": 31,
+    "minY": -6,
+    "maxY": 133
+   },
+   "sizeTiles": [
+    155,
+    140
+   ],
+   "counts": {
+    "tiles": 4301,
+    "placeables": 730,
+    "areas": 18
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741886.json",
+   "modelFiles": 30
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741887",
+   "sceneId": "1073741887",
+   "procedural": true,
+   "name": "%dungeon:m.ct_construct_breakingin_recruits",
+   "levelName": "The Underworks",
+   "tilesets": {
+    "Clockworks": 7526,
+    "Null": 65,
+    "Traps and Hazards": 64
+   },
+   "clockworksShare": 0.983,
+   "bounds": {
+    "minX": -198,
+    "maxX": 98,
+    "minY": -5,
+    "maxY": 445
+   },
+   "sizeTiles": [
+    297,
+    451
+   ],
+   "counts": {
+    "tiles": 7655,
+    "placeables": 1365,
+    "areas": 20
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741887.json",
+   "modelFiles": 51
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741889",
+   "sceneId": "1073741889",
+   "procedural": true,
+   "name": "%dungeon:m.bf_fiend_work_idle_hands",
+   "levelName": "Tired of Brimstone",
+   "tilesets": {
+    "Clockworks Fire": 4385
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -90,
+    "maxX": 67,
+    "minY": -17,
+    "maxY": 79
+   },
+   "sizeTiles": [
+    158,
+    97
+   ],
+   "counts": {
+    "tiles": 4385,
+    "placeables": 637,
+    "areas": 13
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741889.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741890",
+   "sceneId": "1073741890",
+   "procedural": true,
+   "name": "%dungeon:m.dd_office_party_vanilla",
+   "levelName": "Devilish Drudgery",
+   "tilesets": {
+    "City, Base": 3984,
+    "Null, no-walk no-shoot": 82,
+    "Traps and Hazards": 12
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -104,
+    "maxX": 34,
+    "minY": -6,
+    "maxY": 130
+   },
+   "sizeTiles": [
+    139,
+    137
+   ],
+   "counts": {
+    "tiles": 4078,
+    "placeables": 914,
+    "areas": 9
+   },
+   "overlaps": 10,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741890.json",
+   "modelFiles": 50
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741896",
+   "sceneId": "1073741896",
+   "procedural": true,
+   "name": "%dungeon:m.ct_beast_in_cold_blood",
+   "levelName": "Killer Trail",
+   "tilesets": {
+    "Clockworks": 6627
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -10,
+    "maxX": 214,
+    "minY": -176,
+    "maxY": 10
+   },
+   "sizeTiles": [
+    225,
+    187
+   ],
+   "counts": {
+    "tiles": 6627,
+    "placeables": 529,
+    "areas": 36
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741896.json",
+   "modelFiles": 34
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741897",
+   "sceneId": "1073741897",
+   "procedural": true,
+   "name": "%dungeon:m.cc_slime_in_cold_blood",
+   "levelName": "Ice Cube Alley",
+   "tilesets": {
+    "Clockworks Freeze": 6049
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -19,
+    "maxX": 235,
+    "minY": -76,
+    "maxY": 20
+   },
+   "sizeTiles": [
+    255,
+    97
+   ],
+   "counts": {
+    "tiles": 6049,
+    "placeables": 602,
+    "areas": 9
+   },
+   "overlaps": 11,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741897.json",
+   "modelFiles": 27
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741901",
+   "sceneId": "1073741901",
+   "procedural": true,
+   "name": "%dungeon:m.pc_construct_great_escape",
+   "levelName": "Prison Approach",
+   "tilesets": {
+    "Clockworks Shock": 4817
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -140,
+    "maxX": 4,
+    "minY": -34,
+    "maxY": 154
+   },
+   "sizeTiles": [
+    145,
+    189
+   ],
+   "counts": {
+    "tiles": 4817,
+    "placeables": 454,
+    "areas": 20
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741901.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741902",
+   "sceneId": "1073741902",
+   "procedural": true,
+   "name": "%dungeon:m.bp_cc_gremlin_great_escape",
+   "levelName": "The Yard",
+   "tilesets": {
+    "Clockworks Freeze": 7507,
+    "Traps and Hazards": 6
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -45,
+    "maxX": 43,
+    "minY": -3,
+    "maxY": 232
+   },
+   "sizeTiles": [
+    89,
+    236
+   ],
+   "counts": {
+    "tiles": 7513,
+    "placeables": 668,
+    "areas": 12
+   },
+   "overlaps": 31,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741902.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741903",
+   "sceneId": "1073741903",
+   "procedural": true,
+   "name": "%dungeon:m.ww_undead_great_escape",
+   "levelName": "Down the Drain",
+   "tilesets": {
+    "Clockworks Poison": 5092,
+    "Traps and Hazards": 22
+   },
+   "clockworksShare": 0.996,
+   "bounds": {
+    "minX": -11,
+    "maxX": 71,
+    "minY": -165,
+    "maxY": 46
+   },
+   "sizeTiles": [
+    83,
+    212
+   ],
+   "counts": {
+    "tiles": 5114,
+    "placeables": 527,
+    "areas": 9
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741903.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741904",
+   "sceneId": "1073741904",
+   "procedural": true,
+   "name": "%dungeon:m.iea_slime_noexit_rise_or_fall",
+   "levelName": "Showdown",
+   "tilesets": {
+    "Clockworks": 6210
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -26,
+    "maxX": 45,
+    "minY": -4,
+    "maxY": 320
+   },
+   "sizeTiles": [
+    72,
+    325
+   ],
+   "counts": {
+    "tiles": 6210,
+    "placeables": 822,
+    "areas": 6
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741904.json",
+   "modelFiles": 45
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741920",
+   "sceneId": "1073741920",
+   "procedural": true,
+   "name": "%dungeon:m.candlestick_keep_shock_from_below",
+   "levelName": "Haunted Halls",
+   "tilesets": {
+    "Castle": 6429
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -119,
+    "maxX": 28,
+    "minY": -10,
+    "maxY": 123
+   },
+   "sizeTiles": [
+    148,
+    134
+   ],
+   "counts": {
+    "tiles": 6429,
+    "placeables": 522,
+    "areas": 16
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741920.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmain",
+   "file": "1073741922",
+   "sceneId": "1073741922",
+   "procedural": true,
+   "name": "%dungeon:m.cc_fiend_frombelow",
+   "levelName": "Into the Maw",
+   "tilesets": {
+    "Clockworks Freeze": 6300,
+    "Traps and Hazards": 22
+   },
+   "clockworksShare": 0.997,
+   "bounds": {
+    "minX": -71,
+    "maxX": 105,
+    "minY": -78,
+    "maxY": 53
+   },
+   "sizeTiles": [
+    177,
+    132
+   ],
+   "counts": {
+    "tiles": 6322,
+    "placeables": 534,
+    "areas": 10
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__1073741922.json",
+   "modelFiles": 39
+  },
+  {
+   "folder": "scenesmain",
+   "file": "158",
+   "sceneId": "158",
+   "procedural": false,
+   "name": "%building:~",
+   "levelName": "%building:~",
+   "tilesets": {},
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": 0,
+    "maxX": 0,
+    "minY": 0,
+    "maxY": 0
+   },
+   "sizeTiles": [
+    1,
+    1
+   ],
+   "counts": {
+    "tiles": 0,
+    "placeables": 14,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__158.json",
+   "modelFiles": 4
+  },
+  {
+   "folder": "scenesmain",
+   "file": "2",
+   "sceneId": "2",
+   "procedural": false,
+   "name": "%town:m.haven_bazaar",
+   "levelName": "Haven|Bazaar",
+   "tilesets": {
+    "Haven": 8930,
+    "Clockworks": 15,
+    "Water": 9
+   },
+   "clockworksShare": 0.002,
+   "bounds": {
+    "minX": -68,
+    "maxX": 60,
+    "minY": -25,
+    "maxY": 59
+   },
+   "sizeTiles": [
+    129,
+    85
+   ],
+   "counts": {
+    "tiles": 8954,
+    "placeables": 1084,
+    "areas": 2
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__2.json",
+   "modelFiles": 75
+  },
+  {
+   "folder": "scenesmain",
+   "file": "217",
+   "sceneId": "217",
+   "procedural": false,
+   "name": "%town:m.rescue_camp_state_1",
+   "levelName": "Rescue Camp|Before Night Falls",
+   "tilesets": {
+    "Haven": 3638,
+    "Clockworks": 328,
+    "Null": 9
+   },
+   "clockworksShare": 0.083,
+   "bounds": {
+    "minX": -32,
+    "maxX": 47,
+    "minY": -26,
+    "maxY": 66
+   },
+   "sizeTiles": [
+    80,
+    93
+   ],
+   "counts": {
+    "tiles": 3975,
+    "placeables": 623,
+    "areas": 2
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__217.json",
+   "modelFiles": 66
+  },
+  {
+   "folder": "scenesmain",
+   "file": "218",
+   "sceneId": "218",
+   "procedural": false,
+   "name": "%town:m.rescue_camp_state_2",
+   "levelName": "Rescue Camp|Light in the Darkness",
+   "tilesets": {
+    "Haven": 3638,
+    "Clockworks": 328,
+    "Null": 9
+   },
+   "clockworksShare": 0.083,
+   "bounds": {
+    "minX": -32,
+    "maxX": 47,
+    "minY": -26,
+    "maxY": 66
+   },
+   "sizeTiles": [
+    80,
+    93
+   ],
+   "counts": {
+    "tiles": 3975,
+    "placeables": 665,
+    "areas": 0
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__218.json",
+   "modelFiles": 67
+  },
+  {
+   "folder": "scenesmain",
+   "file": "242",
+   "sceneId": "242",
+   "procedural": false,
+   "name": "%dungeon:m.lost_castle_cravat_hall_2_timeenoughatlast",
+   "levelName": "The Rambling Arcade",
+   "tilesets": {
+    "Castle": 4983,
+    "Haven": 18,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -19,
+    "maxX": 85,
+    "minY": -15,
+    "maxY": 67
+   },
+   "sizeTiles": [
+    105,
+    83
+   ],
+   "counts": {
+    "tiles": 5005,
+    "placeables": 424,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__242.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmain",
+   "file": "244",
+   "sceneId": "244",
+   "procedural": false,
+   "name": "%dungeon:m.lost_castle_cravat_hall_3_occuranceatowlitekeep",
+   "levelName": "The Hall of Remembrance",
+   "tilesets": {
+    "Castle": 5321
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -24,
+    "maxX": 68,
+    "minY": -7,
+    "maxY": 80
+   },
+   "sizeTiles": [
+    93,
+    88
+   ],
+   "counts": {
+    "tiles": 5321,
+    "placeables": 348,
+    "areas": 5
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__244.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "scenesmain",
+   "file": "247",
+   "sceneId": "247",
+   "procedural": false,
+   "name": "%dungeon:m.lost_castle_spiral_court_2_timeenoughatlast",
+   "levelName": "Inner Court",
+   "tilesets": {
+    "Castle": 1918,
+    "Traps and Hazards": 6
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -34,
+    "maxX": 23,
+    "minY": -20,
+    "maxY": 32
+   },
+   "sizeTiles": [
+    58,
+    53
+   ],
+   "counts": {
+    "tiles": 1924,
+    "placeables": 299,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__247.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "scenesmain",
+   "file": "251",
+   "sceneId": "251",
+   "procedural": false,
+   "name": "%dungeon:m.royal_jelly_court",
+   "levelName": "Royal Jelly Palace|Red Carpet Runaround",
+   "tilesets": {
+    "Castle": 6610,
+    "Haven": 402,
+    "Traps and Hazards": 42,
+    "Clockworks": 23
+   },
+   "clockworksShare": 0.003,
+   "bounds": {
+    "minX": -59,
+    "maxX": 49,
+    "minY": -59,
+    "maxY": 103
+   },
+   "sizeTiles": [
+    109,
+    163
+   ],
+   "counts": {
+    "tiles": 7077,
+    "placeables": 946,
+    "areas": 16
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__251.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25129",
+   "sceneId": "25129",
+   "procedural": false,
+   "name": "%dungeon:m.mission_seraphynx_1",
+   "levelName": "Restless Railroad",
+   "tilesets": {
+    "Castle": 3278,
+    "Graveyard": 303,
+    "Moorcroft": 8,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -11,
+    "maxX": 101,
+    "minY": -13,
+    "maxY": 40
+   },
+   "sizeTiles": [
+    113,
+    54
+   ],
+   "counts": {
+    "tiles": 3600,
+    "placeables": 443,
+    "areas": 14
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25129.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25131",
+   "sceneId": "25131",
+   "procedural": false,
+   "name": "%dungeon:m.haven_laboratory",
+   "levelName": "The Lab",
+   "tilesets": {
+    "Clockworks": 2123,
+    "Haven": 608
+   },
+   "clockworksShare": 0.777,
+   "bounds": {
+    "minX": -38,
+    "maxX": 26,
+    "minY": -13,
+    "maxY": 57
+   },
+   "sizeTiles": [
+    65,
+    71
+   ],
+   "counts": {
+    "tiles": 2731,
+    "placeables": 314,
+    "areas": 1
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25131.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25133",
+   "sceneId": "25133",
+   "procedural": false,
+   "name": "%dungeon:m.haven_laboratory",
+   "levelName": "The Lab",
+   "tilesets": {
+    "Clockworks": 2123,
+    "Haven": 608
+   },
+   "clockworksShare": 0.777,
+   "bounds": {
+    "minX": -38,
+    "maxX": 26,
+    "minY": -13,
+    "maxY": 57
+   },
+   "sizeTiles": [
+    65,
+    71
+   ],
+   "counts": {
+    "tiles": 2731,
+    "placeables": 312,
+    "areas": 2
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25133.json",
+   "modelFiles": 67
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25134",
+   "sceneId": "25134",
+   "procedural": false,
+   "name": "%dungeon:m.haven_laboratory",
+   "levelName": "The Lab",
+   "tilesets": {
+    "Clockworks": 2123,
+    "Haven": 608
+   },
+   "clockworksShare": 0.777,
+   "bounds": {
+    "minX": -38,
+    "maxX": 26,
+    "minY": -13,
+    "maxY": 57
+   },
+   "sizeTiles": [
+    65,
+    71
+   ],
+   "counts": {
+    "tiles": 2731,
+    "placeables": 313,
+    "areas": 2
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25134.json",
+   "modelFiles": 67
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25135",
+   "sceneId": "25135",
+   "procedural": false,
+   "name": "%dungeon:m.haven_laboratory",
+   "levelName": "The Lab",
+   "tilesets": {
+    "Clockworks": 2123,
+    "Haven": 608
+   },
+   "clockworksShare": 0.777,
+   "bounds": {
+    "minX": -38,
+    "maxX": 26,
+    "minY": -13,
+    "maxY": 57
+   },
+   "sizeTiles": [
+    65,
+    71
+   ],
+   "counts": {
+    "tiles": 2731,
+    "placeables": 314,
+    "areas": 2
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25135.json",
+   "modelFiles": 67
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25136",
+   "sceneId": "25136",
+   "procedural": false,
+   "name": "%dungeon:m.mission_drakon_2",
+   "levelName": "Frigid Passage",
+   "tilesets": {
+    "Clockworks Freeze": 3130,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -66,
+    "maxX": 4,
+    "minY": -109,
+    "maxY": 7
+   },
+   "sizeTiles": [
+    71,
+    117
+   ],
+   "counts": {
+    "tiles": 3134,
+    "placeables": 374,
+    "areas": 10
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25136.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25137",
+   "sceneId": "25137",
+   "procedural": false,
+   "name": "%dungeon:m.mission_maskewraith_1",
+   "levelName": "Creeping Cavern",
+   "tilesets": {
+    "Haven": 5684,
+    "Clockworks Poison": 5049
+   },
+   "clockworksShare": 0.47,
+   "bounds": {
+    "minX": -23,
+    "maxX": 175,
+    "minY": -63,
+    "maxY": 35
+   },
+   "sizeTiles": [
+    199,
+    99
+   ],
+   "counts": {
+    "tiles": 10733,
+    "placeables": 702,
+    "areas": 20
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25137.json",
+   "modelFiles": 77
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25138",
+   "sceneId": "25138",
+   "procedural": false,
+   "name": "%dungeon:m.mission_maskewraith_2",
+   "levelName": "Emergency Outflow",
+   "tilesets": {
+    "Clockworks": 3655,
+    "Traps and Hazards": 24
+   },
+   "clockworksShare": 0.993,
+   "bounds": {
+    "minX": -91,
+    "maxX": 4,
+    "minY": -8,
+    "maxY": 141
+   },
+   "sizeTiles": [
+    96,
+    150
+   ],
+   "counts": {
+    "tiles": 3679,
+    "placeables": 446,
+    "areas": 6
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25138.json",
+   "modelFiles": 38
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25139",
+   "sceneId": "25139",
+   "procedural": false,
+   "name": "%dungeon:m.mission_seraphynx_2",
+   "levelName": "End of the Line",
+   "tilesets": {
+    "Clockworks": 3620,
+    "Traps and Hazards": 10
+   },
+   "clockworksShare": 0.997,
+   "bounds": {
+    "minX": -54,
+    "maxX": 55,
+    "minY": -8,
+    "maxY": 91
+   },
+   "sizeTiles": [
+    110,
+    100
+   ],
+   "counts": {
+    "tiles": 3630,
+    "placeables": 433,
+    "areas": 8
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25139.json",
+   "modelFiles": 39
+  },
+  {
+   "folder": "scenesmain",
+   "file": "25140",
+   "sceneId": "25140",
+   "procedural": false,
+   "name": "%dungeon:m.mission_drakon_1",
+   "levelName": "Sunset Steppes",
+   "tilesets": {
+    "Sky Islands, Autumn": 6409,
+    "Clockworks": 1860,
+    "Traps and Hazards": 1
+   },
+   "clockworksShare": 0.225,
+   "bounds": {
+    "minX": -21,
+    "maxX": 74,
+    "minY": -48,
+    "maxY": 132
+   },
+   "sizeTiles": [
+    96,
+    181
+   ],
+   "counts": {
+    "tiles": 8270,
+    "placeables": 623,
+    "areas": 19
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__25140.json",
+   "modelFiles": 45
+  },
+  {
+   "folder": "scenesmain",
+   "file": "253",
+   "sceneId": "253",
+   "procedural": false,
+   "name": "%dungeon:m.royal_jelly_garden",
+   "levelName": "Royal Jelly Palace|Garden of Goo",
+   "tilesets": {
+    "Haven": 3979,
+    "Castle": 2803,
+    "Water": 72,
+    "Traps and Hazards": 40
+   },
+   "clockworksShare": 0.005,
+   "bounds": {
+    "minX": -58,
+    "maxX": 55,
+    "minY": -5,
+    "maxY": 144
+   },
+   "sizeTiles": [
+    114,
+    150
+   ],
+   "counts": {
+    "tiles": 6926,
+    "placeables": 519,
+    "areas": 1
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__253.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmain",
+   "file": "255",
+   "sceneId": "255",
+   "procedural": false,
+   "name": "%dungeon:m.royal_jelly_lair",
+   "levelName": "Royal Jelly Palace|Battle Royale",
+   "tilesets": {
+    "Castle": 1613,
+    "Haven": 165,
+    "Water": 88,
+    "Clockworks": 48
+   },
+   "clockworksShare": 0.025,
+   "bounds": {
+    "minX": -15,
+    "maxX": 15,
+    "minY": -37,
+    "maxY": 62
+   },
+   "sizeTiles": [
+    31,
+    100
+   ],
+   "counts": {
+    "tiles": 1915,
+    "placeables": 325,
+    "areas": 0
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__255.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmain",
+   "file": "259",
+   "sceneId": "259",
+   "procedural": false,
+   "name": "%dungeon:m.scarlet_fortress_grim_gallery_eternalstudy",
+   "levelName": "Eternal Study",
+   "tilesets": {
+    "Castle": 7318,
+    "Traps and Hazards": 37
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -78,
+    "maxX": 62,
+    "minY": -34,
+    "maxY": 87
+   },
+   "sizeTiles": [
+    141,
+    122
+   ],
+   "counts": {
+    "tiles": 7355,
+    "placeables": 612,
+    "areas": 18
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__259.json",
+   "modelFiles": 42
+  },
+  {
+   "folder": "scenesmain",
+   "file": "261",
+   "sceneId": "261",
+   "procedural": false,
+   "name": "%dungeon:m.scarlet_fortress_trojan_graveyard",
+   "levelName": "Cryptic Statuary",
+   "tilesets": {
+    "Haven": 2249,
+    "Castle, Light": 1984,
+    "Water": 273
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -42,
+    "maxX": 34,
+    "minY": -44,
+    "maxY": 107
+   },
+   "sizeTiles": [
+    77,
+    152
+   ],
+   "counts": {
+    "tiles": 4506,
+    "placeables": 461,
+    "areas": 6
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__261.json",
+   "modelFiles": 49
+  },
+  {
+   "folder": "scenesmain",
+   "file": "262",
+   "sceneId": "262",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_ash_armory",
+   "levelName": "Firestorm Citadel|Ashen Armory",
+   "tilesets": {
+    "Castle, Fire": 8165,
+    "Traps and Hazards": 101
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -38,
+    "maxX": 54,
+    "minY": -5,
+    "maxY": 272
+   },
+   "sizeTiles": [
+    93,
+    278
+   ],
+   "counts": {
+    "tiles": 8266,
+    "placeables": 728,
+    "areas": 12
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__262.json",
+   "modelFiles": 45
+  },
+  {
+   "folder": "scenesmain",
+   "file": "264",
+   "sceneId": "264",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_blackstone_bridge",
+   "levelName": "Firestorm Citadel|Blackstone Bridge",
+   "tilesets": {
+    "Castle, Fire": 6269,
+    "Traps and Hazards": 20
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -35,
+    "maxX": 36,
+    "minY": -35,
+    "maxY": 191
+   },
+   "sizeTiles": [
+    72,
+    227
+   ],
+   "counts": {
+    "tiles": 6289,
+    "placeables": 581,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__264.json",
+   "modelFiles": 29
+  },
+  {
+   "folder": "scenesmain",
+   "file": "266",
+   "sceneId": "266",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_charred_court",
+   "levelName": "Firestorm Citadel|Charred Court",
+   "tilesets": {
+    "Castle, Fire": 9292,
+    "Traps and Hazards": 36
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -69,
+    "maxX": 70,
+    "minY": -80,
+    "maxY": 59
+   },
+   "sizeTiles": [
+    140,
+    140
+   ],
+   "counts": {
+    "tiles": 9328,
+    "placeables": 746,
+    "areas": 17
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__266.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmain",
+   "file": "268",
+   "sceneId": "268",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_smoldering_steps",
+   "levelName": "Firestorm Citadel|Smoldering Steps",
+   "tilesets": {
+    "Castle, Fire": 5928,
+    "Traps and Hazards": 84
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -22,
+    "maxX": 21,
+    "minY": -15,
+    "maxY": 238
+   },
+   "sizeTiles": [
+    44,
+    254
+   ],
+   "counts": {
+    "tiles": 6012,
+    "placeables": 830,
+    "areas": 12
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__268.json",
+   "modelFiles": 40
+  },
+  {
+   "folder": "scenesmain",
+   "file": "270",
+   "sceneId": "270",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_vanaduke",
+   "levelName": "Firestorm Citadel|Throne Room",
+   "tilesets": {
+    "Castle, Fire": 4808,
+    "Clockworks": 3,
+    "Ancient Altar": 1
+   },
+   "clockworksShare": 0.001,
+   "bounds": {
+    "minX": -44,
+    "maxX": 40,
+    "minY": -42,
+    "maxY": 88
+   },
+   "sizeTiles": [
+    85,
+    131
+   ],
+   "counts": {
+    "tiles": 4812,
+    "placeables": 213,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__270.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmain",
+   "file": "273",
+   "sceneId": "273",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_blight_boulevard_rottingmetropolis",
+   "levelName": "Streets of Decay",
+   "tilesets": {
+    "City, Base": 3263,
+    "Null, no-walk no-shoot": 55,
+    "Null": 8
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -12,
+    "maxX": 59,
+    "minY": -25,
+    "maxY": 63
+   },
+   "sizeTiles": [
+    72,
+    89
+   ],
+   "counts": {
+    "tiles": 3326,
+    "placeables": 853,
+    "areas": 1
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__273.json",
+   "modelFiles": 44
+  },
+  {
+   "folder": "scenesmain",
+   "file": "275",
+   "sceneId": "275",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_blight_boulevard_2_rottingmetropolis",
+   "levelName": "Streets of Decay",
+   "tilesets": {
+    "City, Base": 3465,
+    "Null, no-walk no-shoot": 55
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -58,
+    "maxX": 24,
+    "minY": -30,
+    "maxY": 63
+   },
+   "sizeTiles": [
+    83,
+    94
+   ],
+   "counts": {
+    "tiles": 3520,
+    "placeables": 899,
+    "areas": 2
+   },
+   "overlaps": 9,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__275.json",
+   "modelFiles": 40
+  },
+  {
+   "folder": "scenesmain",
+   "file": "277",
+   "sceneId": "277",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_miniboss_deadsquad",
+   "levelName": "Citizen Uprising",
+   "tilesets": {
+    "City, Base": 2918,
+    "Null, no-walk no-shoot": 36
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -100,
+    "maxX": 16,
+    "minY": -23,
+    "maxY": 49
+   },
+   "sizeTiles": [
+    117,
+    73
+   ],
+   "counts": {
+    "tiles": 2954,
+    "placeables": 637,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__277.json",
+   "modelFiles": 40
+  },
+  {
+   "folder": "scenesmain",
+   "file": "27911",
+   "sceneId": "27911",
+   "procedural": false,
+   "name": "%dungeon:m.haven_laboratory",
+   "levelName": "The Lab",
+   "tilesets": {
+    "Clockworks": 2123,
+    "Haven": 596
+   },
+   "clockworksShare": 0.781,
+   "bounds": {
+    "minX": -38,
+    "maxX": 26,
+    "minY": -13,
+    "maxY": 57
+   },
+   "sizeTiles": [
+    65,
+    71
+   ],
+   "counts": {
+    "tiles": 2719,
+    "placeables": 336,
+    "areas": 2
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__27911.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmain",
+   "file": "27912",
+   "sceneId": "27912",
+   "procedural": false,
+   "name": "%dungeon:%town:m.haven",
+   "levelName": "Haven",
+   "tilesets": {
+    "Haven": 5644,
+    "Castle, Light": 113,
+    "Null, no-walk no-shoot": 10,
+    "Null": 5
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -31,
+    "maxX": 81,
+    "minY": -30,
+    "maxY": 39
+   },
+   "sizeTiles": [
+    113,
+    70
+   ],
+   "counts": {
+    "tiles": 5772,
+    "placeables": 933,
+    "areas": 5
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__27912.json",
+   "modelFiles": 77
+  },
+  {
+   "folder": "scenesmain",
+   "file": "280",
+   "sceneId": "280",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_totem_trouble_rottingmetropolis",
+   "levelName": "Further Decline",
+   "tilesets": {
+    "City, Base": 4073,
+    "Null, no-walk no-shoot": 119,
+    "Null": 16
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -87,
+    "maxX": 59,
+    "minY": -36,
+    "maxY": 36
+   },
+   "sizeTiles": [
+    147,
+    73
+   ],
+   "counts": {
+    "tiles": 4208,
+    "placeables": 1040,
+    "areas": 2
+   },
+   "overlaps": 14,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__280.json",
+   "modelFiles": 47
+  },
+  {
+   "folder": "scenesmain",
+   "file": "282",
+   "sceneId": "282",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_totem_trouble_2_rottingmetropolis",
+   "levelName": "Further Decline",
+   "tilesets": {
+    "City, Base": 3838,
+    "Null, no-walk no-shoot": 89,
+    "Traps and Hazards": 7
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 55,
+    "minY": -11,
+    "maxY": 73
+   },
+   "sizeTiles": [
+    89,
+    85
+   ],
+   "counts": {
+    "tiles": 3934,
+    "placeables": 846,
+    "areas": 6
+   },
+   "overlaps": 13,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__282.json",
+   "modelFiles": 49
+  },
+  {
+   "folder": "scenesmain",
+   "file": "287",
+   "sceneId": "287",
+   "procedural": false,
+   "name": "%dungeon:m.dark_city_devilish_drudgery_4_returnofur",
+   "levelName": "Dimensional Shift",
+   "tilesets": {
+    "City, Base": 3304,
+    "Null, no-walk no-shoot": 99
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -81,
+    "maxX": 26,
+    "minY": -24,
+    "maxY": 36
+   },
+   "sizeTiles": [
+    108,
+    61
+   ],
+   "counts": {
+    "tiles": 3403,
+    "placeables": 482,
+    "areas": 5
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__287.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmain",
+   "file": "289",
+   "sceneId": "289",
+   "procedural": false,
+   "name": "%dungeon:m.dark_city_devilish_drudgery_5_returnofur",
+   "levelName": "Dimensional Shift",
+   "tilesets": {
+    "City, Base": 1950,
+    "Null, no-walk no-shoot": 12
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -13,
+    "maxX": 55,
+    "minY": -11,
+    "maxY": 40
+   },
+   "sizeTiles": [
+    69,
+    52
+   ],
+   "counts": {
+    "tiles": 1962,
+    "placeables": 555,
+    "areas": 2
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__289.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmain",
+   "file": "28906",
+   "sceneId": "28906",
+   "procedural": false,
+   "name": "%dungeon:m.advanced_training",
+   "levelName": "Advanced Training Hall",
+   "tilesets": {
+    "Clockworks": 1712,
+    "Clockworks Shock": 594,
+    "Haven": 422,
+    "Traps and Hazards": 13
+   },
+   "clockworksShare": 0.841,
+   "bounds": {
+    "minX": -28,
+    "maxX": 51,
+    "minY": -67,
+    "maxY": 30
+   },
+   "sizeTiles": [
+    80,
+    98
+   ],
+   "counts": {
+    "tiles": 2741,
+    "placeables": 491,
+    "areas": 4
+   },
+   "overlaps": 10,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__28906.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmain",
+   "file": "291",
+   "sceneId": "291",
+   "procedural": false,
+   "name": "%dungeon:m.dark_city_devilish_drudgery_6_returnofur",
+   "levelName": "The Summoning Circle",
+   "tilesets": {
+    "City, Base": 3443,
+    "Null, no-walk no-shoot": 77
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -9,
+    "maxX": 81,
+    "minY": -33,
+    "maxY": 36
+   },
+   "sizeTiles": [
+    91,
+    70
+   ],
+   "counts": {
+    "tiles": 3520,
+    "placeables": 492,
+    "areas": 3
+   },
+   "overlaps": 3,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__291.json",
+   "modelFiles": 41
+  },
+  {
+   "folder": "scenesmain",
+   "file": "293",
+   "sceneId": "293",
+   "procedural": false,
+   "name": "%dungeon:m.dark_city_miniboss_returnofur",
+   "levelName": "Banishment",
+   "tilesets": {
+    "City, Base": 2610,
+    "Null, no-walk no-shoot": 77,
+    "Null": 72,
+    "Null, no-walk": 26
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -11,
+    "maxX": 67,
+    "minY": -4,
+    "maxY": 92
+   },
+   "sizeTiles": [
+    79,
+    97
+   ],
+   "counts": {
+    "tiles": 2785,
+    "placeables": 441,
+    "areas": 1
+   },
+   "overlaps": 10,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__293.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmain",
+   "file": "294",
+   "sceneId": "294",
+   "procedural": false,
+   "name": "%dungeon:m.advanced_training",
+   "levelName": "Advanced Training Hall",
+   "tilesets": {
+    "Clockworks": 1712,
+    "Clockworks Shock": 594,
+    "Haven": 422,
+    "Traps and Hazards": 13
+   },
+   "clockworksShare": 0.841,
+   "bounds": {
+    "minX": -28,
+    "maxX": 51,
+    "minY": -67,
+    "maxY": 30
+   },
+   "sizeTiles": [
+    80,
+    98
+   ],
+   "counts": {
+    "tiles": 2741,
+    "placeables": 484,
+    "areas": 3
+   },
+   "overlaps": 10,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__294.json",
+   "modelFiles": 64
+  },
+  {
+   "folder": "scenesmain",
+   "file": "3",
+   "sceneId": "3",
+   "procedural": false,
+   "name": "%town:m.haven_arcade",
+   "levelName": "Haven|Arcade",
+   "tilesets": {
+    "Haven": 1016,
+    "Clockworks": 554,
+    "Null": 26
+   },
+   "clockworksShare": 0.347,
+   "bounds": {
+    "minX": -55,
+    "maxX": 59,
+    "minY": -18,
+    "maxY": 21
+   },
+   "sizeTiles": [
+    115,
+    40
+   ],
+   "counts": {
+    "tiles": 1596,
+    "placeables": 572,
+    "areas": 3
+   },
+   "overlaps": 26,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__3.json",
+   "modelFiles": 72
+  },
+  {
+   "folder": "scenesmain",
+   "file": "30893",
+   "sceneId": "30893",
+   "procedural": false,
+   "name": "%dungeon:m.haven_laboratory",
+   "levelName": "The Lab",
+   "tilesets": {
+    "Clockworks": 2123,
+    "Haven": 608
+   },
+   "clockworksShare": 0.777,
+   "bounds": {
+    "minX": -38,
+    "maxX": 26,
+    "minY": -13,
+    "maxY": 57
+   },
+   "sizeTiles": [
+    65,
+    71
+   ],
+   "counts": {
+    "tiles": 2731,
+    "placeables": 301,
+    "areas": 1
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__30893.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmain",
+   "file": "314",
+   "sceneId": "314",
+   "procedural": false,
+   "name": "%dungeon:m.final_test",
+   "levelName": "The Journey to Haven",
+   "tilesets": {
+    "Clockworks Fire": 12222,
+    "Traps and Hazards": 5
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -42,
+    "maxX": 199,
+    "minY": -16,
+    "maxY": 225
+   },
+   "sizeTiles": [
+    242,
+    242
+   ],
+   "counts": {
+    "tiles": 12227,
+    "placeables": 1050,
+    "areas": 24
+   },
+   "overlaps": 14,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__314.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmain",
+   "file": "31444",
+   "sceneId": "31444",
+   "procedural": false,
+   "name": "%dungeon:m.spark_roar_finale",
+   "levelName": "Hidden Hideout",
+   "tilesets": {
+    "Clockworks": 767
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -10,
+    "maxX": 27,
+    "minY": -4,
+    "maxY": 32
+   },
+   "sizeTiles": [
+    38,
+    37
+   ],
+   "counts": {
+    "tiles": 767,
+    "placeables": 120,
+    "areas": 0
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__31444.json",
+   "modelFiles": 24
+  },
+  {
+   "folder": "scenesmain",
+   "file": "315",
+   "sceneId": "315",
+   "procedural": false,
+   "name": "%dungeon:m.hall_of_heroes_star1",
+   "levelName": "Becoming a Soldier",
+   "tilesets": {
+    "Castle, Light": 1770,
+    "Haven": 151
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -26,
+    "maxX": 26,
+    "minY": -20,
+    "maxY": 50
+   },
+   "sizeTiles": [
+    53,
+    71
+   ],
+   "counts": {
+    "tiles": 1921,
+    "placeables": 307,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__315.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmain",
+   "file": "316",
+   "sceneId": "316",
+   "procedural": false,
+   "name": "%dungeon:m.hall_of_heroes_star2",
+   "levelName": "The Knight Elite",
+   "tilesets": {
+    "Castle, Light": 1770,
+    "Haven": 151
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -26,
+    "maxX": 26,
+    "minY": -20,
+    "maxY": 50
+   },
+   "sizeTiles": [
+    53,
+    71
+   ],
+   "counts": {
+    "tiles": 1921,
+    "placeables": 307,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__316.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmain",
+   "file": "317",
+   "sceneId": "317",
+   "procedural": false,
+   "name": "%dungeon:m.hall_of_heroes_star3",
+   "levelName": "The Defenders",
+   "tilesets": {
+    "Castle, Light": 1770,
+    "Haven": 151
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -26,
+    "maxX": 26,
+    "minY": -20,
+    "maxY": 50
+   },
+   "sizeTiles": [
+    53,
+    71
+   ],
+   "counts": {
+    "tiles": 1921,
+    "placeables": 307,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__317.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmain",
+   "file": "318",
+   "sceneId": "318",
+   "procedural": false,
+   "name": "%dungeon:m.hall_of_heroes_star4",
+   "levelName": "The Champions",
+   "tilesets": {
+    "Castle, Light": 1770,
+    "Haven": 151
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -26,
+    "maxX": 26,
+    "minY": -20,
+    "maxY": 50
+   },
+   "sizeTiles": [
+    53,
+    71
+   ],
+   "counts": {
+    "tiles": 1921,
+    "placeables": 307,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__318.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmain",
+   "file": "319",
+   "sceneId": "319",
+   "procedural": false,
+   "name": "%dungeon:m.hall_of_heroes_star5",
+   "levelName": "The Vanguard",
+   "tilesets": {
+    "Castle, Light": 1770,
+    "Haven": 151
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -26,
+    "maxX": 26,
+    "minY": -20,
+    "maxY": 50
+   },
+   "sizeTiles": [
+    53,
+    71
+   ],
+   "counts": {
+    "tiles": 1921,
+    "placeables": 240,
+    "areas": 16
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__319.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmain",
+   "file": "320",
+   "sceneId": "320",
+   "procedural": false,
+   "name": "%dungeon:m.ironclaw_munitions_factory_assembly",
+   "levelName": "Ironclaw Munitions Factory|Abandoned Assembly",
+   "tilesets": {
+    "Clockworks Shock": 6652,
+    "Traps and Hazards": 25
+   },
+   "clockworksShare": 0.996,
+   "bounds": {
+    "minX": -45,
+    "maxX": 75,
+    "minY": -6,
+    "maxY": 170
+   },
+   "sizeTiles": [
+    121,
+    177
+   ],
+   "counts": {
+    "tiles": 6677,
+    "placeables": 1083,
+    "areas": 14
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__320.json",
+   "modelFiles": 71
+  },
+  {
+   "folder": "scenesmain",
+   "file": "322",
+   "sceneId": "322",
+   "procedural": false,
+   "name": "%dungeon:m.ironclaw_munitions_factory_twins",
+   "levelName": "Ironclaw Munitions Factory|The Roarmulus Twins",
+   "tilesets": {
+    "Clockworks Shock": 3876,
+    "Null": 274,
+    "Null, no-walk": 68
+   },
+   "clockworksShare": 0.919,
+   "bounds": {
+    "minX": -174,
+    "maxX": 32,
+    "minY": -72,
+    "maxY": 68
+   },
+   "sizeTiles": [
+    207,
+    141
+   ],
+   "counts": {
+    "tiles": 4218,
+    "placeables": 538,
+    "areas": 3
+   },
+   "overlaps": 9,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__322.json",
+   "modelFiles": 57
+  },
+  {
+   "folder": "scenesmain",
+   "file": "324",
+   "sceneId": "324",
+   "procedural": false,
+   "name": "%dungeon:m.ironclaw_munitions_factory_workshop",
+   "levelName": "Ironclaw Munitions Factory|Warfare Workshop",
+   "tilesets": {
+    "Clockworks Shock": 6542,
+    "Null, no-walk": 43,
+    "Traps and Hazards": 27,
+    "Null": 9
+   },
+   "clockworksShare": 0.988,
+   "bounds": {
+    "minX": -55,
+    "maxX": 81,
+    "minY": -31,
+    "maxY": 160
+   },
+   "sizeTiles": [
+    137,
+    192
+   ],
+   "counts": {
+    "tiles": 6621,
+    "placeables": 1296,
+    "areas": 20
+   },
+   "overlaps": 17,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__324.json",
+   "modelFiles": 72
+  },
+  {
+   "folder": "scenesmain",
+   "file": "329",
+   "sceneId": "329",
+   "procedural": false,
+   "name": "%dungeon:m.terminal_core_mission",
+   "levelName": "The Path is Sealed",
+   "tilesets": {
+    "Clockworks": 954,
+    "Null": 16
+   },
+   "clockworksShare": 0.984,
+   "bounds": {
+    "minX": -26,
+    "maxX": 4,
+    "minY": -59,
+    "maxY": 11
+   },
+   "sizeTiles": [
+    31,
+    71
+   ],
+   "counts": {
+    "tiles": 970,
+    "placeables": 280,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__329.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmain",
+   "file": "337",
+   "sceneId": "337",
+   "procedural": false,
+   "name": "%dungeon:m.training_grounds_generator",
+   "levelName": "Ancient Generator|Restoring Power",
+   "tilesets": {
+    "Clockworks Poison": 10879
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -31,
+    "maxX": 153,
+    "minY": -10,
+    "maxY": 207
+   },
+   "sizeTiles": [
+    185,
+    218
+   ],
+   "counts": {
+    "tiles": 10879,
+    "placeables": 936,
+    "areas": 23
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__337.json",
+   "modelFiles": 71
+  },
+  {
+   "folder": "scenesmain",
+   "file": "338",
+   "sceneId": "338",
+   "procedural": false,
+   "name": "%dungeon:m.trap_chamber",
+   "levelName": "The Trap Chamber",
+   "tilesets": {
+    "Clockworks": 6621,
+    "Clockworks Shock": 1421,
+    "Traps and Hazards": 23
+   },
+   "clockworksShare": 0.997,
+   "bounds": {
+    "minX": -8,
+    "maxX": 276,
+    "minY": -60,
+    "maxY": 80
+   },
+   "sizeTiles": [
+    285,
+    141
+   ],
+   "counts": {
+    "tiles": 8065,
+    "placeables": 297,
+    "areas": 5
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__338.json",
+   "modelFiles": 39
+  },
+  {
+   "folder": "scenesmain",
+   "file": "339",
+   "sceneId": "339",
+   "procedural": false,
+   "name": "%dungeon:m.ultimate_swarm_trap",
+   "levelName": "Unknown Passage|A Descent into Darkness",
+   "tilesets": {
+    "Clockworks": 3593,
+    "Null": 39
+   },
+   "clockworksShare": 0.989,
+   "bounds": {
+    "minX": -28,
+    "maxX": 26,
+    "minY": -7,
+    "maxY": 154
+   },
+   "sizeTiles": [
+    55,
+    162
+   ],
+   "counts": {
+    "tiles": 3632,
+    "placeables": 1330,
+    "areas": 4
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__339.json",
+   "modelFiles": 21
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34046",
+   "sceneId": "34046",
+   "procedural": false,
+   "name": "%dungeon:m.crimson_chaos_compound",
+   "levelName": "Complex 357",
+   "tilesets": {
+    "Clockworks Poison": 6169,
+    "Traps and Hazards": 6
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -79,
+    "maxX": 41,
+    "minY": -23,
+    "maxY": 135
+   },
+   "sizeTiles": [
+    121,
+    159
+   ],
+   "counts": {
+    "tiles": 6175,
+    "placeables": 922,
+    "areas": 3
+   },
+   "overlaps": 9,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34046.json",
+   "modelFiles": 81
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34047",
+   "sceneId": "34047",
+   "procedural": false,
+   "name": "%dungeon:m.breakingin_recruits",
+   "levelName": "Operation Greenhorn",
+   "tilesets": {
+    "Haven": 5234,
+    "Clockworks": 12
+   },
+   "clockworksShare": 0.002,
+   "bounds": {
+    "minX": -36,
+    "maxX": 105,
+    "minY": -6,
+    "maxY": 111
+   },
+   "sizeTiles": [
+    142,
+    118
+   ],
+   "counts": {
+    "tiles": 5246,
+    "placeables": 459,
+    "areas": 2
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34047.json",
+   "modelFiles": 52
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34048",
+   "sceneId": "34048",
+   "procedural": false,
+   "name": "%dungeon:m.breakingin_recruits_finale",
+   "levelName": "The Overworks",
+   "tilesets": {
+    "Haven": 6418,
+    "Clockworks": 13
+   },
+   "clockworksShare": 0.002,
+   "bounds": {
+    "minX": -46,
+    "maxX": 76,
+    "minY": -6,
+    "maxY": 103
+   },
+   "sizeTiles": [
+    123,
+    110
+   ],
+   "counts": {
+    "tiles": 6431,
+    "placeables": 378,
+    "areas": 4
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34048.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34416",
+   "sceneId": "34416",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_greenstone_bridge",
+   "levelName": "Firestorm Citadel|Greenstone Bridge",
+   "tilesets": {
+    "Castle, Fire": 6269,
+    "Traps and Hazards": 20
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -35,
+    "maxX": 36,
+    "minY": -35,
+    "maxY": 191
+   },
+   "sizeTiles": [
+    72,
+    227
+   ],
+   "counts": {
+    "tiles": 6289,
+    "placeables": 806,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34416.json",
+   "modelFiles": 39
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34417",
+   "sceneId": "34417",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_throne_room",
+   "levelName": "Firestorm Citadel|Throne Room",
+   "tilesets": {
+    "Castle, Fire": 4808,
+    "Clockworks": 3,
+    "Ancient Altar": 1
+   },
+   "clockworksShare": 0.001,
+   "bounds": {
+    "minX": -44,
+    "maxX": 40,
+    "minY": -42,
+    "maxY": 88
+   },
+   "sizeTiles": [
+    85,
+    131
+   ],
+   "counts": {
+    "tiles": 4812,
+    "placeables": 363,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34417.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmain",
+   "file": "345",
+   "sceneId": "345",
+   "procedural": false,
+   "name": "%dungeon:%town:m.haven",
+   "levelName": "Haven",
+   "tilesets": {
+    "Haven": 21474,
+    "Clockworks": 785,
+    "Water": 88,
+    "Null": 13
+   },
+   "clockworksShare": 0.035,
+   "bounds": {
+    "minX": -81,
+    "maxX": 95,
+    "minY": -146,
+    "maxY": 81
+   },
+   "sizeTiles": [
+    177,
+    228
+   ],
+   "counts": {
+    "tiles": 22360,
+    "placeables": 1043,
+    "areas": 9
+   },
+   "overlaps": 15,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__345.json",
+   "modelFiles": 95
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34504",
+   "sceneId": "34504",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_overgrown_court",
+   "levelName": "Firestorm Citadel|Overgrown Court",
+   "tilesets": {
+    "Castle, Fire": 12301,
+    "Traps and Hazards": 81
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -69,
+    "maxX": 64,
+    "minY": -76,
+    "maxY": 142
+   },
+   "sizeTiles": [
+    134,
+    219
+   ],
+   "counts": {
+    "tiles": 12382,
+    "placeables": 758,
+    "areas": 4
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34504.json",
+   "modelFiles": 63
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34505",
+   "sceneId": "34505",
+   "procedural": false,
+   "name": "%dungeon:m.terminal_core_camefrombelow",
+   "levelName": "The Path is Revealed",
+   "tilesets": {
+    "Clockworks": 954,
+    "Null": 16
+   },
+   "clockworksShare": 0.984,
+   "bounds": {
+    "minX": -26,
+    "maxX": 4,
+    "minY": -59,
+    "maxY": 11
+   },
+   "sizeTiles": [
+    31,
+    71
+   ],
+   "counts": {
+    "tiles": 970,
+    "placeables": 384,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34505.json",
+   "modelFiles": 35
+  },
+  {
+   "folder": "scenesmain",
+   "file": "347",
+   "sceneId": "347",
+   "procedural": false,
+   "name": "%dungeon:m.soldiers_graveyard",
+   "levelName": "Soldier's Graveyard",
+   "tilesets": {
+    "Haven": 9936,
+    "Null, no-walk": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -49,
+    "maxX": 89,
+    "minY": -26,
+    "maxY": 82
+   },
+   "sizeTiles": [
+    139,
+    109
+   ],
+   "counts": {
+    "tiles": 9940,
+    "placeables": 1587,
+    "areas": 5
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__347.json",
+   "modelFiles": 50
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34890",
+   "sceneId": "34890",
+   "procedural": false,
+   "name": "%dungeon:m.core_dreamsandnightmares_finale",
+   "levelName": "Descent into Darkness",
+   "tilesets": {
+    "Whitespace": 2381,
+    "Null, no-walk": 214,
+    "Haven": 135,
+    "Clockworks": 47
+   },
+   "clockworksShare": 0.017,
+   "bounds": {
+    "minX": -20,
+    "maxX": 31,
+    "minY": -1020,
+    "maxY": 149
+   },
+   "sizeTiles": [
+    52,
+    1170
+   ],
+   "counts": {
+    "tiles": 2778,
+    "placeables": 480,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34890.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmain",
+   "file": "34891",
+   "sceneId": "34891",
+   "procedural": false,
+   "name": "%dungeon:m.core_treasure_vault",
+   "levelName": "Refuge",
+   "tilesets": {
+    "Haven": 1473,
+    "Whitespace": 487,
+    "Clockworks": 39,
+    "Null, no-walk": 19
+   },
+   "clockworksShare": 0.019,
+   "bounds": {
+    "minX": -10,
+    "maxX": 47,
+    "minY": -15,
+    "maxY": 40
+   },
+   "sizeTiles": [
+    58,
+    56
+   ],
+   "counts": {
+    "tiles": 2018,
+    "placeables": 121,
+    "areas": 0
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__34891.json",
+   "modelFiles": 17
+  },
+  {
+   "folder": "scenesmain",
+   "file": "351",
+   "sceneId": "351",
+   "procedural": false,
+   "name": "%dungeon:m.mission_lobby",
+   "levelName": "Mission Lobby",
+   "tilesets": {
+    "Clockworks": 445,
+    "Haven": 115,
+    "Clockworks Shock": 32,
+    "Null": 9
+   },
+   "clockworksShare": 0.794,
+   "bounds": {
+    "minX": -25,
+    "maxX": 24,
+    "minY": -6,
+    "maxY": 23
+   },
+   "sizeTiles": [
+    50,
+    30
+   ],
+   "counts": {
+    "tiles": 601,
+    "placeables": 135,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__351.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmain",
+   "file": "354",
+   "sceneId": "354",
+   "procedural": false,
+   "name": "%dungeon:m.mission_lobby",
+   "levelName": "Mission Lobby",
+   "tilesets": {
+    "Clockworks": 490,
+    "Haven": 165,
+    "Clockworks Shock": 21,
+    "Null": 9
+   },
+   "clockworksShare": 0.746,
+   "bounds": {
+    "minX": -25,
+    "maxX": 24,
+    "minY": -13,
+    "maxY": 23
+   },
+   "sizeTiles": [
+    50,
+    37
+   ],
+   "counts": {
+    "tiles": 685,
+    "placeables": 152,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__354.json",
+   "modelFiles": 44
+  },
+  {
+   "folder": "scenesmain",
+   "file": "355",
+   "sceneId": "355",
+   "procedural": false,
+   "name": "%dungeon:m.mission_lobby",
+   "levelName": "Mission Lobby",
+   "tilesets": {
+    "Clockworks": 490,
+    "Haven": 165,
+    "Clockworks Shock": 21,
+    "Null": 9
+   },
+   "clockworksShare": 0.746,
+   "bounds": {
+    "minX": -25,
+    "maxX": 24,
+    "minY": -13,
+    "maxY": 23
+   },
+   "sizeTiles": [
+    50,
+    37
+   ],
+   "counts": {
+    "tiles": 685,
+    "placeables": 153,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__355.json",
+   "modelFiles": 45
+  },
+  {
+   "folder": "scenesmain",
+   "file": "366",
+   "sceneId": "366",
+   "procedural": false,
+   "name": "%dungeon:m.geo_knight_camp",
+   "levelName": "Aurora Isles|Geo Knight Camp",
+   "tilesets": {
+    "Sky Islands, Day": 2505
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -18,
+    "maxX": 73,
+    "minY": -19,
+    "maxY": 53
+   },
+   "sizeTiles": [
+    92,
+    73
+   ],
+   "counts": {
+    "tiles": 2505,
+    "placeables": 282,
+    "areas": 4
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__366.json",
+   "modelFiles": 45
+  },
+  {
+   "folder": "scenesmain",
+   "file": "367",
+   "sceneId": "367",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_emerald_axis_axesofevil",
+   "levelName": "Felling Giants",
+   "tilesets": {
+    "Sky Islands, Day": 6398,
+    "Traps and Hazards": 20
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -77,
+    "maxX": 99,
+    "minY": -31,
+    "maxY": 38
+   },
+   "sizeTiles": [
+    177,
+    70
+   ],
+   "counts": {
+    "tiles": 6418,
+    "placeables": 269,
+    "areas": 7
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__367.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmain",
+   "file": "369",
+   "sceneId": "369",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_emerald_axis_2_beyondaxesofevil",
+   "levelName": "Lumbering Doom",
+   "tilesets": {
+    "Sky Islands, Day": 6517,
+    "Traps and Hazards": 34
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -77,
+    "maxX": 92,
+    "minY": -57,
+    "maxY": 40
+   },
+   "sizeTiles": [
+    170,
+    98
+   ],
+   "counts": {
+    "tiles": 6551,
+    "placeables": 372,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__369.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "scenesmain",
+   "file": "371",
+   "sceneId": "371",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_perimeter_promenade_beyondaxesofevil",
+   "levelName": "Outpost of Tyranny",
+   "tilesets": {
+    "Sky Islands, Day": 4543,
+    "Traps and Hazards": 37
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -70,
+    "maxX": 39,
+    "minY": -18,
+    "maxY": 53
+   },
+   "sizeTiles": [
+    110,
+    72
+   ],
+   "counts": {
+    "tiles": 4580,
+    "placeables": 363,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__371.json",
+   "modelFiles": 27
+  },
+  {
+   "folder": "scenesmain",
+   "file": "373",
+   "sceneId": "373",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_perimeter_promenade_2_beyondaxesofevil",
+   "levelName": "Outpost of Tyranny",
+   "tilesets": {
+    "Sky Islands, Day": 4667
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -70,
+    "maxX": 34,
+    "minY": -16,
+    "maxY": 55
+   },
+   "sizeTiles": [
+    105,
+    72
+   ],
+   "counts": {
+    "tiles": 4667,
+    "placeables": 257,
+    "areas": 10
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__373.json",
+   "modelFiles": 19
+  },
+  {
+   "folder": "scenesmain",
+   "file": "375",
+   "sceneId": "375",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_the_jade_tangle_axesofevil",
+   "levelName": "Chopping Block",
+   "tilesets": {
+    "Sky Islands, Day": 7719
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -26,
+    "maxX": 67,
+    "minY": -21,
+    "maxY": 215
+   },
+   "sizeTiles": [
+    94,
+    237
+   ],
+   "counts": {
+    "tiles": 7719,
+    "placeables": 326,
+    "areas": 5
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__375.json",
+   "modelFiles": 21
+  },
+  {
+   "folder": "scenesmain",
+   "file": "377",
+   "sceneId": "377",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_the_jade_tangle_2_beyondaxesofevil",
+   "levelName": "Barking Mad",
+   "tilesets": {
+    "Sky Islands, Day": 3870
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -15,
+    "maxX": 67,
+    "minY": -6,
+    "maxY": 215
+   },
+   "sizeTiles": [
+    83,
+    222
+   ],
+   "counts": {
+    "tiles": 3870,
+    "placeables": 258,
+    "areas": 4
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__377.json",
+   "modelFiles": 20
+  },
+  {
+   "folder": "scenesmain",
+   "file": "380",
+   "sceneId": "380",
+   "procedural": false,
+   "name": "%dungeon:m.gloaming_wildwoods_path",
+   "levelName": "Gloaming Wildwoods|Terrilous Trail",
+   "tilesets": {
+    "Sky Islands, Night": 8740
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -24,
+    "maxX": 162,
+    "minY": -50,
+    "maxY": 64
+   },
+   "sizeTiles": [
+    187,
+    115
+   ],
+   "counts": {
+    "tiles": 8740,
+    "placeables": 1065,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__380.json",
+   "modelFiles": 45
+  },
+  {
+   "folder": "scenesmain",
+   "file": "382",
+   "sceneId": "382",
+   "procedural": false,
+   "name": "%dungeon:m.gloaming_wildwoods_ruins",
+   "levelName": "Gloaming Wildwoods|Roarsterous Ruins",
+   "tilesets": {
+    "Sky Islands, Night": 8650,
+    "Traps and Hazards": 17
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -2,
+    "maxX": 107,
+    "minY": -15,
+    "maxY": 117
+   },
+   "sizeTiles": [
+    110,
+    133
+   ],
+   "counts": {
+    "tiles": 8667,
+    "placeables": 1264,
+    "areas": 14
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__382.json",
+   "modelFiles": 44
+  },
+  {
+   "folder": "scenesmain",
+   "file": "384",
+   "sceneId": "384",
+   "procedural": false,
+   "name": "%dungeon:m.gloaming_wildwoods_snarbolax",
+   "levelName": "Gloaming Wildwoods|Lair of the Snarbolax",
+   "tilesets": {
+    "Sky Islands, Night": 3584
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -17,
+    "maxX": 43,
+    "minY": -12,
+    "maxY": 87
+   },
+   "sizeTiles": [
+    61,
+    100
+   ],
+   "counts": {
+    "tiles": 3584,
+    "placeables": 424,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__384.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmain",
+   "file": "394",
+   "sceneId": "394",
+   "procedural": false,
+   "name": "%dungeon:m.starlight_cradle_the_chroma_gardens",
+   "levelName": "Starlight Cradle|Lizard Lounge",
+   "tilesets": {
+    "Sky Islands, Night": 11088,
+    "Haven": 17
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -82,
+    "maxX": 39,
+    "minY": -66,
+    "maxY": 50
+   },
+   "sizeTiles": [
+    122,
+    117
+   ],
+   "counts": {
+    "tiles": 11105,
+    "placeables": 319,
+    "areas": 5
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__394.json",
+   "modelFiles": 36
+  },
+  {
+   "folder": "scenesmain",
+   "file": "398",
+   "sceneId": "398",
+   "procedural": false,
+   "name": "%dungeon:m.tutorial_b",
+   "levelName": "The Crash Site|Waking in a New World",
+   "tilesets": {
+    "Haven": 13691,
+    "Water": 779,
+    "Clockworks": 192,
+    "Null": 132
+   },
+   "clockworksShare": 0.013,
+   "bounds": {
+    "minX": -68,
+    "maxX": 62,
+    "minY": -84,
+    "maxY": 120
+   },
+   "sizeTiles": [
+    131,
+    205
+   ],
+   "counts": {
+    "tiles": 14794,
+    "placeables": 797,
+    "areas": 20
+   },
+   "overlaps": 11,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__398.json",
+   "modelFiles": 78
+  },
+  {
+   "folder": "scenesmain",
+   "file": "437",
+   "sceneId": "437",
+   "procedural": false,
+   "name": "%dungeon:m.haven_laboratory",
+   "levelName": "The Lab",
+   "tilesets": {
+    "Clockworks": 2123,
+    "Haven": 608
+   },
+   "clockworksShare": 0.777,
+   "bounds": {
+    "minX": -38,
+    "maxX": 26,
+    "minY": -13,
+    "maxY": 57
+   },
+   "sizeTiles": [
+    65,
+    71
+   ],
+   "counts": {
+    "tiles": 2731,
+    "placeables": 316,
+    "areas": 2
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__437.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmain",
+   "file": "438",
+   "sceneId": "438",
+   "procedural": false,
+   "name": "%dungeon:m.haven_laboratory",
+   "levelName": "The Lab",
+   "tilesets": {
+    "Clockworks": 2123,
+    "Haven": 608
+   },
+   "clockworksShare": 0.777,
+   "bounds": {
+    "minX": -38,
+    "maxX": 26,
+    "minY": -13,
+    "maxY": 57
+   },
+   "sizeTiles": [
+    65,
+    71
+   ],
+   "counts": {
+    "tiles": 2731,
+    "placeables": 299,
+    "areas": 2
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__438.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmain",
+   "file": "440",
+   "sceneId": "440",
+   "procedural": false,
+   "name": "%dungeon:m.mission_collector",
+   "levelName": "Camp Crimson",
+   "tilesets": {
+    "Clockworks Fire": 5249,
+    "Haven": 58,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.988,
+   "bounds": {
+    "minX": -76,
+    "maxX": 21,
+    "minY": -38,
+    "maxY": 115
+   },
+   "sizeTiles": [
+    98,
+    154
+   ],
+   "counts": {
+    "tiles": 5311,
+    "placeables": 781,
+    "areas": 11
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__440.json",
+   "modelFiles": 59
+  },
+  {
+   "folder": "scenesmain",
+   "file": "445",
+   "sceneId": "445",
+   "procedural": false,
+   "name": "%town:m.haven_eastside",
+   "levelName": "Haven|Garrison",
+   "tilesets": {
+    "Haven": 5644,
+    "Castle, Light": 113,
+    "Null, no-walk no-shoot": 10,
+    "Null": 5
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -31,
+    "maxX": 81,
+    "minY": -30,
+    "maxY": 39
+   },
+   "sizeTiles": [
+    113,
+    70
+   ],
+   "counts": {
+    "tiles": 5772,
+    "placeables": 944,
+    "areas": 6
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmain__445.json",
+   "modelFiles": 77
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1",
+   "sceneId": "1",
+   "procedural": false,
+   "name": "%town:m.haven_town_square",
+   "levelName": "Haven|Town Square",
+   "tilesets": {
+    "Haven": 17451,
+    "Null": 130,
+    "Water": 84,
+    "Null, no-walk": 46
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -81,
+    "maxX": 86,
+    "minY": -82,
+    "maxY": 70
+   },
+   "sizeTiles": [
+    168,
+    153
+   ],
+   "counts": {
+    "tiles": 17711,
+    "placeables": 1717,
+    "areas": 6
+   },
+   "overlaps": 14,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1.json",
+   "modelFiles": 101
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741824",
+   "sceneId": "1073741824",
+   "procedural": true,
+   "name": "%dungeon:m.fc_slime_minis",
+   "levelName": "Frozen Compound|Creeping Colony",
+   "tilesets": {
+    "Sky Islands, Winter": 4636,
+    "Clockworks Freeze": 4039
+   },
+   "clockworksShare": 0.466,
+   "bounds": {
+    "minX": -228,
+    "maxX": 16,
+    "minY": -174,
+    "maxY": 13
+   },
+   "sizeTiles": [
+    245,
+    188
+   ],
+   "counts": {
+    "tiles": 8675,
+    "placeables": 772,
+    "areas": 22
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741824.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741825_07_02_2019_0859PM",
+   "sceneId": "1073741825",
+   "procedural": true,
+   "name": "%dungeon:m.deconstruction_zone_freeze",
+   "levelName": "Deconstruction Zone|Cold Storage",
+   "tilesets": {
+    "Clockworks Freeze": 3787
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -19,
+    "maxX": 62,
+    "minY": -34,
+    "maxY": 33
+   },
+   "sizeTiles": [
+    82,
+    68
+   ],
+   "counts": {
+    "tiles": 3787,
+    "placeables": 486,
+    "areas": 2
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741825_07_02_2019_0859PM.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741826",
+   "sceneId": "1073741826",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_freeze",
+   "levelName": "Ice Maul Arena|Robo Rampage",
+   "tilesets": {
+    "Sky Islands, Night": 4278,
+    "Water": 19
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -90,
+    "maxX": 3,
+    "minY": -20,
+    "maxY": 174
+   },
+   "sizeTiles": [
+    94,
+    195
+   ],
+   "counts": {
+    "tiles": 4297,
+    "placeables": 562,
+    "areas": 9
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741826.json",
+   "modelFiles": 30
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741826_07_02_2019_0900PM",
+   "sceneId": "1073741826",
+   "procedural": true,
+   "name": "%dungeon:m.ima_construct",
+   "levelName": "Ice Maul Arena|Robo Rampage",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 357,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741826_07_02_2019_0900PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741827",
+   "sceneId": "1073741827",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_freeze",
+   "levelName": "Ice Maul Arena|Fiendish Fray",
+   "tilesets": {
+    "Sky Islands, Night": 4791
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -13,
+    "maxX": 203,
+    "minY": -10,
+    "maxY": 123
+   },
+   "sizeTiles": [
+    217,
+    134
+   ],
+   "counts": {
+    "tiles": 4791,
+    "placeables": 527,
+    "areas": 12
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741827.json",
+   "modelFiles": 24
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741827_07_02_2019_0905PM",
+   "sceneId": "1073741827",
+   "procedural": true,
+   "name": "%dungeon:m.ima_fiend",
+   "levelName": "Ice Maul Arena|Fiendish Fray",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 356,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741827_07_02_2019_0905PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741828",
+   "sceneId": "1073741828",
+   "procedural": true,
+   "name": "%dungeon:m.ct_slime",
+   "levelName": "Blast Furnace|Slimeway",
+   "tilesets": {
+    "Clockworks": 4679,
+    "Traps and Hazards": 2
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -61,
+    "maxX": 153,
+    "minY": -87,
+    "maxY": 21
+   },
+   "sizeTiles": [
+    215,
+    109
+   ],
+   "counts": {
+    "tiles": 4681,
+    "placeables": 508,
+    "areas": 16
+   },
+   "overlaps": 11,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741828.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741828_07_02_2019_0912PM",
+   "sceneId": "1073741828",
+   "procedural": true,
+   "name": "%dungeon:m.bf_slime",
+   "levelName": "Blast Furnace|Slimeway",
+   "tilesets": {
+    "Clockworks Fire": 6285,
+    "Traps and Hazards": 27
+   },
+   "clockworksShare": 0.996,
+   "bounds": {
+    "minX": -10,
+    "maxX": 152,
+    "minY": -16,
+    "maxY": 215
+   },
+   "sizeTiles": [
+    163,
+    232
+   ],
+   "counts": {
+    "tiles": 6312,
+    "placeables": 671,
+    "areas": 14
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741828_07_02_2019_0912PM.json",
+   "modelFiles": 47
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741829_04_10_2021_1017PM",
+   "sceneId": "1073741829",
+   "procedural": true,
+   "name": "%dungeon:m.vfa_construct",
+   "levelName": "Venom Fang Arena|Robo Rampage",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 356,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741829_04_10_2021_1017PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741830",
+   "sceneId": "1073741830",
+   "procedural": true,
+   "name": "%dungeon:m.graveyard_vanilla",
+   "levelName": "Iron Edge Arena|Slimey Showdown",
+   "tilesets": {
+    "Graveyard": 5317,
+    "Traps and Hazards": 2
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -66,
+    "maxX": 55,
+    "minY": -9,
+    "maxY": 140
+   },
+   "sizeTiles": [
+    122,
+    150
+   ],
+   "counts": {
+    "tiles": 5319,
+    "placeables": 421,
+    "areas": 0
+   },
+   "overlaps": 10,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741830.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741830_07_02_2019_0921PM",
+   "sceneId": "1073741830",
+   "procedural": true,
+   "name": "%dungeon:m.iea_slime",
+   "levelName": "Iron Edge Arena|Slimey Showdown",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 357,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741830_07_02_2019_0921PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741831",
+   "sceneId": "1073741831",
+   "procedural": true,
+   "name": "%dungeon:m.iea_slime",
+   "levelName": "Iron Edge Arena|Slimey Showdown",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 356,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741831.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741833",
+   "sceneId": "1073741833",
+   "procedural": true,
+   "name": "%dungeon:m.ct_undead",
+   "levelName": "Clockwork Tunnels|Haunted Passage",
+   "tilesets": {
+    "Clockworks": 6335,
+    "Traps and Hazards": 2
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -177,
+    "maxX": 38,
+    "minY": -8,
+    "maxY": 129
+   },
+   "sizeTiles": [
+    216,
+    138
+   ],
+   "counts": {
+    "tiles": 6337,
+    "placeables": 720,
+    "areas": 9
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741833.json",
+   "modelFiles": 41
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741843",
+   "sceneId": "1073741843",
+   "procedural": true,
+   "name": "%dungeon:m.bf_undead",
+   "levelName": "Blast Furnace|Haunted Passage",
+   "tilesets": {
+    "Clockworks Fire": 4564,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -119,
+    "maxX": 51,
+    "minY": -44,
+    "maxY": 74
+   },
+   "sizeTiles": [
+    171,
+    119
+   ],
+   "counts": {
+    "tiles": 4572,
+    "placeables": 620,
+    "areas": 15
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741843.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741844",
+   "sceneId": "1073741844",
+   "procedural": true,
+   "name": "%dungeon:m.bf_construct",
+   "levelName": "Blast Furnace|Mechanized Mile",
+   "tilesets": {
+    "Clockworks Fire": 3101,
+    "Traps and Hazards": 12
+   },
+   "clockworksShare": 0.996,
+   "bounds": {
+    "minX": -30,
+    "maxX": 55,
+    "minY": -120,
+    "maxY": 17
+   },
+   "sizeTiles": [
+    86,
+    138
+   ],
+   "counts": {
+    "tiles": 3113,
+    "placeables": 408,
+    "areas": 11
+   },
+   "overlaps": 3,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741844.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741845",
+   "sceneId": "1073741845",
+   "procedural": true,
+   "name": "%dungeon:m.tvault_vanilla",
+   "levelName": "Treasure Vault|Obscurity through Security",
+   "tilesets": {
+    "Prize Vault": 3354,
+    "Clockworks": 2605,
+    "000_Dev": 42,
+    "Traps and Hazards": 29
+   },
+   "clockworksShare": 0.432,
+   "bounds": {
+    "minX": -164,
+    "maxX": 4,
+    "minY": -19,
+    "maxY": 162
+   },
+   "sizeTiles": [
+    169,
+    182
+   ],
+   "counts": {
+    "tiles": 6036,
+    "placeables": 684,
+    "areas": 2
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741845.json",
+   "modelFiles": 82
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741852_07_02_2019_0929PM",
+   "sceneId": "1073741852",
+   "procedural": true,
+   "name": "%dungeon:m.deconstruction_zone_freeze",
+   "levelName": "Deconstruction Zone|Cold Storage",
+   "tilesets": {
+    "Clockworks Freeze": 4261
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -49,
+    "maxX": 48,
+    "minY": -33,
+    "maxY": 78
+   },
+   "sizeTiles": [
+    98,
+    112
+   ],
+   "counts": {
+    "tiles": 4261,
+    "placeables": 546,
+    "areas": 1
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741852_07_02_2019_0929PM.json",
+   "modelFiles": 27
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741853",
+   "sceneId": "1073741853",
+   "procedural": true,
+   "name": "%dungeon:m.rc_undead_minis",
+   "levelName": "Ice Maul Arena|Robo Rampage",
+   "tilesets": {
+    "Sky Islands, Autumn": 5156,
+    "Clockworks": 3709,
+    "Traps and Hazards": 20
+   },
+   "clockworksShare": 0.417,
+   "bounds": {
+    "minX": -124,
+    "maxX": 80,
+    "minY": -142,
+    "maxY": 13
+   },
+   "sizeTiles": [
+    205,
+    156
+   ],
+   "counts": {
+    "tiles": 8885,
+    "placeables": 938,
+    "areas": 26
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741853.json",
+   "modelFiles": 64
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741853_07_02_2019_0930PM",
+   "sceneId": "1073741853",
+   "procedural": true,
+   "name": "%dungeon:m.ima_construct",
+   "levelName": "Ice Maul Arena|Robo Rampage",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 356,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741853_07_02_2019_0930PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741854",
+   "sceneId": "1073741854",
+   "procedural": true,
+   "name": "%dungeon:m.deconstruction_zone_shock",
+   "levelName": "Cooling Chamber|Infernal Passage",
+   "tilesets": {
+    "Clockworks Shock": 4197
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -48,
+    "maxX": 48,
+    "minY": -49,
+    "maxY": 48
+   },
+   "sizeTiles": [
+    97,
+    98
+   ],
+   "counts": {
+    "tiles": 4197,
+    "placeables": 400,
+    "areas": 1
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741854.json",
+   "modelFiles": 27
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741854_07_02_2019_0932PM",
+   "sceneId": "1073741854",
+   "procedural": true,
+   "name": "%dungeon:m.cc_fiend",
+   "levelName": "Cooling Chamber|Infernal Passage",
+   "tilesets": {
+    "Clockworks Freeze": 4521,
+    "Traps and Hazards": 21
+   },
+   "clockworksShare": 0.995,
+   "bounds": {
+    "minX": -33,
+    "maxX": 177,
+    "minY": -58,
+    "maxY": 27
+   },
+   "sizeTiles": [
+    211,
+    86
+   ],
+   "counts": {
+    "tiles": 4542,
+    "placeables": 462,
+    "areas": 18
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741854_07_02_2019_0932PM.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741855_07_02_2019_0935PM",
+   "sceneId": "1073741855",
+   "procedural": true,
+   "name": "%dungeon:m.ct_slime",
+   "levelName": "Clockwork Tunnels|Slimeway",
+   "tilesets": {
+    "Clockworks": 5376,
+    "Traps and Hazards": 9
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -62,
+    "maxX": 124,
+    "minY": -47,
+    "maxY": 80
+   },
+   "sizeTiles": [
+    187,
+    128
+   ],
+   "counts": {
+    "tiles": 5385,
+    "placeables": 544,
+    "areas": 20
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741855_07_02_2019_0935PM.json",
+   "modelFiles": 30
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741856_07_02_2019_0939PM",
+   "sceneId": "1073741856",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_poison",
+   "levelName": "Ice Maul Arena|Slimey Showdown",
+   "tilesets": {
+    "Sky Islands, Night": 5145
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -24,
+    "maxX": 76,
+    "minY": -19,
+    "maxY": 182
+   },
+   "sizeTiles": [
+    101,
+    202
+   ],
+   "counts": {
+    "tiles": 5145,
+    "placeables": 627,
+    "areas": 10
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741856_07_02_2019_0939PM.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741856_07_06_2019_1115PM",
+   "sceneId": "1073741856",
+   "procedural": true,
+   "name": "%dungeon:m.ima_slime",
+   "levelName": "Ice Maul Arena|Slimey Showdown",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 354,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741856_07_06_2019_1115PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741857",
+   "sceneId": "1073741857",
+   "procedural": true,
+   "name": "%dungeon:m.deconstruction_zone_vanilla",
+   "levelName": "Deconstruction Zone|Savage Salvaging",
+   "tilesets": {
+    "Clockworks": 3912
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -78,
+    "maxX": 48,
+    "minY": -64,
+    "maxY": 33
+   },
+   "sizeTiles": [
+    127,
+    98
+   ],
+   "counts": {
+    "tiles": 3912,
+    "placeables": 407,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741857.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741858",
+   "sceneId": "1073741858",
+   "procedural": true,
+   "name": "%dungeon:m.sc_beast_minis",
+   "levelName": "Shocked Compound|Ravenous Warrens",
+   "tilesets": {
+    "Clockworks Shock": 3953,
+    "Sky Islands, Autumn": 3426,
+    "Traps and Hazards": 38
+   },
+   "clockworksShare": 0.533,
+   "bounds": {
+    "minX": -154,
+    "maxX": 44,
+    "minY": -6,
+    "maxY": 206
+   },
+   "sizeTiles": [
+    199,
+    213
+   ],
+   "counts": {
+    "tiles": 7417,
+    "placeables": 750,
+    "areas": 15
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741858.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741859",
+   "sceneId": "1073741859",
+   "procedural": true,
+   "name": "%dungeon:m.rc_slime_minis",
+   "levelName": "Lichenous Lair|Cold Fusion",
+   "tilesets": {
+    "Sky Islands, Autumn": 3890,
+    "Clockworks": 3372,
+    "Traps and Hazards": 26
+   },
+   "clockworksShare": 0.463,
+   "bounds": {
+    "minX": -13,
+    "maxX": 108,
+    "minY": -98,
+    "maxY": 62
+   },
+   "sizeTiles": [
+    122,
+    161
+   ],
+   "counts": {
+    "tiles": 7288,
+    "placeables": 1041,
+    "areas": 13
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741859.json",
+   "modelFiles": 59
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741859_07_06_2019_1122PM",
+   "sceneId": "1073741859",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_freeze",
+   "levelName": "Lichenous Lair|Cold Fusion",
+   "tilesets": {
+    "Sky Islands, Night": 4475,
+    "Water": 19
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -15,
+    "maxX": 77,
+    "minY": -1,
+    "maxY": 207
+   },
+   "sizeTiles": [
+    93,
+    209
+   ],
+   "counts": {
+    "tiles": 4494,
+    "placeables": 531,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741859_07_06_2019_1122PM.json",
+   "modelFiles": 30
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741864",
+   "sceneId": "1073741864",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_freeze",
+   "levelName": "Lichenous Lair|Cold Fusion",
+   "tilesets": {
+    "Sky Islands, Night": 5495
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -99,
+    "maxX": 11,
+    "minY": -1,
+    "maxY": 203
+   },
+   "sizeTiles": [
+    111,
+    205
+   ],
+   "counts": {
+    "tiles": 5495,
+    "placeables": 516,
+    "areas": 13
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741864.json",
+   "modelFiles": 27
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741865",
+   "sceneId": "1073741865",
+   "procedural": true,
+   "name": "%dungeon:m.wolver_den_freeze",
+   "levelName": "Wolver Den|Frosty Fury",
+   "tilesets": {
+    "Sky Islands, Day": 5181
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -37,
+    "maxX": 148,
+    "minY": -67,
+    "maxY": 10
+   },
+   "sizeTiles": [
+    186,
+    78
+   ],
+   "counts": {
+    "tiles": 5181,
+    "placeables": 1307,
+    "areas": 4
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741865.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741866",
+   "sceneId": "1073741866",
+   "procedural": true,
+   "name": "%dungeon:m.treasure_vault_1",
+   "levelName": "Graveyard|Where Monsters Fear to Tread",
+   "tilesets": {
+    "Sky Islands, Day": 3052,
+    "Haven": 40
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -32,
+    "maxX": 27,
+    "minY": -19,
+    "maxY": 99
+   },
+   "sizeTiles": [
+    60,
+    119
+   ],
+   "counts": {
+    "tiles": 3092,
+    "placeables": 303,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741866.json",
+   "modelFiles": 17
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741866_04_10_2021_0815PM",
+   "sceneId": "1073741866",
+   "procedural": true,
+   "name": "%dungeon:m.graveyard_vanilla",
+   "levelName": "Graveyard|Where Monsters Fear to Tread",
+   "tilesets": {
+    "Graveyard": 4742
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -42,
+    "maxX": 76,
+    "minY": -196,
+    "maxY": 9
+   },
+   "sizeTiles": [
+    119,
+    206
+   ],
+   "counts": {
+    "tiles": 4742,
+    "placeables": 372,
+    "areas": 2
+   },
+   "overlaps": 12,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741866_04_10_2021_0815PM.json",
+   "modelFiles": 29
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741868_04_10_2021_0819PM",
+   "sceneId": "1073741868",
+   "procedural": true,
+   "name": "%dungeon:m.wolver_den_freeze",
+   "levelName": "Wolver Den|Frosty Fury",
+   "tilesets": {
+    "Sky Islands, Day": 4141
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -16,
+    "maxX": 63,
+    "minY": -136,
+    "maxY": 16
+   },
+   "sizeTiles": [
+    80,
+    153
+   ],
+   "counts": {
+    "tiles": 4141,
+    "placeables": 974,
+    "areas": 5
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741868_04_10_2021_0819PM.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741869",
+   "sceneId": "1073741869",
+   "procedural": true,
+   "name": "%dungeon:m.ct_beast",
+   "levelName": "Power Complex|Slimeway",
+   "tilesets": {
+    "Clockworks": 7754,
+    "Clockworks Shock": 102,
+    "Traps and Hazards": 30
+   },
+   "clockworksShare": 0.996,
+   "bounds": {
+    "minX": -16,
+    "maxX": 233,
+    "minY": -61,
+    "maxY": 108
+   },
+   "sizeTiles": [
+    250,
+    170
+   ],
+   "counts": {
+    "tiles": 7886,
+    "placeables": 1231,
+    "areas": 17
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741869.json",
+   "modelFiles": 71
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741869_04_10_2021_0824PM",
+   "sceneId": "1073741869",
+   "procedural": true,
+   "name": "%dungeon:m.pc_slime",
+   "levelName": "Power Complex|Slimeway",
+   "tilesets": {
+    "Clockworks Shock": 7278,
+    "Traps and Hazards": 20
+   },
+   "clockworksShare": 0.997,
+   "bounds": {
+    "minX": -10,
+    "maxX": 135,
+    "minY": -73,
+    "maxY": 181
+   },
+   "sizeTiles": [
+    146,
+    255
+   ],
+   "counts": {
+    "tiles": 7298,
+    "placeables": 668,
+    "areas": 21
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741869_04_10_2021_0824PM.json",
+   "modelFiles": 52
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741873",
+   "sceneId": "1073741873",
+   "procedural": true,
+   "name": "%dungeon:m.treasure_vault_1",
+   "levelName": "Treasure Vault|Fortune Smiles on the Greedy",
+   "tilesets": {
+    "Sky Islands, Day": 2940,
+    "Haven": 40
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -23,
+    "maxX": 30,
+    "minY": -19,
+    "maxY": 102
+   },
+   "sizeTiles": [
+    54,
+    122
+   ],
+   "counts": {
+    "tiles": 2980,
+    "placeables": 308,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741873.json",
+   "modelFiles": 17
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741874",
+   "sceneId": "1073741874",
+   "procedural": true,
+   "name": "%dungeon:m.rc_beast_minis",
+   "levelName": "Ruined Compound|Ravenous Warrens",
+   "tilesets": {
+    "Sky Islands, Autumn": 4803,
+    "Clockworks": 3569,
+    "Traps and Hazards": 42
+   },
+   "clockworksShare": 0.424,
+   "bounds": {
+    "minX": -82,
+    "maxX": 58,
+    "minY": -175,
+    "maxY": 13
+   },
+   "sizeTiles": [
+    141,
+    189
+   ],
+   "counts": {
+    "tiles": 8414,
+    "placeables": 744,
+    "areas": 20
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741874.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741875",
+   "sceneId": "1073741875",
+   "procedural": true,
+   "name": "%dungeon:m.ww_beast",
+   "levelName": "Cooling Chamber|Mechanized Mile",
+   "tilesets": {
+    "Clockworks Poison": 5586,
+    "Traps and Hazards": 14
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -107,
+    "maxX": 61,
+    "minY": -9,
+    "maxY": 108
+   },
+   "sizeTiles": [
+    169,
+    118
+   ],
+   "counts": {
+    "tiles": 5600,
+    "placeables": 506,
+    "areas": 12
+   },
+   "overlaps": 9,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741875.json",
+   "modelFiles": 47
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741875_07_02_2019_0944PM",
+   "sceneId": "1073741875",
+   "procedural": true,
+   "name": "%dungeon:m.cc_construct",
+   "levelName": "Cooling Chamber|Mechanized Mile",
+   "tilesets": {
+    "Clockworks Freeze": 4896,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -49,
+    "maxX": 116,
+    "minY": -9,
+    "maxY": 108
+   },
+   "sizeTiles": [
+    166,
+    118
+   ],
+   "counts": {
+    "tiles": 4904,
+    "placeables": 605,
+    "areas": 11
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741875_07_02_2019_0944PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741876",
+   "sceneId": "1073741876",
+   "procedural": true,
+   "name": "%dungeon:m.devilish_drudgery_vanilla",
+   "levelName": "Ice Maul Arena|Robo Rampage",
+   "tilesets": {
+    "City, Base": 4214,
+    "Null, no-walk no-shoot": 77
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -57,
+    "maxX": 2,
+    "minY": -11,
+    "maxY": 206
+   },
+   "sizeTiles": [
+    60,
+    218
+   ],
+   "counts": {
+    "tiles": 4291,
+    "placeables": 990,
+    "areas": 8
+   },
+   "overlaps": 3,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741876.json",
+   "modelFiles": 35
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741876_07_02_2019_0948PM",
+   "sceneId": "1073741876",
+   "procedural": true,
+   "name": "%dungeon:m.ima_construct",
+   "levelName": "Ice Maul Arena|Robo Rampage",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 354,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741876_07_02_2019_0948PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741877",
+   "sceneId": "1073741877",
+   "procedural": true,
+   "name": "%dungeon:m.devilish_drudgery_freeze",
+   "levelName": "Ice Maul Arena|Fiendish Fray",
+   "tilesets": {
+    "City, Base": 4928,
+    "Null, no-walk no-shoot": 72,
+    "Traps and Hazards": 9
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -31,
+    "maxX": 86,
+    "minY": -77,
+    "maxY": 45
+   },
+   "sizeTiles": [
+    118,
+    123
+   ],
+   "counts": {
+    "tiles": 5009,
+    "placeables": 963,
+    "areas": 8
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741877.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741877_07_02_2019_0950PM",
+   "sceneId": "1073741877",
+   "procedural": true,
+   "name": "%dungeon:m.ima_fiend",
+   "levelName": "Ice Maul Arena|Fiendish Fray",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 354,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741877_07_02_2019_0950PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741878",
+   "sceneId": "1073741878",
+   "procedural": true,
+   "name": "%dungeon:m.ct_beast",
+   "levelName": "Clockwork Tunnels|Wild Path",
+   "tilesets": {
+    "Clockworks": 5844,
+    "Traps and Hazards": 5
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -150,
+    "maxX": 6,
+    "minY": -6,
+    "maxY": 185
+   },
+   "sizeTiles": [
+    157,
+    192
+   ],
+   "counts": {
+    "tiles": 5849,
+    "placeables": 854,
+    "areas": 10
+   },
+   "overlaps": 8,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741878.json",
+   "modelFiles": 38
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741879",
+   "sceneId": "1073741879",
+   "procedural": true,
+   "name": "%dungeon:m.wolver_den_freeze",
+   "levelName": "Lichenous Lair|Prognosis: Symbiosis",
+   "tilesets": {
+    "Sky Islands, Day": 4965
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -19,
+    "maxX": 43,
+    "minY": -177,
+    "maxY": 10
+   },
+   "sizeTiles": [
+    63,
+    188
+   ],
+   "counts": {
+    "tiles": 4965,
+    "placeables": 1166,
+    "areas": 9
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741879.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741879_07_02_2019_0953PM",
+   "sceneId": "1073741879",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_vanilla",
+   "levelName": "Lichenous Lair|Prognosis: Symbiosis",
+   "tilesets": {
+    "Sky Islands, Night": 4280
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -27,
+    "maxX": 62,
+    "minY": -8,
+    "maxY": 191
+   },
+   "sizeTiles": [
+    90,
+    200
+   ],
+   "counts": {
+    "tiles": 4280,
+    "placeables": 459,
+    "areas": 10
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741879_07_02_2019_0953PM.json",
+   "modelFiles": 24
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741880",
+   "sceneId": "1073741880",
+   "procedural": true,
+   "name": "%dungeon:m.devilish_drudgery_fire",
+   "levelName": "Treasure Vault|Flash Crash",
+   "tilesets": {
+    "City, Base": 4779,
+    "Null, no-walk no-shoot": 87,
+    "Traps and Hazards": 5
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -16,
+    "maxX": 138,
+    "minY": -5,
+    "maxY": 124
+   },
+   "sizeTiles": [
+    155,
+    130
+   ],
+   "counts": {
+    "tiles": 4871,
+    "placeables": 867,
+    "areas": 8
+   },
+   "overlaps": 16,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741880.json",
+   "modelFiles": 51
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741880_07_02_2019_0955PM",
+   "sceneId": "1073741880",
+   "procedural": true,
+   "name": "%dungeon:m.ct_slime",
+   "levelName": "Treasure Vault|Flash Crash",
+   "tilesets": {
+    "Clockworks": 4749,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -74,
+    "maxX": 73,
+    "minY": -101,
+    "maxY": 53
+   },
+   "sizeTiles": [
+    148,
+    155
+   ],
+   "counts": {
+    "tiles": 4757,
+    "placeables": 835,
+    "areas": 25
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741880_07_02_2019_0955PM.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741880_07_13_2019_0101AM",
+   "sceneId": "1073741880",
+   "procedural": true,
+   "name": "%dungeon:m.tvault_shock",
+   "levelName": "Treasure Vault|Flash Crash",
+   "tilesets": {
+    "Prize Vault": 3576,
+    "Clockworks": 2775,
+    "Traps and Hazards": 31,
+    "Null, no-walk no-shoot": 6
+   },
+   "clockworksShare": 0.434,
+   "bounds": {
+    "minX": -7,
+    "maxX": 165,
+    "minY": -32,
+    "maxY": 194
+   },
+   "sizeTiles": [
+    173,
+    227
+   ],
+   "counts": {
+    "tiles": 6388,
+    "placeables": 865,
+    "areas": 4
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741880_07_13_2019_0101AM.json",
+   "modelFiles": 69
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741881",
+   "sceneId": "1073741881",
+   "procedural": true,
+   "name": "%dungeon:m.ct_fiend",
+   "levelName": "Clockwork Tunnels|Infernal Passage",
+   "tilesets": {
+    "Clockworks": 5559,
+    "Traps and Hazards": 2
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -209,
+    "maxX": 8,
+    "minY": -8,
+    "maxY": 90
+   },
+   "sizeTiles": [
+    218,
+    99
+   ],
+   "counts": {
+    "tiles": 5561,
+    "placeables": 694,
+    "areas": 24
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741881.json",
+   "modelFiles": 39
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741882",
+   "sceneId": "1073741882",
+   "procedural": true,
+   "name": "%dungeon:m.fc_slime_minis",
+   "levelName": "Deconstruction Zone|Radioactive Recycling",
+   "tilesets": {
+    "Clockworks Freeze": 4094,
+    "Sky Islands, Winter": 3806,
+    "Traps and Hazards": 13
+   },
+   "clockworksShare": 0.517,
+   "bounds": {
+    "minX": -253,
+    "maxX": 16,
+    "minY": -23,
+    "maxY": 71
+   },
+   "sizeTiles": [
+    270,
+    95
+   ],
+   "counts": {
+    "tiles": 7913,
+    "placeables": 808,
+    "areas": 21
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741882.json",
+   "modelFiles": 61
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741882_04_10_2021_0853PM",
+   "sceneId": "1073741882",
+   "procedural": true,
+   "name": "%dungeon:m.deconstruction_zone_poison",
+   "levelName": "Deconstruction Zone|Radioactive Recycling",
+   "tilesets": {
+    "Clockworks Poison": 4091
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -79,
+    "maxX": 33,
+    "minY": -34,
+    "maxY": 50
+   },
+   "sizeTiles": [
+    113,
+    85
+   ],
+   "counts": {
+    "tiles": 4091,
+    "placeables": 458,
+    "areas": 2
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741882_04_10_2021_0853PM.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741883",
+   "sceneId": "1073741883",
+   "procedural": true,
+   "name": "%dungeon:m.lichenous_lair_vanilla",
+   "levelName": "Venom Fang Arena|Robo Rampage",
+   "tilesets": {
+    "Sky Islands, Night": 4507
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -13,
+    "maxX": 155,
+    "minY": -16,
+    "maxY": 125
+   },
+   "sizeTiles": [
+    169,
+    142
+   ],
+   "counts": {
+    "tiles": 4507,
+    "placeables": 597,
+    "areas": 9
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741883.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741883_04_10_2021_0855PM",
+   "sceneId": "1073741883",
+   "procedural": true,
+   "name": "%dungeon:m.vfa_construct",
+   "levelName": "Venom Fang Arena|Robo Rampage",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 356,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741883_04_10_2021_0855PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741884",
+   "sceneId": "1073741884",
+   "procedural": true,
+   "name": "%dungeon:m.pc_slime",
+   "levelName": "Wasteworks|Infernal Passage",
+   "tilesets": {
+    "Clockworks Shock": 5769
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -39,
+    "maxX": 60,
+    "minY": -5,
+    "maxY": 253
+   },
+   "sizeTiles": [
+    100,
+    259
+   ],
+   "counts": {
+    "tiles": 5769,
+    "placeables": 576,
+    "areas": 7
+   },
+   "overlaps": 3,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741884.json",
+   "modelFiles": 44
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741884_04_10_2021_0858PM",
+   "sceneId": "1073741884",
+   "procedural": true,
+   "name": "%dungeon:m.ww_fiend",
+   "levelName": "Wasteworks|Infernal Passage",
+   "tilesets": {
+    "Clockworks Poison": 5349,
+    "Traps and Hazards": 22
+   },
+   "clockworksShare": 0.996,
+   "bounds": {
+    "minX": -45,
+    "maxX": 187,
+    "minY": -22,
+    "maxY": 102
+   },
+   "sizeTiles": [
+    233,
+    125
+   ],
+   "counts": {
+    "tiles": 5371,
+    "placeables": 869,
+    "areas": 18
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741884_04_10_2021_0858PM.json",
+   "modelFiles": 50
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741885",
+   "sceneId": "1073741885",
+   "procedural": true,
+   "name": "%dungeon:m.deconstruction_zone_freeze",
+   "levelName": "Deconstruction Zone|Cold Storage",
+   "tilesets": {
+    "Clockworks Freeze": 4503
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -34,
+    "maxX": 74,
+    "minY": -19,
+    "maxY": 93
+   },
+   "sizeTiles": [
+    109,
+    113
+   ],
+   "counts": {
+    "tiles": 4503,
+    "placeables": 511,
+    "areas": 2
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741885.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741886",
+   "sceneId": "1073741886",
+   "procedural": true,
+   "name": "%dungeon:m.cc_beast",
+   "levelName": "Cooling Chamber|Wild Path",
+   "tilesets": {
+    "Clockworks Freeze": 4682,
+    "Clockworks Shock": 106,
+    "Traps and Hazards": 41
+   },
+   "clockworksShare": 0.992,
+   "bounds": {
+    "minX": -6,
+    "maxX": 174,
+    "minY": -108,
+    "maxY": 53
+   },
+   "sizeTiles": [
+    181,
+    162
+   ],
+   "counts": {
+    "tiles": 4829,
+    "placeables": 523,
+    "areas": 13
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741886.json",
+   "modelFiles": 59
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741896_07_02_2019_1004PM",
+   "sceneId": "1073741896",
+   "procedural": true,
+   "name": "%dungeon:m.cc_construct",
+   "levelName": "Cooling Chamber|Mechanized Mile",
+   "tilesets": {
+    "Clockworks Freeze": 3665,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -162,
+    "maxX": 8,
+    "minY": -53,
+    "maxY": 23
+   },
+   "sizeTiles": [
+    171,
+    77
+   ],
+   "counts": {
+    "tiles": 3673,
+    "placeables": 294,
+    "areas": 16
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741896_07_02_2019_1004PM.json",
+   "modelFiles": 30
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741898_07_02_2019_1008PM",
+   "sceneId": "1073741898",
+   "procedural": true,
+   "name": "%dungeon:m.ima_construct",
+   "levelName": "Ice Maul Arena|Robo Rampage",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 357,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741898_07_02_2019_1008PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741900_07_02_2019_1018PM",
+   "sceneId": "1073741900",
+   "procedural": true,
+   "name": "%dungeon:m.devilish_drudgery_freeze",
+   "levelName": "Devilish Drudgery|Hiring Freeze",
+   "tilesets": {
+    "City, Base": 3581,
+    "Null, no-walk no-shoot": 57,
+    "Traps and Hazards": 9
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -160,
+    "maxX": 1,
+    "minY": -35,
+    "maxY": 52
+   },
+   "sizeTiles": [
+    162,
+    88
+   ],
+   "counts": {
+    "tiles": 3647,
+    "placeables": 717,
+    "areas": 8
+   },
+   "overlaps": 9,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741900_07_02_2019_1018PM.json",
+   "modelFiles": 34
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741903_07_02_2019_1022PM",
+   "sceneId": "1073741903",
+   "procedural": true,
+   "name": "%dungeon:m.ct_slime",
+   "levelName": "Clockwork Tunnels|Slimeway",
+   "tilesets": {
+    "Clockworks": 6267,
+    "Traps and Hazards": 6
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -10,
+    "maxX": 135,
+    "minY": -142,
+    "maxY": 12
+   },
+   "sizeTiles": [
+    146,
+    155
+   ],
+   "counts": {
+    "tiles": 6273,
+    "placeables": 494,
+    "areas": 11
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741903_07_02_2019_1022PM.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741904_07_02_2019_1028PM",
+   "sceneId": "1073741904",
+   "procedural": true,
+   "name": "%dungeon:m.ww_slime",
+   "levelName": "Wasteworks|Slimeway",
+   "tilesets": {
+    "Clockworks Poison": 4116,
+    "Traps and Hazards": 22
+   },
+   "clockworksShare": 0.995,
+   "bounds": {
+    "minX": -6,
+    "maxX": 200,
+    "minY": -52,
+    "maxY": 42
+   },
+   "sizeTiles": [
+    207,
+    95
+   ],
+   "counts": {
+    "tiles": 4138,
+    "placeables": 472,
+    "areas": 15
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741904_07_02_2019_1028PM.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741905_07_07_2019_1208AM",
+   "sceneId": "1073741905",
+   "procedural": true,
+   "name": "%dungeon:m.rc_slime_minis",
+   "levelName": "Ruined Compound|Creeping Colony",
+   "tilesets": {
+    "Sky Islands, Autumn": 5133,
+    "Clockworks": 3464,
+    "Traps and Hazards": 11
+   },
+   "clockworksShare": 0.402,
+   "bounds": {
+    "minX": -13,
+    "maxX": 124,
+    "minY": -6,
+    "maxY": 248
+   },
+   "sizeTiles": [
+    138,
+    255
+   ],
+   "counts": {
+    "tiles": 8608,
+    "placeables": 1193,
+    "areas": 19
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741905_07_07_2019_1208AM.json",
+   "modelFiles": 58
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741906_07_02_2019_1042PM",
+   "sceneId": "1073741906",
+   "procedural": true,
+   "name": "%dungeon:m.bf_slime",
+   "levelName": "Blast Furnace|Slimeway",
+   "tilesets": {
+    "Clockworks Fire": 5815,
+    "Traps and Hazards": 30
+   },
+   "clockworksShare": 0.995,
+   "bounds": {
+    "minX": -6,
+    "maxX": 159,
+    "minY": -140,
+    "maxY": 67
+   },
+   "sizeTiles": [
+    166,
+    208
+   ],
+   "counts": {
+    "tiles": 5845,
+    "placeables": 641,
+    "areas": 8
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741906_07_02_2019_1042PM.json",
+   "modelFiles": 42
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741907_07_02_2019_1048PM",
+   "sceneId": "1073741907",
+   "procedural": true,
+   "name": "%dungeon:m.graveyard_vanilla",
+   "levelName": "Ruined Compound|Creeping Colony",
+   "tilesets": {
+    "Graveyard": 4242
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -103,
+    "maxX": 28,
+    "minY": -79,
+    "maxY": 32
+   },
+   "sizeTiles": [
+    132,
+    112
+   ],
+   "counts": {
+    "tiles": 4242,
+    "placeables": 330,
+    "areas": 2
+   },
+   "overlaps": 13,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741907_07_02_2019_1048PM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741907_07_07_2019_1219AM",
+   "sceneId": "1073741907",
+   "procedural": true,
+   "name": "%dungeon:m.rc_slime_minis",
+   "levelName": "Ruined Compound|Creeping Colony",
+   "tilesets": {
+    "Clockworks": 4619,
+    "Sky Islands, Autumn": 3745
+   },
+   "clockworksShare": 0.552,
+   "bounds": {
+    "minX": -13,
+    "maxX": 132,
+    "minY": -21,
+    "maxY": 200
+   },
+   "sizeTiles": [
+    146,
+    222
+   ],
+   "counts": {
+    "tiles": 8364,
+    "placeables": 919,
+    "areas": 20
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741907_07_07_2019_1219AM.json",
+   "modelFiles": 57
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741908_07_04_2019_1050PM",
+   "sceneId": "1073741908",
+   "procedural": true,
+   "name": "%dungeon:m.deconstruction_zone_shock",
+   "levelName": "Deconstruction Zone|Circuit Breakers",
+   "tilesets": {
+    "Clockworks Shock": 3986
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 63,
+    "minY": -19,
+    "maxY": 63
+   },
+   "sizeTiles": [
+    97,
+    83
+   ],
+   "counts": {
+    "tiles": 3986,
+    "placeables": 482,
+    "areas": 2
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741908_07_04_2019_1050PM.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741909_07_04_2019_1051PM",
+   "sceneId": "1073741909",
+   "procedural": true,
+   "name": "%dungeon:m.pc_beast",
+   "levelName": "Power Complex|Wild Path",
+   "tilesets": {
+    "Clockworks Shock": 4363,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -89,
+    "maxX": 63,
+    "minY": -78,
+    "maxY": 10
+   },
+   "sizeTiles": [
+    153,
+    89
+   ],
+   "counts": {
+    "tiles": 4371,
+    "placeables": 668,
+    "areas": 12
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741909_07_04_2019_1051PM.json",
+   "modelFiles": 34
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741910",
+   "sceneId": "1073741910",
+   "procedural": true,
+   "name": "%dungeon:m.ct_slime",
+   "levelName": "Graveyard|Where Monsters Fear to Tread",
+   "tilesets": {
+    "Clockworks": 6356,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -6,
+    "maxX": 192,
+    "minY": -41,
+    "maxY": 112
+   },
+   "sizeTiles": [
+    199,
+    154
+   ],
+   "counts": {
+    "tiles": 6360,
+    "placeables": 665,
+    "areas": 12
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741910.json",
+   "modelFiles": 40
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741910_07_04_2019_1058PM",
+   "sceneId": "1073741910",
+   "procedural": true,
+   "name": "%dungeon:m.graveyard_vanilla",
+   "levelName": "Graveyard|Where Monsters Fear to Tread",
+   "tilesets": {
+    "Graveyard": 4978,
+    "Traps and Hazards": 2
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -119,
+    "maxX": 25,
+    "minY": -152,
+    "maxY": 17
+   },
+   "sizeTiles": [
+    145,
+    170
+   ],
+   "counts": {
+    "tiles": 4980,
+    "placeables": 455,
+    "areas": 1
+   },
+   "overlaps": 12,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741910_07_04_2019_1058PM.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741911_07_07_2019_1241AM",
+   "sceneId": "1073741911",
+   "procedural": true,
+   "name": "%dungeon:m.iea_construct",
+   "levelName": "Iron Edge Arena|Robo Rampage",
+   "tilesets": {
+    "Castle": 8047,
+    "Haven": 452,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 27,
+    "minY": -5,
+    "maxY": 319
+   },
+   "sizeTiles": [
+    61,
+    325
+   ],
+   "counts": {
+    "tiles": 8503,
+    "placeables": 355,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741911_07_07_2019_1241AM.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741912",
+   "sceneId": "1073741912",
+   "procedural": true,
+   "name": "%dungeon:m.pc_slime",
+   "levelName": "Power Complex|Slimeway",
+   "tilesets": {
+    "Clockworks Shock": 4813,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.998,
+   "bounds": {
+    "minX": -93,
+    "maxX": 66,
+    "minY": -60,
+    "maxY": 72
+   },
+   "sizeTiles": [
+    160,
+    133
+   ],
+   "counts": {
+    "tiles": 4821,
+    "placeables": 609,
+    "areas": 12
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741912.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741922",
+   "sceneId": "1073741922",
+   "procedural": true,
+   "name": "%dungeon:m.ct_slime",
+   "levelName": "Clockwork Tunnels|Slimeway",
+   "tilesets": {
+    "Clockworks": 5596,
+    "Traps and Hazards": 26
+   },
+   "clockworksShare": 0.995,
+   "bounds": {
+    "minX": -118,
+    "maxX": 49,
+    "minY": -5,
+    "maxY": 171
+   },
+   "sizeTiles": [
+    168,
+    177
+   ],
+   "counts": {
+    "tiles": 5622,
+    "placeables": 719,
+    "areas": 12
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741922.json",
+   "modelFiles": 38
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "1073741923",
+   "sceneId": "1073741923",
+   "procedural": true,
+   "name": "%dungeon:m.pc_slime",
+   "levelName": "Power Complex|Slimeway",
+   "tilesets": {
+    "Clockworks Shock": 4545,
+    "Traps and Hazards": 16
+   },
+   "clockworksShare": 0.996,
+   "bounds": {
+    "minX": -133,
+    "maxX": 8,
+    "minY": -41,
+    "maxY": 102
+   },
+   "sizeTiles": [
+    142,
+    144
+   ],
+   "counts": {
+    "tiles": 4561,
+    "placeables": 538,
+    "areas": 15
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__1073741923.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "2",
+   "sceneId": "2",
+   "procedural": false,
+   "name": "%town:m.haven_bazaar",
+   "levelName": "Haven|Bazaar",
+   "tilesets": {
+    "Haven": 8930,
+    "Clockworks": 15,
+    "Water": 9
+   },
+   "clockworksShare": 0.002,
+   "bounds": {
+    "minX": -68,
+    "maxX": 60,
+    "minY": -25,
+    "maxY": 59
+   },
+   "sizeTiles": [
+    129,
+    85
+   ],
+   "counts": {
+    "tiles": 8954,
+    "placeables": 1084,
+    "areas": 2
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__2.json",
+   "modelFiles": 75
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "240",
+   "sceneId": "240",
+   "procedural": false,
+   "name": "%dungeon:m.lost_castle_cravat_hall",
+   "levelName": "Scarlet Fortress|Cravat Hall",
+   "tilesets": {
+    "Castle": 4420
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -19,
+    "maxX": 84,
+    "minY": -10,
+    "maxY": 66
+   },
+   "sizeTiles": [
+    104,
+    77
+   ],
+   "counts": {
+    "tiles": 4420,
+    "placeables": 326,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__240.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "241",
+   "sceneId": "241",
+   "procedural": false,
+   "name": "%dungeon:m.lost_castle_cravat_hall_2",
+   "levelName": "Scarlet Fortress|Cravat Hall II",
+   "tilesets": {
+    "Castle": 4983,
+    "Haven": 18,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -19,
+    "maxX": 85,
+    "minY": -15,
+    "maxY": 67
+   },
+   "sizeTiles": [
+    105,
+    83
+   ],
+   "counts": {
+    "tiles": 5005,
+    "placeables": 424,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__241.json",
+   "modelFiles": 31
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "243",
+   "sceneId": "243",
+   "procedural": false,
+   "name": "%dungeon:m.lost_castle_cravat_hall_3",
+   "levelName": "Scarlet Fortress|Cravat Hall III",
+   "tilesets": {
+    "Castle": 5321
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -24,
+    "maxX": 68,
+    "minY": -7,
+    "maxY": 80
+   },
+   "sizeTiles": [
+    93,
+    88
+   ],
+   "counts": {
+    "tiles": 5321,
+    "placeables": 348,
+    "areas": 5
+   },
+   "overlaps": 4,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__243.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "245",
+   "sceneId": "245",
+   "procedural": false,
+   "name": "%dungeon:m.lost_castle_spiral_court",
+   "levelName": "Scarlet Fortress|Spiral Court",
+   "tilesets": {
+    "Castle": 2013,
+    "Traps and Hazards": 4
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -31,
+    "maxX": 23,
+    "minY": -20,
+    "maxY": 32
+   },
+   "sizeTiles": [
+    55,
+    53
+   ],
+   "counts": {
+    "tiles": 2017,
+    "placeables": 365,
+    "areas": 2
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__245.json",
+   "modelFiles": 19
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "246",
+   "sceneId": "246",
+   "procedural": false,
+   "name": "%dungeon:m.lost_castle_spiral_court_2",
+   "levelName": "Scarlet Fortress|Spiral Court II",
+   "tilesets": {
+    "Castle": 1918,
+    "Traps and Hazards": 6
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -34,
+    "maxX": 23,
+    "minY": -20,
+    "maxY": 32
+   },
+   "sizeTiles": [
+    58,
+    53
+   ],
+   "counts": {
+    "tiles": 1924,
+    "placeables": 299,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__246.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "251",
+   "sceneId": "251",
+   "procedural": false,
+   "name": "%dungeon:m.royal_jelly_court",
+   "levelName": "Royal Jelly Palace|Red Carpet Runaround",
+   "tilesets": {
+    "Castle": 6610,
+    "Haven": 402,
+    "Traps and Hazards": 42,
+    "Clockworks": 23
+   },
+   "clockworksShare": 0.003,
+   "bounds": {
+    "minX": -59,
+    "maxX": 49,
+    "minY": -59,
+    "maxY": 103
+   },
+   "sizeTiles": [
+    109,
+    163
+   ],
+   "counts": {
+    "tiles": 7077,
+    "placeables": 946,
+    "areas": 16
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__251.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "253",
+   "sceneId": "253",
+   "procedural": false,
+   "name": "%dungeon:m.royal_jelly_garden",
+   "levelName": "Royal Jelly Palace|Garden of Goo",
+   "tilesets": {
+    "Haven": 3979,
+    "Castle": 2803,
+    "Water": 72,
+    "Traps and Hazards": 40
+   },
+   "clockworksShare": 0.005,
+   "bounds": {
+    "minX": -58,
+    "maxX": 55,
+    "minY": -5,
+    "maxY": 144
+   },
+   "sizeTiles": [
+    114,
+    150
+   ],
+   "counts": {
+    "tiles": 6926,
+    "placeables": 519,
+    "areas": 1
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__253.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "255",
+   "sceneId": "255",
+   "procedural": false,
+   "name": "%dungeon:m.royal_jelly_lair",
+   "levelName": "Royal Jelly Palace|Battle Royale",
+   "tilesets": {
+    "Castle": 1613,
+    "Haven": 165,
+    "Water": 88,
+    "Clockworks": 48
+   },
+   "clockworksShare": 0.025,
+   "bounds": {
+    "minX": -15,
+    "maxX": 15,
+    "minY": -37,
+    "maxY": 62
+   },
+   "sizeTiles": [
+    31,
+    100
+   ],
+   "counts": {
+    "tiles": 1915,
+    "placeables": 325,
+    "areas": 0
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__255.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "260",
+   "sceneId": "260",
+   "procedural": false,
+   "name": "%dungeon:m.scarlet_fortress_grim_gallery",
+   "levelName": "Scarlet Fortress|Grim Gallery",
+   "tilesets": {
+    "Castle": 7318,
+    "Traps and Hazards": 37
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -78,
+    "maxX": 62,
+    "minY": -34,
+    "maxY": 87
+   },
+   "sizeTiles": [
+    141,
+    122
+   ],
+   "counts": {
+    "tiles": 7355,
+    "placeables": 601,
+    "areas": 18
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__260.json",
+   "modelFiles": 39
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "263",
+   "sceneId": "263",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_ash_armory_ultimate",
+   "levelName": "Firestorm Citadel|Ashen Armory",
+   "tilesets": {
+    "Castle, Fire": 8407,
+    "Traps and Hazards": 88
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -38,
+    "maxX": 54,
+    "minY": -5,
+    "maxY": 272
+   },
+   "sizeTiles": [
+    93,
+    278
+   ],
+   "counts": {
+    "tiles": 8495,
+    "placeables": 896,
+    "areas": 15
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__263.json",
+   "modelFiles": 49
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "265",
+   "sceneId": "265",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_blackstone_bridge_ultimate",
+   "levelName": "Firestorm Citadel|Blackstone Bridge",
+   "tilesets": {
+    "Castle, Fire": 6237,
+    "Traps and Hazards": 31
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -35,
+    "maxX": 36,
+    "minY": -35,
+    "maxY": 191
+   },
+   "sizeTiles": [
+    72,
+    227
+   ],
+   "counts": {
+    "tiles": 6268,
+    "placeables": 588,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__265.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "267",
+   "sceneId": "267",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_charred_court_ultimate",
+   "levelName": "Firestorm Citadel|Charred Court",
+   "tilesets": {
+    "Castle, Fire": 9164,
+    "Traps and Hazards": 29
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -79,
+    "maxX": 64,
+    "minY": -80,
+    "maxY": 59
+   },
+   "sizeTiles": [
+    144,
+    140
+   ],
+   "counts": {
+    "tiles": 9193,
+    "placeables": 820,
+    "areas": 18
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__267.json",
+   "modelFiles": 35
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "269",
+   "sceneId": "269",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_smoldering_steps_ultimate",
+   "levelName": "Firestorm Citadel|Smoldering Steps",
+   "tilesets": {
+    "Castle, Fire": 5896,
+    "Traps and Hazards": 83
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -22,
+    "maxX": 21,
+    "minY": -15,
+    "maxY": 238
+   },
+   "sizeTiles": [
+    44,
+    254
+   ],
+   "counts": {
+    "tiles": 5979,
+    "placeables": 860,
+    "areas": 11
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__269.json",
+   "modelFiles": 44
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "271",
+   "sceneId": "271",
+   "procedural": false,
+   "name": "%dungeon:m.firestorm_citadel_vanaduke_ultimate",
+   "levelName": "Firestorm Citadel|Throne Room",
+   "tilesets": {
+    "Castle, Fire": 4409
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -44,
+    "maxX": 40,
+    "minY": -42,
+    "maxY": 66
+   },
+   "sizeTiles": [
+    85,
+    109
+   ],
+   "counts": {
+    "tiles": 4409,
+    "placeables": 137,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__271.json",
+   "modelFiles": 24
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "272",
+   "sceneId": "272",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_blight_boulevard",
+   "levelName": "Concrete Jungle|Blight Boulevard",
+   "tilesets": {
+    "City, Base": 3263,
+    "Null, no-walk no-shoot": 55,
+    "Null": 8
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -12,
+    "maxX": 59,
+    "minY": -25,
+    "maxY": 63
+   },
+   "sizeTiles": [
+    72,
+    89
+   ],
+   "counts": {
+    "tiles": 3326,
+    "placeables": 852,
+    "areas": 1
+   },
+   "overlaps": 7,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__272.json",
+   "modelFiles": 43
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "274",
+   "sceneId": "274",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_blight_boulevard_2",
+   "levelName": "Concrete Jungle|Blight Boulevard II",
+   "tilesets": {
+    "City, Base": 3465,
+    "Null, no-walk no-shoot": 55
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -58,
+    "maxX": 24,
+    "minY": -30,
+    "maxY": 63
+   },
+   "sizeTiles": [
+    83,
+    94
+   ],
+   "counts": {
+    "tiles": 3520,
+    "placeables": 898,
+    "areas": 2
+   },
+   "overlaps": 9,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__274.json",
+   "modelFiles": 39
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "279",
+   "sceneId": "279",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_totem_trouble",
+   "levelName": "Concrete Jungle|Totem Trouble",
+   "tilesets": {
+    "City, Base": 4073,
+    "Null, no-walk no-shoot": 119,
+    "Null": 16
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -87,
+    "maxX": 59,
+    "minY": -36,
+    "maxY": 36
+   },
+   "sizeTiles": [
+    147,
+    73
+   ],
+   "counts": {
+    "tiles": 4208,
+    "placeables": 1040,
+    "areas": 2
+   },
+   "overlaps": 14,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__279.json",
+   "modelFiles": 47
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "281",
+   "sceneId": "281",
+   "procedural": false,
+   "name": "%dungeon:m.concrete_jungle_totem_trouble_2",
+   "levelName": "Concrete Jungle|Totem Trouble II",
+   "tilesets": {
+    "City, Base": 3838,
+    "Null, no-walk no-shoot": 89,
+    "Traps and Hazards": 7
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -33,
+    "maxX": 55,
+    "minY": -11,
+    "maxY": 73
+   },
+   "sizeTiles": [
+    89,
+    85
+   ],
+   "counts": {
+    "tiles": 3934,
+    "placeables": 846,
+    "areas": 6
+   },
+   "overlaps": 13,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__281.json",
+   "modelFiles": 49
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "286",
+   "sceneId": "286",
+   "procedural": false,
+   "name": "%dungeon:m.dark_city_devilish_drudgery_4",
+   "levelName": "Dark City|Sinful Steps",
+   "tilesets": {
+    "City, Base": 3304,
+    "Null, no-walk no-shoot": 99
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -81,
+    "maxX": 26,
+    "minY": -24,
+    "maxY": 36
+   },
+   "sizeTiles": [
+    108,
+    61
+   ],
+   "counts": {
+    "tiles": 3403,
+    "placeables": 482,
+    "areas": 5
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__286.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "288",
+   "sceneId": "288",
+   "procedural": false,
+   "name": "%dungeon:m.dark_city_devilish_drudgery_5",
+   "levelName": "Dark City|Sinful Steps II",
+   "tilesets": {
+    "City, Base": 1950,
+    "Null, no-walk no-shoot": 12
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -13,
+    "maxX": 55,
+    "minY": -11,
+    "maxY": 40
+   },
+   "sizeTiles": [
+    69,
+    52
+   ],
+   "counts": {
+    "tiles": 1962,
+    "placeables": 555,
+    "areas": 2
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__288.json",
+   "modelFiles": 32
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "290",
+   "sceneId": "290",
+   "procedural": false,
+   "name": "%dungeon:m.dark_city_devilish_drudgery_6",
+   "levelName": "Dark City|Plazamonium",
+   "tilesets": {
+    "City, Base": 3443,
+    "Null, no-walk no-shoot": 77
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -9,
+    "maxX": 81,
+    "minY": -33,
+    "maxY": 36
+   },
+   "sizeTiles": [
+    91,
+    70
+   ],
+   "counts": {
+    "tiles": 3520,
+    "placeables": 492,
+    "areas": 3
+   },
+   "overlaps": 3,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__290.json",
+   "modelFiles": 41
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "3",
+   "sceneId": "3",
+   "procedural": false,
+   "name": "%town:m.haven_arcade",
+   "levelName": "Haven|Arcade",
+   "tilesets": {
+    "Haven": 1016,
+    "Clockworks": 554,
+    "Null": 26
+   },
+   "clockworksShare": 0.347,
+   "bounds": {
+    "minX": -55,
+    "maxX": 59,
+    "minY": -18,
+    "maxY": 21
+   },
+   "sizeTiles": [
+    115,
+    40
+   ],
+   "counts": {
+    "tiles": 1596,
+    "placeables": 572,
+    "areas": 3
+   },
+   "overlaps": 26,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__3.json",
+   "modelFiles": 72
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "327",
+   "sceneId": "327",
+   "procedural": false,
+   "name": "%dungeon:m.terminal_1",
+   "levelName": "Clockwork Terminal|The Crossroads of Adventure",
+   "tilesets": {
+    "Clockworks": 926
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -20,
+    "maxX": 20,
+    "minY": 0,
+    "maxY": 43
+   },
+   "sizeTiles": [
+    41,
+    44
+   ],
+   "counts": {
+    "tiles": 926,
+    "placeables": 57,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__327.json",
+   "modelFiles": 22
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "328",
+   "sceneId": "328",
+   "procedural": false,
+   "name": "%dungeon:m.terminal_core",
+   "levelName": "The Core|The Path is Sealed",
+   "tilesets": {
+    "Clockworks": 954,
+    "Null": 16
+   },
+   "clockworksShare": 0.984,
+   "bounds": {
+    "minX": -26,
+    "maxX": 4,
+    "minY": -59,
+    "maxY": 11
+   },
+   "sizeTiles": [
+    31,
+    71
+   ],
+   "counts": {
+    "tiles": 970,
+    "placeables": 308,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__328.json",
+   "modelFiles": 33
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "330",
+   "sceneId": "330",
+   "procedural": false,
+   "name": "%dungeon:m.terminal_1",
+   "levelName": "Clockwork Terminal|The Crossroads of Adventure",
+   "tilesets": {
+    "Clockworks": 2048,
+    "Castle, Fire": 61,
+    "Sky Islands, Night": 61,
+    "Clockworks Shock": 60
+   },
+   "clockworksShare": 0.919,
+   "bounds": {
+    "minX": -25,
+    "maxX": 43,
+    "minY": 0,
+    "maxY": 81
+   },
+   "sizeTiles": [
+    69,
+    82
+   ],
+   "counts": {
+    "tiles": 2294,
+    "placeables": 207,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__330.json",
+   "modelFiles": 76
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "339",
+   "sceneId": "339",
+   "procedural": false,
+   "name": "%dungeon:m.ultimate_swarm_trap",
+   "levelName": "Unknown Passage|A Descent into Darkness",
+   "tilesets": {
+    "Clockworks": 3593,
+    "Null": 39
+   },
+   "clockworksShare": 0.989,
+   "bounds": {
+    "minX": -28,
+    "maxX": 26,
+    "minY": -7,
+    "maxY": 154
+   },
+   "sizeTiles": [
+    55,
+    162
+   ],
+   "counts": {
+    "tiles": 3632,
+    "placeables": 1330,
+    "areas": 4
+   },
+   "overlaps": 5,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__339.json",
+   "modelFiles": 21
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "348",
+   "sceneId": "348",
+   "procedural": false,
+   "name": "%dungeon:m.arcade_lobby",
+   "levelName": "The Clockworks|Party Lobby",
+   "tilesets": {
+    "Clockworks": 3577,
+    "Null": 3
+   },
+   "clockworksShare": 0.999,
+   "bounds": {
+    "minX": -44,
+    "maxX": 46,
+    "minY": -36,
+    "maxY": 32
+   },
+   "sizeTiles": [
+    91,
+    69
+   ],
+   "counts": {
+    "tiles": 3580,
+    "placeables": 213,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__348.json",
+   "modelFiles": 40
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "349",
+   "sceneId": "349",
+   "procedural": false,
+   "name": "%dungeon:m.emberlight",
+   "levelName": "Emberlight|Town of Gremlin Outcasts",
+   "tilesets": {
+    "Clockworks": 3484
+   },
+   "clockworksShare": 1.0,
+   "bounds": {
+    "minX": -53,
+    "maxX": 59,
+    "minY": 25,
+    "maxY": 114
+   },
+   "sizeTiles": [
+    113,
+    90
+   ],
+   "counts": {
+    "tiles": 3484,
+    "placeables": 657,
+    "areas": 1
+   },
+   "overlaps": 3,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__349.json",
+   "modelFiles": 65
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "356",
+   "sceneId": "356",
+   "procedural": false,
+   "name": "%dungeon:m.moorcroft",
+   "levelName": "Moorcroft Manor|Town of Restless Spirits",
+   "tilesets": {
+    "Castle": 2183,
+    "Clockworks": 620,
+    "Graveyard": 167,
+    "Moorcroft": 11
+   },
+   "clockworksShare": 0.207,
+   "bounds": {
+    "minX": -36,
+    "maxX": 52,
+    "minY": 30,
+    "maxY": 115
+   },
+   "sizeTiles": [
+    89,
+    86
+   ],
+   "counts": {
+    "tiles": 2990,
+    "placeables": 272,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__356.json",
+   "modelFiles": 67
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "357",
+   "sceneId": "357",
+   "procedural": false,
+   "name": "%dungeon:m.sleeper_sanctuary",
+   "levelName": "The Sanctuary|A Calm in the Storm",
+   "tilesets": {
+    "Haven": 877
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -23,
+    "maxX": 24,
+    "minY": -12,
+    "maxY": 19
+   },
+   "sizeTiles": [
+    48,
+    32
+   ],
+   "counts": {
+    "tiles": 877,
+    "placeables": 111,
+    "areas": 0
+   },
+   "overlaps": 2,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__357.json",
+   "modelFiles": 18
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "361",
+   "sceneId": "361",
+   "procedural": false,
+   "name": "%dungeon:m.aurora_isles_stone_grove",
+   "levelName": "Aurora Isles|Stone Grove",
+   "tilesets": {
+    "Sky Islands, Day": 5719
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -44,
+    "maxX": 96,
+    "minY": -34,
+    "maxY": 40
+   },
+   "sizeTiles": [
+    141,
+    75
+   ],
+   "counts": {
+    "tiles": 5719,
+    "placeables": 306,
+    "areas": 5
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__361.json",
+   "modelFiles": 18
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "363",
+   "sceneId": "363",
+   "procedural": false,
+   "name": "%dungeon:m.aurora_isles_the_jelly_farm",
+   "levelName": "Aurora Isles|The Jelly Farm",
+   "tilesets": {
+    "Sky Islands, Day": 6855,
+    "Haven": 9
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -66,
+    "maxX": 38,
+    "minY": -6,
+    "maxY": 163
+   },
+   "sizeTiles": [
+    105,
+    170
+   ],
+   "counts": {
+    "tiles": 6864,
+    "placeables": 578,
+    "areas": 21
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__363.json",
+   "modelFiles": 19
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "364",
+   "sceneId": "364",
+   "procedural": false,
+   "name": "%dungeon:m.aurora_isles_the_jelly_farm_2",
+   "levelName": "Aurora Isles|The Jelly Farm II",
+   "tilesets": {
+    "Sky Islands, Day": 5138,
+    "Haven": 18
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -66,
+    "maxX": 38,
+    "minY": 49,
+    "maxY": 163
+   },
+   "sizeTiles": [
+    105,
+    115
+   ],
+   "counts": {
+    "tiles": 5156,
+    "placeables": 443,
+    "areas": 13
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__364.json",
+   "modelFiles": 20
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "365",
+   "sceneId": "365",
+   "procedural": false,
+   "name": "%dungeon:m.aurora_isles_the_low_gardens",
+   "levelName": "Aurora Isles|The Low Gardens",
+   "tilesets": {
+    "Sky Islands, Day": 11283,
+    "Haven": 9
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -82,
+    "maxX": 39,
+    "minY": -66,
+    "maxY": 50
+   },
+   "sizeTiles": [
+    122,
+    117
+   ],
+   "counts": {
+    "tiles": 11292,
+    "placeables": 324,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__365.json",
+   "modelFiles": 22
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "368",
+   "sceneId": "368",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_emerald_axis",
+   "levelName": "Jigsaw Valley|Emerald Axis",
+   "tilesets": {
+    "Sky Islands, Day": 6398,
+    "Traps and Hazards": 20
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -77,
+    "maxX": 99,
+    "minY": -31,
+    "maxY": 38
+   },
+   "sizeTiles": [
+    177,
+    70
+   ],
+   "counts": {
+    "tiles": 6418,
+    "placeables": 269,
+    "areas": 7
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__368.json",
+   "modelFiles": 26
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "370",
+   "sceneId": "370",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_emerald_axis_2",
+   "levelName": "Jigsaw Valley|Emerald Axis II",
+   "tilesets": {
+    "Sky Islands, Day": 6517,
+    "Traps and Hazards": 34
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -77,
+    "maxX": 92,
+    "minY": -57,
+    "maxY": 40
+   },
+   "sizeTiles": [
+    170,
+    98
+   ],
+   "counts": {
+    "tiles": 6551,
+    "placeables": 372,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__370.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "372",
+   "sceneId": "372",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_perimeter_promenade",
+   "levelName": "Jigsaw Valley|Perimeter Promenade",
+   "tilesets": {
+    "Sky Islands, Day": 4543,
+    "Traps and Hazards": 37
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -70,
+    "maxX": 39,
+    "minY": -18,
+    "maxY": 53
+   },
+   "sizeTiles": [
+    110,
+    72
+   ],
+   "counts": {
+    "tiles": 4580,
+    "placeables": 363,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__372.json",
+   "modelFiles": 27
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "374",
+   "sceneId": "374",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_perimeter_promenade_2",
+   "levelName": "Jigsaw Valley|Perimeter Promenade II",
+   "tilesets": {
+    "Sky Islands, Day": 4667
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -70,
+    "maxX": 34,
+    "minY": -16,
+    "maxY": 55
+   },
+   "sizeTiles": [
+    105,
+    72
+   ],
+   "counts": {
+    "tiles": 4667,
+    "placeables": 257,
+    "areas": 10
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__374.json",
+   "modelFiles": 19
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "376",
+   "sceneId": "376",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_the_jade_tangle",
+   "levelName": "Jigsaw Valley|Jade Tangle",
+   "tilesets": {
+    "Sky Islands, Day": 7719
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -26,
+    "maxX": 67,
+    "minY": -21,
+    "maxY": 215
+   },
+   "sizeTiles": [
+    94,
+    237
+   ],
+   "counts": {
+    "tiles": 7719,
+    "placeables": 326,
+    "areas": 5
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__376.json",
+   "modelFiles": 21
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "378",
+   "sceneId": "378",
+   "procedural": false,
+   "name": "%dungeon:m.jigsaw_valley_the_jade_tangle_2",
+   "levelName": "Jigsaw Valley|Jade Tangle II",
+   "tilesets": {
+    "Sky Islands, Day": 3870
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -15,
+    "maxX": 67,
+    "minY": -6,
+    "maxY": 215
+   },
+   "sizeTiles": [
+    83,
+    222
+   ],
+   "counts": {
+    "tiles": 3870,
+    "placeables": 258,
+    "areas": 4
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__378.json",
+   "modelFiles": 20
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "380",
+   "sceneId": "380",
+   "procedural": false,
+   "name": "%dungeon:m.gloaming_wildwoods_path",
+   "levelName": "Gloaming Wildwoods|Terrilous Trail",
+   "tilesets": {
+    "Sky Islands, Night": 8740
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -24,
+    "maxX": 162,
+    "minY": -50,
+    "maxY": 64
+   },
+   "sizeTiles": [
+    187,
+    115
+   ],
+   "counts": {
+    "tiles": 8740,
+    "placeables": 1065,
+    "areas": 8
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__380.json",
+   "modelFiles": 45
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "382",
+   "sceneId": "382",
+   "procedural": false,
+   "name": "%dungeon:m.gloaming_wildwoods_ruins",
+   "levelName": "Gloaming Wildwoods|Roarsterous Ruins",
+   "tilesets": {
+    "Sky Islands, Night": 8650,
+    "Traps and Hazards": 17
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -2,
+    "maxX": 107,
+    "minY": -15,
+    "maxY": 117
+   },
+   "sizeTiles": [
+    110,
+    133
+   ],
+   "counts": {
+    "tiles": 8667,
+    "placeables": 1264,
+    "areas": 14
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__382.json",
+   "modelFiles": 44
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "384",
+   "sceneId": "384",
+   "procedural": false,
+   "name": "%dungeon:m.gloaming_wildwoods_snarbolax",
+   "levelName": "Gloaming Wildwoods|Lair of the Snarbolax",
+   "tilesets": {
+    "Sky Islands, Night": 3584
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -17,
+    "maxX": 43,
+    "minY": -12,
+    "maxY": 87
+   },
+   "sizeTiles": [
+    61,
+    100
+   ],
+   "counts": {
+    "tiles": 3584,
+    "placeables": 424,
+    "areas": 1
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__384.json",
+   "modelFiles": 37
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "386",
+   "sceneId": "386",
+   "procedural": false,
+   "name": "%dungeon:m.starlight_cradle_meteor_mile",
+   "levelName": "Starlight Cradle|Meteor Mile",
+   "tilesets": {
+    "Sky Islands, Night": 3945
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -34,
+    "maxX": 54,
+    "minY": -12,
+    "maxY": 103
+   },
+   "sizeTiles": [
+    89,
+    116
+   ],
+   "counts": {
+    "tiles": 3945,
+    "placeables": 399,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__386.json",
+   "modelFiles": 27
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "387",
+   "sceneId": "387",
+   "procedural": false,
+   "name": "%dungeon:m.starlight_cradle_meteor_mile_2",
+   "levelName": "Starlight Cradle|Meteor Mile II",
+   "tilesets": {
+    "Sky Islands, Night": 4264
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -38,
+    "maxX": 54,
+    "minY": -5,
+    "maxY": 109
+   },
+   "sizeTiles": [
+    93,
+    115
+   ],
+   "counts": {
+    "tiles": 4264,
+    "placeables": 376,
+    "areas": 2
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__387.json",
+   "modelFiles": 28
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "388",
+   "sceneId": "388",
+   "procedural": false,
+   "name": "%dungeon:m.starlight_cradle_meteor_mile_3",
+   "levelName": "Starlight Cradle|Meteor Mile III",
+   "tilesets": {
+    "Sky Islands, Night": 4011,
+    "Haven": 9
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -51,
+    "maxX": 69,
+    "minY": 7,
+    "maxY": 109
+   },
+   "sizeTiles": [
+    121,
+    103
+   ],
+   "counts": {
+    "tiles": 4020,
+    "placeables": 326,
+    "areas": 5
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__388.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "390",
+   "sceneId": "390",
+   "procedural": false,
+   "name": "%dungeon:m.starlight_cradle_shrine_of_slumber",
+   "levelName": "Starlight Cradle|Shrine of Slumber",
+   "tilesets": {
+    "Sky Islands, Night": 3328
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -22,
+    "maxX": 94,
+    "minY": -6,
+    "maxY": 60
+   },
+   "sizeTiles": [
+    117,
+    67
+   ],
+   "counts": {
+    "tiles": 3328,
+    "placeables": 254,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__390.json",
+   "modelFiles": 21
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "391",
+   "sceneId": "391",
+   "procedural": false,
+   "name": "%dungeon:m.starlight_cradle_shrine_of_slumber_2",
+   "levelName": "Starlight Cradle|Shrine of Slumber II",
+   "tilesets": {
+    "Sky Islands, Night": 3416,
+    "Haven": 27,
+    "Traps and Hazards": 8
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -22,
+    "maxX": 94,
+    "minY": -13,
+    "maxY": 63
+   },
+   "sizeTiles": [
+    117,
+    77
+   ],
+   "counts": {
+    "tiles": 3451,
+    "placeables": 234,
+    "areas": 3
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__391.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "392",
+   "sceneId": "392",
+   "procedural": false,
+   "name": "%dungeon:m.starlight_cradle_shrine_of_slumber_3",
+   "levelName": "Starlight Cradle|Shrine of Slumber III",
+   "tilesets": {
+    "Sky Islands, Night": 3687,
+    "Haven": 18,
+    "Traps and Hazards": 2
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -22,
+    "maxX": 94,
+    "minY": -6,
+    "maxY": 65
+   },
+   "sizeTiles": [
+    117,
+    72
+   ],
+   "counts": {
+    "tiles": 3707,
+    "placeables": 295,
+    "areas": 2
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__392.json",
+   "modelFiles": 25
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "393",
+   "sceneId": "393",
+   "procedural": false,
+   "name": "%dungeon:m.starlight_cradle_shrine_of_slumber_4",
+   "levelName": "Starlight Cradle|Shrine of Slumber IV",
+   "tilesets": {
+    "Sky Islands, Night": 4586
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -25,
+    "maxX": 54,
+    "minY": 0,
+    "maxY": 157
+   },
+   "sizeTiles": [
+    80,
+    158
+   ],
+   "counts": {
+    "tiles": 4586,
+    "placeables": 271,
+    "areas": 4
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__393.json",
+   "modelFiles": 19
+  },
+  {
+   "folder": "scenesmainarcade",
+   "file": "445",
+   "sceneId": "445",
+   "procedural": false,
+   "name": "%town:m.haven_eastside",
+   "levelName": "Haven|Garrison",
+   "tilesets": {
+    "Haven": 5644,
+    "Castle, Light": 113,
+    "Null, no-walk no-shoot": 10,
+    "Null": 5
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -31,
+    "maxX": 81,
+    "minY": -30,
+    "maxY": 39
+   },
+   "sizeTiles": [
+    113,
+    70
+   ],
+   "counts": {
+    "tiles": 5772,
+    "placeables": 944,
+    "areas": 6
+   },
+   "overlaps": 6,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\scenesmainarcade__445.json",
+   "modelFiles": 77
+  },
+  {
+   "folder": "installcache",
+   "file": "1",
+   "sceneId": "1",
+   "procedural": false,
+   "name": "%town:m.haven_town_square",
+   "levelName": null,
+   "tilesets": {
+    "Haven": 17451,
+    "Null": 130,
+    "Water": 84,
+    "Null, no-walk": 46
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -81,
+    "maxX": 86,
+    "minY": -82,
+    "maxY": 70
+   },
+   "sizeTiles": [
+    168,
+    153
+   ],
+   "counts": {
+    "tiles": 17711,
+    "placeables": 1760,
+    "areas": 6
+   },
+   "overlaps": 14,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\installcache__1.json",
+   "modelFiles": 109
+  },
+  {
+   "folder": "installcache",
+   "file": "23389",
+   "sceneId": "23389",
+   "procedural": false,
+   "name": "%guild:m.hall|~The Exceeds",
+   "levelName": null,
+   "tilesets": {
+    "Clockworks": 7074,
+    "Haven": 1343,
+    "Clockworks Freeze": 101,
+    "Null, no-walk": 11
+   },
+   "clockworksShare": 0.84,
+   "bounds": {
+    "minX": -71,
+    "maxX": 73,
+    "minY": 1,
+    "maxY": 114
+   },
+   "sizeTiles": [
+    145,
+    114
+   ],
+   "counts": {
+    "tiles": 8537,
+    "placeables": 1721,
+    "areas": 322
+   },
+   "overlaps": 1,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\installcache__23389.json",
+   "modelFiles": 103
+  },
+  {
+   "folder": "installcache",
+   "file": "27913",
+   "sceneId": "27913",
+   "procedural": false,
+   "name": "%dungeon:m.dark_halls_lobby",
+   "levelName": null,
+   "tilesets": {
+    "Water": 740,
+    "Castle, Light": 641
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -4,
+    "maxX": 63,
+    "minY": -33,
+    "maxY": 28
+   },
+   "sizeTiles": [
+    68,
+    62
+   ],
+   "counts": {
+    "tiles": 1381,
+    "placeables": 322,
+    "areas": 2
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\installcache__27913.json",
+   "modelFiles": 23
+  },
+  {
+   "folder": "installcache",
+   "file": "28074",
+   "sceneId": "28074",
+   "procedural": false,
+   "name": "%dungeon:m.dark_halls_finale",
+   "levelName": null,
+   "tilesets": {
+    "Water": 5698,
+    "Castle, Light": 295
+   },
+   "clockworksShare": 0.0,
+   "bounds": {
+    "minX": -44,
+    "maxX": 75,
+    "minY": -44,
+    "maxY": 54
+   },
+   "sizeTiles": [
+    120,
+    99
+   ],
+   "counts": {
+    "tiles": 5993,
+    "placeables": 418,
+    "areas": 2
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\installcache__28074.json",
+   "modelFiles": 20
+  },
+  {
+   "folder": "installcache",
+   "file": "28075",
+   "sceneId": "28075",
+   "procedural": false,
+   "name": "%dungeon:m.mission_lobby",
+   "levelName": null,
+   "tilesets": {
+    "Clockworks": 445,
+    "Haven": 115,
+    "Clockworks Shock": 32,
+    "Null": 9
+   },
+   "clockworksShare": 0.794,
+   "bounds": {
+    "minX": -25,
+    "maxX": 24,
+    "minY": -6,
+    "maxY": 23
+   },
+   "sizeTiles": [
+    50,
+    30
+   ],
+   "counts": {
+    "tiles": 601,
+    "placeables": 136,
+    "areas": 0
+   },
+   "overlaps": 0,
+   "decoded": "D:\\Dev\\SKAssets\\_scenes\\decoded\\installcache__28075.json",
+   "modelFiles": 38
+  }
+ ]
+}

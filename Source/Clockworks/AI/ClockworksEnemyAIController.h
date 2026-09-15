@@ -15,7 +15,8 @@ enum class EClockworksEnemyState : uint8
 {
 	Idle,
 	Chase,
-	Attack
+	Attack,
+	Stunned
 };
 
 /**

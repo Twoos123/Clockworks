@@ -5,6 +5,8 @@
 #include "ClockworksAttributeSet.h"
 #include "ClockworksDamageEffect.h"
 #include "ClockworksEnemyAIController.h"
+#include "ClockworksEnemyCharacter.h"
+#include "Sound/SoundBase.h"
 #include "ClockworksGameplayTags.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
@@ -12,6 +14,7 @@
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimSequenceBase.h"
 #include "CollisionQueryParams.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
@@ -34,6 +37,7 @@ UClockworksEnemyMeleeAbility::UClockworksEnemyMeleeAbility()
 
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Attacking);
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Dead);
+	ActivationBlockedTags.AddTag(ClockworksTags::State_Stunned);
 	ActivationBlockedTags.AddTag(ClockworksTags::Cooldown_Attack);
 
 	CooldownGameplayEffectClass = UClockworksAttackCooldownEffect::StaticClass();
@@ -78,8 +82,27 @@ void UClockworksEnemyMeleeAbility::ActivateAbility(const FGameplayAbilitySpecHan
 	Avatar->GetCharacterMovement()->StopMovementImmediately();
 	AddLocalTag(ClockworksTags::State_MovementLocked);
 
-	// Visuals only. Either one clip for the whole attack, or the windup clip now and the rest per phase.
-	PlayPhaseMontage(WindupMontage ? WindupMontage.Get() : AttackMontage.Get());
+	// Visuals only, and the most important clip in the game: the telegraph the player reads before
+	// stepping out of the way. Either one clip for the whole attack, or the windup now and the rest
+	// per phase.
+	// The telegraph is heard as well as seen: this is the cue the player reacts to when the enemy is
+	// off the edge of the screen. Enemy abilities are server-only, so a multicast reaches everyone.
+	if (AClockworksEnemyCharacter* Enemy = Cast<AClockworksEnemyCharacter>(Avatar))
+	{
+		Enemy->MulticastPlaySound(AttackSound);
+		// The tint goes up with the windup and comes down when the hitbox opens: it marks the window
+		// you still have to get out of the way, not the attack itself.
+		Enemy->SetTelegraph(true);
+	}
+
+	if (WindupAnim || AttackAnim)
+	{
+		PlayPhase(WindupAnim ? WindupAnim.Get() : AttackAnim.Get(), nullptr, WindupSeconds);
+	}
+	else
+	{
+		PlayPhaseMontage(WindupMontage ? WindupMontage.Get() : AttackMontage.Get());
+	}
 
 	UAbilityTask_WaitDelay* Windup = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(WindupSeconds));
 	Windup->OnFinish.AddDynamic(this, &UClockworksEnemyMeleeAbility::OnWindupFinished);
@@ -96,7 +119,17 @@ void UClockworksEnemyMeleeAbility::OnWindupFinished()
 		return;
 	}
 
-	if (WindupMontage)
+	// The window to react has closed; the tint comes off as the hitbox opens.
+	if (AClockworksEnemyCharacter* Enemy = Cast<AClockworksEnemyCharacter>(Avatar))
+	{
+		Enemy->SetTelegraph(false);
+	}
+
+	if (WindupAnim)
+	{
+		PlayPhase(AttackAnim, nullptr, LungeSeconds);
+	}
+	else if (WindupMontage)
 	{
 		PlayPhaseMontage(AttackMontage);
 	}
@@ -202,9 +235,25 @@ void UClockworksEnemyMeleeAbility::ApplyDamageTo(UAbilitySystemComponent* Target
 	{
 		AttackPower = SourceAttributes->GetAttackPower();
 	}
-	SpecHandle.Data->SetSetByCallerMagnitude(ClockworksTags::Data_Damage, BaseDamage + AttackPower);
+	// The original's damage at this depth, split by type, when the monster carries it; otherwise the flat number.
+	float Parts[4];
+	if (DepthDamageParts(GetWorld(), NormalDamageByDepth, PiercingDamageByDepth, ElementalDamageByDepth, ShadowDamageByDepth, Parts))
+	{
+		SetTypedDamageMagnitudes(SpecHandle, Parts);
+	}
+	else
+	{
+		SetDamageMagnitudes(SpecHandle, BaseDamage + AttackPower, ResolveDamageType());
+	}
 
 	SourceAbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data, TargetAbilitySystemComponent);
+
+	ApplyWeaponStatus(SourceAbilitySystemComponent, TargetAbilitySystemComponent);
+
+	if (AClockworksEnemyCharacter* Enemy = Cast<AClockworksEnemyCharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Enemy->MulticastPlaySound(HitSound);
+	}
 }
 
 // Runs on: server only. Recovery: the punish window.
@@ -215,7 +264,11 @@ void UClockworksEnemyMeleeAbility::OnLungeFinished()
 		World->GetTimerManager().ClearTimer(HitCheckTimer);
 	}
 
-	if (WindupMontage)
+	if (WindupAnim)
+	{
+		PlayPhase(RecoveryAnim, nullptr, RecoverySeconds);
+	}
+	else if (WindupMontage)
 	{
 		PlayPhaseMontage(RecoveryMontage);
 	}
@@ -223,6 +276,21 @@ void UClockworksEnemyMeleeAbility::OnLungeFinished()
 	UAbilityTask_WaitDelay* Recovery = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(RecoverySeconds));
 	Recovery->OnFinish.AddDynamic(this, &UClockworksEnemyMeleeAbility::OnRecoveryFinished);
 	Recovery->ReadyForActivation();
+}
+
+// Runs on: server only. The enemy character multicasts the clip, fitted to the phase, so the timing
+// always comes from the numbers rather than the animation's own length.
+void UClockworksEnemyMeleeAbility::PlayPhase(UAnimSequenceBase* Anim, UAnimMontage* Montage, float PhaseSeconds)
+{
+	if (Anim)
+	{
+		if (AClockworksEnemyCharacter* Enemy = Cast<AClockworksEnemyCharacter>(GetAvatarCharacter()))
+		{
+			Enemy->PlayPhaseAnimation(Anim, PhaseSeconds);
+			return;
+		}
+	}
+	PlayPhaseMontage(Montage);
 }
 
 // Runs on: server only. The ability system replicates the montage to clients on its own.
@@ -265,6 +333,13 @@ void UClockworksEnemyMeleeAbility::EndAbility(const FGameplayAbilitySpecHandle H
 		World->GetTimerManager().ClearTimer(HitCheckTimer);
 	}
 	RemoveLocalTag(ClockworksTags::State_MovementLocked);
+
+	// Belt and braces: an attack cancelled during its windup (a stun, a death) must not leave the
+	// enemy tinted for the rest of its life.
+	if (AClockworksEnemyCharacter* Enemy = Cast<AClockworksEnemyCharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Enemy->SetTelegraph(false);
+	}
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

@@ -135,6 +135,18 @@ void AClockworksEnemyAIController::Tick(float DeltaSeconds)
 		return;
 	}
 
+	// Stunned (a shield bash landed): stand there until the stun effect expires. The enemy character
+	// already cancelled the attack that was running.
+	if (AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Stunned))
+	{
+		if (State != EClockworksEnemyState::Stunned)
+		{
+			StopMovement();
+			State = EClockworksEnemyState::Stunned;
+		}
+		return;
+	}
+
 	// While the attack ability owns the pawn, do nothing. It ends on its own.
 	if (AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Attacking))
 	{
@@ -148,9 +160,19 @@ void AClockworksEnemyAIController::Tick(float DeltaSeconds)
 	if (ReevaluateTimer <= 0.f || !TargetActor.IsValid())
 	{
 		ReevaluateTimer = TargetReevaluateSeconds;
+		const bool bHadTarget = TargetActor.IsValid();
 		if (AActor* Chosen = ChooseTarget())
 		{
 			TargetActor = Chosen;
+			// Going from nothing to a target is the moment the enemy notices you: the bark, the
+			// turret spinning up. Only on the first one, so it does not replay on every retarget.
+			if (!bHadTarget)
+			{
+				if (AClockworksEnemyCharacter* Enemy = Cast<AClockworksEnemyCharacter>(MyPawn))
+				{
+					Enemy->PlayAggroAnimation();
+				}
+			}
 		}
 	}
 	if (TargetActor.IsValid())

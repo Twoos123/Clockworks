@@ -5,7 +5,10 @@
 #include "ClockworksAttributeSet.h"
 #include "ClockworksEnemyAIController.h"
 #include "ClockworksGameplayTags.h"
+#include "ClockworksWeaponDefinition.h"
+#include "ClockworksEnemyCharacter.h"
 #include "ClockworksProjectile.h"
+#include "Sound/SoundBase.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
@@ -24,6 +27,7 @@ UClockworksEnemyRangedAbility::UClockworksEnemyRangedAbility()
 
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Attacking);
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Dead);
+	ActivationBlockedTags.AddTag(ClockworksTags::State_Stunned);
 	ActivationBlockedTags.AddTag(ClockworksTags::Cooldown_Attack);
 
 	CooldownGameplayEffectClass = UClockworksAttackCooldownEffect::StaticClass();
@@ -118,7 +122,29 @@ void UClockworksEnemyRangedAbility::OnWindupFinished()
 		{
 			AttackPower = SourceAttributes->GetAttackPower();
 		}
-		Projectile->InitProjectile(SourceAbilitySystemComponent, BaseDamage + AttackPower, Direction, ProjectileSpeed);
+		// The original's damage at this depth, split by type, when the monster carries it; otherwise the flat number.
+		float Parts[4];
+		const bool bDepthDamage = DepthDamageParts(World, NormalDamageByDepth, PiercingDamageByDepth, ElementalDamageByDepth, ShadowDamageByDepth, Parts);
+		const float BoltDamage = bDepthDamage ? Parts[0] + Parts[1] + Parts[2] + Parts[3] : BaseDamage + AttackPower;
+		Projectile->InitProjectile(SourceAbilitySystemComponent, BoltDamage, Direction, ProjectileSpeed, 1.f, 0.f, ResolveDamageType());
+		if (bDepthDamage)
+		{
+			Projectile->InitProjectileDamageParts(Parts);
+		}
+		if (const UClockworksWeaponDefinition* SourceWeapon = GetSourceWeapon(); SourceWeapon && SourceWeapon->StatusEffect)
+		{
+			Projectile->InitProjectileStatus(SourceWeapon->StatusEffect, SourceWeapon->StatusChance, SourceWeapon->StatusSeconds, SourceWeapon->StatusTickDamage);
+		}
+		else
+		{
+			Projectile->InitProjectileStatus(StatusEffect, StatusChance, StatusSeconds, StatusTickDamage);
+		}
+	}
+
+	// Server only, so everyone hears the shot where the turret is.
+	if (AClockworksEnemyCharacter* Enemy = Cast<AClockworksEnemyCharacter>(Avatar))
+	{
+		Enemy->MulticastPlaySound(FireSound);
 	}
 
 	if (WindupMontage)
