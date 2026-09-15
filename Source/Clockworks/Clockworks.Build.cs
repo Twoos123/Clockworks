@@ -21,9 +21,11 @@ public class Clockworks : ModuleRules
 			"Niagara",
 			"UMG",
 			"Slate",
+			"SlateCore",
 			"GameplayAbilities",
 			"GameplayTags",
-			"GameplayTasks"
+			"GameplayTasks",
+			"AssetRegistry"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
@@ -32,6 +34,10 @@ public class Clockworks : ModuleRules
 			"Clockworks",
 			"Clockworks/AbilitySystem",
 			"Clockworks/AI",
+			"Clockworks/Combat",
+			"Clockworks/World",
+			"Clockworks/Gear",
+			"Clockworks/UI",
 			"Clockworks/Variant_Strategy",
 			"Clockworks/Variant_Strategy/UI",
 			"Clockworks/Variant_TwinStick",

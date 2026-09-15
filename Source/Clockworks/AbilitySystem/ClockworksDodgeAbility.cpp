@@ -1,8 +1,10 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ClockworksDodgeAbility.h"
+#include "ClockworksCharacter.h"
 #include "ClockworksDodgeCooldownEffect.h"
 #include "ClockworksGameplayTags.h"
+#include "Animation/AnimSequenceBase.h"
 #include "AbilitySystemComponent.h"
 #include "Abilities/Tasks/AbilityTask_ApplyRootMotionConstantForce.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
@@ -20,12 +22,39 @@ UClockworksDodgeAbility::UClockworksDodgeAbility()
 
 	ActivationOwnedTags.AddTag(ClockworksTags::State_Dodging);
 
-	ActivationBlockedTags.AddTag(ClockworksTags::State_Attacking);
+	// An attack no longer blocks the dodge outright; CanActivateAbility decides. When the dodge does
+	// come out mid-attack, it ends the attack, which is what makes it a cancel rather than an overlap.
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Dodging);
 	ActivationBlockedTags.AddTag(ClockworksTags::State_Dead);
+	CancelAbilitiesWithTag.AddTag(ClockworksTags::Ability_Attack);
 
 	// The cooldown effect grants Cooldown.Dodge; CommitAbility refuses while that tag is present.
 	CooldownGameplayEffectClass = UClockworksDodgeCooldownEffect::StaticClass();
+}
+
+// Runs on: owning client (predicting) and server. The user's rule: the dodge may cut an attack's
+// recovery short, but never its windup or its live hit, and never a charge being held. Those
+// committed parts already carry tags every attack sets on both machines: the windup and the live hit
+// lock rotation (a sword swing, a bomb being put down, a charged release), and a held charge or an
+// arming bomb carries State.Charging. Anything else during State.Attacking is recovery.
+bool UClockworksDodgeAbility::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	{
+		return false;
+	}
+
+	const UAbilitySystemComponent* AbilitySystemComponent = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Attacking))
+	{
+		const bool bCommitted = AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_RotationLocked)
+			|| AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Charging);
+		if (bCommitted)
+		{
+			return false;
+		}
+	}
+	return true;
 }
 
 // Runs on: owning client (predicted) and server, each on its own instance. Super is deliberately
@@ -66,9 +95,24 @@ void UClockworksDodgeAbility::ActivateAbility(const FGameplayAbilitySpecHandle H
 	Dash->OnFinish.AddDynamic(this, &UClockworksDodgeAbility::OnDodgeFinished);
 	Dash->ReadyForActivation();
 
-	// Visuals only. The ability system replicates the montage to other clients on its own.
-	if (DodgeMontage && ActorInfo && ActorInfo->GetAnimInstance())
+	// Visuals only. The raw clip is fitted to DodgeSeconds so the roll always finishes inside the burst;
+	// the owning client shows its own prediction and the server broadcasts to everyone else.
+	AClockworksCharacter* Knight = Cast<AClockworksCharacter>(Avatar);
+	if (Knight && DodgeAnim)
 	{
+		const float Rate = FMath::Max(DodgeAnimRate, 0.1f);
+		if (HasServerAuthority())
+		{
+			Knight->MulticastPlaySlotAnimation(DodgeAnim, Rate, false, Knight->GetFullBodySlotName());
+		}
+		else
+		{
+			Knight->PlaySlotAnimation(DodgeAnim, Rate, false, Knight->GetFullBodySlotName());
+		}
+	}
+	else if (DodgeMontage && ActorInfo && ActorInfo->GetAnimInstance())
+	{
+		// The older path: the ability system replicates the montage to other clients on its own.
 		UAbilityTask_PlayMontageAndWait* MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(this, NAME_None, DodgeMontage, MontagePlayRate, NAME_None, /*bStopWhenAbilityEnds*/ true);
 		MontageTask->ReadyForActivation();
 	}

@@ -1,0 +1,849 @@
+{
+ "_about": "Per imported weapon model folder, each piece as the game's own material draws it: solid, effect (additive or blended, skipped) or hidden (an unused member of a model set). From the model and material configs.",
+ "folders": {
+  "SM_BombArtifact": {
+   "SM_BombArtifact": "solid"
+  },
+  "SM_BombBarbSnarbR1": {
+   "barb_modelset_barb-MeshSets_lrg__Mesh_0_": "hidden",
+   "barb_modelset_barb-MeshSets_med__Mesh_0_": "hidden",
+   "barb_modelset_barb-MeshSets_sml__Mesh_0_": "solid"
+  },
+  "SM_BombBarbSnarbR2": {
+   "barb_modelset_barb-MeshSets_lrg__Mesh_0_": "hidden",
+   "barb_modelset_barb-MeshSets_med__Mesh_0_": "solid",
+   "barb_modelset_barb-MeshSets_sml__Mesh_0_": "hidden"
+  },
+  "SM_BombBarbSnarbR3": {
+   "barb_modelset_barb-MeshSets_lrg__Mesh_0_": "hidden",
+   "barb_modelset_barb-MeshSets_med__Mesh_0_": "solid",
+   "barb_modelset_barb-MeshSets_sml__Mesh_0_": "hidden"
+  },
+  "SM_BombBarbSnarbR4": {
+   "barb_modelset_barb-MeshSets_lrg__Mesh_0_": "solid",
+   "barb_modelset_barb-MeshSets_med__Mesh_0_": "hidden",
+   "barb_modelset_barb-MeshSets_sml__Mesh_0_": "hidden"
+  },
+  "SM_BombBombStar": {
+   "bomb_star_model-Skin-Mesh_0_": "solid",
+   "rsrc_item_weapon_bomb_bomb_star_model-MeshNodes__mesh_sun__": "solid",
+   "rsrc_item_weapon_bomb_bomb_star_model-Skin-Mesh_1_": "solid"
+  },
+  "SM_BombBoxed": {
+   "blast_model_bug-Mesh_0_": "solid",
+   "boxed_model-Skin-Mesh_0_": "solid"
+  },
+  "SM_BombChemicalR2": {
+   "chemical_model_set-MeshSets_mesh_chemical_r2__Mesh_0_": "solid",
+   "chemical_model_set-MeshSets_mesh_chemical_r3__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r4__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r5__Mesh_0_": "hidden"
+  },
+  "SM_BombChemicalR3": {
+   "chemical_model_set-MeshSets_mesh_chemical_r2__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r3__Mesh_0_": "solid",
+   "chemical_model_set-MeshSets_mesh_chemical_r4__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r5__Mesh_0_": "hidden"
+  },
+  "SM_BombChemicalR4": {
+   "chemical_model_set-MeshSets_mesh_chemical_r2__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r3__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r4__Mesh_0_": "solid",
+   "chemical_model_set-MeshSets_mesh_chemical_r5__Mesh_0_": "hidden"
+  },
+  "SM_BombChemicalR5": {
+   "chemical_model_set-MeshSets_mesh_chemical_r2__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r3__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r4__Mesh_0_": "hidden",
+   "chemical_model_set-MeshSets_mesh_chemical_r5__Mesh_0_": "solid"
+  },
+  "SM_BombGrill": {
+   "grill_model-MeshNodes__base__": "solid",
+   "grill_model-MeshNodes__handle__": "solid",
+   "grill_model-MeshNodes__top__": "solid"
+  },
+  "SM_BombObsidianBomb": {
+   "obsidian_modelset-MeshSets_mesh_bomb__Mesh_0_": "solid",
+   "obsidian_modelset-MeshSets_mesh_bomb__Mesh_1_": "effect",
+   "obsidian_modelset-MeshSets_mesh_bomb_fx__Mesh_0_": "effect",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_0_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_1_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_2_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_0_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_1_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_2_": "hidden"
+  },
+  "SM_BombPiggyBanker": {
+   "piggy_banker_model_base-MeshNodes__mesh_fuse_in__": "effect",
+   "piggy_banker_model_base-MeshNodes__mesh_fuse_out__": "effect",
+   "piggy_banker_model_base-MeshNodes__mesh_piggybanker__": "solid"
+  },
+  "SM_BombShardCrystalR2": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "hidden"
+  },
+  "SM_BombShardCrystalR3": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "hidden"
+  },
+  "SM_BombShardCrystalR4": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "hidden"
+  },
+  "SM_BombShardCrystalR5": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "solid"
+  },
+  "SM_BombShardModelsetPresets": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "hidden"
+  },
+  "SM_BombShardNrmR5": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "solid"
+  },
+  "SM_BombShardPrcR5": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "solid"
+  },
+  "SM_BombShardSaltR3": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "hidden"
+  },
+  "SM_BombShardSaltR4": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "hidden"
+  },
+  "SM_BombShardSaltR5": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "solid"
+  },
+  "SM_BombShardShdR5": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "solid"
+  },
+  "SM_BombShardSunR3": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "hidden"
+  },
+  "SM_BombShardSunR4": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "solid",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "hidden"
+  },
+  "SM_BombShardSunR5": {
+   "shard_modelset-MeshSets_mesh_1__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_2__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_3__Mesh_0_": "hidden",
+   "shard_modelset-MeshSets_mesh_4__Mesh_0_": "solid"
+  },
+  "SM_BombVirulentSeedling": {
+   "rsrc_item_weapon_bomb_virulent_seedling_model-MeshNodes__mesh_bomb__": "solid",
+   "rsrc_item_weapon_bomb_virulent_seedling_model-MeshNodes__mesh_glass__": "effect",
+   "virulent_seedling_model-Skin-Mesh_0_": "solid"
+  },
+  "SM_CaliburLuckyBrandish": {
+   "lucky_brandish_model-MeshNodes__mesh_charm__": "solid",
+   "lucky_brandish_model-MeshNodes__mesh_glow__": "effect",
+   "lucky_brandish_model-MeshNodes__mesh_lucky_brandish__": "solid",
+   "lucky_brandish_model-MeshNodes__mesh_shard_01__": "solid",
+   "lucky_brandish_model-MeshNodes__mesh_shard_02__": "solid",
+   "lucky_brandish_model-MeshNodes__mesh_shard_03__": "solid",
+   "lucky_brandish_model-MeshNodes__mesh_shard_04__": "solid",
+   "lucky_brandish_model-MeshNodes__mesh_shard_05__": "solid"
+  },
+  "SM_HandgunAutogunShdR3": {
+   "autogun_model_shd-MeshSets_r3__Mesh_0_": "solid",
+   "autogun_model_shd-MeshSets_r4__Mesh_0_": "hidden",
+   "autogun_model_shd-MeshSets_r5__Mesh_0_": "hidden"
+  },
+  "SM_HandgunAutogunShdR4": {
+   "autogun_model_shd-MeshSets_r3__Mesh_0_": "solid",
+   "autogun_model_shd-MeshSets_r3__Mesh_0__7da2b0e429a3ba8ba13fa5e3a9ceb0e5": "hidden",
+   "autogun_model_shd-MeshSets_r4__Mesh_0_": "hidden",
+   "autogun_model_shd-MeshSets_r4__Mesh_0__a798f9a20a3812f3f844767d8916e4bc": "solid",
+   "autogun_model_shd-MeshSets_r5__Mesh_0_": "hidden",
+   "autogun_model_shd-MeshSets_r5__Mesh_0__b840e40e337471be2ec49d94f9ab6466": "hidden"
+  },
+  "SM_HandgunAutogunShdR5": {
+   "autogun_model_shd-MeshSets_r3__Mesh_0_": "solid",
+   "autogun_model_shd-MeshSets_r3__Mesh_0__8253fde433d1aa796dfbd2f131a1e3ff": "hidden",
+   "autogun_model_shd-MeshSets_r3__Mesh_0__b8b72d5d8d4b04a989729e3dbc0a5d2e": "hidden",
+   "autogun_model_shd-MeshSets_r4__Mesh_0_": "hidden",
+   "autogun_model_shd-MeshSets_r4__Mesh_0__59e5d8bb2bfee4ddb5a573b6791bfcd0": "solid",
+   "autogun_model_shd-MeshSets_r4__Mesh_0__6bf1ebbee8381e01d28fc074fefc196a": "hidden",
+   "autogun_model_shd-MeshSets_r5__Mesh_0_": "hidden",
+   "autogun_model_shd-MeshSets_r5__Mesh_0__71516d952bc04b109605551d6cc24929": "hidden",
+   "autogun_model_shd-MeshSets_r5__Mesh_0__9ec3ba0fadcce372354295c3c0c5a572": "solid"
+  },
+  "SM_HandgunAutogunShdR5Snow": {
+   "autogun_model_shd-MeshSets_r3__Mesh_0_": "solid",
+   "autogun_model_shd-MeshSets_r3__Mesh_0__0d86b7c6b3b9ce5b2db82f36f14384b4": "hidden",
+   "autogun_model_shd-MeshSets_r3__Mesh_0__f2881f39556ab67cd1d6eeee37dd0c0d": "hidden",
+   "autogun_model_shd-MeshSets_r4__Mesh_0_": "hidden",
+   "autogun_model_shd-MeshSets_r4__Mesh_0__d2f370d462e06d5ee34d20dd9341c8b3": "solid",
+   "autogun_model_shd-MeshSets_r4__Mesh_0__d59cfe6a05db0a366c7058eec112e3e3": "hidden",
+   "autogun_model_shd-MeshSets_r5__Mesh_0_": "hidden",
+   "autogun_model_shd-MeshSets_r5__Mesh_0__27bd4e1a1090ac74ffac2ad79ee91e24": "hidden",
+   "autogun_model_shd-MeshSets_r5__Mesh_0__c5d5816179a3b21a8e711cd757b037f5": "solid"
+  },
+  "SM_HandgunBlade": {
+   "blade_model-MeshNodes__mesh_gun__": "solid",
+   "blade_model-MeshNodes__mesh_ribbon__": "solid",
+   "blade_model-MeshNodes__pPlane34__": "solid"
+  },
+  "SM_HandgunDiskgun": {
+   "diskgun_model_base-Skin-Mesh_0_": "effect",
+   "diskgun_part_spinner-MeshNodes__plane_1unit__": "effect",
+   "diskgun_part_spinner-MeshNodes__plane_1unit___56d276b324fb8ddb5b0f374817a6d8d6": "effect"
+  },
+  "SM_HandgunFirotechRank1": {
+   "firotech_model_set-MeshSets_mesh_rank1__Mesh_0_": "solid",
+   "firotech_model_set-MeshSets_mesh_rank2__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank3__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank4__Mesh_0_": "hidden"
+  },
+  "SM_HandgunFirotechRank2": {
+   "firotech_model_set-MeshSets_mesh_rank1__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank2__Mesh_0_": "solid",
+   "firotech_model_set-MeshSets_mesh_rank3__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank4__Mesh_0_": "hidden"
+  },
+  "SM_HandgunFirotechRank3": {
+   "firotech_model_set-MeshSets_mesh_rank1__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank2__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank3__Mesh_0_": "solid",
+   "firotech_model_set-MeshSets_mesh_rank4__Mesh_0_": "hidden"
+  },
+  "SM_HandgunFirotechRank4": {
+   "firotech_model_set-MeshSets_mesh_rank1__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank2__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank3__Mesh_0_": "hidden",
+   "firotech_model_set-MeshSets_mesh_rank4__Mesh_0_": "solid"
+  },
+  "SM_HandgunFlintlock": {
+   "rsrc_item_weapon_handgun_flintlock_model-MeshNodes__mesh_hammer__": "solid",
+   "rsrc_item_weapon_handgun_flintlock_model-MeshNodes__mesh_plate__": "solid"
+  },
+  "SM_HandgunMagnus": {
+   "magnus_model-MeshSets_large__Mesh_0_": "hidden",
+   "magnus_model-MeshSets_medium__Mesh_0_": "solid",
+   "magnus_model-MeshSets_quad__Mesh_0_": "hidden"
+  },
+  "SM_HandgunMagnusCallahan": {
+   "magnus_model-MeshSets_large__Mesh_0_": "hidden",
+   "magnus_model-MeshSets_medium__Mesh_0_": "hidden",
+   "magnus_model-MeshSets_quad__Mesh_0_": "solid"
+  },
+  "SM_HandgunMagnusFreShdR5": {
+   "magnus_model-MeshSets_large__Mesh_0_": "hidden",
+   "magnus_model-MeshSets_medium__Mesh_0_": "hidden",
+   "magnus_model-MeshSets_quad__Mesh_0_": "solid"
+  },
+  "SM_HandgunMagnusIronslug": {
+   "magnus_model-MeshSets_large__Mesh_0_": "solid",
+   "magnus_model-MeshSets_medium__Mesh_0_": "hidden",
+   "magnus_model-MeshSets_quad__Mesh_0_": "hidden"
+  },
+  "SM_HandgunMixer": {
+   "mixer_model_base-MeshNodes__base__": "solid",
+   "mixer_model_base-MeshNodes__beater1__": "solid",
+   "mixer_model_base-MeshNodes__beater2__": "solid",
+   "mixer_model_base-MeshNodes__handle__": "solid",
+   "mixer_model_base-MeshNodes__spinner__": "solid"
+  },
+  "SM_HandgunMixerStar": {
+   "mixer_model_star-MeshNodes__mesh_gun__": "solid",
+   "mixer_model_star-MeshNodes__mesh_starbody__": "solid"
+  },
+  "SM_HandgunNeedler": {
+   "needler_model-MeshNodes__autogun_mesh_pistol_autogun__": "solid",
+   "needler_model-MeshNodes__pSphere1__": "solid",
+   "needler_model-MeshNodes__pSphere2__": "solid",
+   "needler_model-MeshNodes__pSphere3__": "solid",
+   "needler_model-MeshNodes__pSphere4__": "solid",
+   "needler_model-MeshNodes__pSphere5__": "solid",
+   "needler_model-MeshNodes__pSphere6__": "solid",
+   "needler_model-MeshNodes__pSphere7__": "solid",
+   "needler_model-MeshNodes__pSphere8__": "solid",
+   "needler_model-MeshNodes__pSphere9__": "solid",
+   "needler_model-MeshNodes__polySurface34__": "solid"
+  },
+  "SM_HandgunNeedlerDg": {
+   "needler_model_dg-MeshNodes__mesh_gun__": "solid",
+   "needler_model_dg-MeshNodes__mesh_needle__": "solid"
+  },
+  "SM_HandgunObsidianHandgun": {
+   "obsidian_modelset-MeshSets_mesh_bomb__Mesh_0_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_bomb__Mesh_1_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_bomb_fx__Mesh_0_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_0_": "solid",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_1_": "effect",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_2_": "effect",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_0_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_1_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_2_": "hidden"
+  },
+  "SM_HandgunPollinator": {
+   "SM_HandgunPollinator": "solid"
+  },
+  "SM_HandgunPulsarCataNrmR2": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarCataNrmR3": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarCataNrmR4": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarCataNrmR5": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "solid",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarCataPoiR3": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarCataPoiR4": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarCataPoiR5": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "solid",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsFirR3": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsFirR4": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsFirR5": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "solid"
+  },
+  "SM_HandgunPulsarPulsFreR3": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsFreR4": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsFreR5": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "solid"
+  },
+  "SM_HandgunPulsarPulsNrmR2": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsNrmR3": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsNrmR4": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsNrmR5": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "solid"
+  },
+  "SM_HandgunPulsarPulsShoR3": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsShoR4": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "solid",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "hidden"
+  },
+  "SM_HandgunPulsarPulsShoR5": {
+   "parts_model_set-MeshSets_mesh_r2__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r3__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r4-puls__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_0_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-cata__Mesh_1_": "hidden",
+   "parts_model_set-MeshSets_mesh_r5-puls__Mesh_0_": "solid"
+  },
+  "SM_HandgunSilversix": {
+   "silversix_model-MeshSets_large__Mesh_0_": "solid",
+   "silversix_model-MeshSets_middle__Mesh_0_": "solid",
+   "silversix_model-MeshSets_small__Mesh_0_": "solid"
+  },
+  "SM_HandgunSilversixFre": {
+   "silversix_model-MeshSets_large__Mesh_0_": "solid",
+   "silversix_model-MeshSets_middle__Mesh_0_": "hidden",
+   "silversix_model-MeshSets_small__Mesh_0_": "hidden"
+  },
+  "SM_HandgunSoaker": {
+   "parts_model-MeshNodes__water_sphere__": "solid",
+   "soaker_model-MeshNodes__base__": "solid",
+   "soaker_model-MeshNodes__tank__": "effect"
+  },
+  "SM_HandgunWandRecolor": {
+   "wand_model_base-Mesh_0_": "solid",
+   "wand_model_base-Mesh_1_": "effect"
+  },
+  "SM_NpcMineWindup": {
+   "mine_windup_model-MeshNodes__mesh_key__": "solid",
+   "mine_windup_model-MeshNodes__mesh_mine__": "solid"
+  },
+  "SM_NpcRockethamT3": {
+   "rocketham_part_model_t3-MeshNodes__mesh_t3-engine__": "solid",
+   "rocketham_part_model_t3-MeshNodes__mesh_t3__": "solid"
+  },
+  "SM_NpcScissors": {
+   "scissors_model-MeshNodes__mesh_blade__": "solid",
+   "scissors_model-MeshNodes__mesh_ribbon__": "solid"
+  },
+  "SM_SwordAvenger": {
+   "avenger_model-MeshNodes__mesh_ribbon__": "solid",
+   "avenger_model-MeshNodes__mesh_sword_granfaust__": "solid"
+  },
+  "SM_SwordCaliburAdv": {
+   "calibur_model_adv-MeshNodes__mesh_chain__": "effect",
+   "calibur_model_adv-MeshNodes__mesh_sword__": "solid"
+  },
+  "SM_SwordCaliburBrandishFirR1": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "solid",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburBrandishFirR2": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "solid",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburBrandishFirR3": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "solid"
+  },
+  "SM_SwordCaliburBrandishFreR1": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "solid",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburBrandishFreR2": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "solid",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburBrandishFreR3": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "solid"
+  },
+  "SM_SwordCaliburBrandishR1": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "solid",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburBrandishShoR1": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "solid",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburBrandishShoR2": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "solid",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburBrandishShoR3": {
+   "calibur_modelset_brandish-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_brandish-MeshSets_model_r3__Mesh_0_": "solid"
+  },
+  "SM_SwordCaliburHonorR1": {
+   "calibur_modelset_honor-MeshSets_model_r1__Mesh_0_": "solid",
+   "calibur_modelset_honor-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r3__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r4__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburHonorR2": {
+   "calibur_modelset_honor-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r2__Mesh_0_": "solid",
+   "calibur_modelset_honor-MeshSets_model_r3__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r4__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburHonorR3": {
+   "calibur_modelset_honor-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r3__Mesh_0_": "solid",
+   "calibur_modelset_honor-MeshSets_model_r4__Mesh_0_": "hidden"
+  },
+  "SM_SwordCaliburHonorR4": {
+   "calibur_modelset_honor-MeshSets_model_r1__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r2__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r3__Mesh_0_": "hidden",
+   "calibur_modelset_honor-MeshSets_model_r4__Mesh_0_": "solid"
+  },
+  "SM_SwordCaliburMedicalswordR2": {
+   "calibur_model_medicalsword-r2-MeshNodes__blades1__": "solid",
+   "calibur_model_medicalsword-r2-MeshNodes__blades2__": "solid",
+   "calibur_model_medicalsword-r2-MeshNodes__medicalsword_r2__": "solid"
+  },
+  "SM_SwordCaliburMedicalswordR3": {
+   "calibur_model_medicalsword-r3-MeshNodes__blades1__": "solid",
+   "calibur_model_medicalsword-r3-MeshNodes__blades2__": "solid",
+   "calibur_model_medicalsword-r3-MeshNodes__medicalsword_r3__": "solid"
+  },
+  "SM_SwordClaw": {
+   "parts_model_base-MeshNodes__mesh_claw__": "solid",
+   "parts_model_base-MeshNodes__mesh_fur__": "solid"
+  },
+  "SM_SwordCleaver": {
+   "cleaver_model-MeshNodes__mesh_cleaver__": "solid",
+   "cleaver_model-MeshNodes__mesh_sheath__": "solid"
+  },
+  "SM_SwordCutlass": {
+   "cutlass_model-MeshNodes__mesh_cutlass__": "solid",
+   "cutlass_model-MeshNodes__mesh_glow__": "effect",
+   "cutlass_model-MeshNodes__mesh_tassel__": "solid"
+  },
+  "SM_SwordFlourishFlourishFirR2": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishFlourishFirR3": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishFlourishFirR4": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "solid"
+  },
+  "SM_SwordFlourishFlourishR1": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishFlourishR2": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishFlourishR3": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishFlourishR4": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "solid"
+  },
+  "SM_SwordFlourishFlourishSnw": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "solid"
+  },
+  "SM_SwordFlourishFlourishStnR2": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishFlourishStnR3": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishFlourishStnR4": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "solid"
+  },
+  "SM_SwordFlourishSnarbarb": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "solid"
+  },
+  "SM_SwordFlourishSnarbarbR1": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishSnarbarbR2": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordFlourishSnarbarbR3": {
+   "parts_modelset_blade-MeshSets_flourish_r1__Mesh_0_": "hidden",
+   "parts_modelset_blade-MeshSets_flourish_r2__Mesh_0_": "solid",
+   "parts_modelset_blade-MeshSets_flourish_r3__Mesh_0_": "hidden"
+  },
+  "SM_SwordHatchet": {
+   "hatchet_model-MeshNodes__mesh_hatchet3__": "solid",
+   "hatchet_model-MeshNodes__ribbon_hatchet__": "solid"
+  },
+  "SM_SwordHatchetSuper": {
+   "hatchet_model-MeshNodes__mesh_hatchet3__": "solid",
+   "hatchet_model-MeshNodes__ribbon_hatchet__": "solid"
+  },
+  "SM_SwordIxeaxe": {
+   "ixeaxe_model-MeshNodes__mesh_axe__": "solid",
+   "ixeaxe_model-MeshNodes__mesh_glow__": "effect",
+   "ixeaxe_model-MeshNodes__mesh_tassel__": "solid"
+  },
+  "SM_SwordLongedgeR1": {
+   "parts_model_ribbon-MeshNodes__mesh_ribbon1__": "solid",
+   "parts_modelset_blades-MeshSets_mesh_sword_calibur__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_mesh_sword_calibur__Mesh_0__80d350077faf595ebdfdb8f861bd04ef": "hidden",
+   "parts_modelset_blades-MeshSets_r1_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r1_left__Mesh_0__ec500a223bdbce5dc5fafccc4631b091": "solid",
+   "parts_modelset_blades-MeshSets_r1_right__Mesh_0_": "solid",
+   "parts_modelset_blades-MeshSets_r1_right__Mesh_0__844718768ba25187d5a8432bdf24ef6e": "hidden",
+   "parts_modelset_blades-MeshSets_r2_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r2_left__Mesh_0__eeb5c24e0a45c21180d310123f244be6": "hidden",
+   "parts_modelset_blades-MeshSets_r2_right__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r2_right__Mesh_0__86b51874bfe3465e3101d309ad16cb9f": "hidden",
+   "parts_modelset_blades-MeshSets_r3_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r3_left__Mesh_0__db344ebc6b35b40ec0656c2f28a35c23": "hidden",
+   "parts_modelset_blades-MeshSets_r3_right__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r3_right__Mesh_0__a80cec8140729befaf0eed80cc816f1e": "hidden"
+  },
+  "SM_SwordLongedgeR2": {
+   "parts_model_ribbon-MeshNodes__mesh_ribbon1__": "solid",
+   "parts_modelset_blades-MeshSets_mesh_sword_calibur__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_mesh_sword_calibur__Mesh_0__1d59d2cf7b20326a58dec8843d299fd0": "hidden",
+   "parts_modelset_blades-MeshSets_r1_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r1_left__Mesh_0__1e9391f96ba8160e9a769b045b64a2fb": "hidden",
+   "parts_modelset_blades-MeshSets_r1_right__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r1_right__Mesh_0__6c9b90366a79db6fe5b4f9e4d2fb1833": "hidden",
+   "parts_modelset_blades-MeshSets_r2_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r2_left__Mesh_0__698339b42e967a09c570d8cee19954ef": "solid",
+   "parts_modelset_blades-MeshSets_r2_right__Mesh_0_": "solid",
+   "parts_modelset_blades-MeshSets_r2_right__Mesh_0__12e41f50fd2703c5cae0ec0c2b5f4df2": "hidden",
+   "parts_modelset_blades-MeshSets_r3_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r3_left__Mesh_0__4681963eac1e6e4c415df4f136a93088": "hidden",
+   "parts_modelset_blades-MeshSets_r3_right__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r3_right__Mesh_0__694f8baefcdc009de90957485f2edc28": "hidden"
+  },
+  "SM_SwordLongedgeR3": {
+   "parts_model_ribbon-MeshNodes__mesh_ribbon1__": "solid",
+   "parts_modelset_blades-MeshSets_mesh_sword_calibur__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_mesh_sword_calibur__Mesh_0__80d1d02a005e2e4a1d71785edeb994f7": "hidden",
+   "parts_modelset_blades-MeshSets_r1_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r1_left__Mesh_0__50cd0a2783d7dd15478382872205d0aa": "hidden",
+   "parts_modelset_blades-MeshSets_r1_right__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r1_right__Mesh_0__05e2b319758d1e1dd19c3b0701ce98f8": "hidden",
+   "parts_modelset_blades-MeshSets_r2_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r2_left__Mesh_0__969c1463d59fc48a3c28e6732683bea0": "hidden",
+   "parts_modelset_blades-MeshSets_r2_right__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r2_right__Mesh_0__d12b4e188bbcc398d3a3fff670a26c4f": "hidden",
+   "parts_modelset_blades-MeshSets_r3_left__Mesh_0_": "hidden",
+   "parts_modelset_blades-MeshSets_r3_left__Mesh_0__8c87ffe417be960ce0f5e92b17a09cb3": "solid",
+   "parts_modelset_blades-MeshSets_r3_right__Mesh_0_": "solid",
+   "parts_modelset_blades-MeshSets_r3_right__Mesh_0__cbf94dfc8cd0de11af569760f4c412ad": "hidden"
+  },
+  "SM_SwordNodeslime": {
+   "nodeslime_model-MeshNodes__polySurface01__": "solid",
+   "nodeslime_model-MeshNodes__polySurface02__": "effect",
+   "nodeslime_model-MeshNodes__polySurface48__": "solid",
+   "nodeslime_model-MeshNodes__polySurface49__": "effect",
+   "nodeslime_model-MeshNodes__polySurface50__": "solid"
+  },
+  "SM_SwordObsidianSword": {
+   "obsidian_modelset-MeshSets_mesh_bomb__Mesh_0_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_bomb__Mesh_1_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_bomb_fx__Mesh_0_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_0_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_1_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_handgun__Mesh_2_": "hidden",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_0_": "solid",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_1_": "effect",
+   "obsidian_modelset-MeshSets_mesh_sword__Mesh_2_": "effect"
+  },
+  "SM_SwordPick": {
+   "pick_model-MeshNodes__mesh_beastbasher__": "solid",
+   "pick_model-MeshNodes__ribbon_beastbasher__": "solid"
+  },
+  "SM_SwordPickSuper": {
+   "pick_model-MeshNodes__mesh_beastbasher__": "solid",
+   "pick_model-MeshNodes__ribbon_beastbasher__": "solid"
+  },
+  "SM_SwordRaiderHammer": {
+   "raider_model_hammer-MeshNodes__mesh_dangle__": "solid",
+   "raider_model_hammer-MeshNodes__mesh_raider-hammer__": "solid"
+  },
+  "SM_SwordShovel": {
+   "shovel_model-MeshNodes__mesh_slimeslicer__": "solid",
+   "shovel_model-MeshNodes__ribbon_slimeslicer__": "solid"
+  },
+  "SM_SwordShovelSuper": {
+   "shovel_model-MeshNodes__mesh_slimeslicer__": "solid",
+   "shovel_model-MeshNodes__ribbon_slimeslicer__": "solid"
+  },
+  "SM_SwordSpatula": {
+   "parts_modelset-MeshSets_fork__Mesh_0_": "solid",
+   "parts_modelset-MeshSets_fork__Mesh_0__da4067519fb92ff8cfc4c736c31aabd5": "hidden",
+   "parts_modelset-MeshSets_spatula__Mesh_0_": "hidden",
+   "parts_modelset-MeshSets_spatula__Mesh_0__0046fba35e5d837aafd64bc1e99466ae": "solid",
+   "parts_modelset-MeshSets_spatula__Mesh_1_": "hidden",
+   "parts_modelset-MeshSets_spatula__Mesh_1__8b3190ee749715bf1782213ae1fa4f45": "solid"
+  },
+  "SM_SwordSpur": {
+   "spur_model-MeshNodes__mesh_sword_wimillion_wheell__": "solid",
+   "spur_model-MeshNodes__mesh_sword_winmillion__": "solid"
+  },
+  "SM_SwordSpurWinbillion": {
+   "spur_model_winbillion-MeshNodes__mesh_glow__": "effect",
+   "spur_model_winbillion-MeshNodes__mesh_wheel__": "solid",
+   "spur_model_winbillion-MeshNodes__mesh_winbillion__": "solid"
+  },
+  "SM_SwordStar": {
+   "mesh_model_billboard-MeshNodes__plane_1unit__": "effect",
+   "mesh_model_billboard-MeshNodes__plane_1unit___8f66225bb2dcdc2858b7df8a636bba80": "effect",
+   "mesh_model_billboard-MeshNodes__plane_1unit___ac29b934efb19c72533a2a8e675c87aa": "effect",
+   "star_model-MeshNodes__base__": "solid",
+   "star_model-MeshNodes__mesh_stars__": "solid",
+   "star_model-MeshNodes__mesh_starshield__": "solid"
+  },
+  "SM_SwordTroikaBroken": {
+   "troika_model_broken-MeshNodes__mesh_energy__": "effect",
+   "troika_model_broken-MeshNodes__mesh_sword__": "solid",
+   "troika_model_broken-MeshNodes__mesh_tassle__": "solid"
+  },
+  "SM_SwordTroikaBrokenFre": {
+   "troika_model_broken-fre-MeshNodes__mesh_energy__": "effect",
+   "troika_model_broken-fre-MeshNodes__mesh_sword__": "solid",
+   "troika_model_broken-fre-MeshNodes__mesh_tassle__": "solid"
+  },
+  "SM_SwordTroikaBrokenStn": {
+   "troika_model_broken-stn-MeshNodes__mesh_energy__": "effect",
+   "troika_model_broken-stn-MeshNodes__mesh_sword__": "solid",
+   "troika_model_broken-stn-MeshNodes__mesh_tassle__": "solid"
+  }
+ }
+}

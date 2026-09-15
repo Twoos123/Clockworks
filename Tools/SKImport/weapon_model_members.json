@@ -1,0 +1,463 @@
+{
+ "Acheron": [
+  "r3_right",
+  "r3_left"
+ ],
+ "Antigua": [
+  "middle"
+ ],
+ "Argent Peacemaker": [
+  "large"
+ ],
+ "Ash of Agni": [
+  "mesh_chemical_r5"
+ ],
+ "Barbarous Thorn Blade": [
+  "flourish_r3"
+ ],
+ "Biohazard": [
+  "mesh_r5-cata"
+ ],
+ "Black Chaingun": [
+  "r3",
+  "r4"
+ ],
+ "Blackhawk": [
+  "small"
+ ],
+ "Blazebrand": [
+  "model_r2"
+ ],
+ "Blazing Pulsar": [
+  "mesh_r4-puls"
+ ],
+ "Blizzbrand": [
+  "model_r2"
+ ],
+ "Boltbrand": [
+  "model_r2"
+ ],
+ "Brandish": [
+  "model_r1"
+ ],
+ "Callahan": [
+  "quad"
+ ],
+ "Catalyzer": [
+  "mesh_r2"
+ ],
+ "Chilling Duelist": [
+  "large"
+ ],
+ "Combuster": [
+  "model_r3"
+ ],
+ "Cryo Driver": [
+  "mesh_rank3"
+ ],
+ "Cryotech Alchemer": [
+  "mesh_rank1"
+ ],
+ "Cryotech Alchemer Mk II": [
+  "mesh_rank2"
+ ],
+ "Crystal Bomb": [
+  "mesh_1"
+ ],
+ "Daring Rigadoon": [
+  "flourish_r2"
+ ],
+ "Dark Briar Barrage": [
+  "lrg"
+ ],
+ "Dark Chaingun": [
+  "r3"
+ ],
+ "Dark Matter Bomb": [
+  "mesh_1"
+ ],
+ "Dark Thorn Blade": [
+  "flourish_r2"
+ ],
+ "Deadly Candy Poker": [
+  "flourish_r3"
+ ],
+ "Deadly Crystal Bomb": [
+  "mesh_4"
+ ],
+ "Deadly Dark Matter Bomb": [
+  "mesh_4"
+ ],
+ "Deadly Shard Bomb": [
+  "mesh_4"
+ ],
+ "Deadly Splinter Bomb": [
+  "mesh_4"
+ ],
+ "Fearless Rigadoon": [
+  "flourish_r3"
+ ],
+ "Fierce Flamberge": [
+  "flourish_r2"
+ ],
+ "Fiery Atomizer": [
+  "mesh_chemical_r4"
+ ],
+ "Fiery Vaporizer": [
+  "mesh_chemical_r2"
+ ],
+ "Fiery Vaporizer Mk II": [
+  "mesh_chemical_r3"
+ ],
+ "Final Flourish": [
+  "flourish_r3"
+ ],
+ "Fireburst Brandish": [
+  "model_r1"
+ ],
+ "Firo Driver": [
+  "mesh_rank3"
+ ],
+ "Firotech Alchemer": [
+  "mesh_rank1"
+ ],
+ "Firotech Alchemer Mk II": [
+  "mesh_rank2"
+ ],
+ "Flamberge": [
+  "flourish_r1"
+ ],
+ "Flaming Pulsar": [
+  "mesh_r3"
+ ],
+ "Flourish": [
+  "flourish_r1"
+ ],
+ "Freezing Atomizer": [
+  "mesh_chemical_r4"
+ ],
+ "Freezing Pulsar": [
+  "mesh_r3"
+ ],
+ "Freezing Vaporizer": [
+  "mesh_chemical_r2"
+ ],
+ "Freezing Vaporizer Mk II": [
+  "mesh_chemical_r3"
+ ],
+ "Frozen Pulsar": [
+  "mesh_r4-puls"
+ ],
+ "Furious Flamberge": [
+  "flourish_r3"
+ ],
+ "Furious Fork": [
+  "fork",
+  "spatula"
+ ],
+ "Furious Fork, Tech Green": [
+  "fork",
+  "spatula"
+ ],
+ "Gigawatt Pulsar": [
+  "mesh_r4-puls"
+ ],
+ "Gilded Griffin": [
+  "large"
+ ],
+ "Glacius": [
+  "model_r3"
+ ],
+ "Grand Flourish": [
+  "flourish_r2"
+ ],
+ "Grim Repeater": [
+  "r3",
+  "r4",
+  "r5"
+ ],
+ "Hail Driver": [
+  "mesh_rank4"
+ ],
+ "Haze Bomb": [
+  "mesh_chemical_r2"
+ ],
+ "Haze Bomb Mk II": [
+  "mesh_chemical_r3"
+ ],
+ "Haze Burst": [
+  "mesh_chemical_r4"
+ ],
+ "Heavy Crystal Bomb": [
+  "mesh_3"
+ ],
+ "Heavy Dark Matter Bomb": [
+  "mesh_3"
+ ],
+ "Heavy Pulsar": [
+  "mesh_r3"
+ ],
+ "Heavy Shard Bomb": [
+  "mesh_3"
+ ],
+ "Heavy Splinter Bomb": [
+  "mesh_3"
+ ],
+ "Honor Blade 1": [
+  "model_r1"
+ ],
+ "Honor Blade 2": [
+  "model_r2"
+ ],
+ "Honor Blade 3": [
+  "model_r3"
+ ],
+ "Honor Blade 4": [
+  "model_r4"
+ ],
+ "Iceburst Brandish": [
+  "model_r1"
+ ],
+ "Industrial Catalyzer": [
+  "mesh_r3"
+ ],
+ "Ionized Salt Bomb": [
+  "mesh_3"
+ ],
+ "Iron Slug": [
+  "large"
+ ],
+ "Kilowatt Pulsar": [
+  "mesh_r3"
+ ],
+ "Lightning Capacitor": [
+  "mesh_chemical_r3"
+ ],
+ "Magma Driver": [
+  "mesh_rank4"
+ ],
+ "Magnus": [
+  "medium"
+ ],
+ "Mega Magnus": [
+  "medium"
+ ],
+ "Mega Tundrus": [
+  "medium"
+ ],
+ "Neutralizer": [
+  "mesh_r5-cata"
+ ],
+ "Nightblade": [
+  "r1_right",
+  "r1_left"
+ ],
+ "Nog Blaster": [
+  "mesh_rank4"
+ ],
+ "Nova Driver": [
+  "mesh_rank4"
+ ],
+ "Obsidian Carbine": [
+  "mesh_handgun"
+ ],
+ "Obsidian Crusher": [
+  "mesh_bomb",
+  "mesh_bomb_fx"
+ ],
+ "Obsidian Edge": [
+  "mesh_sword"
+ ],
+ "Peppermint Repeater": [
+  "r3",
+  "r4",
+  "r5"
+ ],
+ "Permafroster": [
+  "mesh_r5-puls"
+ ],
+ "Plasma Capacitor": [
+  "mesh_chemical_r4"
+ ],
+ "Polaris": [
+  "mesh_r5-puls"
+ ],
+ "Prisma Driver": [
+  "mesh_rank3"
+ ],
+ "Prismatech Alchemer": [
+  "mesh_rank1"
+ ],
+ "Prismatech Alchemer Mk II": [
+  "mesh_rank2"
+ ],
+ "Pulsar": [
+  "mesh_r2"
+ ],
+ "Pummel Gun": [
+  "medium"
+ ],
+ "Punch Gun": [
+  "medium"
+ ],
+ "Radiant Pulsar": [
+  "mesh_r4-puls"
+ ],
+ "Radiant Sun Shards": [
+  "mesh_3"
+ ],
+ "Raptor": [
+  "middle"
+ ],
+ "Rigadoon": [
+  "flourish_r1"
+ ],
+ "Rock Salt Bomb": [
+  "mesh_2"
+ ],
+ "Scintillating Sun Shards": [
+  "mesh_4"
+ ],
+ "Sentenza": [
+  "large"
+ ],
+ "Shadow Driver": [
+  "mesh_rank3"
+ ],
+ "Shadowtech Alchemer": [
+  "mesh_rank1"
+ ],
+ "Shadowtech Alchemer Mk II": [
+  "mesh_rank2"
+ ],
+ "Shard Bomb": [
+  "mesh_1"
+ ],
+ "Shivermist Buster": [
+  "mesh_chemical_r5"
+ ],
+ "Shockburst Brandish": [
+  "model_r1"
+ ],
+ "Shocking Salt Bomb": [
+  "mesh_4"
+ ],
+ "Silent Nightblade": [
+  "r2_right",
+  "r2_left"
+ ],
+ "Silversix": [
+  "small"
+ ],
+ "Sloppy Shard Bomb": [
+  "mesh_4"
+ ],
+ "Slumber Smogger": [
+  "mesh_chemical_r2"
+ ],
+ "Slumber Smogger Mk II": [
+  "mesh_chemical_r3"
+ ],
+ "Slumber Squall": [
+  "mesh_chemical_r4"
+ ],
+ "Snarble Barb": [
+  "flourish_r1"
+ ],
+ "Spike Shower": [
+  "med"
+ ],
+ "Spine Cone": [
+  "sml"
+ ],
+ "Splinter Bomb": [
+  "mesh_1"
+ ],
+ "Stagger Storm": [
+  "mesh_chemical_r5"
+ ],
+ "Static Capacitor": [
+  "mesh_chemical_r2"
+ ],
+ "Storm Driver": [
+  "mesh_rank4"
+ ],
+ "Sun Shards": [
+  "mesh_2"
+ ],
+ "Super Crystal Bomb": [
+  "mesh_2"
+ ],
+ "Super Dark Matter Bomb": [
+  "mesh_2"
+ ],
+ "Super Shard Bomb": [
+  "mesh_2"
+ ],
+ "Super Splinter Bomb": [
+  "mesh_2"
+ ],
+ "Supernova": [
+  "mesh_r5-puls"
+ ],
+ "Swift Flourish": [
+  "flourish_r2"
+ ],
+ "Torpor Tantrum": [
+  "mesh_chemical_r5"
+ ],
+ "Toxic Atomizer": [
+  "mesh_chemical_r4"
+ ],
+ "Toxic Catalyzer": [
+  "mesh_r3"
+ ],
+ "Toxic Vaporizer": [
+  "mesh_chemical_r2"
+ ],
+ "Toxic Vaporizer Mk II": [
+  "mesh_chemical_r3"
+ ],
+ "Tundrus": [
+  "medium"
+ ],
+ "Twisted Snarble Barb": [
+  "flourish_r2"
+ ],
+ "Twisted Spine Cone": [
+  "med"
+ ],
+ "Umbra Driver": [
+  "mesh_rank4"
+ ],
+ "Venom Veiler": [
+  "mesh_chemical_r5"
+ ],
+ "Virulent Catalyzer": [
+  "mesh_r4-cata"
+ ],
+ "Volatile Catalyzer": [
+  "mesh_r4-cata"
+ ],
+ "Volt Driver": [
+  "mesh_rank3"
+ ],
+ "Voltaic Tempest": [
+  "mesh_chemical_r5"
+ ],
+ "Voltech Alchemer": [
+  "mesh_rank1"
+ ],
+ "Voltech Alchemer Mk II": [
+  "mesh_rank2"
+ ],
+ "Voltedge": [
+  "model_r3"
+ ],
+ "Wildfire": [
+  "mesh_r5-puls"
+ ],
+ "Winter Grave": [
+  "quad"
+ ]
+}

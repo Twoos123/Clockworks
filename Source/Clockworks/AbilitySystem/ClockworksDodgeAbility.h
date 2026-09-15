@@ -7,6 +7,7 @@
 #include "ClockworksDodgeAbility.generated.h"
 
 class UAnimMontage;
+class UAnimSequenceBase;
 
 /**
  * Dodge (Shift + right mouse): a short burst in the direction of movement, or the facing direction
@@ -25,6 +26,9 @@ public:
 protected:
 
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData) override;
+
+	/** Allowed during an attack only once the attack is past its committed part; see the definition. */
+	virtual bool CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags = nullptr, const FGameplayTagContainer* TargetTags = nullptr, FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
 	virtual void EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled) override;
 	virtual void ApplyCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo) const override;
 
@@ -47,7 +51,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Dodge", meta = (ClampMin = "0.0"))
 	float CooldownSeconds = 0.8f;
 
-	/** Optional. Visuals only; the numbers above set the timing. Needs a DefaultSlot in the Animation Blueprint. */
+	/**
+	 * The dodge clip (SK dodge_fire). Takes the full body, and preferred over DodgeMontage.
+	 *
+	 * It runs past the end of the burst on purpose: the clip is about a second long and the dash
+	 * itself only a third of that, so the knight keeps settling out of the roll after it has stopped
+	 * moving, and the next thing you do cuts the clip off. Squeezing the whole roll into the burst
+	 * instead plays it at over three times speed, which reads as a twitch rather than a dodge.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Dodge|Animation")
+	TObjectPtr<UAnimSequenceBase> DodgeAnim;
+
+	/** How fast that clip plays. 1 is its own speed; a little over 1 keeps the dash snappy. */
+	UPROPERTY(EditDefaultsOnly, Category = "Dodge|Animation", meta = (ClampMin = "0.1"))
+	float DodgeAnimRate = 1.5f;
+
+	/** Optional, the older path. Only used when DodgeAnim is empty. Needs a slot in the Animation Blueprint. */
 	UPROPERTY(EditDefaultsOnly, Category = "Dodge|Animation")
 	TObjectPtr<UAnimMontage> DodgeMontage;
 
