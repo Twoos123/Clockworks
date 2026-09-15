@@ -1,0 +1,3809 @@
+{
+ "no_look": [],
+ "items": {
+  "Gear/Shield/Aegis": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_Aegis",
+   "notes": [
+    "skin matched: skin_aegis"
+   ]
+  },
+  "Gear/Shield/Airbraker Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_AirbrakerShield",
+   "notes": []
+  },
+  "Gear/Shield/Ancient Plate Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_AncientPlateShield",
+   "notes": [
+    "skin matched: glow_rank4"
+   ]
+  },
+  "Gear/Shield/Barbarous Thorn Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_BarbarousThornShield",
+   "notes": [
+    "skin matched: skin_snarb-drk"
+   ]
+  },
+  "Gear/Shield/Barrier Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_BarrierShell",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Blackened Crest": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_BlackenedCrest",
+   "notes": [
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)"
+   ]
+  },
+  "Gear/Shield/Blazebreak Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_BlazebreakShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Blizzbreaker Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_BlizzbreakerShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Boosted Plate Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_BoostedPlateShield",
+   "notes": []
+  },
+  "Gear/Shield/Bristling Buckler": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_BristlingBuckler",
+   "notes": []
+  },
+  "Gear/Shield/Brute Jelly Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_BruteJellyShield",
+   "notes": [
+    "model set member guessed: mesh_outside_rank1 (of mesh_outside_rank1, mesh_outside_rank2, mesh_outside_rank3, mesh_outside_rank4)",
+    "skin guessed (no name match): skin_bolts"
+   ]
+  },
+  "Gear/Shield/Celestial Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_CelestialShield",
+   "notes": [
+    "skin guessed (no name match): sphere"
+   ]
+  },
+  "Gear/Shield/Circuit Breaker Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_CircuitBreakerShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Crest of Almire": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_CrestOfAlmire",
+   "notes": [
+    "skin matched: skin_crest"
+   ]
+  },
+  "Gear/Shield/Crystalline Defender": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_CrystallineDefender",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Shield/Dark Thorn Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_DarkThornShield",
+   "notes": []
+  },
+  "Gear/Shield/Defender": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_Defender",
+   "notes": [
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)"
+   ]
+  },
+  "Gear/Shield/Dragon Scale Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_DragonScaleShield",
+   "notes": [
+    "skin guessed (no name match): fire_lick1"
+   ]
+  },
+  "Gear/Shield/Drake Scale Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_DrakeScaleShield",
+   "notes": []
+  },
+  "Gear/Shield/Dread Skelly Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_DreadSkellyShield",
+   "notes": []
+  },
+  "Gear/Shield/Emberbreak Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_EmberbreakShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Feral Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_FeralShell",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Firebreak Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_FirebreakShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Force Buckler": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_ForceBuckler",
+   "notes": []
+  },
+  "Gear/Shield/Frostbreaker Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_FrostbreakerShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Gorgomega": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_Gorgomega",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Grand Tortoise": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_GrandTortoise",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Great Defender": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_GreatDefender",
+   "notes": [
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)"
+   ]
+  },
+  "Gear/Shield/Green Ward": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_GreenWard",
+   "notes": [
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)"
+   ]
+  },
+  "Gear/Shield/Grey Owlite Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_GreyOwliteShield",
+   "notes": []
+  },
+  "Gear/Shield/Grim Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_GrimShell",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Heater Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_HeaterShield",
+   "notes": []
+  },
+  "Gear/Shield/Heavy Plate Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_HeavyPlateShield",
+   "notes": [
+    "skin matched: skin_rank3-hvy"
+   ]
+  },
+  "Gear/Shield/Honor Shield 1": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_HonorShield1",
+   "notes": [
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)"
+   ]
+  },
+  "Gear/Shield/Honor Shield 2": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_HonorShield2",
+   "notes": [
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)"
+   ]
+  },
+  "Gear/Shield/Honor Shield 3": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_HonorShield3",
+   "notes": []
+  },
+  "Gear/Shield/Honor Shield 4": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_HonorShield4",
+   "notes": []
+  },
+  "Gear/Shield/Horned Owlite Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_HornedOwliteShield",
+   "notes": []
+  },
+  "Gear/Shield/Icebreaker Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_IcebreakerShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Iron Buckler": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_IronBuckler",
+   "notes": []
+  },
+  "Gear/Shield/Ironmight Plate Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_IronmightPlateShield",
+   "notes": [
+    "skin matched: glow_rank4"
+   ]
+  },
+  "Gear/Shield/Jelly Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_JellyShield",
+   "notes": [
+    "model set member guessed: mesh_outside_rank1 (of mesh_outside_rank1, mesh_outside_rank2, mesh_outside_rank3, mesh_outside_rank4)",
+    "skin guessed (no name match): skin_bolts"
+   ]
+  },
+  "Gear/Shield/Mighty Defender": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_MightyDefender",
+   "notes": [
+    "skin matched: skin_aegis-simple"
+   ]
+  },
+  "Gear/Shield/Mighty Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_MightyShell",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Nether Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NetherShell",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Amethyst": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeAmethyst",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Aquamarine": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeAquamarine",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Blue": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeBlue",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Citrine": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeCitrine",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Curse": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeCurse",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Dangerous": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeDangerous",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Diamond": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeDiamond",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Divine": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeDivine",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Emerald": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeEmerald",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Garnet": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeGarnet",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Glacial": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeGlacial",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Gold": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeGold",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Green": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeGreen",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Hazardous": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeHazardous",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Heavy": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeHeavy",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Hunter": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeHunter",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Opal": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeOpal",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Pearl": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimePearl",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Peridot": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimePeridot",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Pink": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimePink",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Purple": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimePurple",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Red": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeRed",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Ruby": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeRuby",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Sapphire": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeSapphire",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Shadow": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeShadow",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Turquoise": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeTurquoise",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Node Slime/Node Slime, Volcanic": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_NodeSlimeVolcanic",
+   "notes": [
+    "colorized 355 in the original; shows untinted",
+    "skin guessed (no name match): skin_jell"
+   ]
+  },
+  "Gear/Shield/Omega Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_OmegaShell",
+   "notes": []
+  },
+  "Gear/Shield/Omegaward": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_Omegaward",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Owlite Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_OwliteShield",
+   "notes": []
+  },
+  "Gear/Shield/Plate Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_PlateShield",
+   "notes": []
+  },
+  "Gear/Shield/Power Mitt": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_PowerMitt",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Shield/Primal Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_PrimalShell",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Proto Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_ProtoShield",
+   "notes": []
+  },
+  "Gear/Shield/Raider Buckler": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_RaiderBuckler",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Rock Jelly Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_RockJellyShield",
+   "notes": [
+    "model set member guessed: mesh_outside_rank1 (of mesh_outside_rank1, mesh_outside_rank2, mesh_outside_rank3, mesh_outside_rank4)",
+    "skin guessed (no name match): skin_bolts"
+   ]
+  },
+  "Gear/Shield/Royal Jelly Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_RoyalJellyShield",
+   "notes": [
+    "model set member guessed: mesh_outside_rank1 (of mesh_outside_rank1, mesh_outside_rank2, mesh_outside_rank3, mesh_outside_rank4)",
+    "skin guessed (no name match): skin_bolts"
+   ]
+  },
+  "Gear/Shield/Savage Tortoise": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_SavageTortoise",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Scale Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_ScaleShield",
+   "notes": []
+  },
+  "Gear/Shield/Scarlet Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_ScarletShield",
+   "notes": []
+  },
+  "Gear/Shield/Scary Skelly Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_ScarySkellyShield",
+   "notes": []
+  },
+  "Gear/Shield/Shining Ward": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_ShiningWard",
+   "notes": [
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)"
+   ]
+  },
+  "Gear/Shield/Ship Wheel": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_ShipWheel",
+   "notes": []
+  },
+  "Gear/Shield/Sinister Skelly Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_SinisterSkellyShield",
+   "notes": []
+  },
+  "Gear/Shield/Skelly Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_SkellyShield",
+   "notes": []
+  },
+  "Gear/Shield/Stoic Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_StoicShell",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Stone Tortoise": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_StoneTortoise",
+   "notes": []
+  },
+  "Gear/Shield/Stop Sign": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_StopSign",
+   "notes": []
+  },
+  "Gear/Shield/Surge Breaker Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_SurgeBreakerShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Swiftstrike Buckler": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_SwiftstrikeBuckler",
+   "notes": []
+  },
+  "Gear/Shield/Teddy Bear Buckler": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_TeddyBearBuckler",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Shield/Teddy Bear Buckler, Tech/Teddy Bear Buckler, Tech Blue": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_TeddyBearBucklerTechBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Shield/Teddy Bear Buckler, Tech/Teddy Bear Buckler, Tech Green": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_TeddyBearBucklerTechGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Shield/Teddy Bear Buckler, Tech/Teddy Bear Buckler, Tech Orange": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_TeddyBearBucklerTechOrange",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Shield/Teddy Bear Buckler, Tech/Teddy Bear Buckler, Tech Pink": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_TeddyBearBucklerTechPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Shield/The Bitter End": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_TheBitterEnd",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)",
+    "skin matched: skin_desna"
+   ]
+  },
+  "Gear/Shield/The Bitter End, Red": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_TheBitterEndRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)",
+    "skin matched: skin_desna"
+   ]
+  },
+  "Gear/Shield/Thwacker Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_ThwackerShield",
+   "notes": [
+    "model set member guessed: mesh_aegis (of mesh_aegis, mesh_aegis-lrg)"
+   ]
+  },
+  "Gear/Shield/Twisted Targe": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_TwistedTarge",
+   "notes": []
+  },
+  "Gear/Shield/Volcanic Plate Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_VolcanicPlateShield",
+   "notes": [
+    "skin matched: glow_rank4"
+   ]
+  },
+  "Gear/Shield/Volt Breaker Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_VoltBreakerShield",
+   "notes": [
+    "model set member guessed: mesh_shield-r1 (of mesh_shield-r1, mesh_shield-r2, mesh_shield-r3)",
+    "skin guessed (no name match): skin_fir"
+   ]
+  },
+  "Gear/Shield/Wild Shell": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_WildShell",
+   "notes": [
+    "placement from the compound model (inferred axis swap)"
+   ]
+  },
+  "Gear/Shield/Wise Owlite Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_WiseOwliteShield",
+   "notes": []
+  },
+  "Gear/Shield/Wyvern Scale Shield": {
+   "asset": "/Game/TopDown/Gear/Knight/Shields/DA_Gear_WyvernScaleShield",
+   "notes": [
+    "skin guessed (no name match): blank"
+   ]
+  },
+  "Gear/Helm/Almirian Crusader Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_AlmirianCrusaderHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Ancient Plate Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_AncientPlateHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_ancient"
+   ]
+  },
+  "Gear/Helm/Angelic Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_AngelicHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_drk"
+   ]
+  },
+  "Gear/Helm/Arcane Salamander Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ArcaneSalamanderMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Ash Tail Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_AshTailCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): skin_irn"
+   ]
+  },
+  "Gear/Helm/Azure Guardian Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_AzureGuardianHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_cobalt_r3"
+   ]
+  },
+  "Gear/Helm/Black Kat Cowl": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BlackKatCowl",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r5 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Black Kat Hat": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BlackKatHat",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Black Kat Hood": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BlackKatHood",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r3 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Black Kat Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BlackKatMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r4 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Blazebreak Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BlazebreakHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): crew-recolor"
+   ]
+  },
+  "Gear/Helm/Blizzbreaker Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BlizzbreakerHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): crew-recolor"
+   ]
+  },
+  "Gear/Helm/Bombastic Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BombasticDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_drk"
+   ]
+  },
+  "Gear/Helm/Boosted Plate Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BoostedPlateHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_bolted"
+   ]
+  },
+  "Gear/Helm/Brute Jelly Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_BruteJellyHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_helm-jelly"
+   ]
+  },
+  "Gear/Helm/Chaos Cowl": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ChaosCowl",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_dark"
+   ]
+  },
+  "Gear/Helm/Charged Quicksilver Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ChargedQuicksilverHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_silver"
+   ]
+  },
+  "Gear/Helm/Chroma Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ChromaMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_chroma"
+   ]
+  },
+  "Gear/Helm/Circuit Breaker Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_CircuitBreakerHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Cobalt Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_CobaltHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_cobalt_r1"
+   ]
+  },
+  "Gear/Helm/Crown of the Fallen": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_CrownOfTheFallen",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_drk"
+   ]
+  },
+  "Gear/Helm/Cyclops Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_CyclopsCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_grey"
+   ]
+  },
+  "Gear/Helm/Deadly Virulisk Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_DeadlyViruliskMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_viral-deadly"
+   ]
+  },
+  "Gear/Helm/Deadshot Chapeau": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_DeadshotChapeau",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hat_gunslinger"
+   ]
+  },
+  "Gear/Helm/Divine Veil": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_DivineVeil",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_gold"
+   ]
+  },
+  "Gear/Helm/Dragon Scale Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_DragonScaleHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_drake"
+   ]
+  },
+  "Gear/Helm/Drake Scale Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_DrakeScaleHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_drake"
+   ]
+  },
+  "Gear/Helm/Dread Skelly Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_DreadSkellyMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skelly_humbug"
+   ]
+  },
+  "Gear/Helm/Dusker Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_DuskerCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): skin_irn"
+   ]
+  },
+  "Gear/Helm/Elemental Hood": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ElementalHood",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_moon"
+   ]
+  },
+  "Gear/Helm/Emberbreak Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_EmberbreakHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Feral Kat Hood": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_FeralKatHood",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Firebreak Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_FirebreakHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Firefighter Helmet": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_FirefighterHelmet",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: firefighter"
+   ]
+  },
+  "Gear/Helm/Frostbreaker Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_FrostbreakerHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Fused Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_FusedDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_drk"
+   ]
+  },
+  "Gear/Helm/Grey Feather Cowl": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_GreyFeatherCowl",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Groundbreaker Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_GroundbreakerHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: icon_cnst"
+   ]
+  },
+  "Gear/Helm/Gunslinger Hat": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_GunslingerHat",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hat_gunslinger"
+   ]
+  },
+  "Gear/Helm/Heavenly Iron Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_HeavenlyIronHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: side_com (of front_eyebrows, front_farsight, front_goggles, front_knightvision, front_powerscanner, front_visor, side_catears, side_com, side_mechburns, side_mechtennas, side_pads, top_flower, top_hairband, top_mechtenna, top_mowhawk, top_psothing, top_quickman, top_rabbitears, top_samurai, top_spikehawk)",
+    "skin matched: v2_iron"
+   ]
+  },
+  "Gear/Helm/Heavy Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_HeavyDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_drk"
+   ]
+  },
+  "Gear/Helm/Heavy Plate Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_HeavyPlateHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_dark-powder"
+   ]
+  },
+  "Gear/Helm/Ice Queen Crown": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_IceQueenCrown",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_crown (of mesh_crown, mesh_crown-broke)",
+    "skin matched: skin_crown-fre"
+   ]
+  },
+  "Gear/Helm/Icebreaker Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_IcebreakerHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): crew-recolor"
+   ]
+  },
+  "Gear/Helm/Ignition Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_IgnitionHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_cobalt_r1"
+   ]
+  },
+  "Gear/Helm/Ironmight Plate Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_IronmightPlateHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_red-brown"
+   ]
+  },
+  "Gear/Helm/Jaws of Megalodon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_JawsOfMegalodon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_fishhead_blue"
+   ]
+  },
+  "Gear/Helm/Jelly Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_JellyHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_helm-jelly"
+   ]
+  },
+  "Gear/Helm/Justifier Hat": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_JustifierHat",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hat_gunslinger"
+   ]
+  },
+  "Gear/Helm/Kat Claw Cowl": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatClawCowl",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r5 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Kat Claw Hood": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatClawHood",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r3 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Kat Claw Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatClawMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r4 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Kat Eye Cowl": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatEyeCowl",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r5 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Kat Eye Hood": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatEyeHood",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r3 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Kat Eye Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatEyeMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r4 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Kat Hiss Cowl": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatHissCowl",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r5 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Kat Hiss Hood": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatHissHood",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r3 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Kat Hiss Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_KatHissMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm-r4 (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Mad Bomber Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MadBomberMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_drk"
+   ]
+  },
+  "Gear/Helm/Magic Hood": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MagicHood",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_simple"
+   ]
+  },
+  "Gear/Helm/Magikat Hat": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MagikatHat",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Mercurial Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MercurialDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Mercurial Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MercurialHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_silver"
+   ]
+  },
+  "Gear/Helm/Mighty Cobalt Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MightyCobaltHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_cobalt_r1"
+   ]
+  },
+  "Gear/Helm/Mining Hat": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MiningHat",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): hardhat"
+   ]
+  },
+  "Gear/Helm/Miracle Hood": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MiracleHood",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_dark"
+   ]
+  },
+  "Gear/Helm/Mirakat Hat": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_MirakatHat",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Nameless Hat": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_NamelessHat",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hat_nameless"
+   ]
+  },
+  "Gear/Helm/Padded Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PaddedCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Padded Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PaddedDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_sleep_r3"
+   ]
+  },
+  "Gear/Helm/Padded Hunting Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PaddedHuntingCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_sleep_r3"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Pathfinder Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PathfinderHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r2"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Plated Pathfinder Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedPathfinderHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r4"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Plated Pathfinder Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedPathfinderHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r4"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Plated Pathfinder Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedPathfinderHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r4"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Plated Pathfinder Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedPathfinderHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r4"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Guerrilla Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredGuerrillaHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Guerrilla Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredGuerrillaHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Guerrilla Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredGuerrillaHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Guerrilla Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredGuerrillaHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Hazard Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredHazardHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Hazard Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredHazardHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Hazard Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredHazardHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Hazard Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredHazardHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Pathfinder Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredPathfinderHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Pathfinder Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredPathfinderHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Pathfinder Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredPathfinderHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Sacred Pathfinder Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredPathfinderHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r5"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Woven Pathfinder Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenPathfinderHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r3"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Woven Pathfinder Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenPathfinderHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r3"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Woven Pathfinder Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenPathfinderHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r3"
+   ]
+  },
+  "Gear/Helm/Pathfinder/Woven Pathfinder Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenPathfinderHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_ranger_1 (of mesh_ranger_1, mesh_ranger_2, mesh_ranger_3)",
+    "skin matched: skin_ranger-r3"
+   ]
+  },
+  "Gear/Helm/Purring Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PurringCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_helm (of mesh_helm, mesh_helm-r3, mesh_helm-r4, mesh_helm-r5)"
+   ]
+  },
+  "Gear/Helm/Quicksilver Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_QuicksilverHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_silver"
+   ]
+  },
+  "Gear/Helm/Quilted Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_QuiltedDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_demo_sleep_r4 (of mesh_demo_sleep_r4, mesh_demo_sleep_r5)",
+    "skin matched: demo_sleep_r4"
+   ]
+  },
+  "Gear/Helm/Quilted Hunting Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_QuiltedHuntingCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_sleep_r4"
+   ]
+  },
+  "Gear/Helm/Rock Jelly Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_RockJellyHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_helm-jelly"
+   ]
+  },
+  "Gear/Helm/Ronin Gasa": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_RoninGasa",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: ronin-gasa"
+   ]
+  },
+  "Gear/Helm/Rooster Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_RoosterHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Rooster King Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_RoosterKingHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Royal Jelly Crown": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_RoyalJellyCrown",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_crown"
+   ]
+  },
+  "Gear/Helm/Salamander Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SalamanderMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): skin_sala"
+   ]
+  },
+  "Gear/Helm/Scary Skelly Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ScarySkellyMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skelly_humbug"
+   ]
+  },
+  "Gear/Helm/Sentinel/Plated Sentinel Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedSentinelHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r4"
+   ]
+  },
+  "Gear/Helm/Sentinel/Plated Sentinel Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedSentinelHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r4"
+   ]
+  },
+  "Gear/Helm/Sentinel/Plated Sentinel Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedSentinelHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r4"
+   ]
+  },
+  "Gear/Helm/Sentinel/Plated Sentinel Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedSentinelHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r4"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Keeper Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredKeeperHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Keeper Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredKeeperHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Keeper Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredKeeperHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Keeper Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredKeeperHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Sentinel Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredSentinelHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Sentinel Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredSentinelHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Sentinel Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredSentinelHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Sentinel Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredSentinelHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Wraith Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredWraithHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Wraith Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredWraithHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Wraith Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredWraithHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sacred Wraith Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredWraithHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r5"
+   ]
+  },
+  "Gear/Helm/Sentinel/Sentinel Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SentinelHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r2"
+   ]
+  },
+  "Gear/Helm/Sentinel/Woven Sentinel Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenSentinelHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r3"
+   ]
+  },
+  "Gear/Helm/Sentinel/Woven Sentinel Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenSentinelHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r3"
+   ]
+  },
+  "Gear/Helm/Sentinel/Woven Sentinel Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenSentinelHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r3"
+   ]
+  },
+  "Gear/Helm/Sentinel/Woven Sentinel Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenSentinelHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: helm_warden_1 (of helm_warden_1, helm_warden_2, helm_warden_3)",
+    "skin matched: skin_warden-r3"
+   ]
+  },
+  "Gear/Helm/Seraphic Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SeraphicHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_drk"
+   ]
+  },
+  "Gear/Helm/Shade/Plated Shade Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedShadeHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r4"
+   ]
+  },
+  "Gear/Helm/Shade/Plated Shade Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedShadeHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r4"
+   ]
+  },
+  "Gear/Helm/Shade/Plated Shade Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedShadeHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r4"
+   ]
+  },
+  "Gear/Helm/Shade/Plated Shade Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_PlatedShadeHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r4"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Ghost Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredGhostHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Ghost Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredGhostHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Ghost Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredGhostHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Ghost Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredGhostHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Hex Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredHexHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Hex Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredHexHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Hex Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredHexHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Hex Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredHexHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Shade Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredShadeHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Shade Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredShadeHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Shade Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredShadeHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Sacred Shade Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SacredShadeHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r5"
+   ]
+  },
+  "Gear/Helm/Shade/Shade Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ShadeHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r2"
+   ]
+  },
+  "Gear/Helm/Shade/Woven Shade Helm, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenShadeHelmFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r3"
+   ]
+  },
+  "Gear/Helm/Shade/Woven Shade Helm, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenShadeHelmFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r3"
+   ]
+  },
+  "Gear/Helm/Shade/Woven Shade Helm, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenShadeHelmGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r3"
+   ]
+  },
+  "Gear/Helm/Shade/Woven Shade Helm, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WovenShadeHelmSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_stalker_1 (of mesh_stalker_1, mesh_stalker_2, mesh_stalker_3)",
+    "skin matched: skin_shroud-r3"
+   ]
+  },
+  "Gear/Helm/Shadowsun Stetson": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ShadowsunStetson",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hat_nameless"
+   ]
+  },
+  "Gear/Helm/Shroom Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ShroomCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): shroomcap"
+   ]
+  },
+  "Gear/Helm/Sinister Skelly Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SinisterSkellyMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skelly_humbug"
+   ]
+  },
+  "Gear/Helm/Skelly Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SkellyMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_tan-grn"
+   ]
+  },
+  "Gear/Helm/Skolver Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SkolverCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): skin_irn"
+   ]
+  },
+  "Gear/Helm/Snarbolax Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SnarbolaxCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Solid Cobalt Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SolidCobaltHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_cobalt_r1"
+   ]
+  },
+  "Gear/Helm/Spiral Crescent Helm (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralCrescentHelmBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Spiral Crescent Helm (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralCrescentHelmGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Spiral Crescent Helm (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralCrescentHelmGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Spiral Crescent Helm (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralCrescentHelmHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Spiral Crescent Helm (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralCrescentHelmPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Spiral Crescent Helm (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralCrescentHelmPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Spiral Crescent Helm (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralCrescentHelmRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Spiral Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_drk"
+   ]
+  },
+  "Gear/Helm/Spiral Hood (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralHoodBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Hood (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralHoodGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Hood (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralHoodGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Hood (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralHoodHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Hood (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralHoodPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Hood (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralHoodPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Hood (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralHoodRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hood_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Pith Helm (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralPithHelmBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Pith Helm (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralPithHelmGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Pith Helm (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralPithHelmGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Pith Helm (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralPithHelmHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Pith Helm (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralPithHelmPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Pith Helm (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralPithHelmPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Pith Helm (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralPithHelmRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Plate Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralPlateHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_bolted"
+   ]
+  },
+  "Gear/Helm/Spiral Round Helm (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralRoundHelmBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Round Helm (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralRoundHelmGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Round Helm (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralRoundHelmGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Round Helm (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralRoundHelmHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Round Helm (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralRoundHelmPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Round Helm (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralRoundHelmPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Round Helm (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralRoundHelmRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Sallet (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralSalletBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Sallet (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralSalletGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Sallet (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralSalletGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Sallet (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralSalletHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Sallet (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralSalletPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Sallet (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralSalletPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Sallet (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralSalletRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Scale Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralScaleHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_scale"
+   ]
+  },
+  "Gear/Helm/Spiral Tailed Helm (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralTailedHelmBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Tailed Helm (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralTailedHelmGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Tailed Helm (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralTailedHelmGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Tailed Helm (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralTailedHelmHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Tailed Helm (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralTailedHelmPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Tailed Helm (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralTailedHelmPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Spiral Tailed Helm (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SpiralTailedHelmRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: crew-recolor"
+   ]
+  },
+  "Gear/Helm/Starlit Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_StarlitDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "model set member guessed: mesh_demo_sleep_r5 (of mesh_demo_sleep_r4, mesh_demo_sleep_r5)",
+    "skin matched: demo_sleep_r5"
+   ]
+  },
+  "Gear/Helm/Starlit Hunting Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_StarlitHuntingCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_sleep_r5"
+   ]
+  },
+  "Gear/Helm/Sunset Stetson": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SunsetStetson",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: hat_gunslinger"
+   ]
+  },
+  "Gear/Helm/Surge Breaker Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_SurgeBreakerHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): demo_recolor"
+   ]
+  },
+  "Gear/Helm/Tri-Guard Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_TriGuardHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_cobalt-tri"
+   ]
+  },
+  "Gear/Helm/Valkyrie Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ValkyrieHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: v2_drk"
+   ]
+  },
+  "Gear/Helm/Virulisk Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_ViruliskMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_viral"
+   ]
+  },
+  "Gear/Helm/Vog Cub Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_VogCubCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Volcanic Demo Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_VolcanicDemoHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_drk"
+   ]
+  },
+  "Gear/Helm/Volcanic Plate Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_VolcanicPlateHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: helm_volcanic"
+   ]
+  },
+  "Gear/Helm/Volcanic Salamander Mask": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_VolcanicSalamanderMask",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Volt Breaker Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_VoltBreakerHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: demo_recolor"
+   ]
+  },
+  "Gear/Helm/Warmaster Helm 1": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WarmasterHelm1",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Warmaster Helm 2": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WarmasterHelm2",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Warmaster Helm 3": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WarmasterHelm3",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Helm/Wolver Cap": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WolverCap",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin guessed (no name match): skin_irn"
+   ]
+  },
+  "Gear/Helm/Wyvern Scale Helm": {
+   "asset": "/Game/TopDown/Gear/Knight/Helmets/DA_Gear_WyvernScaleHelm",
+   "notes": [
+    "colorized 257 in the original; shows untinted",
+    "skin matched: skin_drake"
+   ]
+  },
+  "Gear/Armor/Almirian Crusader Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_AlmirianCrusaderArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Ancient Plate Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_AncientPlateMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Angelic Raiment": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_AngelicRaiment",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Arcane Salamander Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ArcaneSalamanderSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Armor of the Fallen": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ArmorOfTheFallen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Ash Tail Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_AshTailCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Azure Guardian Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_AzureGuardianArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Black Kat Cloak": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_BlackKatCloak",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Black Kat Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_BlackKatMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Black Kat Raiment": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_BlackKatRaiment",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Blazebreak Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_BlazebreakArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Blizzbreaker Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_BlizzbreakerArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Bombastic Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_BombasticDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Boosted Plate Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_BoostedPlateMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Brute Jelly Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_BruteJellyMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Chaos Cloak": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ChaosCloak",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Charged Quicksilver Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ChargedQuicksilverMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Chroma Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ChromaSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Circuit Breaker Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_CircuitBreakerArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Cobalt Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_CobaltArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Deadly Virulisk Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_DeadlyViruliskSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Deadshot Mantle": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_DeadshotMantle",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Deep Sea Cuirass": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_DeepSeaCuirass",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Divine Mantle": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_DivineMantle",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Dragon Scale Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_DragonScaleMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Drake Scale Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_DrakeScaleMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Dread Skelly Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_DreadSkellySuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Dusker Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_DuskerCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Elemental Cloak": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ElementalCloak",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Emberbreak Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_EmberbreakArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Fencing Jacket": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_FencingJacket",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Firebreak Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_FirebreakArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Frostbreaker Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_FrostbreakerArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Fused Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_FusedDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Grey Feather Mantle": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_GreyFeatherMantle",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Groundbreaker Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_GroundbreakerArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Gunslinger Sash": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_GunslingerSash",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Heavenly Iron Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_HeavenlyIronArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Heavy Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_HeavyDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Heavy Plate Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_HeavyPlateMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Ice Queen Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_IceQueenMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Icebreaker Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_IcebreakerArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Ignition Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_IgnitionArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Ironmight Plate Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_IronmightPlateMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Jelly Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_JellyMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Justifier Jacket": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_JustifierJacket",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Claw Cloak": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatClawCloak",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Claw Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatClawMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Claw Raiment": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatClawRaiment",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Eye Cloak": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatEyeCloak",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Eye Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatEyeMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Eye Raiment": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatEyeRaiment",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Hiss Cloak": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatHissCloak",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Hiss Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatHissMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Kat Hiss Raiment": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_KatHissRaiment",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Mad Bomber Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_MadBomberSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Magic Cloak": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_MagicCloak",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Mercurial Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_MercurialDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Mercurial Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_MercurialMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Mighty Cobalt Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_MightyCobaltArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Miracle Cloak": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_MiracleCloak",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Nameless Poncho": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_NamelessPoncho",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Padded Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PaddedArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Padded Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PaddedDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Padded Hunting Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PaddedHuntingCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Pathfinder Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PathfinderArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Plated Pathfinder Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedPathfinderArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Plated Pathfinder Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedPathfinderArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Plated Pathfinder Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedPathfinderArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Plated Pathfinder Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedPathfinderArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Guerrilla Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredGuerrillaArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Guerrilla Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredGuerrillaArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Guerrilla Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredGuerrillaArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Guerrilla Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredGuerrillaArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Hazard Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredHazardArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Hazard Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredHazardArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Hazard Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredHazardArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Hazard Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredHazardArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Pathfinder Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredPathfinderArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Pathfinder Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredPathfinderArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Pathfinder Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredPathfinderArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Sacred Pathfinder Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredPathfinderArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Woven Pathfinder Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenPathfinderArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Woven Pathfinder Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenPathfinderArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Woven Pathfinder Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenPathfinderArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Pathfinder/Woven Pathfinder Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenPathfinderArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Quicksilver Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_QuicksilverMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Quilted Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_QuiltedDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Quilted Hunting Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_QuiltedHuntingCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Radiant Silvermail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_RadiantSilvermail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Rock Jelly Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_RockJellyMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Royal Jelly Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_RoyalJellyMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Salamander Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SalamanderSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Scary Skelly Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ScarySkellySuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Plated Sentinel Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedSentinelArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Plated Sentinel Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedSentinelArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Plated Sentinel Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedSentinelArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Plated Sentinel Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedSentinelArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Keeper Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredKeeperArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Keeper Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredKeeperArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Keeper Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredKeeperArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Keeper Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredKeeperArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Sentinel Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredSentinelArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Sentinel Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredSentinelArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Sentinel Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredSentinelArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Sentinel Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredSentinelArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Wraith Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredWraithArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Wraith Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredWraithArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Wraith Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredWraithArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sacred Wraith Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredWraithArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Sentinel Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SentinelArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Woven Sentinel Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenSentinelArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Woven Sentinel Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenSentinelArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Woven Sentinel Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenSentinelArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sentinel/Woven Sentinel Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenSentinelArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Seraphic Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SeraphicMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Plated Shade Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedShadeArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Plated Shade Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedShadeArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Plated Shade Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedShadeArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Plated Shade Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_PlatedShadeArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Ghost Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredGhostArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Ghost Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredGhostArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Ghost Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredGhostArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Ghost Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredGhostArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Hex Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredHexArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Hex Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredHexArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Hex Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredHexArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Hex Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredHexArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Shade Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredShadeArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Shade Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredShadeArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Shade Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredShadeArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Sacred Shade Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SacredShadeArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Shade Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ShadeArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Woven Shade Armor, Falcon": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenShadeArmorFalcon",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Woven Shade Armor, Firefly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenShadeArmorFirefly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Woven Shade Armor, Grizzly": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenShadeArmorGrizzly",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shade/Woven Shade Armor, Snakebite": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WovenShadeArmorSnakebite",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Shadowsun Slicker": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ShadowsunSlicker",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Silvermail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_Silvermail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sinister Skelly Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SinisterSkellySuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Skelly Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SkellySuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Skolver Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SkolverCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Snarbolax Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SnarbolaxCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Solid Cobalt Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SolidCobaltArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Brigandine (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralBrigandineBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Brigandine (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralBrigandineGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Brigandine (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralBrigandineGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Brigandine (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralBrigandineHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Brigandine (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralBrigandinePink",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Brigandine (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralBrigandinePurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Brigandine (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralBrigandineRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cloak (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCloakBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cloak (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCloakGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cloak (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCloakGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cloak (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCloakHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cloak (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCloakPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cloak (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCloakPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cloak (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCloakRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cuirass (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuirassBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cuirass (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuirassGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cuirass (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuirassGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cuirass (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuirassHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cuirass (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuirassPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cuirass (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuirassPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Cuirass (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuirassRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Culet (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuletBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Culet (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuletGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Culet (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuletGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Culet (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuletHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Culet (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuletPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Culet (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuletPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Culet (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralCuletRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Draped Armor (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralDrapedArmorBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Draped Armor (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralDrapedArmorGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Draped Armor (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralDrapedArmorGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Draped Armor (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralDrapedArmorHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Draped Armor (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralDrapedArmorPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Draped Armor (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralDrapedArmorPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Draped Armor (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralDrapedArmorRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Flak Jacket (Blue)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralFlakJacketBlue",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Flak Jacket (Gold)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralFlakJacketGold",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Flak Jacket (Green)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralFlakJacketGreen",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Flak Jacket (Heavy)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralFlakJacketHeavy",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Flak Jacket (Pink)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralFlakJacketPink",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Flak Jacket (Purple)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralFlakJacketPurple",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Flak Jacket (Red)": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralFlakJacketRed",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Plate Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralPlateMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Spiral Scale Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SpiralScaleMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Starlit Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_StarlitDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Starlit Hunting Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_StarlitHuntingCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Sunset Duster": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SunsetDuster",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Surge Breaker Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_SurgeBreakerArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Tri-Guard Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_TriGuardArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Valkyrie Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ValkyrieMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Virulisk Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_ViruliskSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Vitasuit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_Vitasuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Vitasuit Deluxe": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_VitasuitDeluxe",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Vitasuit Plus": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_VitasuitPlus",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Vog Cub Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_VogCubCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Volcanic Demo Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_VolcanicDemoSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Volcanic Plate Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_VolcanicPlateMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Volcanic Salamander Suit": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_VolcanicSalamanderSuit",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Volt Breaker Armor": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_VoltBreakerArmor",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Wolver Coat": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WolverCoat",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Armor/Wyvern Scale Mail": {
+   "asset": "/Game/TopDown/Gear/Knight/Armor/DA_Gear_WyvernScaleMail",
+   "notes": [
+    "colorized 257 in the original; shows untinted"
+   ]
+  },
+  "Gear/Trinket/Blessed Silver Amulet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_BlessedSilverAmulet",
+   "notes": []
+  },
+  "Gear/Trinket/Bomb Focus Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_BombFocusModule",
+   "notes": []
+  },
+  "Gear/Trinket/Boom Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_BoomModule",
+   "notes": []
+  },
+  "Gear/Trinket/Bright White Laurel": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_BrightWhiteLaurel",
+   "notes": []
+  },
+  "Gear/Trinket/Brute Jelly Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_BruteJellyBand",
+   "notes": []
+  },
+  "Gear/Trinket/Choice Katnip Pouch": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ChoiceKatnipPouch",
+   "notes": []
+  },
+  "Gear/Trinket/Crystal Pin": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_CrystalPin",
+   "notes": []
+  },
+  "Gear/Trinket/Dawn Bracelet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DawnBracelet",
+   "notes": []
+  },
+  "Gear/Trinket/Daybreaker Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DaybreakerBand",
+   "notes": []
+  },
+  "Gear/Trinket/Dewy Wetstone Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DewyWetstonePendant",
+   "notes": []
+  },
+  "Gear/Trinket/Dread Skelly Charm": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DreadSkellyCharm",
+   "notes": []
+  },
+  "Gear/Trinket/Driftwood Bracelet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DriftwoodBracelet",
+   "notes": []
+  },
+  "Gear/Trinket/Dual Heart Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DualHeartPendant",
+   "notes": []
+  },
+  "Gear/Trinket/Early Riser Ring": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EarlyRiserRing",
+   "notes": []
+  },
+  "Gear/Trinket/Elite Bomb Focus Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EliteBombFocusModule",
+   "notes": []
+  },
+  "Gear/Trinket/Elite Boom Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EliteBoomModule",
+   "notes": []
+  },
+  "Gear/Trinket/Elite Handgun Focus Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EliteHandgunFocusModule",
+   "notes": []
+  },
+  "Gear/Trinket/Elite Quick Draw Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EliteQuickDrawModule",
+   "notes": []
+  },
+  "Gear/Trinket/Elite Quick Strike Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EliteQuickStrikeModule",
+   "notes": []
+  },
+  "Gear/Trinket/Elite Slash Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EliteSlashModule",
+   "notes": []
+  },
+  "Gear/Trinket/Elite Sword Focus Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EliteSwordFocusModule",
+   "notes": []
+  },
+  "Gear/Trinket/Elite Trueshot Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_EliteTrueshotModule",
+   "notes": []
+  },
+  "Gear/Trinket/Gift of Autumn": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_GiftOfAutumn",
+   "notes": []
+  },
+  "Gear/Trinket/Glimmering Crystal Pin": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_GlimmeringCrystalPin",
+   "notes": []
+  },
+  "Gear/Trinket/Glowing Crystal Pin": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_GlowingCrystalPin",
+   "notes": []
+  },
+  "Gear/Trinket/Golden Solstice Ring": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_GoldenSolsticeRing",
+   "notes": []
+  },
+  "Gear/Trinket/Grand Solstice Ring": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_GrandSolsticeRing",
+   "notes": []
+  },
+  "Gear/Trinket/Handgun Focus Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_HandgunFocusModule",
+   "notes": []
+  },
+  "Gear/Trinket/Heart Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_HeartPendant",
+   "notes": []
+  },
+  "Gear/Trinket/Hearthstone Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_HearthstonePendant",
+   "notes": []
+  },
+  "Gear/Trinket/Hi-Grade Katnip Pouch": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_HiGradeKatnipPouch",
+   "notes": []
+  },
+  "Gear/Trinket/Ironwood Bracelet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_IronwoodBracelet",
+   "notes": []
+  },
+  "Gear/Trinket/Jelly Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_JellyBand",
+   "notes": []
+  },
+  "Gear/Trinket/Katnip Pouch": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_KatnipPouch",
+   "notes": []
+  },
+  "Gear/Trinket/Misplaced Promissory Note": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_MisplacedPromissoryNote",
+   "notes": []
+  },
+  "Gear/Trinket/Penta-Heart Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_PentaHeartPendant",
+   "notes": []
+  },
+  "Gear/Trinket/Pure White Laurel": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_PureWhiteLaurel",
+   "notes": []
+  },
+  "Gear/Trinket/Purrfect Katnip Pouch": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_PurrfectKatnipPouch",
+   "notes": []
+  },
+  "Gear/Trinket/Quick Draw Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_QuickDrawModule",
+   "notes": []
+  },
+  "Gear/Trinket/Quick Strike Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_QuickStrikeModule",
+   "notes": []
+  },
+  "Gear/Trinket/Radiant Crystal Pin": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_RadiantCrystalPin",
+   "notes": []
+  },
+  "Gear/Trinket/Redwood Bracelet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_RedwoodBracelet",
+   "notes": []
+  },
+  "Gear/Trinket/Rock Jelly Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_RockJellyBand",
+   "notes": []
+  },
+  "Gear/Trinket/Royal Jelly Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_RoyalJellyBand",
+   "notes": []
+  },
+  "Gear/Trinket/Sacred Silver Amulet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SacredSilverAmulet",
+   "notes": []
+  },
+  "Gear/Trinket/Saintly Silver Amulet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SaintlySilverAmulet",
+   "notes": []
+  },
+  "Gear/Trinket/Scary Skelly Charm": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ScarySkellyCharm",
+   "notes": []
+  },
+  "Gear/Trinket/Silver Amulet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SilverAmulet",
+   "notes": []
+  },
+  "Gear/Trinket/Silver Solstice Ring": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SilverSolsticeRing",
+   "notes": []
+  },
+  "Gear/Trinket/Sinister Skelly Charm": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SinisterSkellyCharm",
+   "notes": []
+  },
+  "Gear/Trinket/Sizzling Hearthstone Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SizzlingHearthstonePendant",
+   "notes": []
+  },
+  "Gear/Trinket/Skelly Charm": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SkellyCharm",
+   "notes": []
+  },
+  "Gear/Trinket/Slash Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SlashModule",
+   "notes": []
+  },
+  "Gear/Trinket/Slippery Wetstone Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SlipperyWetstonePendant",
+   "notes": []
+  },
+  "Gear/Trinket/Snowy White Laurel": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SnowyWhiteLaurel",
+   "notes": []
+  },
+  "Gear/Trinket/Soaking Wetstone Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SoakingWetstonePendant",
+   "notes": []
+  },
+  "Gear/Trinket/Somnambulist's Totem": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SomnambulistSTotem",
+   "notes": []
+  },
+  "Gear/Trinket/Sword Focus Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SwordFocusModule",
+   "notes": []
+  },
+  "Gear/Trinket/Tetra-Heart Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_TetraHeartPendant",
+   "notes": []
+  },
+  "Gear/Trinket/Toasty Hearthstone Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ToastyHearthstonePendant",
+   "notes": []
+  },
+  "Gear/Trinket/Tri-Heart Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_TriHeartPendant",
+   "notes": []
+  },
+  "Gear/Trinket/True Love Locket": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_TrueLoveLocket",
+   "notes": []
+  },
+  "Gear/Trinket/Trueshot Module": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_TrueshotModule",
+   "notes": []
+  },
+  "Gear/Trinket/Warm Hearthstone Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_WarmHearthstonePendant",
+   "notes": []
+  },
+  "Gear/Trinket/Wetstone Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_WetstonePendant",
+   "notes": []
+  },
+  "Gear/Trinket/White Laurel": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_WhiteLaurel",
+   "notes": []
+  },
+  "Gear/Trinket/Wyrmwood Bracelet": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_WyrmwoodBracelet",
+   "notes": []
+  },
+  "Gear/Trinket/_Ancient Armor Ward": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_AncientArmorWard",
+   "notes": []
+  },
+  "Gear/Trinket/_Arena King's Medal": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ArenaKingSMedal",
+   "notes": []
+  },
+  "Gear/Trinket/_Armor Ward": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ArmorWard",
+   "notes": []
+  },
+  "Gear/Trinket/_Blitz Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_BlitzBand",
+   "notes": []
+  },
+  "Gear/Trinket/_Boosted Armor Ward": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_BoostedArmorWard",
+   "notes": []
+  },
+  "Gear/Trinket/_Chroma Tear Earring": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ChromaTearEarring",
+   "notes": []
+  },
+  "Gear/Trinket/_Dark Thorn Choker": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DarkThornChoker",
+   "notes": []
+  },
+  "Gear/Trinket/_Dragon Scale Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DragonScalePendant",
+   "notes": []
+  },
+  "Gear/Trinket/_Drake Scale Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_DrakeScalePendant",
+   "notes": []
+  },
+  "Gear/Trinket/_Firefly Bottle": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_FireflyBottle",
+   "notes": []
+  },
+  "Gear/Trinket/_Glowing Firefly Bottle": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_GlowingFireflyBottle",
+   "notes": []
+  },
+  "Gear/Trinket/_Heavy Armor Ward": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_HeavyArmorWard",
+   "notes": []
+  },
+  "Gear/Trinket/_Heavy Impact Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_HeavyImpactBand",
+   "notes": []
+  },
+  "Gear/Trinket/_Impact Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ImpactBand",
+   "notes": []
+  },
+  "Gear/Trinket/_Ironmight Armor Ward": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_IronmightArmorWard",
+   "notes": []
+  },
+  "Gear/Trinket/_Massive Impact Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_MassiveImpactBand",
+   "notes": []
+  },
+  "Gear/Trinket/_Radiant Firefly Bottle": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_RadiantFireflyBottle",
+   "notes": []
+  },
+  "Gear/Trinket/_Scale Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ScalePendant",
+   "notes": []
+  },
+  "Gear/Trinket/_Shadow Thorn Choker": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ShadowThornChoker",
+   "notes": []
+  },
+  "Gear/Trinket/_Silver Wing Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SilverWingPendant",
+   "notes": []
+  },
+  "Gear/Trinket/_Soldier's Charm": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SoldierSCharm",
+   "notes": []
+  },
+  "Gear/Trinket/_Solid Impact Band": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SolidImpactBand",
+   "notes": []
+  },
+  "Gear/Trinket/_Sterling Wing Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_SterlingWingPendant",
+   "notes": []
+  },
+  "Gear/Trinket/_Thorn Choker": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_ThornChoker",
+   "notes": []
+  },
+  "Gear/Trinket/_Volcanic Armor Ward": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_VolcanicArmorWard",
+   "notes": []
+  },
+  "Gear/Trinket/_Wing Pendant": {
+   "asset": "/Game/TopDown/Gear/Knight/Trinkets/DA_Gear_WingPendant",
+   "notes": []
+  }
+ }
+}
