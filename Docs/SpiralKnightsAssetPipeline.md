@@ -48,6 +48,11 @@ Content\SK\<Category>\<Name>\{SkeletalMeshes,StaticMeshes,Materials,Textures}
 4. `DataHandlers/Model/ArticulatedConfigHandler.cs` — a skinned attachment that
    borrows the parent's skeleton (knight armour) is added to the list that
    receives the parent's animations; otherwise the knight exports with none.
+5. `DataHandlers/Parameters/ModelPropertyUtility.cs` (2026-09-15) — a material
+   mapping with no material (the material is left to a parameter, as on armour
+   parts and the Pith Cyclopse eye) yields no default texture instead of a
+   NullReferenceException. Rebuild `ThreeRingsSharp.csproj` then `SKExport.csproj`
+   (Release, Visual Studio 2022 MSBuild) after changing it.
 
 `DataHandlers/Parameters/XDirect.cs` also gained a descriptive exception message.
 
@@ -156,9 +161,22 @@ Import notes:
   Snarbolax, RoyalJelly, GremlinArtillery, Devilite, Chromalisk, TrainingBag,
   TrainingTarget (skeletal meshes, skeletons, animations, textures).
 - Knights: CrewKnight, PlayerKnight (face and helmet static meshes only).
-- Weapons: Calibur. Gear: HelmCap, ShieldBuckler, ArmorCoat (static).
+- Weapons: Calibur, ProtoGun (`item/weapon/handgun/proto`, exported from
+  `D:\Dev\SKAssets\batch_phase08.txt`). Gear: HelmCap, ShieldBuckler,
+  ArmorCoat (static).
+- Icons (2026-09-14): the game's inventory icons for the toolbar, copied by the
+  `TEXTURES` list in `stage_and_import.py` straight from `rsrc/ui/icon/` and
+  imported as textures: `T_Icon_Calibur`, `T_Icon_ProtoGun`, `T_Icon_ProtoShield`.
 - World/Clockworks: floor, wall, roof gear, fences, edge rail, control console,
   conveyor, lamp rail. World/Props: AltarX3, Bones.
+
+The re-typed knight (`_fixed\PlayerKnight.xml`) maps, besides the sword and
+dodge clips, the handgun set (`ready_pistol`, `attack_pistol_start/fire/end`
+from the `attack_pistol_blend_*` clips, `handgun_reload`, `charge_pistol_hold`,
+`charge_pistol_release`, `charge_pistol_fire/end` from `attack_heavypistol`)
+and the shield set (`ready_shield` from `draw_shield`, `blend_shield`,
+`shield_hit`, `shieldbash_start/fire/end`). Unreal names them
+`PlayerKnight<mapping>`, e.g. `PlayerKnightcharge_pistol_hold`.
 
 To add more, append rows to `MODELS` in `stage_and_import.py`, add the `.dat`
 paths to a batch list, export, and re-run the script with `--groups`.
