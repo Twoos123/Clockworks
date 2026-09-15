@@ -2,17 +2,29 @@
 
 #include "ClockworksPlayerController.h"
 #include "ClockworksGameplayTags.h"
+#include "ClockworksGearScreen.h"
+#include "ClockworksGuideScreen.h"
+#include "ClockworksMainMenu.h"
+#include "ClockworksPauseMenu.h"
+#include "ClockworksPlayerHUD.h"
+#include "Debug/ClockworksInputLog.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Character.h"
 #include "Components/CapsuleComponent.h"
 #include "ClockworksCharacter.h"
 #include "Engine/World.h"
 #include "EnhancedInputSubsystems.h"
+#include "InputCoreTypes.h"
+#include "Components/InputComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/GameViewportClient.h"
 #include "SceneView.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
+#include "Blueprint/UserWidget.h"
+#include "Components/AudioComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 #include "Clockworks.h"
 
 // Runs on: all machines (class default object and every spawned instance).
@@ -21,6 +33,222 @@ AClockworksPlayerController::AClockworksPlayerController()
 	// configure the controller
 	bShowMouseCursor = true;
 	DefaultMouseCursor = EMouseCursor::Default;
+
+	// The C++ widgets work without any asset; BP_ClockworksController may point at WBP_ children.
+	PlayerHUDClass = UClockworksPlayerHUD::StaticClass();
+	MainMenuClass = UClockworksMainMenu::StaticClass();
+	PauseMenuClass = UClockworksPauseMenu::StaticClass();
+	GearScreenClass = UClockworksGearScreen::StaticClass();
+	GuideScreenClass = UClockworksGuideScreen::StaticClass();
+
+	// Escape has to reach the controller while the game is stopped, or the pause menu is a trap.
+	// Tickable, but deliberately NOT a full tick: the menu key bindings carry bExecuteWhenPaused,
+	// which is all that input needs.
+	//
+	// A full tick while paused is actively wrong here. It runs PlayerTick, which aims the knight at
+	// the mouse cursor, and a paused camera manager then falls back to looking out of the pawn's
+	// eyes along that rotation. The result was a menu with the arena spinning behind it at floor
+	// level instead of the isometric view.
+	SetTickableWhenPaused(true);
+}
+
+// Runs on: all machines, but only a local player controller (the owning client, or the listen host
+// for its own player) builds UI. The server's copy of a remote player's controller has no screen.
+void AClockworksPlayerController::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	// Every key and click this player makes, and what the game did with it (Clockworks.LogInput).
+	ClockworksInputLog::StartListening();
+
+	if (PlayerHUDClass && !PlayerHUD)
+	{
+		PlayerHUD = CreateWidget<UClockworksPlayerHUD>(this, PlayerHUDClass);
+		if (PlayerHUD)
+		{
+			PlayerHUD->AddToViewport();
+		}
+	}
+
+	// 2D and looping: the music has no place in the world, so it does not fade with distance and
+	// the listen host and the client each play their own copy.
+	if (MusicLoop && !MusicAudio)
+	{
+		MusicAudio = UGameplayStatics::SpawnSound2D(this, MusicLoop, MusicVolume, 1.f, 0.f, nullptr, /*bPersistAcrossLevelTransition*/ false, /*bAutoDestroy*/ false);
+	}
+
+	// The three menus are made up front and kept, hidden, rather than built on demand: the gear
+	// screen scans the asset registry to fill its catalogue, and doing that the first time Escape
+	// is pressed would hitch.
+	if (GearScreenClass && !GearScreen)
+	{
+		GearScreen = CreateWidget<UClockworksGearScreen>(this, GearScreenClass);
+		if (GearScreen)
+		{
+			GearScreen->AddToViewport(100);
+			GearScreen->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+	if (GuideScreenClass && !GuideScreen)
+	{
+		GuideScreen = CreateWidget<UClockworksGuideScreen>(this, GuideScreenClass);
+		if (GuideScreen)
+		{
+			GuideScreen->AddToViewport(100);
+			GuideScreen->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+	if (PauseMenuClass && !PauseMenu)
+	{
+		PauseMenu = CreateWidget<UClockworksPauseMenu>(this, PauseMenuClass);
+		if (PauseMenu)
+		{
+			PauseMenu->SetGearScreen(GearScreen);
+			PauseMenu->SetGuideScreen(GuideScreen);
+			PauseMenu->AddToViewport(100);
+			PauseMenu->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+	if (MainMenuClass && !MainMenu)
+	{
+		MainMenu = CreateWidget<UClockworksMainMenu>(this, MainMenuClass);
+		if (MainMenu)
+		{
+			MainMenu->SetGearScreen(GearScreen);
+			MainMenu->SetGuideScreen(GuideScreen);
+			MainMenu->AddToViewport(100);
+			MainMenu->SetVisibility(ESlateVisibility::Collapsed);
+
+			// Not in this frame. BeginPlay can run before the pawn is possessed and before the
+			// camera has been evaluated once, and a menu that pauses in that frame freezes the view
+			// at the pawn's eye level instead of on the isometric boom.
+			if (bShowMainMenuOnStart)
+			{
+				FTimerHandle OpenTimer;
+				GetWorldTimerManager().SetTimer(OpenTimer, this, &AClockworksPlayerController::ShowMainMenu, 0.2f, false);
+			}
+		}
+	}
+}
+
+// Runs on: the local machine only. Deferred out of BeginPlay; see the comment there.
+void AClockworksPlayerController::ShowMainMenu()
+{
+	if (MainMenu && !IsAnyMenuOpen())
+	{
+		MainMenu->OpenMenu();
+	}
+}
+
+// Runs on: the local machine only.
+bool AClockworksPlayerController::IsAnyMenuOpen() const
+{
+	return (MainMenu && MainMenu->IsMenuOpen())
+		|| (PauseMenu && PauseMenu->IsMenuOpen())
+		|| (GuideScreen && GuideScreen->IsMenuOpen())
+		|| (GearScreen && GearScreen->IsMenuOpen());
+}
+
+// Runs on: the local machine only. Escape means "back": out of the gear screen to whatever opened
+// it, out of a menu into the game, and out of the game into the pause menu.
+void AClockworksPlayerController::ToggleGameMenu()
+{
+	ClockworksInputLog::Write(TEXT("[menu] Escape: back / pause menu"), FColor::Silver);
+	if (GearScreen && GearScreen->IsMenuOpen())
+	{
+		GearScreen->CloseMenu();
+		if (MainMenu && MainMenu->GetVisibility() == ESlateVisibility::Collapsed
+			&& PauseMenu && PauseMenu->GetVisibility() == ESlateVisibility::Collapsed)
+		{
+			// Opened straight from play, so Escape goes back to play.
+			return;
+		}
+		return;
+	}
+	if (GuideScreen && GuideScreen->IsMenuOpen())
+	{
+		GuideScreen->CloseMenu();
+		return;
+	}
+	if (MainMenu && MainMenu->IsMenuOpen())
+	{
+		MainMenu->CloseMenu();
+		return;
+	}
+	if (PauseMenu && PauseMenu->IsMenuOpen())
+	{
+		PauseMenu->CloseMenu();
+		return;
+	}
+	if (PauseMenu)
+	{
+		PauseMenu->OpenMenu();
+	}
+}
+
+// Runs on: the local machine only. The loadout key, straight from play.
+void AClockworksPlayerController::ToggleGearScreen()
+{
+	ClockworksInputLog::Write(TEXT("[menu] loadout screen"), FColor::Silver);
+	if (!GearScreen)
+	{
+		return;
+	}
+	if (GearScreen->IsMenuOpen())
+	{
+		GearScreen->CloseMenu();
+		return;
+	}
+	if (IsAnyMenuOpen())
+	{
+		return;
+	}
+	GearScreen->SetReturnMenu(nullptr);
+	GearScreen->OpenMenu();
+}
+
+// Runs on: the local machine only. The HUD's wrench button: the pause menu, as Escape opens it.
+void AClockworksPlayerController::OpenPauseMenu()
+{
+	ClockworksInputLog::Write(TEXT("[menu] wrench button: pause menu"), FColor::Silver);
+	if (PauseMenu && !IsAnyMenuOpen())
+	{
+		PauseMenu->OpenMenu();
+	}
+}
+
+// Runs on: the local machine only. F1 and the HUD's help button: How to Play, straight from play,
+// closing back to play.
+void AClockworksPlayerController::OpenGuideScreen()
+{
+	ClockworksInputLog::Write(TEXT("[menu] how to play"), FColor::Silver);
+	if (!GuideScreen || IsAnyMenuOpen())
+	{
+		return;
+	}
+	GuideScreen->SetReturnMenu(nullptr);
+	GuideScreen->OpenMenu();
+}
+
+// Runs on: the local machine. Without this the music component outlives the level and a second copy
+// starts on the next one.
+void AClockworksPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (MusicAudio)
+	{
+		MusicAudio->Stop();
+		MusicAudio = nullptr;
+	}
+	if (IsLocalPlayerController())
+	{
+		ClockworksInputLog::StopListening();
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 // Runs on: owning client only (guarded by IsLocalPlayerController). The server's copy of a
@@ -38,6 +266,19 @@ void AClockworksPlayerController::SetupInputComponent()
 		{
 			Subsystem->AddMappingContext(DefaultMappingContext, 0);
 		}
+
+		// Bound as plain keys rather than Enhanced Input actions on purpose: menu keys have to work
+		// while the game is paused and while the mapping context is not driving the pawn, and the
+		// engine's own input stack handles that without any extra assets to keep in sync.
+		if (InputComponent)
+		{
+			InputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &AClockworksPlayerController::ToggleGameMenu)
+				.bExecuteWhenPaused = true;
+			InputComponent->BindKey(EKeys::L, IE_Pressed, this, &AClockworksPlayerController::ToggleGearScreen)
+				.bExecuteWhenPaused = true;
+			// F1 is help in the original, and the HUD's help button carries the badge for it.
+			InputComponent->BindKey(EKeys::F1, IE_Pressed, this, &AClockworksPlayerController::OpenGuideScreen);
+		}
 	}
 }
 
@@ -47,6 +288,14 @@ void AClockworksPlayerController::SetupInputComponent()
 // rotation from the CharacterMovementComponent's move packet instead.
 void AClockworksPlayerController::PlayerTick(float DeltaTime)
 {
+	// Nothing aims while a menu has stopped the world. Belt and braces alongside not taking a full
+	// tick when paused: aiming a paused knight moves the camera and nothing else.
+	if (UWorld* World = GetWorld(); World && World->IsPaused())
+	{
+		Super::PlayerTick(DeltaTime);
+		return;
+	}
+
 	// Aim before Super so this frame's UpdateRotation faces the pawn and the movement
 	// component records the new yaw in the move it sends to the server.
 	UpdateAimFromCursor();
