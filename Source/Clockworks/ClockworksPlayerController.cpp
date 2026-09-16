@@ -2,6 +2,7 @@
 
 #include "ClockworksPlayerController.h"
 #include "UI/ClockworksNotice.h"
+#include "UI/ClockworksTitleScreen.h"
 #include "ClockworksGameplayTags.h"
 #include "ClockworksGearScreen.h"
 #include "ClockworksGuideScreen.h"
@@ -38,6 +39,7 @@ AClockworksPlayerController::AClockworksPlayerController()
 	// The C++ widgets work without any asset; BP_ClockworksController may point at WBP_ children.
 	PlayerHUDClass = UClockworksPlayerHUD::StaticClass();
 	MainMenuClass = UClockworksMainMenu::StaticClass();
+	TitleScreenClass = UClockworksTitleScreen::StaticClass();
 	PauseMenuClass = UClockworksPauseMenu::StaticClass();
 	GearScreenClass = UClockworksGearScreen::StaticClass();
 	GuideScreenClass = UClockworksGuideScreen::StaticClass();
@@ -140,7 +142,24 @@ void AClockworksPlayerController::BeginPlay()
 // Runs on: the local machine only. Deferred out of BeginPlay; see the comment there.
 void AClockworksPlayerController::ShowMainMenu()
 {
-	if (MainMenu && !IsAnyMenuOpen())
+	if (IsAnyMenuOpen())
+	{
+		return;
+	}
+
+	// The title screen is what the game opens on, the way the original does. The main menu is still what Escape
+	// reaches once you are playing.
+	if (!TitleScreen && TitleScreenClass)
+	{
+		TitleScreen = CreateWidget<UClockworksTitleScreen>(this, TitleScreenClass);
+	}
+	if (TitleScreen)
+	{
+		TitleScreen->OpenMenu();
+		return;
+	}
+
+	if (MainMenu)
 	{
 		MainMenu->OpenMenu();
 	}
@@ -149,7 +168,8 @@ void AClockworksPlayerController::ShowMainMenu()
 // Runs on: the local machine only.
 bool AClockworksPlayerController::IsAnyMenuOpen() const
 {
-	return (MainMenu && MainMenu->IsMenuOpen())
+	return (TitleScreen && TitleScreen->IsMenuOpen())
+		|| (MainMenu && MainMenu->IsMenuOpen())
 		|| (PauseMenu && PauseMenu->IsMenuOpen())
 		|| (GuideScreen && GuideScreen->IsMenuOpen())
 		|| (GearScreen && GearScreen->IsMenuOpen());
@@ -193,6 +213,7 @@ void AClockworksPlayerController::ShowNotBuiltYet(const FText& What)
 // Runs on: the local machine only.
 void AClockworksPlayerController::CloseAllMenus()
 {
+	if (TitleScreen && TitleScreen->IsMenuOpen()) { TitleScreen->CloseMenu(); }
 	if (GearScreen && GearScreen->IsMenuOpen())   { GearScreen->CloseMenu(); }
 	if (GuideScreen && GuideScreen->IsMenuOpen()) { GuideScreen->CloseMenu(); }
 	if (PauseMenu && PauseMenu->IsMenuOpen())     { PauseMenu->CloseMenu(); }

@@ -12,6 +12,7 @@ class UClockworksGearScreen;
 class UClockworksGuideScreen;
 class UClockworksMainMenu;
 class UClockworksNotice;
+class UClockworksTitleScreen;
 class UClockworksPauseMenu;
 class UClockworksPlayerHUD;
 class USoundBase;
@@ -65,6 +66,16 @@ protected:
 
 	UPROPERTY()
 	TObjectPtr<UClockworksMainMenu> MainMenu;
+
+	/**
+	 * The screen the game opens on: Cradle, the logo, and three buttons, from the original's own art.
+	 * It stands in front of the main menu, which Escape still reaches during play.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<UClockworksTitleScreen> TitleScreenClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UClockworksTitleScreen> TitleScreen;
 
 	/** The line of text that says what just happened. Made on demand. */
 	UPROPERTY(EditDefaultsOnly, Category = "UI")

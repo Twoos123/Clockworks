@@ -126,6 +126,16 @@ TEXTURES = [
     (SK_RSRC + r"\ui\logon\logo.png",                                "Logon", "T_Logon_Logo"),
     (SK_RSRC + r"\ui\logon\footer_havens.png",                       "Logon", "T_Logon_Footer"),
     (SK_RSRC + r"\ui\logon\border.png",                              "Logon", "T_Logon_Border"),
+    # The title screen's background is the Cradle skybox: the original builds it from these layers rather than from
+    # one picture, which is why there is no big background image anywhere in the game's files.
+    (SK_RSRC + r"\world\skybox\cradle\parts\sky.png",                "Logon", "T_Logon_Sky"),
+    (SK_RSRC + r"\world\skybox\cradle\parts\stars.png",              "Logon", "T_Logon_Stars"),
+    (SK_RSRC + r"\world\skybox\cradle\parts\galaxy.png",             "Logon", "T_Logon_Galaxy"),
+    (SK_RSRC + r"\world\skybox\cradle\parts\cradle.png",             "Logon", "T_Logon_Cradle"),
+    (SK_RSRC + r"\world\skybox\cradle\parts\arm.png",                "Logon", "T_Logon_Arm"),
+    (SK_RSRC + r"\world\skybox\cradle\parts\moon.png",               "Logon", "T_Logon_Moon"),
+    (SK_RSRC + r"\world\skybox\cradle\parts\clouds.png",             "Logon", "T_Logon_Clouds"),
+    (SK_RSRC + r"\world\skybox\cradle\parts\roids.png",              "Logon", "T_Logon_Roids"),
     (SK_RSRC + r"\ui\icon\inventory\weapon\sword\calibur.png",       "Icons", "T_Icon_Calibur"),
     (SK_RSRC + r"\ui\icon\inventory\weapon\handgun\proto_gun.png",   "Icons", "T_Icon_ProtoGun"),
     (SK_RSRC + r"\ui\icon\inventory\gear\shield\proto_shield.png",   "Icons", "T_Icon_ProtoShield"),
