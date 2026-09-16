@@ -509,8 +509,69 @@ the demo's depth (`HealthByDepth`, per-type `*DefenseByDepth` on `AClockworksEne
 `apply_monster_numbers.py` from `_research/monsters/monster_numbers.json`. Such a monster's family lives in its
 defense numbers, so the attribute set skips the family chart for it and the targeting readout reads weak/resist
 from its defense. Only the main attack is carried. Knight weapons were rescaled to match the same day (below).
-Decided, not built: a beast bell for Snarbolax, Royal Jelly in stages, Chromalisk as a melee licker and Devilite
-as a thrower.
+**Bosses and the plain originals (2026-09-15, compiled, unseen in play).** Research:
+`_research/bosses/boss_mechanics.md`.
+- **Chromalisk:** a melee licker. Its lick is a box (`HitBoxSizeCm`, 3 x 0.75 tiles reaching 3.1) that opens 0.56 s
+  into the strike (`HitDelaySeconds`), shoves nothing and pulls the lizard back as it licks (`RecoilDistance`).
+- **Devilite:** a thrower. The ranged ability gained raw clips per phase, a projectile range and a recoil, so it
+  throws its office supplies at 875 cm/s for 7 tiles with the real throw clips.
+- **Beast bell** (`AClockworksBeastBell`, `BP_BeastBell`, `generate_beast_bell.py`): an ability-system prop a knight's
+  hit rings. One hit stuns every wolver and the Snarbolax within 4.5 tiles (the user's choice), 3.5 s for a wolver and
+  8 s for the boss, then 8 s of cooldown.
+- **The Snarbolax** carries `State.Guarded` until something stuns it (`bGuardedUntilStunned`), so the bell is the whole
+  fight, and shakes the stun off early once a third of its maximum health is dealt during it
+  (`StunBreakHealthFraction`).
+- **The Royal Jelly** is four Blueprints chained by `NextStageClass`, each handing over where it fell: stages 1 and 2 at
+  full health, an untouchable 10 s transition with no attack, then a stage that rages 5 s on and 5 s off
+  (`StageSeconds`, `RageGuardSeconds`/`RageOpenSeconds`; the user's numbers). Every fighting stage stands polyps around
+  itself (3, 4 and 6, respawning from stage 2) and absorbs Royal Minis to heal; polyps keep producing minis
+  (`MinionClass`, `AbsorbMinionClass`). The polyp and the mini are monsters in their own right, at half and an eighth
+  of the jelly's health curve.
+
+**Real floors are in the game (2026-09-15).** `D:\Dev\SKAssets\_floors` holds a manifest per archived Spiral Knights
+floor (111 of them, 545,000 tiles) with every mesh instance in Unreal coordinates, per-cell walkability, prop collision
+and classified markers; the placement rules were read out of the game's own classes and reproduce its transforms
+exactly. All **111 are now `UClockworksFloorDefinition` assets** under `Content/TopDown/Floors` (360 MB, tracked), built
+from **360 imported models** (`Content/SK/World/Floors`, 9,277 assets).
+
+`AClockworksFloorBuilder` (`World/`) builds one: scenery as one instanced mesh per model (collision off), and what
+actually stops anything as invisible boxes from the **cell grid**, exactly as the original works — the models are
+dressing over a 100 cm grid, and a wall blocks because its cell says "wall". Three kinds of blocker by the game's own
+masks: solid (wall cells and floors), feet-only (an `edge`, which shots fly over) and shots-only. It also stretches the
+level's navigation bounds over the floor and lights it from the scene's own recorded ambient. Verified headlessly:
+Mission Lobby, 351 models, 1,295 copies, 659 cells, 380 walkable, entrance where the original puts it, 0 problems.
+
+Tools (`Tools/SKImport/`): `floor_model_names.py` is the one rule both other tools read for where a model lands;
+`generate_floor_assets.py` turns manifests into assets (`SK_FLOORS=all`, self-pruning); `verify_floor_assets.py` checks
+each against its manifest; `make_floor_level.py` builds `Lvl_Floor`, the calibration map. `stage_and_import.py --groups
+World/Floors` imports what the manifests name. **Gotcha:** two captures of one level (`scenesmain` and
+`scenesmainarcade`) share a scene id and are *different layouts* — the folder is part of the asset name, or the
+Snarbolax lair and all three Royal Jelly Palace floors overwrite each other.
+
+**Known gaps:** the look is washed out (auto-exposure normalises whatever the lighting does; pinning it needs a
+post-process volume and is an art-direction call). A navigation-mesh actor cannot be spawned from a script, so
+`Lvl_Floor` needs opening once in the editor or monsters walk straight at their target. `EditorAssetLibrary.delete_asset`
+reports success in a commandlet but leaves the file on disk.
+
+**Interactive floor objects (2026-09-15, compiled, unplaced).** The floors carry 22,000 blocks, 15,000 breakables,
+3,600 triggers, 1,200 gates, 692 switches, 1,700 respawn pads and 100 lift objects, and without them an imported floor
+is a room with nothing to do in it. The user's decision: build them now, and to **the original's own signal system**
+rather than hand-wired rules. `AClockworksFloorObject` is the base; the builder owns the signal bus (`RaiseSignal` /
+`LowerSignal` / `SignalCount` / `OnSignal`, server only) and spawns objects from markers through `ObjectRules`
+(category + a piece of the config name -> class, most particular rule wins). `AClockworksFloorDoor` is the iron gate
+(counts signals, or waits for the room to clear; blocks feet and shots while shut). `AClockworksFloorSwitch` is the
+button, lever, pressure plate and party platform (one-time, toggle, timed; a lever is struck, the rest are stood on).
+`AClockworksFloorBlock` is solid, breakable, explosive (reusing `AClockworksProjectile::ApplyAreaHit`, now public),
+treasure or phase. Each reads its behaviour out of the config name the original gives it. **Not done:** no `ObjectRules`
+are set yet, so nothing is placed; the wiring itself (which trigger feeds which gate) is *not* in the manifests and
+needs extracting from the scene archive.
+
+**Testing without a person at the keyboard (2026-09-15).** `Source/Clockworks/Debug/ClockworksAutomation.cpp` adds
+console commands that drive the game headlessly: `Clockworks.After <seconds> <command>` (because `-ExecCmds` runs
+everything at startup at once), `Clockworks.CloseMenus`, `Clockworks.Teleport`, `Clockworks.Press`, `Clockworks.Spawn`
+and `Clockworks.Report` (one greppable line). With `-game -RenderOffScreen` and `Shot`, the game photographs itself, so
+the long "compiled, unseen in play" list can finally be looked at. `Clockworks.Press` goes through the real input path,
+so no OS-level input is involved. Full recipe and its traps: the `headless-game-screenshots` memory.
 
 **Knight weapon damage from the original (2026-09-15, compiled and applied, unseen in play).** Every hit, bullet,
 burst and sub-bullet of the 351 weapons carries its own damage by the demo's depth (`DamageByDepth` on
@@ -547,6 +608,18 @@ Letting go of a sword's charge early swings the weapon's `IncompleteCharge` move
     (`UClockworksAttributeSet::HandleAbilityActivated`, bound by the monster and the player state).
   - The waking hit adds Sleep's wake damage; the old doubling is gone.
   - Not carried: a frozen knight's ice health, sleep regeneration, and the monster freeze lasting 3.5x.
+
+**Four runs, one per boss (decided 2026-09-15).** The demo's single compressed eight-depth run is superseded. The
+game gets **four separate runs**, one for each of the original's bosses, and later their Shadow Lair versions:
+- the Snarbolax, the Royal Jelly, the Roarmulus Twins and Vanaduke;
+- **at the original's own depths**, not compressed: each run covers its gate's full depth range;
+- **chosen from the lobby**: four elevators in the Mission Lobby, rather than a menu;
+- with **every monster those depths need**, not only the twelve already built;
+- **Shadow Lairs after all four runs work**, as a harder pass over the same floors and bosses.
+
+This is a large undertaking: two bosses (the Twins and Vanaduke) have no assets or numbers yet, most of the Construct
+and Undead rosters are missing, and the runs need far more floors than the 111 already prepared. Research in
+`_research/runs` (the four runs' depths, floors and monsters) and `_research/bosses2` (the two new bosses).
 
 **A tile is 100 cm.** The sword's lunges already assumed it; the bomb had been
 built at 200 and its blast was twice the radius the original's is.

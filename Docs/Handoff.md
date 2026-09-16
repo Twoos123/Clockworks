@@ -5,6 +5,59 @@ project's rules; this file is only "where things stand and what to do next".
 
 ---
 
+## Where it stands, 2026-09-15 (end of the floors session)
+
+**A real Spiral Knights floor is in the game.** `Lvl_Floor` builds the Mission Lobby from the
+original's own data at runtime. All 111 archived floors exist as assets; 360 models are imported.
+See CLAUDE.md, "Real floors are in the game", for the pipeline and its traps.
+
+**The game can now be run and photographed without a person.** This is the most useful thing to
+know going in:
+
+```
+MSYS_NO_PATHCONV=1 UnrealEditor-Cmd.exe <abs uproject> "/Game/TopDown/Lvl_Floor" -game
+  -RenderOffScreen -unattended -nopause -nosplash -ResX=1280 -ResY=720
+  -ExecCmds="Clockworks.After 10 Clockworks.CloseMenus, Clockworks.After 26 Shot showui=0,
+             Clockworks.After 32 quit"
+```
+
+The PNG lands in `Saved/Screenshots/WindowsEditor/`. Use it. The backlog of "compiled, unseen in
+play" is long and this is how it shrinks.
+
+### Waiting on the user
+
+- **The look.** Floors render washed out because auto-exposure normalises whatever the lighting
+  does; pinning it needs a post-process volume with manual exposure, and how dark and saturated the
+  Clockworks should be is the user's call.
+- **Vanaduke's mask.** The original douses it with a thrown water pot and there is no carry/throw
+  system. `_research/bosses2/report.json` lays out three options. Nothing should be coded first.
+- **Run depths.** Whether the four runs keep the original's depths (29 floors for Vanaduke) or get
+  compressed. Compressing means re-deriving every depth-scaled damage and defense table.
+
+### Next, in order
+
+1. **Extract the floors' interactive wiring.** The gates, switches and blocks are written but
+   nothing is placed: the manifests carry each object's config and position but no tags, no handler
+   arguments, and every `areas` polygon came out empty. The decoder that built them is in
+   `_floors/tools` (`Dat2XmlTree.java`, `ResolveScene.java`, `build_floors.py`) and the data is
+   there to recover. An agent was part way through this when it was cut off.
+2. **Set `ObjectRules`** on the floor builder from what that finds, so floors become playable.
+3. **The monster pass.** `_monsters_full` has the corrected sounds (they live inside the animation
+   `.dat`, not the actor config), the missing clips, and the Mechaknight's real speed: 200 cm/s
+   wandering, **333 chasing**, against the 150 it has now.
+4. **The four runs.** `_research/runs` has the depths, floors and rosters; 7 of the 14 boss-region
+   floors still need manifests built, and Firestorm Citadel has none.
+
+### Known gaps in what was just built
+
+- A navigation-mesh actor cannot be spawned from a script, so `Lvl_Floor` needs opening once in the
+  editor or monsters there walk straight at their target.
+- `EditorAssetLibrary.delete_asset` reports success in a commandlet but leaves the file on disk;
+  43 stale floor assets sit in `Content/TopDown/Floors` untracked and unstaged.
+- The start menu's description lines overlap their titles. Visible in any screenshot of it.
+
+---
+
 ## Read these three files, in this order
 
 1. **`CLAUDE.md`** — the rules and the running status of every system. Its
@@ -187,6 +240,7 @@ All in `Tools/SKImport/`. Each is re-runnable and idempotent.
 | `make_gear_skin_materials.py` | `M_GearSkin` (masked, two-sided, shifts the personal-colour magenta by `PlayerHueShift`, blue by default) and one `MI_GearSkin_*` per tinted texture. Run after importing `GearSkins`, before `generate_gear_assets.py`. |
 | `apply_monster_numbers.py` | Writes the original's health, per-type defense and main-attack damage by depth onto the 12 monster Blueprints and their attack abilities, from `D:\Dev\SKAssets\_research\monsters\monster_numbers.json`. |
 | `apply_weapon_damage.py` | Writes every weapon's damage by depth (hits, bullets, bursts, sub-bullets), the piercing shots' end bursts, the Mixer line's and Warmaster bombs' orbit damage, the Catalyzer orbs' blast, dual-type splits, the original's status chances and every status's own damage table (burn, arc, thaw, curse, wake), from `D:\Dev\SKAssets\_research\weapon_damage\weapon_damage.json`, `weapon_gaps\weapon_gaps.json` and `status_damage\status_damage.json`. **Run after `generate_attack_profiles.py`**, which clears all of it. Problems go to `apply_report.json` in that folder. |
+| `generate_beast_bell.py` | `BP_BeastBell` from the imported bell: its mesh, the ring and ready clips and its sounds. Run after `stage_and_import.py --names BeastBell`. |
 | `make_monster_tint.py` | `M_MonsterTint` (the original's run-time colorization as a material: hue, saturation and value shift in sRGB) and the Royal Polyp's purple (`MI_RoyalPolyp_Skin` on the body and skirt, additive `MI_RoyalPolyp_Gloss` on the shell), from `D:\Dev\SKAssets\_research\polyp_tint`. Re-run after re-importing `RoyalPolyp`. |
 | `distill_bullet_behaviours.py` | Plain Python. Writes `weapon_bullet_behaviours.json` (splits, bursts, pulses, clouds, shards, vortexes, sticking, piercing, sub-bullets) from `bullet_behaviours.json` in the research folder. `generate_attack_profiles.py` applies it; `make_bullet_materials.py` sets `BP_Bomb`'s `ChildBulletClass`. |
 | `fix_weapon_materials.py` | Each weapon's skin. Run last. |

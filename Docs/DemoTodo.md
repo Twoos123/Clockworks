@@ -351,6 +351,11 @@ statuses are built (below), and knights now defend per damage type with their ge
       Built 2026-09-14: all six, plus Gremlin Artillery and the two bosses, as
       Blueprints and attack abilities written by `Tools/SKImport/generate_monsters.py`
       (section M). *Unseen in play* (see "Look at the bestiary" in section M).
+- [x] **The bosses and the plain originals** (2026-09-15): the chromalisk licks with a box hitbox, the devilite throws
+      its office supplies, the beast bell stuns wolvers and the Snarbolax (which cannot be hurt until it is stunned and
+      wakes early after a third of its health), and the Royal Jelly is four chained stages with polyps, Royal Minis and
+      its absorb heal. Built and compiled; **none of it has been seen in play**, and the boss floor still spawns the
+      Snarbolax alone.
 - [ ] **Second attacks for the enemies we have.** The wolver's export carries a
       six-clip `Tripple_Attack` set and the mechaknight carries
       `attack_sword_2_fire` and `attack_sword_3_fire` — a full combo. Both are
@@ -809,6 +814,12 @@ proposals.
   applied to it. Added to section B.
 - **Multiple levels: the full Clockworks loop, ending at the Core.** See
   section E for what that means concretely and where it is compressed.
+- **Superseded 2026-09-15: four runs, one per boss.** The compressed eight-depth
+  run gives way to four full-length runs (Snarbolax, Royal Jelly, Roarmulus
+  Twins, Vanaduke) at the original's own depths, chosen from four elevators in
+  the Mission Lobby, with every monster those depths need. Their Shadow Lair
+  versions come after all four work. Research: `_research/runs`,
+  `_research/bosses2`.
 - **Menus: both.** A main menu map *and* an in-game overlay for swapping
   weapons and changing gear and armour. See section F.
 - **Sound: use the game's own audio**, on the same terms as the models —
