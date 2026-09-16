@@ -8,6 +8,7 @@
 
 class UCameraComponent;
 class UClockworksActivitiesPanel;
+class UClockworksEventHub;
 class UClockworksUplinkPanel;
 
 /**
@@ -77,6 +78,13 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UClockworksUplinkPanel> Uplink;
+
+	/** The Event Hub down the left: what this knight has done. */
+	UPROPERTY(EditAnywhere, Category = "Ready Room")
+	TSubclassOf<UClockworksEventHub> EventHubClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UClockworksEventHub> EventHub;
 
 	/**
 	 * How long to wait before taking over, in seconds. The game mode spawns the knight and the controller builds its
