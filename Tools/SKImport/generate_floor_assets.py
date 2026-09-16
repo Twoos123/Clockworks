@@ -28,7 +28,7 @@ DEST = "/Game/TopDown/Floors"
 REPORT = r"D:\Dev\SKAssets\_floors\generated.json"
 # What each marker actually is and what it is wired to, recovered from the scene archive.
 INTERACTIVE_DIR = r"D:\Dev\SKAssets\_floors\interactive"
-OBJECT_CLASSES = r"D:\Dev\SKAssets\_researchloor_objects\object_classes.json"
+OBJECT_CLASSES = os.path.join(r"D:\Dev\SKAssets\_research", "floor_objects", "object_classes.json")
 
 # The floors to build when nothing else is asked for. The Mission Lobby is the calibration case: it is small, it is the
 # one floor whose layout can be checked against memory, and it is where the run's four elevators will stand.
