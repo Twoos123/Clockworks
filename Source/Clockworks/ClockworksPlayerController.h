@@ -113,6 +113,12 @@ public:
 	/** True while any of the menus is up, so one key cannot open two. */
 	bool IsAnyMenuOpen() const;
 
+	/**
+	 * Shuts every menu that is up and gives the game the input back. The start screen is up when a run begins, so a
+	 * headless test run needs a way past it; `Clockworks.CloseMenus` is that way. Local only, like the menus.
+	 */
+	void CloseAllMenus();
+
 protected:
 
 	/** Creates the local HUD and starts the music. Owning client only. */

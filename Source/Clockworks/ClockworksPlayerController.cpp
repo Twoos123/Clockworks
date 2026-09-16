@@ -154,6 +154,15 @@ bool AClockworksPlayerController::IsAnyMenuOpen() const
 		|| (GearScreen && GearScreen->IsMenuOpen());
 }
 
+// Runs on: the local machine only.
+void AClockworksPlayerController::CloseAllMenus()
+{
+	if (GearScreen && GearScreen->IsMenuOpen())   { GearScreen->CloseMenu(); }
+	if (GuideScreen && GuideScreen->IsMenuOpen()) { GuideScreen->CloseMenu(); }
+	if (PauseMenu && PauseMenu->IsMenuOpen())     { PauseMenu->CloseMenu(); }
+	if (MainMenu && MainMenu->IsMenuOpen())       { MainMenu->CloseMenu(); }
+}
+
 // Runs on: the local machine only. Escape means "back": out of the gear screen to whatever opened
 // it, out of a menu into the game, and out of the game into the pause menu.
 void AClockworksPlayerController::ToggleGameMenu()

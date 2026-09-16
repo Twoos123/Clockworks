@@ -417,6 +417,15 @@ public:
 	bool IsDead() const;
 
 	/**
+	 * Presses and releases an ability button from a console command, for a headless test run. It goes through exactly
+	 * the path a key press does, input buffer and all, so what a test exercises is the real thing. See
+	 * `Debug/ClockworksAutomation`. Owning client only, like every other press.
+	 */
+	void AutomationPress(int32 InputID) { PressAbilityInput(InputID); }
+
+	void AutomationRelease(int32 InputID) { ReleaseAbilityInput(InputID); }
+
+	/**
 	 * Plays a raw animation clip as a throwaway montage in one of the Animation Blueprint's slots, so
 	 * attack phases need no montage assets. Cosmetic. Rate stretches or squeezes the clip; the ability
 	 * derives it from the phase length so timing always comes from the numbers, never the animation.
