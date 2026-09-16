@@ -54,7 +54,7 @@ public:
 
 	virtual void BeginPlay() override;
 
-	virtual void SetupFromMarker(const FString& InConfig, FName InTag) override;
+	virtual void SetupFromMarker(const FClockworksFloorMarker& Marker) override;
 
 	/** Valid on every machine: the state replicates. */
 	UFUNCTION(BlueprintPure, Category = "Switch")

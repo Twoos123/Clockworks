@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Components/SkyLightComponent.h"
+#include "Engine/PostProcessVolume.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/ExponentialHeightFog.h"
 #include "Components/ExponentialHeightFogComponent.h"
@@ -133,7 +134,7 @@ void AClockworksFloorBuilder::ClearFloor()
 		}
 	}
 	Objects.Reset();
-	Signals.Reset();
+	SignalsSent.Reset();
 
 	Built.Reset();
 	SolidBlocks = nullptr;
@@ -341,7 +342,9 @@ FVector AClockworksFloorBuilder::GetEntranceLocation() const
 	FTransform Where;
 	if (Floor && Floor->FindMarker(TEXT("player_entrance"), Where))
 	{
-		return Where.GetLocation();
+		// Snapped, because an archived entrance marker is not always on a floor tile.
+		FVector Standing;
+		return FindNearestWalkable(Where.GetLocation(), Standing) ? Standing : Where.GetLocation();
 	}
 	if (Floor && Floor->Cells.Num() > 0)
 	{
@@ -372,6 +375,43 @@ bool AClockworksFloorBuilder::IsWalkable(const FVector& WorldLocation) const
 	return Cell && (Cell->Floor & 1) != 0 && Floor && (Cell->Collision & Floor->KnightMask) == 0;
 }
 
+bool AClockworksFloorBuilder::FindNearestWalkable(const FVector& Near, FVector& OutLocation) const
+{
+	if (!Floor)
+	{
+		return false;
+	}
+
+	const FIntPoint Start = TileAt(Near);
+	const float Tile = Floor->TileCm;
+
+	// Outwards a ring at a time, so the answer is the closest one rather than the first one found.
+	for (int32 Radius = 0; Radius <= 16; ++Radius)
+	{
+		for (int32 OffsetX = -Radius; OffsetX <= Radius; ++OffsetX)
+		{
+			for (int32 OffsetY = -Radius; OffsetY <= Radius; ++OffsetY)
+			{
+				if (Radius > 0 && FMath::Abs(OffsetX) != Radius && FMath::Abs(OffsetY) != Radius)
+				{
+					continue;
+				}
+
+				const FIntPoint Tested(Start.X + OffsetX, Start.Y + OffsetY);
+				const FClockworksFloorCellLookup* Cell = Grid.Find(Tested);
+				if (!Cell || (Cell->Floor & 1) == 0 || (Cell->Collision & Floor->KnightMask) != 0)
+				{
+					continue;
+				}
+
+				OutLocation = FVector(Tested.Y * Tile + Tile * 0.5f, Tested.X * Tile + Tile * 0.5f, Cell->HeightCm);
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 bool AClockworksFloorBuilder::FindGroundHeight(const FVector& WorldLocation, float& OutHeight) const
 {
 	if (const FClockworksFloorCellLookup* Cell = Grid.Find(TileAt(WorldLocation)))
@@ -394,10 +434,12 @@ void AClockworksFloorBuilder::SpawnFloorObjects()
 	TMap<FName, int32> Unbuilt;
 	for (const FClockworksFloorMarker& Marker : Floor->Markers)
 	{
-		const FClockworksFloorObjectRule* Rule = FindRule(Marker.Category, Marker.Config);
+		// The mined behaviour is the better key: it boils 373 of the original's config names down to five kinds.
+		const FClockworksFloorObjectRule* Rule = FindRule(
+			Marker.Behaviour.IsNone() ? Marker.Category : Marker.Behaviour, Marker.Config);
 		if (!Rule || !Rule->ObjectClass)
 		{
-			Unbuilt.FindOrAdd(Marker.Category)++;
+			Unbuilt.FindOrAdd(Marker.Behaviour.IsNone() ? Marker.Category : Marker.Behaviour)++;
 			continue;
 		}
 
@@ -412,7 +454,7 @@ void AClockworksFloorBuilder::SpawnFloorObjects()
 		{
 			continue;
 		}
-		Object->SetupFromMarker(Marker.Config, NAME_None);
+		Object->SetupFromMarker(Marker);
 		Object->FinishSpawning(Marker.Where);
 		Objects.Add(Object);
 	}
@@ -455,34 +497,18 @@ const FClockworksFloorObjectRule* AClockworksFloorBuilder::FindRule(FName Catego
 }
 
 // Runs on: server.
-void AClockworksFloorBuilder::RaiseSignal(FName Tag, AActor* From)
+void AClockworksFloorBuilder::SendSignal(FName TargetTag, FName Verb, AActor* From)
 {
 	if (!HasAuthority())
 	{
 		return;
 	}
-	const int32 Count = ++Signals.FindOrAdd(Tag);
-	UE_LOG(LogClockworks, Warning, TEXT("Floor: signal '%s' raised to %d by %s"),
-		*Tag.ToString(), Count, From ? *From->GetName() : TEXT("nothing"));
-	OnSignal.Broadcast(Tag, Count);
-}
 
-// Runs on: server.
-void AClockworksFloorBuilder::LowerSignal(FName Tag, AActor* From)
-{
-	if (!HasAuthority())
-	{
-		return;
-	}
-	int32& Count = Signals.FindOrAdd(Tag);
-	Count = FMath::Max(0, Count - 1);
-	OnSignal.Broadcast(Tag, Count);
-}
+	const int32 Sent = ++SignalsSent.FindOrAdd(TargetTag);
+	UE_LOG(LogClockworks, Warning, TEXT("Floor: '%s' sent to '%s' by %s (%d so far)"),
+		*Verb.ToString(), *TargetTag.ToString(), From ? *From->GetName() : TEXT("nothing"), Sent);
 
-int32 AClockworksFloorBuilder::SignalCount(FName Tag) const
-{
-	const int32* Count = Signals.Find(Tag);
-	return Count ? *Count : 0;
+	OnSignal.Broadcast(TargetTag, Verb, From);
 }
 
 // Runs on: every machine. Lighting is cosmetic and identical everywhere, so it is not replicated.
@@ -513,15 +539,40 @@ void AClockworksFloorBuilder::ApplyFloorLighting()
 		}
 	}
 
-	// A single sun over a floor that the original lights from everywhere blows the tileset out; at the scene's own
-	// ambient strength it reads as the room it is.
 	for (TActorIterator<ADirectionalLight> It(World); It; ++It)
 	{
 		if (UDirectionalLightComponent* Light = Cast<UDirectionalLightComponent>(It->GetLightComponent()))
 		{
 			Light->SetMobility(EComponentMobility::Movable);
-			Light->SetIntensity(FMath::Max(1.f, AmbientStrength * 3.f));
+			Light->SetIntensity(SunLux);
 		}
+	}
+
+	// Exposure is pinned, not adapted. Left to adapt, the eye meters a dim room and multiplies it until the tileset's
+	// dark blue panels clip to white, which is why turning the lights down changed nothing.
+	APostProcessVolume* Volume = nullptr;
+	for (TActorIterator<APostProcessVolume> It(World); It; ++It)
+	{
+		Volume = *It;
+		break;
+	}
+	if (!Volume)
+	{
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Volume = World->SpawnActor<APostProcessVolume>(APostProcessVolume::StaticClass(), FTransform::Identity, Params);
+	}
+	if (Volume)
+	{
+		Volume->bUnbound = true;
+		Volume->Priority = 1.f;
+		FPostProcessSettings& Settings = Volume->Settings;
+		Settings.bOverride_AutoExposureMethod = true;
+		Settings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+		Settings.bOverride_AutoExposureBias = true;
+		Settings.AutoExposureBias = ExposureEV;
+		Settings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+		Settings.AutoExposureApplyPhysicalCameraExposure = false;
 	}
 
 	for (TActorIterator<AExponentialHeightFog> It(World); It; ++It)
@@ -532,6 +583,6 @@ void AClockworksFloorBuilder::ApplyFloorLighting()
 		}
 	}
 
-	UE_LOG(LogClockworks, Warning, TEXT("Floor: lit from the scene's own ambient %s (strength %.2f)"),
-		*Ambient.ToString(), AmbientStrength);
+	UE_LOG(LogClockworks, Warning, TEXT("Floor: lit from the scene's own ambient %s (strength %.2f), sun %.1f lux, exposure EV %.1f"),
+		*Ambient.ToString(), AmbientStrength, SunLux, ExposureEV);
 }

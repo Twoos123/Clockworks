@@ -57,7 +57,7 @@ public:
 
 	virtual void BeginPlay() override;
 
-	virtual void SetupFromMarker(const FString& InConfig, FName InTag) override;
+	virtual void SetupFromMarker(const FClockworksFloorMarker& Marker) override;
 
 	/** Valid on every machine: the state replicates. */
 	UFUNCTION(BlueprintPure, Category = "Block")
@@ -84,7 +84,7 @@ protected:
 	void HandleDamaged(AActor* InstigatorActor, AActor* Causer, float Amount, FVector HitDirection,
 		float KnockbackMultiplier, float FamilyMultiplier);
 
-	/** Runs on: server. It goes. Raises the floor's signal, so a room of crates can open a gate. */
+	/** Runs on: server. It goes, and sends whatever it emits, so a crate that unlocks a gate can. */
 	void Break(AActor* BrokenBy);
 
 	UFUNCTION()
@@ -112,10 +112,6 @@ protected:
 	/** How tall a block stands, in cm. */
 	UPROPERTY(EditAnywhere, Category = "Block", meta = (ClampMin = "10.0"))
 	float HeightCm = 200.f;
-
-	/** Whether breaking it raises the floor's signal. A crate does not; a switch-crate does. */
-	UPROPERTY(EditAnywhere, Category = "Block")
-	bool bSignalsWhenBroken = false;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Broken)
 	bool bBroken = false;

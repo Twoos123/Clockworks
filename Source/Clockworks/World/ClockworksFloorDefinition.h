@@ -88,6 +88,30 @@ struct FClockworksFloorBlocker
 };
 
 /**
+ * One signal a floor object sends when it is worked: a verb, and the tag of whatever should hear it.
+ *
+ * This is the original's own shape, recovered per floor into D:\Dev\SKAssets\_floors\interactive. A lever emits
+ * "toggle" at "_door 4"; a button emits "open" at "_door 2"; a pressure plate emits "open" when stood on and "close"
+ * when stepped off. The tag is an address, and the verb is a payload that only an actor which understands it reads.
+ */
+USTRUCT(BlueprintType)
+struct FClockworksFloorEmission
+{
+	GENERATED_BODY()
+
+	/** open, close, toggle, increment - or a trap's own word. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Emission")
+	FName Verb;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Emission")
+	FName TargetTag;
+
+	/** Whether this one is sent when the object turns on, or when it turns off. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Emission")
+	bool bOnRelease = false;
+};
+
+/**
  * Somewhere on the floor that means something to the game rather than the eye: where the knights arrive, where the
  * elevator stands, where monsters are spawned, a shop, a door, a switch, a treasure box.
  *
@@ -109,6 +133,26 @@ struct FClockworksFloorMarker
 	/** The original's config name, so an unbuilt marker can still be identified later ("Elevator/Exit", "Shop/Arsenal"). */
 	UPROPERTY(EditAnywhere, Category = "Marker")
 	FString Config;
+
+	/** Its own tag: the address other things send signals to. A gate tagged "_door 2" is opened by "open" at "_door 2". */
+	UPROPERTY(EditAnywhere, Category = "Marker")
+	FName Tag;
+
+	/** What it sends when it is worked. */
+	UPROPERTY(EditAnywhere, Category = "Marker")
+	TArray<FClockworksFloorEmission> Emits;
+
+	/**
+	 * What kind of thing it is, once the original's 373 configs are boiled down: door, switch, block, hazard or lift.
+	 * None for a marker that is only a note (a camera, a light, a shop). From
+	 * `_research/floor_objects/object_classes.json`.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Marker")
+	FName Behaviour;
+
+	/** Whatever else that behaviour needs, by name: "blockKind" -> "explosive", "width" -> "5". */
+	UPROPERTY(EditAnywhere, Category = "Marker")
+	TMap<FName, FString> Params;
 };
 
 /**

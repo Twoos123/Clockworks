@@ -47,12 +47,16 @@ void AClockworksFloorDoor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 }
 
 // Runs on: server, before the spawn finishes.
-void AClockworksFloorDoor::SetupFromMarker(const FString& InConfig, FName InTag)
+void AClockworksFloorDoor::SetupFromMarker(const FClockworksFloorMarker& Marker)
 {
-	Super::SetupFromMarker(InConfig, InTag);
+	Super::SetupFromMarker(Marker);
 
-	// The original puts everything about a gate in its name: "Dynamic/Door/Iron Gate/Trigger 3" is three signals and
-	// three tiles wide, "Monster 5" is a room to clear and five tiles wide.
+	// The count is the original's own argument where it carried one, and one signal otherwise.
+	RequiredSignals = FMath::Max(1, FCString::Atoi(*Param(TEXT("triggers"), TEXT("1"))));
+
+	// The name says what opens it and how wide it stands. The number is the width, not a count: "Trigger 3" loads the
+	// game's own irongate/3wide model, and a gate's required count is a separate argument that can differ from it
+	// (a "Multi Trigger 3" placed with Triggers: "4"). Research 2026-09-15, _research/floor_objects/report.md.
 	if (Config.Contains(TEXT("Monster")))
 	{
 		Key = EClockworksDoorKey::MonstersCleared;
@@ -80,9 +84,7 @@ void AClockworksFloorDoor::SetupFromMarker(const FString& InConfig, FName InTag)
 	}
 	if (!Digits.IsEmpty())
 	{
-		const int32 Number = FCString::Atoi(*Digits);
-		WidthTiles = Number;
-		RequiredSignals = Key == EClockworksDoorKey::Signals ? Number : 1;
+		WidthTiles = FCString::Atoi(*Digits);
 	}
 }
 
@@ -112,8 +114,6 @@ void AClockworksFloorDoor::BeginPlay()
 		if (AClockworksFloorBuilder* Builder = FindFloor())
 		{
 			Builder->OnSignal.AddDynamic(this, &AClockworksFloorDoor::HandleSignal);
-			// A signal may already have been raised before this gate existed.
-			HandleSignal(SignalTag, Builder->SignalCount(SignalTag));
 		}
 		break;
 
@@ -130,16 +130,41 @@ void AClockworksFloorDoor::BeginPlay()
 	}
 }
 
-// Runs on: server.
-void AClockworksFloorDoor::HandleSignal(FName Tag, int32 Count)
+// Runs on: server. Addressed by tag: a gate is targeted, it does not listen for a name.
+void AClockworksFloorDoor::HandleSignal(FName TargetTag, FName Verb, AActor* From)
 {
-	if (!HasAuthority() || bOpen || Tag != SignalTag)
+	if (!HasAuthority() || TargetTag != SignalTag || SignalTag.IsNone())
 	{
 		return;
 	}
-	if (Count >= RequiredSignals)
+
+	static const FName OpenVerb(TEXT("open"));
+	static const FName CloseVerb(TEXT("close"));
+	static const FName ToggleVerb(TEXT("toggle"));
+	static const FName IncrementVerb(TEXT("increment"));
+
+	if (Verb == CloseVerb)
 	{
-		Open();
+		Openers.Reset();
+		SetOpen(false);
+		return;
+	}
+
+	if (Verb == ToggleVerb)
+	{
+		Openers.Reset();
+		SetOpen(!bOpen);
+		return;
+	}
+
+	if (Verb == OpenVerb || Verb == IncrementVerb || Verb.IsNone())
+	{
+		// Counted by who sent it, so a lever worked twice is still one of the three a gate is waiting for.
+		Openers.Add(From);
+		if (Openers.Num() >= RequiredSignals)
+		{
+			SetOpen(true);
+		}
 	}
 }
 
@@ -167,7 +192,7 @@ void AClockworksFloorDoor::CheckMonsters()
 	}
 
 	GetWorldTimerManager().ClearTimer(MonsterTimer);
-	Open();
+	SetOpen(true);
 }
 
 // Runs on: server.
@@ -175,18 +200,27 @@ void AClockworksFloorDoor::ForceOpen()
 {
 	if (HasAuthority() && !bOpen)
 	{
-		Open();
+		SetOpen(true);
 	}
 }
 
 // Runs on: server.
-void AClockworksFloorDoor::Open()
+void AClockworksFloorDoor::SetOpen(bool bNewOpen)
 {
-	bOpen = true;
-	GetWorldTimerManager().ClearTimer(MonsterTimer);
+	if (bOpen == bNewOpen)
+	{
+		return;
+	}
+
+	bOpen = bNewOpen;
+	if (bOpen)
+	{
+		GetWorldTimerManager().ClearTimer(MonsterTimer);
+	}
 	ApplyOpenState();
 
-	UE_LOG(LogClockworks, Warning, TEXT("Floor: gate open (%s)"), *Config);
+	UE_LOG(LogClockworks, Warning, TEXT("Floor: gate %s '%s' (%s)"),
+		bOpen ? TEXT("open") : TEXT("shut"), *SignalTag.ToString(), *Config);
 }
 
 // Runs on: clients.

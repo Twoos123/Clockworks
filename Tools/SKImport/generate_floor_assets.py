@@ -26,6 +26,9 @@ import floor_model_names
 FLOORS_DIR = r"D:\Dev\SKAssets\_floors"
 DEST = "/Game/TopDown/Floors"
 REPORT = r"D:\Dev\SKAssets\_floors\generated.json"
+# What each marker actually is and what it is wired to, recovered from the scene archive.
+INTERACTIVE_DIR = r"D:\Dev\SKAssets\_floors\interactive"
+OBJECT_CLASSES = r"D:\Dev\SKAssets\_researchloor_objects\object_classes.json"
 
 # The floors to build when nothing else is asked for. The Mission Lobby is the calibration case: it is small, it is the
 # one floor whose layout can be checked against memory, and it is where the run's four elevators will stand.
@@ -85,6 +88,53 @@ def music_asset(globals_list):
             path = "/Game/SK/Audio/M_" + camel(stem)
             return (path if unreal.EditorAssetLibrary.does_asset_exist(path) else None), file
     return None, ""
+
+
+def load_object_classes():
+    """config -> {behaviour, params}: the original's 373 placeable configs boiled down to door, switch, block, hazard
+    and lift, with the numbers each needs. Written by the floor-objects research."""
+    if not os.path.isfile(OBJECT_CLASSES):
+        return {}
+    with open(OBJECT_CLASSES, encoding="utf-8") as handle:
+        data = json.load(handle)
+    rows = data.get("configs") or []
+    if isinstance(rows, dict):
+        rows = list(rows.values())
+    return {row["config"]: row for row in rows if row.get("config")}
+
+
+def load_wiring(manifest_file):
+    """marker id -> what that marker is wired to, from the interactive sidecar for the same floor."""
+    path = os.path.join(INTERACTIVE_DIR, manifest_file)
+    if not os.path.isfile(path):
+        return {}
+    with open(path, encoding="utf-8") as handle:
+        sidecar = json.load(handle)
+
+    objects = sidecar.get("objects") or []
+    wiring = {}
+    for entry in sidecar.get("entries") or []:
+        index = entry.get("object")
+        if entry.get("id") is None or index is None or index >= len(objects):
+            continue
+        wiring[str(entry["id"])] = (objects[index], entry)
+    return wiring
+
+
+def emissions(obj):
+    """The signals this object sends, as the floor definition wants them."""
+    built = []
+    for emit in obj.get("emits") or []:
+        target = (emit.get("target") or {}).get("tag")
+        if not target:
+            continue
+        entry = unreal.ClockworksFloorEmission()
+        entry.set_editor_property("verb", emit.get("signal") or "open")
+        entry.set_editor_property("target_tag", target)
+        # The original's own wording: a handler fires either as the switch goes on or as it lets go.
+        entry.set_editor_property("on_release", "Off" in (emit.get("via") or "") or emit.get("signal") == "close")
+        built.append(entry)
+    return built
 
 
 def mesh_groups(manifest, report):
@@ -194,26 +244,57 @@ def blockers(manifest, tile_cm, report):
     return built
 
 
-def markers(manifest, report):
-    """Everything on the floor that means something rather than looks like something."""
+def markers(manifest, wiring, classes, report):
+    """Everything on the floor that means something rather than looks like something, with what it is wired to."""
     built = []
+    wired = 0
     for entry in manifest.get("markers") or []:
         where = entry.get("unreal")
         if not where:
             continue
+
         marker = unreal.ClockworksFloorMarker()
         marker.set_editor_property("category", entry.get("category") or "prop")
         marker.set_editor_property("where", transform(where))
         marker.set_editor_property("config", entry.get("config") or "")
+
+        obj, side = wiring.get(str(entry.get("id"))) or (None, None)
+        if obj:
+            tags = obj.get("tags") or []
+            if tags:
+                marker.set_editor_property("tag", tags[0])
+            sends = emissions(obj)
+            if sends:
+                marker.set_editor_property("emits", sends)
+            if tags or sends:
+                wired += 1
+
+        rules = classes.get(entry.get("config") or "")
+        if rules:
+            if rules.get("behaviour"):
+                marker.set_editor_property("behaviour", rules["behaviour"])
+            params = {name: str(value) for name, value in (rules.get("params") or {}).items()}
+            # A gate's required count is its own argument and differs from the number in its name.
+            for source in (side or {}, obj or {}):
+                args = source.get("entryArgs") or {}
+                for key in ("Triggers", "Trigger Count"):
+                    if isinstance(args.get(key), (str, int)):
+                        params["triggers"] = str(args[key])
+            if params:
+                marker.set_editor_property("params", params)
+
         built.append(marker)
+
     report["markers"] = manifest.get("markerSummary") or {}
+    report["wired_markers"] = wired
     return built
 
 
-def build(manifest_file, factory, report):
+def build(manifest_file, factory, classes, report):
     with open(os.path.join(FLOORS_DIR, manifest_file), encoding="utf-8") as handle:
         manifest = json.load(handle)
 
+    wiring = load_wiring(manifest_file)
     scene = manifest.get("scene") or {}
     rules = manifest.get("unreal") or {}
     tile_cm = float(rules.get("tileCm") or 100.0)
@@ -242,7 +323,7 @@ def build(manifest_file, factory, report):
     asset.set_editor_property("mesh_groups", mesh_groups(manifest, report))
     asset.set_editor_property("cells", cells(manifest, report))
     asset.set_editor_property("blockers", blockers(manifest, tile_cm, report))
-    asset.set_editor_property("markers", markers(manifest, report))
+    asset.set_editor_property("markers", markers(manifest, wiring, classes, report))
 
     grid = manifest.get("cells") or {}
     asset.set_editor_property("knight_mask", int(grid.get("knightMask") or 43))
@@ -296,6 +377,7 @@ def main():
     if wanted == ["all"]:
         wanted = all_floors()
     factory = unreal.DataAssetFactory()
+    classes = load_object_classes()
 
     reports = {}
     for name in wanted:
@@ -305,7 +387,7 @@ def main():
             continue
         report = {}
         reports[name] = report
-        build(file, factory, report)
+        build(file, factory, classes, report)
 
     if wanted == all_floors():
         prune(wanted)

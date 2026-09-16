@@ -76,14 +76,16 @@ void AClockworksFloorSwitch::PostInitializeComponents()
 }
 
 // Runs on: server, before the spawn finishes. Everything about a switch is in the name the original gives it.
-void AClockworksFloorSwitch::SetupFromMarker(const FString& InConfig, FName InTag)
+void AClockworksFloorSwitch::SetupFromMarker(const FClockworksFloorMarker& Marker)
 {
-	Super::SetupFromMarker(InConfig, InTag);
+	Super::SetupFromMarker(Marker);
 
 	if (Config.Contains(TEXT("Party Platform")))
 	{
+		// A party platform is a three-by-three region the whole party has to be inside; the original states no count,
+		// the handler class itself is the requirement.
 		Kind = EClockworksSwitchKind::PartyPlatform;
-		SizeTiles = 2.f;
+		SizeTiles = 3.f;
 	}
 	else if (Config.Contains(TEXT("Pressure Plate")))
 	{
@@ -101,10 +103,17 @@ void AClockworksFloorSwitch::SetupFromMarker(const FString& InConfig, FName InTa
 	// "One-Time" is spent after one use; "Toggle" goes back and forth; "Timer"/"Timed" lets go by itself. A pressure
 	// plate is held by weight whatever its name says.
 	bOneTime = Config.Contains(TEXT("One-Time"));
-	if (Config.Contains(TEXT("Timer")) || Config.Contains(TEXT("Timed")))
+	// The original's two timed switches, read out of their configs: a Button/Timer holds for 15 s, a Lever/Timed
+	// Toggle for 5 s. No other switch has a timer at all.
+	if (Config.Contains(TEXT("Timer")))
 	{
 		bOneTime = false;
-		TimerSeconds = TimerSeconds > 0.f ? TimerSeconds : 5.f;
+		TimerSeconds = 15.f;
+	}
+	else if (Config.Contains(TEXT("Timed")))
+	{
+		bOneTime = false;
+		TimerSeconds = 5.f;
 	}
 	if (Kind == EClockworksSwitchKind::PressurePlate)
 	{
@@ -272,17 +281,9 @@ void AClockworksFloorSwitch::SetOn(bool bNewOn)
 		bSpent = true;
 	}
 
-	if (AClockworksFloorBuilder* Builder = FindFloor())
-	{
-		if (bOn)
-		{
-			Builder->RaiseSignal(SignalTag, this);
-		}
-		else
-		{
-			Builder->LowerSignal(SignalTag, this);
-		}
-	}
+	// Everything it emits for this half. A pressure plate's data carries "open" on and "close" off; a lever carries
+	// "toggle" on both, which is the original's own wiring.
+	Emit(/*bReleasing*/ !bOn);
 
 	if (bOn && TimerSeconds > 0.f)
 	{

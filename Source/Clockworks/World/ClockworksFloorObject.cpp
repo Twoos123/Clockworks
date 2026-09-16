@@ -25,10 +25,18 @@ void AClockworksFloorObject::BeginPlay()
 }
 
 // Runs on: server, before the spawn finishes.
-void AClockworksFloorObject::SetupFromMarker(const FString& InConfig, FName InTag)
+void AClockworksFloorObject::SetupFromMarker(const FClockworksFloorMarker& Marker)
 {
-	Config = InConfig;
-	SignalTag = InTag;
+	Config = Marker.Config;
+	SignalTag = Marker.Tag;
+	Emits = Marker.Emits;
+	Params = Marker.Params;
+}
+
+FString AClockworksFloorObject::Param(FName Name, const FString& Fallback) const
+{
+	const FString* Found = Params.Find(Name);
+	return Found ? *Found : Fallback;
 }
 
 AClockworksFloorBuilder* AClockworksFloorObject::FindFloor() const
@@ -48,7 +56,23 @@ AClockworksFloorBuilder* AClockworksFloorObject::FindFloor() const
 }
 
 // Runs on: server.
-void AClockworksFloorObject::RaiseSignal()
+void AClockworksFloorObject::Emit(bool bReleasing)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+	for (const FClockworksFloorEmission& Emission : Emits)
+	{
+		if (Emission.bOnRelease == bReleasing && !Emission.TargetTag.IsNone())
+		{
+			SendSignal(Emission.TargetTag, Emission.Verb);
+		}
+	}
+}
+
+// Runs on: server.
+void AClockworksFloorObject::SendSignal(FName TargetTag, FName Verb)
 {
 	if (!HasAuthority())
 	{
@@ -56,11 +80,11 @@ void AClockworksFloorObject::RaiseSignal()
 	}
 	if (AClockworksFloorBuilder* Builder = FindFloor())
 	{
-		Builder->RaiseSignal(SignalTag, this);
+		Builder->SendSignal(TargetTag, Verb, this);
 	}
 	else
 	{
-		UE_LOG(LogClockworks, Warning, TEXT("Floor: %s raised a signal with no floor to hear it"), *GetName());
+		UE_LOG(LogClockworks, Warning, TEXT("Floor: %s sent '%s' with no floor to carry it"), *GetName(), *Verb.ToString());
 	}
 }
 

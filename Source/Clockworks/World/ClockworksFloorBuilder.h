@@ -11,8 +11,14 @@ class UClockworksFloorDefinition;
 class UInstancedStaticMeshComponent;
 class UStaticMesh;
 
-/** Raised whenever a floor's signal count changes. Server only: nothing binds to this on a client. */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FClockworksFloorSignalEvent, FName, Tag, int32, Count);
+/**
+ * A signal travelling across the floor. Server only: nothing binds to this on a client.
+ *
+ * The original addresses signals rather than broadcasting them: a switch names a target tag and a verb, and whatever
+ * carries that tag reads the verb. A gate has no listener of its own at all - it is simply targeted, and understands
+ * open, close and toggle natively (research 2026-09-15, _research/floor_objects/report.md).
+ */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FClockworksFloorSignalEvent, FName, TargetTag, FName, Verb, AActor*, From);
 
 /**
  * Which class to build for one of the floor's markers. The original names everything it places, so the rule is a piece
@@ -91,6 +97,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Floor")
 	bool IsWalkable(const FVector& WorldLocation) const;
 
+	/**
+	 * Runs on: any. The nearest spot a knight could actually stand to this one, searching outwards by tile.
+	 *
+	 * The archive's own entrance markers are not always on a floor tile - the Clockwork Tunnels' entrance sits in a gap
+	 * in the grid two tiles from anything solid, and a knight put there falls out of the world.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Floor")
+	bool FindNearestWalkable(const FVector& Near, FVector& OutLocation) const;
+
 	/** Runs on: any. The floor's height under a spot, and whether there is any floor there at all. */
 	UFUNCTION(BlueprintPure, Category = "Floor")
 	bool FindGroundHeight(const FVector& WorldLocation, float& OutHeight) const;
@@ -100,19 +115,12 @@ public:
 	FIntPoint TileAt(const FVector& WorldLocation) const;
 
 	/**
-	 * Runs on: server. Says that a signal happened — a button was pressed, a lever pulled, a room cleared. Gates count
-	 * these: the original's "Iron Gate, Trigger 3" opens on the third one.
+	 * Runs on: server. Sends a signal to everything on the floor carrying TargetTag: "open" at "_door 2".
+	 *
+	 * Signals are not replicated; their consequences are. A gate opening is a replicated property on the gate.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Floor")
-	void RaiseSignal(FName Tag, AActor* From);
-
-	/** Runs on: server. Takes one back, for a switch that is held rather than pressed. */
-	UFUNCTION(BlueprintCallable, Category = "Floor")
-	void LowerSignal(FName Tag, AActor* From);
-
-	/** How many times this signal stands raised. Server only: signals are not replicated, their consequences are. */
-	UFUNCTION(BlueprintPure, Category = "Floor")
-	int32 SignalCount(FName Tag) const;
+	void SendSignal(FName TargetTag, FName Verb, AActor* From);
 
 	/** Runs on: server. Fires whenever a count changes. */
 	UPROPERTY(BlueprintAssignable, Category = "Floor")
@@ -151,6 +159,23 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, Category = "Floor")
 	bool bApplyFloorLighting = true;
+
+	/**
+	 * How brightly the floor is exposed, as an exposure compensation in stops. Higher is brighter; each step of 1
+	 * doubles it.
+	 *
+	 * Exposure is pinned rather than adapted. A Spiral Knights floor is a dim room, and an eye left to adapt to it
+	 * multiplies the tileset's dark blue panels until they clip to white, which is what was happening: turning the
+	 * lights down changed nothing because the adaptation simply cancelled it.
+	 *
+	 * This is the one number that decides how dark a floor reads. Tune it in play with `Clockworks.Exposure <ev>`.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Floor")
+	float ExposureEV = -1.f;
+
+	/** The sun over the floor, in lux, on top of the scene's own ambient. */
+	UPROPERTY(EditAnywhere, Category = "Floor", meta = (ClampMin = "0.0"))
+	float SunLux = 3.f;
 
 	/** Draws the invisible collision boxes, for checking a floor's grid against the original. */
 	UPROPERTY(EditAnywhere, Category = "Floor")
@@ -199,8 +224,8 @@ private:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AClockworksFloorObject>> Objects;
 
-	/** Server only: how many times each signal stands raised. */
-	TMap<FName, int32> Signals;
+	/** Server only: how many signals each tag has been sent, for reading a floor back while debugging. */
+	TMap<FName, int32> SignalsSent;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UInstancedStaticMeshComponent>> Built;

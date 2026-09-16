@@ -49,7 +49,7 @@ public:
 
 	virtual void BeginPlay() override;
 
-	virtual void SetupFromMarker(const FString& InConfig, FName InTag) override;
+	virtual void SetupFromMarker(const FClockworksFloorMarker& Marker) override;
 
 	/** Valid on every machine: the state replicates. */
 	UFUNCTION(BlueprintPure, Category = "Door")
@@ -63,25 +63,33 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door")
 	EClockworksDoorKey Key = EClockworksDoorKey::Signals;
 
-	/** How many signals it wants, when it wants signals. The 3 or the 5 in the original's name. */
+	/**
+	 * How many signals it wants before it opens.
+	 *
+	 * Not the number in its name: that is the width. The original carries the count as its own argument, and the two
+	 * differ in the real data - a "Multi Trigger 3" gate is placed with Triggers: "4" (research 2026-09-15).
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door", meta = (ClampMin = "1"))
 	int32 RequiredSignals = 1;
 
-	/** How wide it stands, in tiles. The original's gates are 3 or 5 wide. */
+	/** How wide it stands, in tiles. This is the 3 or the 5 in the original's name, and it loads a 3wide or 5wide model. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door", meta = (ClampMin = "1"))
 	int32 WidthTiles = 3;
 
 protected:
 
-	/** Runs on: server. A signal was raised somewhere on the floor. */
+	/**
+	 * Runs on: server. A signal was sent somewhere on the floor. A gate has no listener in the original: it is targeted
+	 * by tag and understands open, close and toggle itself, so that is what this does.
+	 */
 	UFUNCTION()
-	void HandleSignal(FName Tag, int32 Count);
+	void HandleSignal(FName TargetTag, FName Verb, AActor* From);
 
 	/** Runs on: server. Watches for the room emptying, when that is what it waits for. */
 	void CheckMonsters();
 
-	/** Runs on: server. It opens. */
-	void Open();
+	/** Runs on: server. It opens, or shuts again. */
+	void SetOpen(bool bNewOpen);
 
 	UFUNCTION()
 	void OnRep_Open();
@@ -108,4 +116,7 @@ protected:
 
 	/** Server only: the timer that watches the room, for a gate that waits on monsters. */
 	FTimerHandle MonsterTimer;
+
+	/** Server only: who has told it to open so far, so two signals from one switch are not two signals. */
+	TSet<TWeakObjectPtr<AActor>> Openers;
 };

@@ -65,9 +65,23 @@ void AClockworksFloorBlock::PostInitializeComponents()
 }
 
 // Runs on: server, before the spawn finishes.
-void AClockworksFloorBlock::SetupFromMarker(const FString& InConfig, FName InTag)
+void AClockworksFloorBlock::SetupFromMarker(const FClockworksFloorMarker& Marker)
 {
-	Super::SetupFromMarker(InConfig, InTag);
+	Super::SetupFromMarker(Marker);
+
+	// The mined kind wins over the name when the research resolved one.
+	const FString Kinds = Param(TEXT("blockKind"));
+
+	if (!Kinds.IsEmpty())
+	{
+		if (Kinds == TEXT("explosive"))      { Kind = EClockworksBlockKind::Explosive; }
+		else if (Kinds == TEXT("treasure"))  { Kind = EClockworksBlockKind::Treasure; }
+		else if (Kinds == TEXT("phase"))     { Kind = EClockworksBlockKind::Phase; }
+		else if (Kinds == TEXT("breakable")) { Kind = EClockworksBlockKind::Breakable; }
+		else                                 { Kind = EClockworksBlockKind::Solid; }
+		BlockHealth = FMath::Max(1.f, FCString::Atof(*Param(TEXT("hits"), TEXT("1"))));
+		return;
+	}
 
 	if (Config.Contains(TEXT("Explosive")))
 	{
@@ -86,6 +100,9 @@ void AClockworksFloorBlock::SetupFromMarker(const FString& InConfig, FName InTag
 		|| Config.Contains(TEXT("Stone")) || Config.Contains(TEXT("Breakable Objects")))
 	{
 		Kind = EClockworksBlockKind::Breakable;
+		// A plain breakable goes on one hit whatever hit it - its config carries no hit points at all. A stone block
+		// is the exception: its class defaults to three, a number that appears nowhere in the scene data.
+		BlockHealth = Config.Contains(TEXT("Stone")) ? 3.f : 1.f;
 	}
 	else
 	{
@@ -149,10 +166,7 @@ void AClockworksFloorBlock::Break(AActor* BrokenBy)
 		AClockworksProjectile::ApplyAreaHit(GetWorld(), this, Lineage, Blast, GetActorLocation(), GetActorForwardVector());
 	}
 
-	if (bSignalsWhenBroken)
-	{
-		RaiseSignal();
-	}
+	Emit(/*bReleasing*/ false);
 
 	UE_LOG(LogClockworks, Warning, TEXT("Floor: block broken (%s) by %s"),
 		*Config, BrokenBy ? *BrokenBy->GetName() : TEXT("nothing"));

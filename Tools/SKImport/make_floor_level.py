@@ -64,11 +64,47 @@ def main():
     builder.set_editor_property("floor", floor)
     builder.set_actor_label("FloorBuilder")
 
+    # Which class answers to which kind of marker. The floor data carries a behaviour per marker, boiled down from the
+    # original's 373 placeable configs, so three rules cover every gate, switch and block in the game.
+    rules = []
+    for behaviour, cls in (("door", unreal.ClockworksFloorDoor),
+                           ("switch", unreal.ClockworksFloorSwitch),
+                           ("block", unreal.ClockworksFloorBlock)):
+        rule = unreal.ClockworksFloorObjectRule()
+        rule.set_editor_property("category", behaviour)
+        rule.set_editor_property("object_class", cls)
+        rules.append(rule)
+    builder.set_editor_property("object_rules", rules)
+
     # Where the knights arrive, a little above the tile so nobody starts inside it.
     entrance = next((marker.get_editor_property("where") for marker in floor.get_editor_property("markers")
                      if str(marker.get_editor_property("category")) == "player_entrance"), None)
-    start_at = unreal.Vector(entrance.translation.x, entrance.translation.y, entrance.translation.z + 120.0) \
-        if entrance else unreal.Vector(centre.x, centre.y, centre.z + 200.0)
+    # Snapped to a tile that can actually be stood on. An archived entrance marker is not always on one: the Clockwork
+    # Tunnels' sits in a gap in the grid two tiles from anything solid, and a knight put there falls out of the world.
+    grid = {(cell.get_editor_property("tile").x, cell.get_editor_property("tile").y): cell for cell in cells}
+    knight_mask = floor.get_editor_property("knight_mask")
+
+    def walkable(key):
+        cell = grid.get(key)
+        return bool(cell) and (cell.get_editor_property("floor") & 1) \
+            and not (cell.get_editor_property("collision") & knight_mask)
+
+    start_at = unreal.Vector(centre.x, centre.y, centre.z + 200.0)
+    if entrance:
+        start_at = unreal.Vector(entrance.translation.x, entrance.translation.y, entrance.translation.z + 120.0)
+        near = (int(entrance.translation.y // tile_cm), int(entrance.translation.x // tile_cm))
+        for radius in range(0, 17):
+            ring = [(near[0] + x, near[1] + y)
+                    for x in range(-radius, radius + 1) for y in range(-radius, radius + 1)
+                    if radius == 0 or abs(x) == radius or abs(y) == radius]
+            standing = [key for key in ring if walkable(key)]
+            if standing:
+                key = standing[0]
+                height = grid[key].get_editor_property("elevation") * elevation_cm
+                start_at = unreal.Vector(key[1] * tile_cm + tile_cm * 0.5,
+                                         key[0] * tile_cm + tile_cm * 0.5, height + 120.0)
+                unreal.log_warning("FloorLevel: entrance snapped to tile %s, %d tiles away" % (key, radius))
+                break
     start = spawn(unreal.PlayerStart, start_at)
     start.set_actor_label("PlayerStart")
 
