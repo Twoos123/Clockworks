@@ -121,6 +121,11 @@ MODELS = [
 # (absolute source file, content folder under /Game/SK, asset name)
 SK_RSRC = r"C:\Program Files (x86)\Steam\steamapps\common\Spiral Knights\rsrc"
 TEXTURES = [
+    # The title screen's own art (rsrc/ui/logon). Its background is a 3D skybox scene rather than an image,
+    # so only the flat pieces come through here.
+    (SK_RSRC + r"\ui\logon\logo.png",                                "Logon", "T_Logon_Logo"),
+    (SK_RSRC + r"\ui\logon\footer_havens.png",                       "Logon", "T_Logon_Footer"),
+    (SK_RSRC + r"\ui\logon\border.png",                              "Logon", "T_Logon_Border"),
     (SK_RSRC + r"\ui\icon\inventory\weapon\sword\calibur.png",       "Icons", "T_Icon_Calibur"),
     (SK_RSRC + r"\ui\icon\inventory\weapon\handgun\proto_gun.png",   "Icons", "T_Icon_ProtoGun"),
     (SK_RSRC + r"\ui\icon\inventory\gear\shield\proto_shield.png",   "Icons", "T_Icon_ProtoShield"),

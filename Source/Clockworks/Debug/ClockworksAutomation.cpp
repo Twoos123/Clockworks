@@ -269,6 +269,21 @@ namespace
 			}));
 
 	// ---------------------------------------------------------------------------------------------
+	// Clockworks.Notice <text...>
+	// ---------------------------------------------------------------------------------------------
+	FAutoConsoleCommandWithWorldAndArgs GNoticeCommand(
+		TEXT("Clockworks.Notice"),
+		TEXT("Clockworks.Notice <text...> - shows the on-screen notice, for checking it in a headless run."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic([](const TArray<FString>& Args, UWorld* World)
+			{
+				if (AClockworksPlayerController* Controller =
+					Cast<AClockworksPlayerController>(UGameplayStatics::GetPlayerController(GameWorld(World), 0)))
+				{
+					Controller->ShowNotBuiltYet(FText::FromString(Args.Num() ? FString::Join(Args, TEXT(" ")) : TEXT("The Forge")));
+				}
+			}));
+
+	// ---------------------------------------------------------------------------------------------
 	// Clockworks.Report
 	// ---------------------------------------------------------------------------------------------
 	FAutoConsoleCommandWithWorld GReportCommand(

@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ClockworksPlayerController.h"
+#include "UI/ClockworksNotice.h"
 #include "ClockworksGameplayTags.h"
 #include "ClockworksGearScreen.h"
 #include "ClockworksGuideScreen.h"
@@ -152,6 +153,41 @@ bool AClockworksPlayerController::IsAnyMenuOpen() const
 		|| (PauseMenu && PauseMenu->IsMenuOpen())
 		|| (GuideScreen && GuideScreen->IsMenuOpen())
 		|| (GearScreen && GearScreen->IsMenuOpen());
+}
+
+// Runs on: the local machine only. Interface is never replicated.
+void AClockworksPlayerController::ShowNotice(const FText& Message)
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	if (!Notice)
+	{
+		TSubclassOf<UClockworksNotice> Class = NoticeClass;
+		if (!Class)
+		{
+			Class = UClockworksNotice::StaticClass();
+		}
+		Notice = CreateWidget<UClockworksNotice>(this, Class);
+		if (Notice)
+		{
+			// Above the HUD, so it is readable over anything.
+			Notice->AddToPlayerScreen(500);
+		}
+	}
+
+	if (Notice)
+	{
+		Notice->Show(Message);
+	}
+}
+
+// Runs on: the local machine only.
+void AClockworksPlayerController::ShowNotBuiltYet(const FText& What)
+{
+	ShowNotice(FText::Format(NSLOCTEXT("Clockworks", "NotBuiltYetLine", "{0} is not built yet."), What));
 }
 
 // Runs on: the local machine only.

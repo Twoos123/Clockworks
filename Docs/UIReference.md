@@ -76,6 +76,28 @@ categories with counts — Battle Sprite (1), Sword (15), Handgun (10)... Each r
 type pips, and a star rating. Selected rows are outlined gold. **Crowns** at the bottom, **Energy**
 below that.
 
+### 5a. The item card
+
+Picking an item in the Arsenal opens a card to its left, and this is the densest thing in the
+interface. Top to bottom:
+
+- A gold title bar with the item's name and its **LEVEL** (01).
+- A **HEAT** bar.
+- **Attack Power**: a labelled row of pips, red for damage against a `NORMAL` scale, and a second
+  blue row for `SPEED`.
+- The status line as its own panel — a coloured icon, "Good chance of causing Moderate FIRE", and a
+  blue up arrow for a bonus.
+- Any further bonus on its own gold row: "Charge Time Reduction: Medium", with its icon.
+- "This item is bound to you."
+- The flavour text: "A Proto Bomb modified to generate small bursts of fire upon detonation."
+- The star rating, five stars with the earned ones filled.
+- A large 3D preview of the item on a dark backdrop.
+- The item's class along the bottom: **BOMB**.
+
+Every one of those numbers already exists in `UClockworksWeaponDefinition` and
+`UClockworksGearDefinition` - damage by type, status and its chance, the bonuses, the star rating and
+the model - so this card is a layout job over data that is already there.
+
 ## 6. Character (P)
 
 Title `<Current Equipment>` with **Save Loadout** and **Character Options**. Tabs: Equipment,

@@ -11,6 +11,7 @@ class UAudioComponent;
 class UClockworksGearScreen;
 class UClockworksGuideScreen;
 class UClockworksMainMenu;
+class UClockworksNotice;
 class UClockworksPauseMenu;
 class UClockworksPlayerHUD;
 class USoundBase;
@@ -65,6 +66,13 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UClockworksMainMenu> MainMenu;
 
+	/** The line of text that says what just happened. Made on demand. */
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<UClockworksNotice> NoticeClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UClockworksNotice> Notice;
+
 	/** Escape. */
 	UPROPERTY(EditDefaultsOnly, Category="UI")
 	TSubclassOf<UClockworksPauseMenu> PauseMenuClass;
@@ -118,6 +126,19 @@ public:
 	 * headless test run needs a way past it; `Clockworks.CloseMenus` is that way. Local only, like the menus.
 	 */
 	void CloseAllMenus();
+
+	/**
+	 * Says something across the bottom of the screen for a moment.
+	 *
+	 * The user's rule: every button does its job, and one whose job is not built yet says so rather than doing
+	 * nothing. A click that is silently ignored cannot be told apart from a broken one.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ShowNotice(const FText& Message);
+
+	/** "The Forge is not built yet." */
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ShowNotBuiltYet(const FText& What);
 
 protected:
 
