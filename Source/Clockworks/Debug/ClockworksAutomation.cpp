@@ -8,6 +8,7 @@
 #include "ClockworksFloorBuilder.h"
 #include "ClockworksFloorDefinition.h"
 #include "ClockworksGameState.h"
+#include "ClockworksProfileSave.h"
 #include "Engine/PostProcessVolume.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "ClockworksPlayerController.h"
@@ -266,6 +267,74 @@ namespace
 					Boom->SetRelativeRotation(Rotation);
 				}
 				UE_LOG(LogClockworks, Warning, TEXT("Automation: camera arm %.0f"), Boom->TargetArmLength);
+			}));
+
+	// ---------------------------------------------------------------------------------------------
+	// Clockworks.Knights [new <name> | clear]
+	// ---------------------------------------------------------------------------------------------
+	FAutoConsoleCommandWithWorldAndArgs GKnightsCommand(
+		TEXT("Clockworks.Knights"),
+		TEXT("Clockworks.Knights [new <name>|clear] - lists the knights saved on this machine, or changes them. "
+			 "For checking that the profile save round-trips without clicking anything."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic([](const TArray<FString>& Args, UWorld*)
+			{
+				UClockworksProfileSave* Profile = UClockworksProfileSave::Load();
+				if (!Profile)
+				{
+					UE_LOG(LogClockworks, Warning, TEXT("Automation: no profile save"));
+					return;
+				}
+
+				if (Args.Num() > 0 && Args[0] == TEXT("new"))
+				{
+					TArray<FString> Rest(Args);
+					Rest.RemoveAt(0);
+					Profile->AddKnight(Rest.Num() ? FString::Join(Rest, TEXT(" ")) : TEXT("Knight"));
+				}
+				else if (Args.Num() > 0 && Args[0] == TEXT("clear"))
+				{
+					while (Profile->Knights.Num() > 0)
+					{
+						Profile->RemoveKnight(0);
+					}
+				}
+
+				UE_LOG(LogClockworks, Warning, TEXT("Automation: %d knights saved"), Profile->Knights.Num());
+				for (const FClockworksKnightRecord& Knight : Profile->Knights)
+				{
+					UE_LOG(LogClockworks, Warning, TEXT("Automation:   %s - %s, played %s, deepest %d"),
+						*Knight.Name, *Knight.Rank, *UClockworksProfileSave::FormatPlayed(Knight.PlayedSeconds),
+						Knight.DeepestDepth);
+				}
+			}));
+
+	// ---------------------------------------------------------------------------------------------
+	// Clockworks.Screen <title|characters>
+	// ---------------------------------------------------------------------------------------------
+	FAutoConsoleCommandWithWorldAndArgs GScreenCommand(
+		TEXT("Clockworks.Screen"),
+		TEXT("Clockworks.Screen <title|characters> - opens one of the shell's screens, for looking at it headlessly."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic([](const TArray<FString>& Args, UWorld* World)
+			{
+				AClockworksPlayerController* Controller =
+					Cast<AClockworksPlayerController>(UGameplayStatics::GetPlayerController(GameWorld(World), 0));
+				if (!Controller || Args.Num() < 1)
+				{
+					UE_LOG(LogClockworks, Warning, TEXT("Automation: Clockworks.Screen <title|characters>"));
+					return;
+				}
+
+				Controller->CloseAllMenus();
+				if (Args[0].StartsWith(TEXT("char")))
+				{
+					Controller->ShowCharacterSelect();
+				}
+				else
+				{
+					// The title screen is what ShowMainMenu opens now, and it is the game's own start path.
+					Controller->RestartLevel();
+				}
+				UE_LOG(LogClockworks, Warning, TEXT("Automation: opened screen '%s'"), *Args[0]);
 			}));
 
 	// ---------------------------------------------------------------------------------------------

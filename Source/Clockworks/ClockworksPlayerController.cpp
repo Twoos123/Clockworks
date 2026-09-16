@@ -2,6 +2,7 @@
 
 #include "ClockworksPlayerController.h"
 #include "UI/ClockworksNotice.h"
+#include "UI/ClockworksCharacterSelect.h"
 #include "UI/ClockworksTitleScreen.h"
 #include "ClockworksGameplayTags.h"
 #include "ClockworksGearScreen.h"
@@ -40,6 +41,7 @@ AClockworksPlayerController::AClockworksPlayerController()
 	PlayerHUDClass = UClockworksPlayerHUD::StaticClass();
 	MainMenuClass = UClockworksMainMenu::StaticClass();
 	TitleScreenClass = UClockworksTitleScreen::StaticClass();
+	CharacterSelectClass = UClockworksCharacterSelect::StaticClass();
 	PauseMenuClass = UClockworksPauseMenu::StaticClass();
 	GearScreenClass = UClockworksGearScreen::StaticClass();
 	GuideScreenClass = UClockworksGuideScreen::StaticClass();
@@ -169,10 +171,24 @@ void AClockworksPlayerController::ShowMainMenu()
 bool AClockworksPlayerController::IsAnyMenuOpen() const
 {
 	return (TitleScreen && TitleScreen->IsMenuOpen())
+		|| (CharacterSelect && CharacterSelect->IsMenuOpen())
 		|| (MainMenu && MainMenu->IsMenuOpen())
 		|| (PauseMenu && PauseMenu->IsMenuOpen())
 		|| (GuideScreen && GuideScreen->IsMenuOpen())
 		|| (GearScreen && GearScreen->IsMenuOpen());
+}
+
+// Runs on: the local machine only.
+void AClockworksPlayerController::ShowCharacterSelect()
+{
+	if (!CharacterSelect && CharacterSelectClass)
+	{
+		CharacterSelect = CreateWidget<UClockworksCharacterSelect>(this, CharacterSelectClass);
+	}
+	if (CharacterSelect)
+	{
+		CharacterSelect->OpenMenu();
+	}
 }
 
 // Runs on: the local machine only. Interface is never replicated.
@@ -213,6 +229,7 @@ void AClockworksPlayerController::ShowNotBuiltYet(const FText& What)
 // Runs on: the local machine only.
 void AClockworksPlayerController::CloseAllMenus()
 {
+	if (CharacterSelect && CharacterSelect->IsMenuOpen()) { CharacterSelect->CloseMenu(); }
 	if (TitleScreen && TitleScreen->IsMenuOpen()) { TitleScreen->CloseMenu(); }
 	if (GearScreen && GearScreen->IsMenuOpen())   { GearScreen->CloseMenu(); }
 	if (GuideScreen && GuideScreen->IsMenuOpen()) { GuideScreen->CloseMenu(); }

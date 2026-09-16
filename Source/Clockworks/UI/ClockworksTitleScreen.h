@@ -39,6 +39,12 @@ protected:
 
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 
+	/**
+	 * What sits in front of the sky. The title screen puts its logo and buttons here; the character-select screen
+	 * derives from this one so the planet behind it is the same planet, built once.
+	 */
+	virtual void BuildForeground(UCanvasPanel* Canvas);
+
 	/** Puts one layer of the sky across the whole screen. */
 	UImage* AddFullScreenLayer(UCanvasPanel* Canvas, FName Name, UTexture2D* Texture, const FLinearColor& Tint);
 
@@ -62,4 +68,8 @@ protected:
 	/** The pieces of the original's title screen, loaded by name from Content/SK/Logon. */
 	UPROPERTY(EditDefaultsOnly, Category = "Title")
 	FString ArtPath = TEXT("/Game/SK/Logon/");
+
+	/** Whether the Grey Havens mark is drawn at the foot. */
+	UPROPERTY(EditDefaultsOnly, Category = "Title")
+	bool bShowFooter = true;
 };

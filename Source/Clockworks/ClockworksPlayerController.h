@@ -12,6 +12,7 @@ class UClockworksGearScreen;
 class UClockworksGuideScreen;
 class UClockworksMainMenu;
 class UClockworksNotice;
+class UClockworksCharacterSelect;
 class UClockworksTitleScreen;
 class UClockworksPauseMenu;
 class UClockworksPlayerHUD;
@@ -76,6 +77,13 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UClockworksTitleScreen> TitleScreen;
+
+	/** The knights on this machine, chosen after the title screen. */
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<UClockworksCharacterSelect> CharacterSelectClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UClockworksCharacterSelect> CharacterSelect;
 
 	/** The line of text that says what just happened. Made on demand. */
 	UPROPERTY(EditDefaultsOnly, Category = "UI")
@@ -146,6 +154,10 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ShowNotice(const FText& Message);
+
+	/** Runs on: the local machine. The character-select screen, which the title screen opens. */
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void ShowCharacterSelect();
 
 	/** "The Forge is not built yet." */
 	UFUNCTION(BlueprintCallable, Category = "UI")

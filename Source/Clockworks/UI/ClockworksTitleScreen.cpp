@@ -62,45 +62,11 @@ TSharedRef<SWidget> UClockworksTitleScreen::RebuildWidget()
 			FVector2D(0.5f, 0.5f), FVector2D(-330.f, 30.f), FVector2D(420.f, 420.f),
 			FLinearColor(1.f, 1.f, 1.f, 0.75f));
 
-		// The logo sits across the planet's middle.
-		AddPiece(Canvas, TEXT("Logo"), LoadArt(ArtPath, TEXT("T_Logon_Logo")),
-			FVector2D(0.5f, 0.5f), FVector2D(0.f, -75.f), FVector2D(393.f, 145.f));
-
-		// Logon wide across the top, Quit and Options side by side beneath it, as the original has them.
-		if (UButton* Logon = AddTitleButton(Canvas, TEXT("LogonButton"), LOCTEXT("TitleLogon", "Logon"),
-			FVector2D(0.f, 105.f), FVector2D(366.f, 34.f), /*bPrimary*/ true))
-		{
-			Logon->OnClicked.AddDynamic(this, &UClockworksTitleScreen::OnLogonClicked);
-		}
-		if (UButton* Quit = AddTitleButton(Canvas, TEXT("QuitButton"), LOCTEXT("TitleQuit", "Quit"),
-			FVector2D(-93.f, 146.f), FVector2D(178.f, 30.f), /*bPrimary*/ false))
-		{
-			Quit->OnClicked.AddDynamic(this, &UClockworksTitleScreen::OnQuitClicked);
-		}
-		if (UButton* Options = AddTitleButton(Canvas, TEXT("OptionsButton"), LOCTEXT("TitleOptions", "Options"),
-			FVector2D(93.f, 146.f), FVector2D(178.f, 30.f), /*bPrimary*/ false))
-		{
-			Options->OnClicked.AddDynamic(this, &UClockworksTitleScreen::OnOptionsClicked);
-		}
-
-		// The line the original puts under the buttons, minus the part that points at a service.
-		UTextBlock* Note = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleNote"));
-		Note->SetText(LOCTEXT("TitleNote",
-			"An unofficial rebuild. Spiral Knights is the property of Grey Havens and SEGA."));
-		Note->SetFont(ClockworksHUDArt::Font(13));
-		Note->SetColorAndOpacity(FSlateColor(FLinearColor(0.72f, 0.80f, 0.92f, 0.85f)));
-		Note->SetJustification(ETextJustify::Center);
-		if (UCanvasPanelSlot* NoteSlot = Canvas->AddChildToCanvas(Note))
-		{
-			NoteSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
-			NoteSlot->SetAlignment(FVector2D(0.5f, 0.f));
-			NoteSlot->SetPosition(FVector2D(0.f, 190.f));
-			NoteSlot->SetAutoSize(true);
-		}
+		BuildForeground(Canvas);
 
 		// The Grey Havens mark at the foot, where the original puts it.
-		if (UImage* Footer = AddPiece(Canvas, TEXT("Footer"), LoadArt(ArtPath, TEXT("T_Logon_Footer")),
-			FVector2D(0.5f, 1.f), FVector2D(0.f, -50.f), FVector2D(195.f, 80.f)))
+		if (UImage* Footer = bShowFooter ? AddPiece(Canvas, TEXT("Footer"), LoadArt(ArtPath, TEXT("T_Logon_Footer")),
+			FVector2D(0.5f, 1.f), FVector2D(0.f, -50.f), FVector2D(195.f, 80.f)) : nullptr)
 		{
 			if (UCanvasPanelSlot* FooterSlot = Cast<UCanvasPanelSlot>(Footer->Slot))
 			{
@@ -113,6 +79,47 @@ TSharedRef<SWidget> UClockworksTitleScreen::RebuildWidget()
 	}
 
 	return UUserWidget::RebuildWidget();
+}
+
+// Runs on: the local machine only.
+void UClockworksTitleScreen::BuildForeground(UCanvasPanel* Canvas)
+{
+	// The logo sits across the planet's middle.
+	AddPiece(Canvas, TEXT("Logo"), LoadArt(ArtPath, TEXT("T_Logon_Logo")),
+		FVector2D(0.5f, 0.5f), FVector2D(0.f, -75.f), FVector2D(393.f, 145.f));
+
+	// Logon wide across the top, Quit and Options side by side beneath it, as the original has them.
+	if (UButton* Logon = AddTitleButton(Canvas, TEXT("LogonButton"), LOCTEXT("TitleLogon", "Logon"),
+		FVector2D(0.f, 105.f), FVector2D(366.f, 34.f), /*bPrimary*/ true))
+	{
+		Logon->OnClicked.AddDynamic(this, &UClockworksTitleScreen::OnLogonClicked);
+	}
+	if (UButton* Quit = AddTitleButton(Canvas, TEXT("QuitButton"), LOCTEXT("TitleQuit", "Quit"),
+		FVector2D(-93.f, 146.f), FVector2D(178.f, 30.f), /*bPrimary*/ false))
+	{
+		Quit->OnClicked.AddDynamic(this, &UClockworksTitleScreen::OnQuitClicked);
+	}
+	if (UButton* Options = AddTitleButton(Canvas, TEXT("OptionsButton"), LOCTEXT("TitleOptions", "Options"),
+		FVector2D(93.f, 146.f), FVector2D(178.f, 30.f), /*bPrimary*/ false))
+	{
+		Options->OnClicked.AddDynamic(this, &UClockworksTitleScreen::OnOptionsClicked);
+	}
+
+	// The line the original puts under the buttons, minus the part that points at a service.
+	UTextBlock* Note = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("TitleNote"));
+	Note->SetText(LOCTEXT("TitleNote",
+		"An unofficial rebuild. Spiral Knights is the property of Grey Havens and SEGA."));
+	Note->SetFont(ClockworksHUDArt::Font(13));
+	Note->SetColorAndOpacity(FSlateColor(FLinearColor(0.72f, 0.80f, 0.92f, 0.85f)));
+	Note->SetJustification(ETextJustify::Center);
+	if (UCanvasPanelSlot* NoteSlot = Canvas->AddChildToCanvas(Note))
+	{
+		NoteSlot->SetAnchors(FAnchors(0.5f, 0.5f, 0.5f, 0.5f));
+		NoteSlot->SetAlignment(FVector2D(0.5f, 0.f));
+		NoteSlot->SetPosition(FVector2D(0.f, 190.f));
+		NoteSlot->SetAutoSize(true);
+	}
+
 }
 
 UImage* UClockworksTitleScreen::AddFullScreenLayer(UCanvasPanel* Canvas, FName Name, UTexture2D* Texture, const FLinearColor& Tint)
@@ -189,6 +196,12 @@ void UClockworksTitleScreen::OnLogonClicked()
 {
 	PlayClick();
 	CloseMenu();
+
+	// The original goes from here to the knights on the account; offline, that is the knights on this machine.
+	if (AClockworksPlayerController* Controller = Cast<AClockworksPlayerController>(GetOwningPlayer()))
+	{
+		Controller->ShowCharacterSelect();
+	}
 }
 
 // Runs on: the local machine only.
