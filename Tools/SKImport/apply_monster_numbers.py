@@ -35,6 +35,42 @@ def table(by_depth):
     return [float((by_depth or {}).get(depth) or 0.0) for depth in DEPTHS]
 
 
+# The Royal Jelly's four stages share its numbers: stages 1 and 2 carry its own health curve, stages 3 and 4 three
+# quarters of it (the original's Health Base +20 against +30: 2372.14 against 3162.86 at depth 25). Defense per type is
+# the same throughout, and every fighting stage keeps the jelly's own attack, so only health differs.
+JELLY_STAGE_HEALTH = {"BP_RoyalJellyStage1": 1.0, "BP_RoyalJellyStage2": 1.0,
+                      "BP_RoyalJellyStage3": 0.75, "BP_RoyalJellyStage4": 0.75,
+                      # Its minions are on the same curve: a polyp is exactly half the jelly's health at every depth
+                      # (Health Base +10 against +30: 1581.43 against 3162.86 at 25), a Royal Mini an eighth.
+                      "BP_RoyalPolyp": 0.5, "BP_RoyalMini": 0.125}
+
+
+def apply_royal_jelly_stages(monsters, missing):
+    """Health and defense by depth for the stage Blueprints generate_monsters.py chains together."""
+    entry = monsters.get("RoyalJelly")
+    if not entry:
+        missing.append("RoyalJelly (no numbers)")
+        return 0
+    health = table(entry.get("health_by_depth"))
+    defense = entry.get("defense_by_depth") or {}
+
+    done = 0
+    for name, share in sorted(JELLY_STAGE_HEALTH.items()):
+        blueprint = find_blueprint(name)
+        if not blueprint:
+            missing.append(name)
+            continue
+        defaults = unreal.get_default_object(blueprint.generated_class())
+        defaults.set_editor_property("health_by_depth", [value * share for value in health])
+        for research_kind, ours in KINDS:
+            defaults.set_editor_property(ours + "_defense_by_depth", table(defense.get(research_kind)))
+        unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False)
+        unreal.log_warning("MonsterNumbers: %-16s health d1 %.0f d8 %.0f (%.0f%% of the jelly's)"
+                           % (name, health[1] * share, health[8] * share, share * 100.0))
+        done += 1
+    return done
+
+
 def main():
     registry = unreal.AssetRegistryHelpers.get_asset_registry()
     registry.scan_paths_synchronous(FOLDERS, True)
@@ -78,6 +114,8 @@ def main():
                            % (key, health[1], health[4], health[8], main_attack.get("label"), gross[1], gross[4], gross[8],
                               table(defense.get("NORMAL"))[1]))
         done += 1
+
+    done += apply_royal_jelly_stages(monsters, missing)
 
     unreal.log_warning("MonsterNumbers: %d monsters written; missing: %s" % (done, ", ".join(missing) or "none"))
 

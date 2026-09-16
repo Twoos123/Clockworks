@@ -19,6 +19,7 @@ namespace ClockworksTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_RotationLocked, "State.RotationLocked", "Cursor aiming is suspended while present (windup + active swing).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_MovementLocked, "State.MovementLocked", "Walk speed is zero while present (recovery of a committed combo swing).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Invulnerable, "State.Invulnerable", "Damage is ignored while present (dodge i-frames).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Guarded, "State.Guarded", "Hits land and are felt but do no damage: the Snarbolax before the bell, a raging Royal Jelly.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Dead, "State.Dead", "Health reached zero. No further damage or actions.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Charging, "State.Charging", "Holding the attack button to charge the weapon. Movement runs at the weapon's charge speed instead of the attack slow.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(State_Reloading, "State.Reloading", "A handgun is reloading its clip. The knight can walk but not attack or shield.");

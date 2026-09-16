@@ -144,15 +144,41 @@ void UClockworksEnemyMeleeAbility::OnWindupFinished()
 		Lunge->ReadyForActivation();
 	}
 
+	if (RecoilDistance > 0.f)
+	{
+		// A step backwards instead of a lunge: the original's lickers and throwers pull away as they strike.
+		FVector Backwards = -Avatar->GetActorForwardVector();
+		Backwards.Z = 0.f;
+		UAbilityTask_ApplyRootMotionConstantForce* Recoil = UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(
+			this, NAME_None, Backwards.GetSafeNormal(), RecoilDistance / FMath::Max(RecoilSeconds, 0.01f), ClampPhaseSeconds(RecoilSeconds), /*bIsAdditive*/ false, /*StrengthOverTime*/ nullptr,
+			ERootMotionFinishVelocityMode::SetVelocity, FVector::ZeroVector, 0.f, /*bEnableGravity*/ false);
+		Recoil->ReadyForActivation();
+	}
+
+	// The hitbox opens part-way through the strike where the monster's data says so, which is what makes the swing
+	// readable rather than instant.
+	if (UWorld* World = GetWorld(); World && HitDelaySeconds > 0.f)
+	{
+		World->GetTimerManager().SetTimer(HitWindowTimer, this, &UClockworksEnemyMeleeAbility::OpenHitWindow, ClampPhaseSeconds(HitDelaySeconds), false);
+	}
+	else
+	{
+		OpenHitWindow();
+	}
+
+	UAbilityTask_WaitDelay* Active = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(LungeSeconds + HitDelaySeconds));
+	Active->OnFinish.AddDynamic(this, &UClockworksEnemyMeleeAbility::OnLungeFinished);
+	Active->ReadyForActivation();
+}
+
+// Runs on: server only, from the hit-delay timer or straight away. The hitbox stays live for the rest of the strike.
+void UClockworksEnemyMeleeAbility::OpenHitWindow()
+{
 	DoHitCheck();
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(HitCheckTimer, this, &UClockworksEnemyMeleeAbility::DoHitCheck, HitCheckInterval, true);
 	}
-
-	UAbilityTask_WaitDelay* Active = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(LungeSeconds));
-	Active->OnFinish.AddDynamic(this, &UClockworksEnemyMeleeAbility::OnLungeFinished);
-	Active->ReadyForActivation();
 }
 
 // Runs on: server only.
@@ -168,14 +194,28 @@ void UClockworksEnemyMeleeAbility::DoHitCheck()
 
 	const FVector Center = Avatar->GetActorLocation() + Avatar->GetActorForwardVector() * HitForwardOffset;
 
+	// A rectangle where the monster's data names one (a chromalisk's lick reaches far and stays narrow), turned with the
+	// monster; otherwise the sphere. Tall enough to catch anything standing on the same floor.
+	const bool bBox = !HitBoxSizeCm.IsNearlyZero();
+	const FVector BoxHalfExtent(HitBoxSizeCm.X * 0.5f, HitBoxSizeCm.Y * 0.5f, 100.f);
+	const FQuat BoxRotation(FRotator(0.f, Avatar->GetActorRotation().Yaw, 0.f));
+
 	if (bDrawDebugHitbox)
 	{
-		DrawDebugSphere(World, Center, HitRadius, 16, FColor::Orange, false, HitCheckInterval * 2.f);
+		if (bBox)
+		{
+			DrawDebugBox(World, Center, BoxHalfExtent, BoxRotation, FColor::Orange, false, HitCheckInterval * 2.f);
+		}
+		else
+		{
+			DrawDebugSphere(World, Center, HitRadius, 16, FColor::Orange, false, HitCheckInterval * 2.f);
+		}
 	}
 
 	TArray<FOverlapResult> Overlaps;
 	FCollisionQueryParams QueryParams(TEXT("ClockworksEnemyMeleeHit"), /*bTraceComplex*/ false, Avatar);
-	World->OverlapMultiByObjectType(Overlaps, Center, FQuat::Identity, FCollisionObjectQueryParams(ECC_Pawn), FCollisionShape::MakeSphere(HitRadius), QueryParams);
+	World->OverlapMultiByObjectType(Overlaps, Center, bBox ? BoxRotation : FQuat::Identity, FCollisionObjectQueryParams(ECC_Pawn),
+		bBox ? FCollisionShape::MakeBox(BoxHalfExtent) : FCollisionShape::MakeSphere(HitRadius), QueryParams);
 
 	const FGameplayTag SourceFaction = GetFactionTag(SourceAbilitySystemComponent);
 
@@ -246,6 +286,7 @@ void UClockworksEnemyMeleeAbility::ApplyDamageTo(UAbilitySystemComponent* Target
 		SetDamageMagnitudes(SpecHandle, BaseDamage + AttackPower, ResolveDamageType());
 	}
 
+	SpecHandle.Data->SetSetByCallerMagnitude(ClockworksTags::Data_Knockback, KnockbackMultiplier);
 	SourceAbilitySystemComponent->ApplyGameplayEffectSpecToTarget(*SpecHandle.Data, TargetAbilitySystemComponent);
 
 	ApplyWeaponStatus(SourceAbilitySystemComponent, TargetAbilitySystemComponent);
@@ -331,6 +372,7 @@ void UClockworksEnemyMeleeAbility::EndAbility(const FGameplayAbilitySpecHandle H
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(HitCheckTimer);
+		World->GetTimerManager().ClearTimer(HitWindowTimer);
 	}
 	RemoveLocalTag(ClockworksTags::State_MovementLocked);
 

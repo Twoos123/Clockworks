@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ClockworksEnemyCharacter.h"
+#include "Clockworks.h"
 #include "ClockworksAttributeSet.h"
 #include "ClockworksEnemyAIController.h"
 #include "ClockworksEnemyHealthBar.h"
@@ -20,6 +21,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "Kismet/GameplayStatics.h"
@@ -117,6 +119,28 @@ void AClockworksEnemyCharacter::PostInitializeComponents()
 
 		AttributeSet->OnDamaged.AddUObject(this, &AClockworksEnemyCharacter::HandleDamaged);
 		AttributeSet->OnOutOfHealth.AddUObject(this, &AClockworksEnemyCharacter::HandleOutOfHealth);
+		// Guarded from the moment it spawns, until something stuns it (a bell boss) or its rage lets up.
+		bRageGuarded = true;
+		RefreshGuard();
+		if (RageGuardSeconds > 0.f && RageOpenSeconds > 0.f)
+		{
+			GetWorldTimerManager().SetTimer(RageTimer, this, &AClockworksEnemyCharacter::TickRage, RageGuardSeconds, false);
+		}
+		// A stage that hands over on its own clock rather than by being killed (the Royal Jelly's transition).
+		if (StageSeconds > 0.f)
+		{
+			GetWorldTimerManager().SetTimer(StageTimer, this, &AClockworksEnemyCharacter::AdvanceStage, StageSeconds, false);
+		}
+		// What it keeps around it: the jelly's polyps, a polyp's Royal Minis.
+		if (MinionClass && MinionCount > 0)
+		{
+			SpawnMinions();
+		}
+		if ((MinionClass && bMinionsRespawn) || AbsorbMinionClass)
+		{
+			GetWorldTimerManager().SetTimer(MinionTimer, this, &AClockworksEnemyCharacter::TickMinions,
+				FMath::Max(MinionRespawnSeconds, 0.5f), true);
+		}
 		// A cursed monster pays for each attack it uses.
 		AbilitySystemComponent->AbilityActivatedCallbacks.AddUObject(ToRawPtr(AttributeSet), &UClockworksAttributeSet::HandleAbilityActivated);
 		AbilitySystemComponent->RegisterGameplayTagEvent(ClockworksTags::State_MovementLocked, EGameplayTagEventType::NewOrRemoved).AddUObject(this, &AClockworksEnemyCharacter::OnMovementLockChanged);
@@ -170,6 +194,7 @@ void AClockworksEnemyCharacter::OnStunnedChanged(const FGameplayTag Tag, int32 N
 	if (NewCount > 0)
 	{
 		AbilitySystemComponent->CancelAllAbilities();
+		HealthAtStunStart = AttributeSet ? AttributeSet->GetHealth() : 0.f;
 		if (AController* MyController = GetController())
 		{
 			MyController->StopMovement();
@@ -181,7 +206,143 @@ void AClockworksEnemyCharacter::OnStunnedChanged(const FGameplayTag Tag, int32 N
 			GetCharacterMovement()->MaxWalkSpeed = InitialMoveSpeed;
 		}
 	}
+	// A guarded monster is only open while the stun lasts.
+	RefreshGuard();
 	MulticastSetStunned(NewCount > 0);
+}
+
+// Runs on: server only. State.Guarded turns every hit into no damage (the attribute set); a stun takes it off, which is
+// the whole of the Snarbolax's fight.
+void AClockworksEnemyCharacter::RefreshGuard()
+{
+	if (!AbilitySystemComponent || !HasAuthority())
+	{
+		return;
+	}
+	// A raging stage guards on its own clock (TickRage); a bell boss guards until it is stunned. Anything else never
+	// carries the tag, so it is only ever removed here if something else put it on.
+	const bool bRages = RageGuardSeconds > 0.f && RageOpenSeconds > 0.f;
+	if (!bGuardedUntilStunned && !bRages)
+	{
+		return;
+	}
+	const bool bRageOpen = bRages && !bRageGuarded;
+	const bool bWantGuard = !bDead && !AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Stunned) && !bRageOpen;
+	const bool bHasGuard = AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Guarded);
+	if (bWantGuard == bHasGuard)
+	{
+		return;
+	}
+	if (bWantGuard)
+	{
+		// Replicated, so every machine can show the guard (and the targeting readout can read it).
+		AbilitySystemComponent->AddLooseGameplayTag(ClockworksTags::State_Guarded, 1, EGameplayTagReplicationState::TagAndCountToAll);
+	}
+	else
+	{
+		AbilitySystemComponent->RemoveLooseGameplayTag(ClockworksTags::State_Guarded, 1, EGameplayTagReplicationState::TagAndCountToAll);
+	}
+}
+
+// Runs on: server only. Minions stand in a ring around their keeper, evenly spaced with a random turn so two jellies
+// do not look identical.
+void AClockworksEnemyCharacter::SpawnMinions()
+{
+	UWorld* World = GetWorld();
+	if (!World || !MinionClass || MinionCount <= 0)
+	{
+		return;
+	}
+	const float TurnOffset = FMath::FRandRange(0.f, 360.f);
+	for (int32 Index = Minions.Num(); Index < MinionCount; ++Index)
+	{
+		const float Yaw = TurnOffset + 360.f * Index / FMath::Max(MinionCount, 1);
+		const FVector At = GetActorLocation() + FRotator(0.f, Yaw, 0.f).Vector() * MinionRadiusCm;
+
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+		SpawnParams.Owner = this;
+		if (AClockworksEnemyCharacter* Minion = World->SpawnActor<AClockworksEnemyCharacter>(MinionClass, At, FRotator(0.f, Yaw + 180.f, 0.f), SpawnParams))
+		{
+			Minions.Add(Minion);
+		}
+	}
+}
+
+// Runs on: server only, on the minion timer. Two jobs on one clock: replace the minions that have died, and eat any
+// that have wandered onto us.
+void AClockworksEnemyCharacter::TickMinions()
+{
+	if (bDead)
+	{
+		return;
+	}
+	Minions.RemoveAll([](const TWeakObjectPtr<AClockworksEnemyCharacter>& Minion) { return !Minion.IsValid(); });
+
+	// The Royal Jelly's absorb: a Royal Mini standing on it is consumed and heals it. The wiki's reason not to leave
+	// the minis alive.
+	if (AbsorbMinionClass && AttributeSet && AttributeSet->GetHealth() > 0.f)
+	{
+		for (TActorIterator<AClockworksEnemyCharacter> It(GetWorld(), AbsorbMinionClass); It; ++It)
+		{
+			AClockworksEnemyCharacter* Mini = *It;
+			if (!Mini || Mini == this || FVector::Dist2D(Mini->GetActorLocation(), GetActorLocation()) > AbsorbRadiusCm)
+			{
+				continue;
+			}
+			const float Healed = FMath::Min(AttributeSet->GetMaxHealth() * AbsorbHealFraction,
+				AttributeSet->GetMaxHealth() - AttributeSet->GetHealth());
+			AttributeSet->SetHealth(AttributeSet->GetHealth() + Healed);
+			Mini->Destroy();
+			UE_LOG(LogClockworks, Log, TEXT("%s: absorbed a minion for %.0f"), *GetName(), Healed);
+		}
+	}
+
+	if (MinionClass && bMinionsRespawn && Minions.Num() < MinionCount)
+	{
+		SpawnMinions();
+	}
+}
+
+// Runs on: server only, from the rage timer. The original's last Royal Jelly stage is unhittable in bursts; the user's
+// numbers (2026-09-15) are 5 s shut, 5 s open, over and over.
+void AClockworksEnemyCharacter::TickRage()
+{
+	if (bDead)
+	{
+		return;
+	}
+	bRageGuarded = !bRageGuarded;
+	RefreshGuard();
+	GetWorldTimerManager().SetTimer(RageTimer, this, &AClockworksEnemyCharacter::TickRage,
+		FMath::Max(bRageGuarded ? RageGuardSeconds : RageOpenSeconds, 0.05f), false);
+}
+
+// Runs on: server only. One stage of a boss gives way to the next where it stood, so the fight is one health bar after
+// another rather than one long one. Without a next stage this is simply the end of it.
+void AClockworksEnemyCharacter::AdvanceStage()
+{
+	if (!HasAuthority() || !NextStageClass || bDead)
+	{
+		return;
+	}
+	bDead = true;
+	GetWorldTimerManager().ClearTimer(StageTimer);
+	GetWorldTimerManager().ClearTimer(RageTimer);
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	SpawnParams.Instigator = GetInstigator();
+	SpawnParams.Owner = GetOwner();
+	World->SpawnActor<AClockworksEnemyCharacter>(NextStageClass, GetActorLocation(), GetActorRotation(), SpawnParams);
+
+	UE_LOG(LogClockworks, Log, TEXT("%s: stage over, %s takes its place"), *GetName(), *GetNameSafe(NextStageClass));
+	Destroy();
 }
 
 // Runs on: all machines (multicast from the server). Cosmetic: the pose freezes and the flash stays
@@ -319,6 +480,19 @@ void AClockworksEnemyCharacter::HandleDamaged(AActor* InstigatorActor, AActor* C
 	if (bDead)
 	{
 		return;
+	}
+
+	// A stunned boss shakes the stun off early once enough has been dealt during it: the Snarbolax's "about a third of
+	// its health" (the user's decision 2026-09-15 that it is a third of its maximum), which rewards burst damage in the
+	// window the bell bought and closes it again.
+	if (StunBreakHealthFraction > 0.f && AttributeSet && AbilitySystemComponent->HasMatchingGameplayTag(ClockworksTags::State_Stunned))
+	{
+		const float DealtDuringStun = HealthAtStunStart - AttributeSet->GetHealth();
+		if (DealtDuringStun >= StunBreakHealthFraction * AttributeSet->GetMaxHealth())
+		{
+			AbilitySystemComponent->RemoveActiveEffectsWithGrantedTags(FGameplayTagContainer(ClockworksTags::State_Stunned));
+			UE_LOG(LogClockworks, Log, TEXT("%s: shook off its stun after %.0f damage"), *GetName(), DealtDuringStun);
+		}
 	}
 
 	LaunchCharacter(HitDirection * KnockbackSpeed * FMath::Max(KnockbackMultiplier, 0.f), true, false);
@@ -545,8 +719,16 @@ void AClockworksEnemyCharacter::HandleOutOfHealth()
 	{
 		return;
 	}
+	// A boss stage hands over instead of dying: the next stage takes its place where it fell.
+	if (NextStageClass)
+	{
+		AdvanceStage();
+		return;
+	}
 	bDead = true;
 
+	GetWorldTimerManager().ClearTimer(StageTimer);
+	GetWorldTimerManager().ClearTimer(RageTimer);
 	AbilitySystemComponent->AddLooseGameplayTag(ClockworksTags::State_Dead, 1, EGameplayTagReplicationState::None);
 	AbilitySystemComponent->CancelAllAbilities();
 	MulticastPlaySound(DeathSound);

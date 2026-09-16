@@ -10,9 +10,12 @@
 #include "ClockworksProjectile.h"
 #include "Sound/SoundBase.h"
 #include "AbilitySystemComponent.h"
+#include "Abilities/Tasks/AbilityTask_ApplyRootMotionConstantForce.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "Abilities/Tasks/AbilityTask_WaitDelay.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimSequenceBase.h"
+#include "GameFramework/RootMotionSource.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -67,7 +70,7 @@ void UClockworksEnemyRangedAbility::ActivateAbility(const FGameplayAbilitySpecHa
 	Avatar->GetCharacterMovement()->StopMovementImmediately();
 	AddLocalTag(ClockworksTags::State_MovementLocked);
 
-	PlayPhaseMontage(WindupMontage ? WindupMontage.Get() : AttackMontage.Get());
+	PlayPhase(WindupAnim ? WindupAnim.Get() : AttackAnim.Get(), WindupMontage ? WindupMontage.Get() : AttackMontage.Get(), WindupSeconds);
 
 	UAbilityTask_WaitDelay* Windup = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(WindupSeconds));
 	Windup->OnFinish.AddDynamic(this, &UClockworksEnemyRangedAbility::OnWindupFinished);
@@ -86,9 +89,9 @@ void UClockworksEnemyRangedAbility::OnWindupFinished()
 		return;
 	}
 
-	if (WindupMontage)
+	if (WindupAnim || WindupMontage)
 	{
-		PlayPhaseMontage(AttackMontage);
+		PlayPhase(AttackAnim, AttackMontage, FireSeconds > 0.f ? FireSeconds : RecoverySeconds);
 	}
 
 	// Aim at the target's position right now; if it moved since the telegraph, the shot misses.
@@ -126,7 +129,7 @@ void UClockworksEnemyRangedAbility::OnWindupFinished()
 		float Parts[4];
 		const bool bDepthDamage = DepthDamageParts(World, NormalDamageByDepth, PiercingDamageByDepth, ElementalDamageByDepth, ShadowDamageByDepth, Parts);
 		const float BoltDamage = bDepthDamage ? Parts[0] + Parts[1] + Parts[2] + Parts[3] : BaseDamage + AttackPower;
-		Projectile->InitProjectile(SourceAbilitySystemComponent, BoltDamage, Direction, ProjectileSpeed, 1.f, 0.f, ResolveDamageType());
+		Projectile->InitProjectile(SourceAbilitySystemComponent, BoltDamage, Direction, ProjectileSpeed, 1.f, ProjectileRange, ResolveDamageType());
 		if (bDepthDamage)
 		{
 			Projectile->InitProjectileDamageParts(Parts);
@@ -147,14 +150,40 @@ void UClockworksEnemyRangedAbility::OnWindupFinished()
 		Enemy->MulticastPlaySound(FireSound);
 	}
 
-	if (WindupMontage)
+	if (RecoilDistance > 0.f)
 	{
-		PlayPhaseMontage(RecoveryMontage);
+		// The throw pushes it back a step, the original's recoil on a stationary thrower.
+		FVector Backwards = -Avatar->GetActorForwardVector();
+		Backwards.Z = 0.f;
+		UAbilityTask_ApplyRootMotionConstantForce* Recoil = UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(
+			this, NAME_None, Backwards.GetSafeNormal(), RecoilDistance / FMath::Max(RecoilSeconds, 0.01f), ClampPhaseSeconds(RecoilSeconds), /*bIsAdditive*/ false, /*StrengthOverTime*/ nullptr,
+			ERootMotionFinishVelocityMode::SetVelocity, FVector::ZeroVector, 0.f, /*bEnableGravity*/ false);
+		Recoil->ReadyForActivation();
 	}
 
-	UAbilityTask_WaitDelay* Recovery = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(RecoverySeconds));
+	if (WindupAnim || WindupMontage)
+	{
+		PlayPhase(RecoveryAnim, RecoveryMontage, RecoverySeconds);
+	}
+
+	UAbilityTask_WaitDelay* Recovery = UAbilityTask_WaitDelay::WaitDelay(this, ClampPhaseSeconds(FireSeconds + RecoverySeconds));
 	Recovery->OnFinish.AddDynamic(this, &UClockworksEnemyRangedAbility::OnRecoveryFinished);
 	Recovery->ReadyForActivation();
+}
+
+// Runs on: server only. The enemy character multicasts the clip, fitted to the phase, so the timing always comes from
+// the numbers rather than the animation's own length.
+void UClockworksEnemyRangedAbility::PlayPhase(UAnimSequenceBase* Anim, UAnimMontage* Montage, float PhaseSeconds)
+{
+	if (Anim)
+	{
+		if (AClockworksEnemyCharacter* Enemy = Cast<AClockworksEnemyCharacter>(GetAvatarCharacter()))
+		{
+			Enemy->PlayPhaseAnimation(Anim, PhaseSeconds);
+			return;
+		}
+	}
+	PlayPhaseMontage(Montage);
 }
 
 // Runs on: server only. The ability system replicates the montage to clients on its own.

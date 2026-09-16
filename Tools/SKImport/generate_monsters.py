@@ -30,11 +30,18 @@ MONSTERS = [
     ("Lichen",       "Family.Slime",     40,   0,   220,   190,  False, 1.0),
     ("Zombie",       "Family.Undead",    85,   4,   150,   210,  False, 1.0),
     ("Spookat",      "Family.Undead",    45,   0,   330,   200,  False, 1.0),
-    ("Chromalisk",   "Family.Beast",     55,   1,   280,   600,  True,  1.0),
-    ("Devilite",     "Family.Fiend",     60,   2,   300,   200,  False, 1.0),
+    # The chromalisk is a melee licker and the devilite a thrower, as the plain originals are (user's decision
+    # 2026-09-15). Their reach is the original's: the lick's box reaches 3.1 tiles, the throw about 7.
+    ("Chromalisk",   "Family.Beast",     55,   1,   280,   310,  False, 1.0),
+    ("Devilite",     "Family.Fiend",     60,   2,   300,   700,  True,  1.0),
     ("GremlinArtillery", "Family.Gremlin", 65, 3,   210,   750,  True,  1.0),
+    # The Snarbolax cannot be hurt until a knight rings the beast bell; see BOSS_TUNING below.
     ("Snarbolax",    "Family.Beast",    420,   6,   360,   260,  False, 1.6),
     ("RoyalJelly",   "Family.Slime",    460,  10,   140,   260,  False, 1.6),
+    # The Royal Jelly's minions (research: boss_mechanics.md section B). The polyp is a stationary shooter, the
+    # mini a small tackler that heals the jelly by touching it.
+    ("RoyalPolyp",   "Family.Slime",    160,   4,     0,   800,  True,  1.1),
+    ("RoyalMini",    "Family.Slime",     40,   0,   210,   200,  False, 0.5),
 ]
 
 # Which imported clip plays for which purpose. The exports do not agree on names, so each monster
@@ -55,8 +62,8 @@ CLIPS = {
     "Chromalisk":       {"idle": ["standing"], "move": ["moving"], "windup": ["attack_start"],
                           "attack": ["attack_fire"], "recovery": ["attack_end"],
                           "hurt": ["react"], "death": ["dying"], "aggro": ["react"]},
-    "Devilite":         {"idle": ["standing", "idle1"], "move": ["running", "walk"], "windup": ["swing"],
-                          "attack": ["swing1"], "recovery": ["swing2"],
+    "Devilite":         {"idle": ["standing", "idle1"], "move": ["running", "walk"], "windup": ["throw_start", "swing"],
+                          "attack": ["throw_fire", "swing1"], "recovery": ["throw_end", "swing2"],
                           "hurt": ["reacting"], "death": ["dying"], "aggro": ["talk"]},
     "GremlinArtillery": {"idle": ["standing"], "move": ["walking"], "windup": ["attack_1_fire"],
                           "attack": ["attack_1_fire1"], "recovery": ["attack_1_fire2"],
@@ -67,6 +74,73 @@ CLIPS = {
     "RoyalJelly":       {"idle": ["standing"], "move": ["running", "walking"], "windup": ["attack_1_start"],
                           "attack": ["attack_1_fire"], "recovery": ["attack_1_end"],
                           "hurt": ["reacting"], "death": ["dying"], "aggro": ["Core1"]},
+    "RoyalPolyp":       {"idle": ["standing"], "move": ["walking"], "windup": ["attack_start"],
+                          "attack": ["attack_fire"], "recovery": ["attack_end"],
+                          "hurt": ["reacting"], "death": ["dying"], "aggro": ["reacting"]},
+    "RoyalMini":        {"idle": ["standing"], "move": ["Walking_Omni", "walking"], "windup": ["attack_omni_start", "attack_1_start"],
+                          "attack": ["attack_omni_fire", "attack_1_fire"], "recovery": ["attack_omni_end", "attack_1_end"],
+                          "hurt": ["reacting"], "death": ["dying"], "aggro": ["walking"]},
+}
+
+# Each monster's own attack, from the original's configs (research: D:\Dev\SKAssets\_research\bosses\boss_mechanics.md,
+# whose damage matches monster_numbers.json; 1 tile = 100 cm). Keys are the ability's Python property names, so anything
+# a monster does not name keeps the ability's default. Written 2026-09-15 for the user's "match the plain originals".
+ATTACK_TUNING = {
+    # The chromalisk licks: a long, narrow box rather than a sphere, 0.56 s into the strike, and it pulls back as it
+    # licks. Tier 3's numbers (our boss-floor depths); no knockback at all.
+    "Chromalisk": {
+        "windup_seconds": 1.0, "hit_delay_seconds": 0.56, "lunge_seconds": 0.467, "recovery_seconds": 0.788,
+        "cooldown_seconds": 0.567, "lunge_speed": 0.0, "recoil_distance": 40.0, "recoil_seconds": 0.8,
+        "hit_box_size_cm": (300.0, 75.0), "hit_forward_offset": 160.0, "knockback_multiplier": 0.0,
+    },
+    # The devilite throws office supplies: a 0.625 s windup, the throw itself, then a long follow-through, recoiling
+    # a quarter tile. The projectile flies 8.75 tiles a second for 800 ms, so about 7 tiles.
+    "Devilite": {
+        "windup_seconds": 0.625, "fire_seconds": 0.167, "recovery_seconds": 1.333, "cooldown_seconds": 0.167,
+        "projectile_speed": 875.0, "projectile_range": 700.0, "recoil_distance": 25.0, "recoil_seconds": 0.5,
+        "muzzle_offset": (25.0, 25.0, 115.0),
+    },
+}
+
+# What a boss does beyond its attack. Properties on AClockworksEnemyCharacter.
+BOSS_TUNING = {
+    # The Snarbolax turns everything aside until the beast bell stuns it, and shakes that stun off early once a third
+    # of its maximum health has been dealt during it (the wiki's "about a third"; user's decision 2026-09-15).
+    "Snarbolax": {"guarded_until_stunned": True, "stun_break_health_fraction": 0.333},
+}
+
+# The Royal Jelly is four actors in a chain, as the original is (research: boss_mechanics.md section B): each stage
+# spawns the next where it fell. Stage 3 is a transition nothing can hurt, and stage 4 rages in bursts. The user's
+# decisions 2026-09-15: stage 3 lasts 10 s with its polyps still working; stage 4 alternates 5 s shut, 5 s open.
+#
+# key, health at the demo's depths (the same curve the numbers tool writes), targeted speed, polyps, and its own rules.
+ROYAL_JELLY_STAGES = [
+    # suffix,   speed, polyps, extra properties
+    ("Stage1",  105.0, 3, {}),
+    # From stage 2 the polyps come back as they are killed, so clearing them is a job you keep doing.
+    ("Stage2",  158.0, 4, {"minions_respawn": True}),
+    # The transition: no attacks, no polyps, cannot be hurt, hands over on its own clock.
+    ("Stage3",  210.0, 0, {"stage_seconds": 10.0, "guarded_until_stunned": True}),
+    ("Stage4",  140.0, 6, {"rage_guard_seconds": 5.0, "rage_open_seconds": 5.0, "minions_respawn": True}),
+]
+
+# What every fighting stage of the jelly does with its minions: it stands polyps around itself and eats any Royal Mini
+# that reaches it (research: boss_mechanics.md section B; the healing fraction is INFERRED from 104.2 healed against a
+# 3162 health bar at depth 25).
+JELLY_MINION_TUNING = {
+    "minion_radius_cm": 550.0,
+    "minion_respawn_seconds": 6.0,
+    "absorb_radius_cm": 220.0,
+    "absorb_heal_fraction": 0.033,
+}
+
+# A polyp's whole job: it keeps shooting out Royal Minis. The original caps the minis at 30 and its interval is
+# stripped, so the count and the interval here are INFERRED.
+POLYP_MINION_TUNING = {
+    "minion_count": 3,
+    "minion_radius_cm": 200.0,
+    "minions_respawn": True,
+    "minion_respawn_seconds": 5.0,
 }
 
 # aggro, hurt, death. Falls back to the generic monster set where a monster has none of its own.
@@ -80,12 +154,15 @@ SOUNDS = {
     "GremlinArtillery": ("S_GremlinAggro", "S_GremlinHurt", "S_GremlinDeath"),
     "Snarbolax":        ("S_SnarbolaxAggro", "S_SnarbolaxHurt", "S_SnarbolaxDeath"),
     "RoyalJelly":       ("S_RoyalJellyAggro", "S_MonsterHurt", "S_RoyalJellyDeath"),
+    "RoyalPolyp":       ("S_JellyAggro", "S_MonsterHurt", "S_JellyDeath"),
+    "RoyalMini":        ("S_JellyAggro", "S_MonsterHurt", "S_JellyDeath"),
 }
 
 ATTACK_SOUND = {
     "Zombie": "S_ZombieAttack", "Spookat": "S_SpookatAttack", "Chromalisk": "S_ChromaliskAttack",
     "Devilite": "S_DeviliteAttack", "GremlinArtillery": "S_GremlinAttack",
     "Snarbolax": "S_SnarbolaxAttack", "Jellycube": "S_JellyAttack",
+    "RoyalPolyp": "S_JellyAttack", "RoyalMini": "S_JellyAttack",
 }
 
 
@@ -148,11 +225,33 @@ def sound(name):
 
 def make_blueprint(name, parent_class):
     path = OUT_PATH + "/" + name
+    stale = None
     if unreal.EditorAssetLibrary.does_asset_exist(path):
-        return unreal.EditorAssetLibrary.load_asset(path)
+        existing = unreal.EditorAssetLibrary.load_asset(path)
+        # A monster that changed kind needs its ability rebuilt: the chromalisk became a melee licker and the devilite
+        # a thrower (2026-09-15). A Blueprint's parent is neither an editor property nor changeable from Python, so the
+        # class is tested through its default object.
+        defaults = unreal.get_default_object(existing.generated_class()) if existing else None
+        if defaults is None or isinstance(defaults, parent_class):
+            return existing
+        # Renamed aside rather than deleted: the package stays loaded for the rest of this run, and creating an asset
+        # at a path a deleted package still occupies returns nothing at all.
+        unreal.log_warning("Clockworks: rebuilding {0} as a {1}".format(name, parent_class.__name__))
+        stale = path + "_Old"
+        unreal.EditorAssetLibrary.rename_asset(path, stale)
+
     factory = unreal.BlueprintFactory()
     factory.set_editor_property("parent_class", parent_class)
-    return unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, OUT_PATH, None, factory)
+    made = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, OUT_PATH, None, factory)
+    if stale:
+        if made:
+            unreal.EditorAssetLibrary.delete_asset(stale)
+        else:
+            # Put it back rather than leave the monster with no ability at all.
+            unreal.log_warning("Clockworks: could not rebuild {0}; keeping the old one".format(name))
+            unreal.EditorAssetLibrary.rename_asset(stale, path)
+            return unreal.EditorAssetLibrary.load_asset(path)
+    return made
 
 
 def main():
@@ -177,10 +276,16 @@ def main():
             continue
 
         ability_cdo = unreal.get_default_object(ability_bp.generated_class())
-        if not ranged:
-            ability_cdo.set_editor_property("windup_anim", find_anim(key, clips["windup"]))
-            ability_cdo.set_editor_property("attack_anim", find_anim(key, clips["attack"]))
-            ability_cdo.set_editor_property("recovery_anim", find_anim(key, clips["recovery"]))
+        # Both abilities play raw clips per phase now: the exports are plain sequences, and a thrower needs its throw.
+        ability_cdo.set_editor_property("windup_anim", find_anim(key, clips["windup"]))
+        ability_cdo.set_editor_property("attack_anim", find_anim(key, clips["attack"]))
+        ability_cdo.set_editor_property("recovery_anim", find_anim(key, clips["recovery"]))
+
+        # Its own numbers from the original's configs, where they have been read.
+        for name, value in (ATTACK_TUNING.get(key) or {}).items():
+            if isinstance(value, tuple):
+                value = unreal.Vector2D(*value) if len(value) == 2 else unreal.Vector(*value)
+            ability_cdo.set_editor_property(name, value)
         # The two ability classes name their sound differently: a melee attack has a telegraph, a
         # ranged one has a shot.
         attack_sound = sound(ATTACK_SOUND.get(key))
@@ -249,6 +354,17 @@ def main():
         cdo.set_editor_property("hurt_sound", sound(hurt_sound))
         cdo.set_editor_property("death_sound", sound(death_sound))
 
+        for name, value in (BOSS_TUNING.get(key) or {}).items():
+            cdo.set_editor_property(name, value)
+
+        # A polyp is a mini factory; the mini's Blueprint is built in the same run, so look it up by name.
+        if key == "RoyalPolyp":
+            mini = load(OUT_PATH + "/BP_RoyalMini")
+            if mini:
+                cdo.set_editor_property("minion_class", mini.generated_class())
+                for prop, value in POLYP_MINION_TUNING.items():
+                    cdo.set_editor_property(prop, value)
+
         cdo.set_editor_property("default_abilities", [ability_bp.generated_class()])
 
         spark = load(BLUEPRINTS + "/BP_HitSpark.BP_HitSpark")
@@ -258,9 +374,87 @@ def main():
         unreal.EditorAssetLibrary.save_loaded_asset(monster_bp, False)
         made += 1
 
+    made += build_royal_jelly_stages(failed)
+
     unreal.log_warning("Clockworks: built {0} monsters".format(made))
     if failed:
         unreal.log_warning("Clockworks: failed: " + ", ".join(failed))
+
+
+def build_royal_jelly_stages(failed):
+    """The Royal Jelly's four stages, each a copy of BP_RoyalJelly with its own rules, chained by NextStageClass.
+
+    Built backwards so every stage can name the one that follows it; the floor director spawns Stage 1, which hands
+    over as each health bar empties (stage 3 on its own clock instead). The base BP_RoyalJelly stays as it is, for the
+    bestiary and for anything that just wants one jelly.
+    """
+    base = load(OUT_PATH + "/BP_RoyalJelly")
+    if not base:
+        failed.append("RoyalJelly stages (no BP_RoyalJelly)")
+        return 0
+    base_cdo = unreal.get_default_object(base.generated_class())
+
+    # Everything a stage copies from the jelly itself: it is the same creature in a different mood.
+    copied = ["use_direct_animation", "idle_anim", "move_anim", "death_anim", "hurt_anim", "aggro_anim",
+              "move_anim_reference_speed", "initial_health", "initial_defense_power", "attack_range",
+              "attack_needs_line_of_sight", "health_bar_height", "aggro_sound", "hurt_sound", "death_sound",
+              "hit_spark_class", "impulse_level", "default_abilities"]
+
+    made, next_class = 0, None
+    for suffix, speed, polyps, extra in reversed(ROYAL_JELLY_STAGES):
+        name = "BP_RoyalJelly" + suffix
+        blueprint = make_blueprint(name, unreal.ClockworksEnemyCharacter)
+        if not blueprint:
+            failed.append(name)
+            continue
+        cdo = unreal.get_default_object(blueprint.generated_class())
+
+        for prop in copied:
+            cdo.set_editor_property(prop, base_cdo.get_editor_property(prop))
+        cdo.set_family_tag_by_name("Family.Slime")
+
+        # The mesh, its rotation, offset and scale, measured once for the jelly and true for every stage.
+        base_mesh = base_cdo.get_editor_property("mesh")
+        mesh_component = cdo.get_editor_property("mesh")
+        if base_mesh and mesh_component:
+            mesh_component.set_editor_property("skeletal_mesh_asset", base_mesh.get_editor_property("skeletal_mesh_asset"))
+            mesh_component.set_relative_rotation(base_mesh.get_editor_property("relative_rotation"), False, False)
+            mesh_component.set_relative_location(base_mesh.get_editor_property("relative_location"), False, False)
+            mesh_component.set_relative_scale3d(base_mesh.get_editor_property("relative_scale3d"))
+        base_capsule = base_cdo.get_editor_property("capsule_component")
+        capsule = cdo.get_editor_property("capsule_component")
+        if base_capsule and capsule:
+            capsule.set_capsule_size(base_capsule.get_editor_property("capsule_radius"),
+                                     base_capsule.get_editor_property("capsule_half_height"), False)
+
+        cdo.set_editor_property("initial_move_speed", float(speed))
+
+        # Polyps standing around it, and the Royal Minis it eats to heal.
+        polyp = load(OUT_PATH + "/BP_RoyalPolyp")
+        mini = load(OUT_PATH + "/BP_RoyalMini")
+        if polyps > 0 and polyp:
+            cdo.set_editor_property("minion_class", polyp.generated_class())
+            cdo.set_editor_property("minion_count", int(polyps))
+            for prop, value in JELLY_MINION_TUNING.items():
+                cdo.set_editor_property(prop, value)
+            if mini:
+                cdo.set_editor_property("absorb_minion_class", mini.generated_class())
+
+        # The transition has nothing to attack with; the others keep the jelly's roundhouse.
+        if polyps == 0:
+            cdo.set_editor_property("default_abilities", [])
+        if next_class:
+            cdo.set_editor_property("next_stage_class", next_class)
+        for prop, value in extra.items():
+            cdo.set_editor_property(prop, value)
+
+        unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False)
+        next_class = blueprint.generated_class()
+        made += 1
+        unreal.log_warning("Clockworks: {0} (speed {1}, polyps {2}, {3})".format(
+            name, speed, polyps, ", ".join("{0}={1}".format(k, v) for k, v in extra.items()) or "fights normally"))
+
+    return made
 
 
 main()

@@ -224,6 +224,99 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Combat", meta = (Categories = "Family"))
 	FGameplayTag FamilyTag;
 
+	/**
+	 * This monster cannot be hurt unless it is stunned (State.Guarded while it is not). The Snarbolax's rule: its coat
+	 * turns everything aside until a knight rings the beast bell, and only the stun that follows opens it up.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	bool bGuardedUntilStunned = false;
+
+	/**
+	 * While stunned, it shakes the stun off early once this much of its maximum health has been dealt (the wiki's
+	 * "about a third"; user's decision 2026-09-15). Zero never wakes early. Only used with bGuardedUntilStunned.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float StunBreakHealthFraction = 0.f;
+
+	/** Server: puts State.Guarded on or takes it off, following the stun. Does nothing without bGuardedUntilStunned. */
+	void RefreshGuard();
+
+	/**
+	 * The monster that takes this one's place when it dies, spawned where it fell. The original's Royal Jelly is four
+	 * actors in a chain: each stage spawns the next as it is removed, so the fight is one health bar after another.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Stages")
+	TSubclassOf<AClockworksEnemyCharacter> NextStageClass;
+
+	/**
+	 * Seconds this stage lasts before it hands over by itself, hurting nobody and taking no damage: the Royal Jelly's
+	 * third stage is a transition the knights cannot touch (the user's decision 2026-09-15: 10 s, its polyps still
+	 * working). Zero means it dies like anything else.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Stages", meta = (ClampMin = "0.0"))
+	float StageSeconds = 0.f;
+
+	/**
+	 * A rage that comes and goes: RageGuardSeconds unhittable, then RageOpenSeconds open, over and over (the user's
+	 * decision 2026-09-15 for the Royal Jelly's last stage: 5 s of each). Zero never rages.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Stages", meta = (ClampMin = "0.0"))
+	float RageGuardSeconds = 0.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Stages", meta = (ClampMin = "0.0"))
+	float RageOpenSeconds = 0.f;
+
+	/**
+	 * What this monster keeps around it: the Royal Jelly's polyps, and the Royal Minis a polyp shoots out. They are
+	 * spawned when it appears and, where MinionsRespawn is set, replaced as they die, so clearing them is a job you
+	 * have to keep doing rather than do once (research: boss_mechanics.md section B).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Minions")
+	TSubclassOf<AClockworksEnemyCharacter> MinionClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Minions", meta = (ClampMin = "0"))
+	int32 MinionCount = 0;
+
+	/** How far out they stand, in cm. The original scatters the polyps around the arena's edge. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Minions", meta = (ClampMin = "0.0"))
+	float MinionRadiusCm = 500.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Minions")
+	bool bMinionsRespawn = false;
+
+	/** Seconds between checks for a dead minion to replace (INFERRED: the original's interval is stripped). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Minions", meta = (ClampMin = "0.5"))
+	float MinionRespawnSeconds = 5.f;
+
+	/**
+	 * A minion of this kind that touches this monster is consumed and heals it: the Royal Jelly eats its own Royal
+	 * Minis, which is why leaving them alive undoes your work.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Minions")
+	TSubclassOf<AClockworksEnemyCharacter> AbsorbMinionClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Minions", meta = (ClampMin = "0.0"))
+	float AbsorbRadiusCm = 200.f;
+
+	/**
+	 * How much of its maximum health each absorbed minion restores. The original heals 104.2 at depth 25 against a
+	 * 3162 health bar, so a thirtieth of it; kept as a fraction so it follows the depth like everything else (INFERRED).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Minions", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AbsorbHealFraction = 0.033f;
+
+	/** Server: puts MinionCount minions around it. */
+	void SpawnMinions();
+
+	/** Server, on a timer: replaces the dead ones, and eats any minion standing on it. */
+	void TickMinions();
+
+	/** Server: hands over to NextStageClass and removes this one. Called when a stage's health or its time runs out. */
+	void AdvanceStage();
+
+	/** Server, from the rage timer: turns the guard on and off in turn, and schedules the next change. */
+	void TickRage();
+
 	/** Zero keeps a training dummy or a turret in place. Enemies that walk get a real number. */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat", meta = (ClampMin = "0.0"))
 	float InitialMoveSpeed = 0.f;
@@ -404,6 +497,20 @@ private:
 
 	FTimerHandle HitFlashTimer;
 	bool bDead = false;
+
+	/** Server: health when the current stun began, for the early wake. */
+	float HealthAtStunStart = 0.f;
+
+	/** Server: the transition stage's own clock, and the rage's. */
+	FTimerHandle StageTimer;
+	FTimerHandle RageTimer;
+
+	/** Server: the minions it is keeping, and the clock that replaces and absorbs them. */
+	TArray<TWeakObjectPtr<AClockworksEnemyCharacter>> Minions;
+	FTimerHandle MinionTimer;
+
+	/** Server: whether the rage is currently in its unhittable half. */
+	bool bRageGuarded = false;
 
 	/** The throwaway montage PlaySlotAnimation is currently playing, so it can be stopped. */
 	TWeakObjectPtr<UAnimMontage> ActiveSlotMontage;

@@ -8,6 +8,7 @@
 
 class AClockworksProjectile;
 class UAnimMontage;
+class UAnimSequenceBase;
 class USoundBase;
 
 /**
@@ -56,6 +57,20 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Ranged", meta = (ClampMin = "1.0"))
 	float ProjectileSpeed = 1100.f;
 
+	/**
+	 * How far the shot flies before it fizzles, in cm: a devilite's thrown stapler carries about 7 tiles. Zero lets the
+	 * projectile Blueprint's own lifespan decide.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Ranged", meta = (ClampMin = "0.0"))
+	float ProjectileRange = 0.f;
+
+	/** A step backwards as it throws, in cm, over RecoilSeconds. Zero none. */
+	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Feel", meta = (ClampMin = "0.0"))
+	float RecoilDistance = 0.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Feel", meta = (ClampMin = "0.01"))
+	float RecoilSeconds = 0.5f;
+
 	/** Raw damage before the attacker's AttackPower and the target's DefensePower. */
 	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Damage", meta = (ClampMin = "0.0"))
 	float BaseDamage = 8.f;
@@ -79,8 +94,29 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Animation")
 	TObjectPtr<UAnimMontage> RecoveryMontage;
 
+	/**
+	 * Raw clips per phase, preferred over the montages above, exactly as the melee ability does it: the Spiral Knights
+	 * exports are plain sequences and montage assets cannot be made outside the editor. A devilite's throw is three of
+	 * them (throw_start, throw_fire, throw_end), each fitted to its phase.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Animation")
+	TObjectPtr<UAnimSequenceBase> WindupAnim;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Animation")
+	TObjectPtr<UAnimSequenceBase> AttackAnim;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Animation")
+	TObjectPtr<UAnimSequenceBase> RecoveryAnim;
+
+	/** Seconds the shot's own clip runs before the recovery begins. Zero goes straight to the recovery. */
+	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Timing", meta = (ClampMin = "0.0"))
+	float FireSeconds = 0.f;
+
 	/** Plays a montage through the ability system (replicated to clients) if it and an anim instance exist. */
 	void PlayPhaseMontage(UAnimMontage* Montage);
+
+	/** Server only: the phase's raw clip fitted to its length, falling back to the montage. */
+	void PlayPhase(UAnimSequenceBase* Anim, UAnimMontage* Montage, float PhaseSeconds);
 
 	/** The shot. Server only, multicast: everyone must hear a bolt leaving a turret. */
 	UPROPERTY(EditDefaultsOnly, Category = "Ranged|Sound")

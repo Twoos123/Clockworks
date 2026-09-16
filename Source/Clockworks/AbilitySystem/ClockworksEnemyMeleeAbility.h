@@ -41,6 +41,9 @@ protected:
 
 	UFUNCTION() void OnWindupFinished();
 	UFUNCTION() void OnLungeFinished();
+
+	/** Server only, from the hit-delay timer: opens the hitbox part-way through the strike. */
+	void OpenHitWindow();
 	UFUNCTION() void OnRecoveryFinished();
 
 	/** Plays a montage through the ability system (replicated to clients) if it and an anim instance exist. */
@@ -67,6 +70,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Melee|Timing", meta = (ClampMin = "0.0"))
 	float LungeSeconds = 0.25f;
 
+	/**
+	 * Seconds into the strike before the hitbox opens. The original's monsters strike part-way through the clip (the
+	 * chromalisk licks 0.56 s into a 0.47 s fire phase), which is what makes the swing readable rather than instant.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Timing", meta = (ClampMin = "0.0"))
+	float HitDelaySeconds = 0.f;
+
 	/** Seconds after the lunge during which the enemy cannot act or move. The punish window. */
 	UPROPERTY(EditDefaultsOnly, Category = "Melee|Timing", meta = (ClampMin = "0.0"))
 	float RecoverySeconds = 0.6f;
@@ -79,9 +89,23 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Melee|Feel", meta = (ClampMin = "0.0"))
 	float LungeSpeed = 900.f;
 
+	/**
+	 * A step backwards as it strikes, in cm: the original gives its lickers and throwers a recoil rather than a lunge.
+	 * Zero none. Runs over RecoilSeconds from the moment the hitbox opens (or the shot leaves).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Feel", meta = (ClampMin = "0.0"))
+	float RecoilDistance = 0.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Feel", meta = (ClampMin = "0.01"))
+	float RecoilSeconds = 0.8f;
+
 	/** Raw damage before the attacker's AttackPower and the target's DefensePower. */
 	UPROPERTY(EditDefaultsOnly, Category = "Melee|Damage", meta = (ClampMin = "0.0"))
 	float BaseDamage = 10.f;
+
+	/** How hard the hit shoves, as a multiple of the target's own knockback. Zero does not move it (the chromalisk's lick). */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Damage", meta = (ClampMin = "0.0"))
+	float KnockbackMultiplier = 1.f;
 
 	/** Radius of the sphere swept in front of the enemy while lunging, in cm. */
 	UPROPERTY(EditDefaultsOnly, Category = "Melee|Hitbox", meta = (ClampMin = "0.0"))
@@ -90,6 +114,13 @@ protected:
 	/** Distance from the enemy's centre to the sphere's centre along its facing, in cm. */
 	UPROPERTY(EditDefaultsOnly, Category = "Melee|Hitbox", meta = (ClampMin = "0.0"))
 	float HitForwardOffset = 70.f;
+
+	/**
+	 * A rectangle instead of a circle: its length along the facing and its width, in cm, swept turned with the monster.
+	 * Zero keeps the sphere. The chromalisk's lick is a 3 x 0.75 tile box reaching 3.1 tiles (research: _research/bosses).
+	 */
+	UPROPERTY(EditDefaultsOnly, Category = "Melee|Hitbox")
+	FVector2D HitBoxSizeCm = FVector2D::ZeroVector;
 
 	/**
 	 * Optional. Played at the start of the windup. When set, AttackMontage waits for the lunge and
@@ -142,6 +173,9 @@ protected:
 private:
 
 	static constexpr float HitCheckInterval = 1.f / 30.f;
+
+	/** Counts down HitDelaySeconds inside the strike, then opens the hitbox. */
+	FTimerHandle HitWindowTimer;
 
 	FTimerHandle HitCheckTimer;
 

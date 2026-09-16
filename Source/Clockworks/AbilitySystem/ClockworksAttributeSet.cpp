@@ -204,6 +204,14 @@ void UClockworksAttributeSet::PostGameplayEffectExecute(const FGameplayEffectMod
 		Mitigated = 0.f;
 	}
 
+	// Guarded: the hit lands, is heard and is felt (the flash, the shove, the number reading zero), but costs nothing.
+	// The original's bosses do this with a defense so high nothing gets through: a Snarbolax before the bell rings, a
+	// Royal Jelly mid-rage.
+	if (TargetASC.HasMatchingGameplayTag(ClockworksTags::State_Guarded))
+	{
+		Mitigated = 0.f;
+	}
+
 	// Freeze and Sleep both break on any hit, and the two break differently on purpose (user's decisions 2026-09-15,
 	// research _research/status_damage). The hit that wakes a sleeper adds the sleep's wake damage, the original's
 	// depth-scaled amount stored when it was inflicted. Breaking a monster's ice early spares it the thaw damage it takes
