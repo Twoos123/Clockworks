@@ -1,18 +1,147 @@
-# Clockworks — what a showable demo still needs
+# Clockworks — the working list
 
-Written 2026-09-14. The goal this list serves: a build you can hand to someone
-who has never seen the project, that reads unmistakably as Spiral Knights in
-Unreal, and holds up for ten minutes of play.
+Retitled 2026-09-16, when the scope changed from "a showable demo" to
+**rebuilding as much of Spiral Knights as can be rebuilt** (the user's call; see
+`CLAUDE.md`, "Scope"). The demo list below the line is kept: it is still the
+detail on the knight, the weapons, the statuses and the HUD, and most of it is
+done. What changed is that it is no longer the ceiling.
 
-Everything here is measured against `Docs/SpiralKnightsReference.md`, which is
-the wiki material we gathered. Section numbers in brackets point back into it.
+The measure is no longer "ten minutes of play". It is: the game's own floors,
+its own monsters, its own numbers, playable end to end, single player first.
 
-`CLAUDE.md`'s cut list still stands: no economy, crafting, PvP, guilds,
-accounts, matchmaking, meta-progression, more than two players, more than one
-tileset, or a dedicated server. Two items below brush against it and are
-flagged.
+Everything here is measured against `Docs/SpiralKnightsReference.md` and against
+the research under `D:\Dev\SKAssets\_research` and `_floors`, which is where the
+original's own data lives.
 
 ---
+
+## The order of work (the user's, 2026-09-16)
+
+**1 → floors, 2 → monsters, 3 → run progression.** In that order, all three.
+Alongside them, a census of which level spawns which monsters, with which
+tileset, and where in the level.
+
+---
+
+## 1. Floors
+
+- [x] 111 archived floors as `UClockworksFloorDefinition` assets (360 MB, tracked)
+- [x] 360 world models imported (9,277 assets)
+- [x] `AClockworksFloorBuilder`: instanced scenery, collision from the cell grid,
+      navigation bounds, lighting from the scene's own ambient
+- [x] `Lvl_Floor`, the calibration map; Mission Lobby verified standing and walkable
+- [x] **Materials fixed** — every world surface was drawing Unreal's grey checker
+      because the imported materials lacked the `InstancedStaticMeshes` usage flag.
+      `fix_floor_materials.py` copies the importer's Substrate parent into the
+      project and re-parents all 2,639 of them. A hand-authored master does *not*
+      work: under Substrate it renders nothing at all.
+- [x] Exposure pinned (`ExposureEV`, `Clockworks.Exposure`) — auto-exposure was
+      metering a dim room and clipping the tileset to white
+- [x] Floor objects written: gates, switches, blocks, the addressed signal bus
+- [x] The wiring recovered from the archive (`_floors/interactive`, 111 sidecars):
+      tags, emissions, verbs, and the correction that **the number in "Iron Gate/
+      Trigger 3" is the gate's width, not a signal count**
+- [ ] **Objects actually placed.** `ObjectRules` on the builder are unset, so a
+      floor still builds 0 objects. Needs the rules generated from
+      `_research/floor_objects/object_classes.json` (373 configs → 5 behaviours)
+      and the markers filled from the sidecars.
+- [ ] **156 of 371 models are missing some or all of their textures** — the
+      exporter wrote `dummymtl` placeholders with no images. The walls are the
+      visible case: 65 materials, none textured. The PNGs exist in `rsrc`; the
+      mapping is being recovered.
+- [ ] Hazards, lift objects (gold keys, statues), treasure contents, respawn pads
+- [ ] Traps: the `Trap$Cycle` enum is recovered (A, B, QUICK, SLOW, UP, DOWN and
+      their timings); `TOGGLE`/`RESET` are unresolved
+- [ ] 7 of the 14 boss-region floors have no manifest yet; **Firestorm Citadel has
+      none at all**, so the Vanaduke run has no floors
+- [ ] Moorcroft Manor and the Sanctuary are not captured
+- [ ] Navigation: a nav-mesh actor cannot be spawned from a script, so a generated
+      level needs opening once in the editor
+- [ ] 43 stale floor assets sit untracked in `Content/TopDown/Floors`;
+      `delete_asset` reports success in a commandlet and leaves the file
+
+## 2. Monsters
+
+- [x] 12 built, on the original's per-depth health, defense and damage
+- [x] Snarbolax (beast bell, guard, early stun break) and Royal Jelly (four stages,
+      polyps, minis, rage) built
+- [x] Roster mined: **862 monster actors on 163 models, 84 creature groups**; 74
+      new `.glb` exported (`_monsters_full`)
+- [ ] **Import every monster in the game.** The user's instruction, and the roster
+      is ready for it.
+- [ ] **Sounds are wrong on nearly all of them.** Nothing in an actor config names
+      its death sound: it lives inside the animation `.dat` the engine plays.
+      The Lichen is not silent (it uses the jelly set), the Zombie's death is
+      `zombie_moan_02`, hurt should be each monster's own material impact, and
+      there is no "aggro" event in the original at all.
+- [ ] **The Mechaknight runs at half speed**: 200 cm/s wandering and **333 chasing**
+      against the 150 it has. Its `move_anim_reference_speed` is 450, not its own.
+- [ ] Missing clips: the Wolver has no dodge; the Mechaknight is missing most of
+      its sword set. Both re-exported and waiting to be imported.
+- [ ] Second attacks for every monster (only the main attack is carried)
+- [ ] **Roarmulus Twins** — fully researched, nothing built. Two sealed turrets a
+      knight cannot damage; only the *other* twin's rocket exposes one. Needs
+      toggle-block columns and four switches.
+- [ ] **Vanaduke** — fully researched, nothing built, and **blocked**: his mask is
+      doused with a thrown water pot and there is no carry/throw system. Three
+      options are in `_research/bosses2/report.json`. **Decide before coding.**
+- [ ] His model is `character/npc/monster/baron/`, not `darkknight`. Health and
+      defense are flat, not depth-scaled; stage 3 is deliberately Shadow-immune.
+- [ ] The attention arrow (the Twins' key feedback) is a particle compound and
+      **cannot be exported at all** — needs rebuilding in engine
+- [ ] Monster spawn census: which level spawns what, with which tileset and where.
+      Single and Class spawns name their monster in the archive; **Subset spawns
+      (the majority) do not** and are being resolved.
+
+## 3. The run
+
+- [ ] Four elevators in the Mission Lobby, one per boss run
+- [ ] Per-run depth tables — the runs keep the original's depths (Snarbolax 5–7,
+      Royal Jelly 15–17, Roarmulus 15–17, Vanaduke 24–28) unless compressed, which
+      would mean re-deriving every depth-scaled damage and defense table
+- [ ] Floor-to-floor transitions and level loading
+- [ ] `FloorKindForDepth` should become the original's own vocabulary:
+      `LEVEL, TERMINAL, LOBBY, SUBTOWN, CORE, SPECIAL` with its
+      `isLobby/isSafe/canEquip/isArsenal` predicates
+- [ ] Shadow Lairs — filed under **"Ultimate"** in the game data, which is why
+      searching for "Shadow Lair" looks empty. Ironclaw's lair scene does not exist
+      in the archive; Firestorm's does (scene 271). No health or damage multiplier
+      exists anywhere in the client data.
+
+## 4. The wider game (scope change, 2026-09-16)
+
+- [ ] The captured towns as real explorable levels: **Emberlight** (113×90),
+      the **Clockworks Party Lobby**, the **Advanced Training Hall**, **The Lab**
+- [ ] A title screen and loading screens faithful to the original, from `rsrc/ui`
+      — **no login, no credential entry**, deliberately
+- [ ] Haven **cannot be identical**: its models exist, its layout was never
+      captured. It would be hand-built level design.
+- [ ] Previously cut and now open, each to be costed before starting: missions,
+      crafting, the economy, guilds, XP, more than one tileset
+- [ ] Two players: still written server-authoritative throughout, still untested
+      since the scope change. The longer it goes untested the more will be wrong.
+
+## 5. Known bugs, found by looking
+
+- [ ] The start menu's description lines overlap their titles (visible in any
+      screenshot of it)
+- [ ] Gear materials miss `SkeletalMesh` and `Nanite` usage flags — the same class
+      of bug that made the world grey; `fix_floor_materials.py` now sets flags on
+      the 420 base materials the project owns
+- [ ] Nothing in the project has been played by a human. Every system is verified
+      by data only. Expect a long tail of "looked fine, isn't".
+
+## Tools that now exist for checking work
+
+`Clockworks.After`, `Clockworks.CloseMenus`, `Clockworks.Teleport`,
+`Clockworks.Press`, `Clockworks.Spawn`, `Clockworks.Camera`,
+`Clockworks.Exposure`, `Clockworks.Report`, and `-game -RenderOffScreen` with
+`Shot`: the game runs headless, drives itself and photographs the result. The
+recipe and its traps are in the `headless-game-screenshots` memory. Use it.
+
+---
+
+# The demo list, from 2026-09-14 (still the detail on the knight, weapons and HUD)
 
 ## Where the demo actually stands
 

@@ -764,17 +764,37 @@ stat fps           frame rate
 
 ---
 
-## Not in scope
+## Scope (changed 2026-09-16: go wide)
 
-Don't build these, and don't suggest them unprompted:
+The demo scope is superseded. The target is now **as much of Spiral Knights as
+can be rebuilt**, not the four runs alone: every captured scene is content, the
+towns are real places, and the systems previously excluded are revisited one at
+a time rather than refused. The user made this call explicitly.
 
-Economy or currency · crafting · PvP · guilds, chat, friends lists · accounts,
-login, or backend persistence · matchmaking beyond invite-only · more than one
-tileset · anti-cheat beyond server authority · more than two players ·
-levels, XP, or meta-progression · a dedicated server target.
+Order of work, also the user's: **finish the floors** (objects placed and
+interactive), then **the monsters** (every monster in the game imported, with
+correct sounds and speeds), then **the run progression** (elevators, depths,
+floor to floor). Alongside them, a census of which level spawns which monsters,
+with which tileset and where in the level.
 
-If one of these seems genuinely necessary to solve something I've asked for, say
-so and explain why — don't build it.
+Still out, and for reasons that are not scope:
+
+- **Accounts, login, or anything that takes real credentials.** A screen that
+  imitates a live service and asks for a password is the wrong thing to build
+  however it is meant. A faithful title screen with no credential entry is fine,
+  and is wanted.
+- **A dedicated server target.** The networking model is still listen-server.
+- More than two players, until the two-player case actually works at all.
+
+Things that were on the old list — economy, crafting, missions, guilds, XP, more
+than one tileset — are no longer refused outright. They are large, so say what
+one costs before starting it, and check the order above still holds.
+
+**Haven cannot be made identical.** Its models are in the game files but its
+layout was never captured: of the 119 archived scenes the town-like ones are
+Emberlight, the Clockworks Party Lobby, three Mission Lobbies, the Advanced
+Training Hall and eight captures of The Lab. Haven itself would be hand-built
+level design, which is the user's to direct.
 
 ## What's mine, not yours
 
