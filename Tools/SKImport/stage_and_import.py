@@ -26,6 +26,18 @@ import sys
 import floor_model_names
 
 SK_ASSETS = r"D:\Dev\SKAssets"
+# Models whose materials were re-bound from the game's own configs (_research/world_textures). ThreeRingsSharp only
+# reads a texture spelled out inline on a mapping, so every model that names a shared material - the Clockworks walls
+# above all - exported with placeholder materials and no images at all. These are the same models with their textures
+# bound, and they are preferred over the originals wherever one exists.
+FIXED_MODELS = os.path.join(SK_ASSETS, "_research", "world_textures", "fixed")
+
+
+def source_model(rel):
+    """The re-bound copy of a model if there is one, else the original export."""
+    fixed = os.path.join(FIXED_MODELS, rel)
+    return fixed if os.path.isfile(fixed) else os.path.join(SK_ASSETS, rel)
+
 STAGING = os.path.join(SK_ASSETS, "_staging")
 UE_CMD = r"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 PROJECT = r"D:\Dev\Clockworks\Clockworks.uproject"
@@ -861,7 +873,7 @@ def stage(only=None, names=None, floors=None):
             continue
         if names and name not in names:
             continue
-        src = os.path.join(SK_ASSETS, rel)
+        src = source_model(rel)
         if not os.path.isfile(src):
             missing.append(rel)
             continue
