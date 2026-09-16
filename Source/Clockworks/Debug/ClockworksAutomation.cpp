@@ -8,6 +8,8 @@
 #include "ClockworksFloorBuilder.h"
 #include "ClockworksFloorDefinition.h"
 #include "ClockworksGameState.h"
+#include "Engine/PostProcessVolume.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "ClockworksPlayerController.h"
 #include "AbilitySystem/ClockworksAttributeSet.h"
 #include "AbilitySystem/ClockworksGameplayAbility.h"
@@ -212,6 +214,58 @@ namespace
 					}
 				}
 				UE_LOG(LogClockworks, Warning, TEXT("Automation: spawned %d of %s"), Made, *Args[0]);
+			}));
+
+	// ---------------------------------------------------------------------------------------------
+	// Clockworks.Exposure <ev>
+	// ---------------------------------------------------------------------------------------------
+	FAutoConsoleCommandWithWorldAndArgs GExposureCommand(
+		TEXT("Clockworks.Exposure"),
+		TEXT("Clockworks.Exposure <ev> - exposure compensation in stops. Higher is brighter. Exposure is pinned rather "
+			 "than adapted, so this is the one number that decides how dark a floor reads."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic([](const TArray<FString>& Args, UWorld* World)
+			{
+				UWorld* Game = GameWorld(World);
+				if (!Game || Args.Num() < 1)
+				{
+					UE_LOG(LogClockworks, Warning, TEXT("Automation: Clockworks.Exposure <ev>"));
+					return;
+				}
+				const float EV = FCString::Atof(*Args[0]);
+				int32 Changed = 0;
+				for (TActorIterator<APostProcessVolume> It(Game); It; ++It)
+				{
+					It->Settings.bOverride_AutoExposureBias = true;
+					It->Settings.AutoExposureBias = EV;
+					++Changed;
+				}
+				UE_LOG(LogClockworks, Warning, TEXT("Automation: exposure EV %.2f on %d volumes"), EV, Changed);
+			}));
+
+	// ---------------------------------------------------------------------------------------------
+	// Clockworks.Camera <arm length> [pitch]
+	// ---------------------------------------------------------------------------------------------
+	FAutoConsoleCommandWithWorldAndArgs GCameraCommand(
+		TEXT("Clockworks.Camera"),
+		TEXT("Clockworks.Camera <arm length cm> [pitch] - moves the camera in or out, for looking closely at something "
+			 "in a headless run. Cosmetic and local."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic([](const TArray<FString>& Args, UWorld* World)
+			{
+				AClockworksCharacter* Knight = FClockworksAutomation::FindKnight(GameWorld(World));
+				USpringArmComponent* Boom = Knight ? Knight->GetCameraBoom() : nullptr;
+				if (!Boom || Args.Num() < 1)
+				{
+					UE_LOG(LogClockworks, Warning, TEXT("Automation: Clockworks.Camera <arm length> [pitch]"));
+					return;
+				}
+				Boom->TargetArmLength = FCString::Atof(*Args[0]);
+				if (Args.Num() > 1)
+				{
+					FRotator Rotation = Boom->GetRelativeRotation();
+					Rotation.Pitch = FCString::Atof(*Args[1]);
+					Boom->SetRelativeRotation(Rotation);
+				}
+				UE_LOG(LogClockworks, Warning, TEXT("Automation: camera arm %.0f"), Boom->TargetArmLength);
 			}));
 
 	// ---------------------------------------------------------------------------------------------
