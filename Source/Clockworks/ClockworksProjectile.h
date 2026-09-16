@@ -364,9 +364,18 @@ private:
 	FClockworksBulletLineage MakeLineage(AActor* HitActor) const;
 	FVector FlightHeading() const;
 
-	/** Server only. A burst's damage region: damage, shove (or pull) and status on every hostile inside it. */
+public:
+
+	/**
+	 * Server only. A burst's damage region: damage, shove (or pull) and status on every hostile inside it.
+	 *
+	 * Public because a bullet is not the only thing that bursts: an explosive block on a floor goes off the same way,
+	 * and it should hurt by exactly the same rules rather than by a second copy of them.
+	 */
 	static void ApplyAreaHit(UWorld* World, AActor* Causer, const FClockworksBulletLineage& Lineage, const FClockworksBulletBurst& Burst,
 		const FVector& Centre, const FVector& Heading);
+
+private:
 
 	/** Every machine (multicast from the server): a burst's column of light and its sound. Cosmetic. */
 	UFUNCTION(NetMulticast, Reliable)
