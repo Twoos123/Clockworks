@@ -188,7 +188,7 @@ void AClockworksFloorBlock::ApplyBrokenState()
 
 	Body->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Body->SetCanEverAffectNavigation(false);
-	BlockMesh->SetVisibility(false);
+	SetPiecesVisible(false);
 
 	if (BreakSound && HasActorBegunPlay())
 	{

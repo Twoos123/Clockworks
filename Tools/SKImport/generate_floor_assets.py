@@ -137,6 +137,41 @@ def emissions(obj):
     return built
 
 
+
+# Wrappers, animation clips, effects and sounds are named alongside a model but are not geometry.
+NOT_GEOMETRY = ("model/wrapper/", "model/scripted/", "/animation", "/fx_", "/parts/")
+
+_MESH_CACHE = {}
+
+
+def object_meshes(row):
+    """Every imported static mesh of the model an object's config names.
+
+    A gate is a door and a frame; a block is one mesh. Resolved through the same rule the tiles use, so an object and
+    the floor around it are found the same way."""
+    if not row:
+        return []
+    key = row.get("config")
+    if key in _MESH_CACHE:
+        return _MESH_CACHE[key]
+
+    found = []
+    for model in row.get("models") or []:
+        model = model.replace("\\", "/")
+        if any(part in model for part in NOT_GEOMETRY):
+            continue
+        glb = os.path.splitext(model)[0] + ".glb"
+        category, name = floor_model_names.model_asset(glb)
+        folder = "/Game/SK/%s/%s/StaticMeshes" % (category, name)
+        for path in unreal.EditorAssetLibrary.list_assets(folder, recursive=False, include_folder=False):
+            asset = unreal.EditorAssetLibrary.load_asset(path)
+            if isinstance(asset, unreal.StaticMesh):
+                found.append(asset)
+
+    _MESH_CACHE[key] = found
+    return found
+
+
 def mesh_groups(manifest, report):
     """One entry per imported static mesh, carrying every copy of it on this floor.
 
@@ -271,6 +306,9 @@ def markers(manifest, wiring, classes, report):
 
         rules = classes.get(entry.get("config") or "")
         if rules:
+            pieces = object_meshes(rules)
+            if pieces:
+                marker.set_editor_property("meshes", pieces)
             if rules.get("behaviour"):
                 marker.set_editor_property("behaviour", rules["behaviour"])
             params = {name: str(value) for name, value in (rules.get("params") or {}).items()}

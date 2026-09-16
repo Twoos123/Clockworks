@@ -810,6 +810,43 @@ def gear_skin_entries():
     return entries
 
 
+OBJECT_CLASSES = os.path.join(r"D:\Dev\SKAssets\_research", "floor_objects", "object_classes.json")
+
+# Wrappers, animation clips, effects and sounds are named alongside a model but are not geometry.
+NOT_GEOMETRY = ("model/wrapper/", "model/scripted/", "/animation", "/fx_", "/parts/")
+
+
+def object_entries():
+    """(glb relative to SK_ASSETS, category, asset name) for the models the floors' gates, switches, blocks, hazards
+    and lift objects are made of.
+
+    These are never in the floor manifests' mesh lists: a gate is placed as a *marker*, and its model is named by the
+    config behind it, so the floor import never sees them. They come out of the floor-objects research instead."""
+    if not os.path.isfile(OBJECT_CLASSES):
+        return []
+    with open(OBJECT_CLASSES, encoding="utf-8") as handle:
+        rows = json.load(handle).get("configs") or []
+    if isinstance(rows, dict):
+        rows = list(rows.values())
+
+    entries, seen = [], set()
+    for row in rows:
+        if not row.get("behaviour"):
+            continue
+        for model in row.get("models") or []:
+            model = model.replace("\\", "/")
+            if any(part in model for part in NOT_GEOMETRY):
+                continue
+            glb = os.path.splitext(model)[0] + ".glb"
+            if glb in seen or glb in floor_model_names.PRE_IMPORTED:
+                continue
+            seen.add(glb)
+            if os.path.isfile(os.path.join(SK_ASSETS, glb.replace("/", os.sep))):
+                category, name = floor_model_names.model_asset(glb)
+                entries.append((glb.replace("/", os.sep), category, name))
+    return entries
+
+
 def stage(only=None, names=None, floors=None):
     groups = {}
     missing = []
@@ -819,7 +856,7 @@ def stage(only=None, names=None, floors=None):
     gear_models, gear_icons = gear_entries()
 
     for rel, category, name in (list(MODELS) + catalogue_models + fx_models + gear_models
-                                + armor_piece_entries() + floor_entries(floors)):
+                                + armor_piece_entries() + floor_entries(floors) + object_entries()):
         if only and category not in only:
             continue
         if names and name not in names:

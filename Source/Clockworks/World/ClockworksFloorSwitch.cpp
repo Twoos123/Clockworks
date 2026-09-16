@@ -314,7 +314,7 @@ void AClockworksFloorSwitch::OnRep_On()
 void AClockworksFloorSwitch::ApplyState()
 {
 	// The original sinks a pressed button into the floor; a few cm is enough to read at this camera.
-	SwitchMesh->SetRelativeLocation(FVector(0.f, 0.f, bOn ? -8.f : 0.f));
+	SetPiecesOffset(FVector(0.f, 0.f, bOn ? -8.f : 0.f));
 
 	if (!HasActorBegunPlay())
 	{

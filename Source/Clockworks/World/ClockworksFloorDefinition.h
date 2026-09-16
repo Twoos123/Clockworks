@@ -150,6 +150,14 @@ struct FClockworksFloorMarker
 	UPROPERTY(EditAnywhere, Category = "Marker")
 	FName Behaviour;
 
+	/**
+	 * Every solid piece of the model the original gives it: a gate is a door and a frame, a block is one mesh. These
+	 * are never in the floor's mesh instances, because a gate is placed as a marker and its model is named by the
+	 * config behind it.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Marker")
+	TArray<TSoftObjectPtr<UStaticMesh>> Meshes;
+
 	/** Whatever else that behaviour needs, by name: "blockKind" -> "explosive", "width" -> "5". */
 	UPROPERTY(EditAnywhere, Category = "Marker")
 	TMap<FName, FString> Params;

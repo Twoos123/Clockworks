@@ -8,6 +8,7 @@
 #include "ClockworksFloorObject.generated.h"
 
 class AClockworksFloorBuilder;
+class UStaticMeshComponent;
 
 /**
  * Something on a floor that does rather than decorates: a gate, a button, a block, a hazard.
@@ -70,9 +71,26 @@ protected:
 	/** Runs on: server. Sends one signal directly. */
 	void SendSignal(FName TargetTag, FName Verb);
 
+	/** Runs on: every machine. Builds a mesh component per piece of the marker's model. Cosmetic. */
+	void BuildPieces();
+
+	/** Runs on: every machine. Shows or hides every piece - an opened gate, a smashed block. Cosmetic. */
+	void SetPiecesVisible(bool bVisible);
+
+	/** Runs on: every machine. Moves every piece, for a button sinking into the floor. Cosmetic. */
+	void SetPiecesOffset(const FVector& Offset);
+
 	/** Runs on: every machine. Plays a sound at this object. Cosmetic. */
 	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastPlaySound(USoundBase* Sound);
+
+	/** The model's pieces, made in BeginPlay from the marker. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UStaticMeshComponent>> Pieces;
+
+	/** Which meshes to build, from the marker. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Floor Object")
+	TArray<TSoftObjectPtr<UStaticMesh>> Meshes;
 
 	/** The floor this was built into, found once in BeginPlay. */
 	UPROPERTY(Transient)

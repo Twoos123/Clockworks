@@ -234,7 +234,7 @@ void AClockworksFloorDoor::OnRep_Open()
 void AClockworksFloorDoor::ApplyOpenState()
 {
 	Barrier->SetCollisionEnabled(bOpen ? ECollisionEnabled::NoCollision : ECollisionEnabled::QueryAndPhysics);
-	GateMesh->SetVisibility(!bOpen);
+	SetPiecesVisible(!bOpen);
 
 	if (bOpen && OpenSound && HasActorBegunPlay())
 	{
