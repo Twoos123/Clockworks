@@ -111,6 +111,10 @@ MODELS = [
     (r"world\prop\clockworks\factory\control_console.glb", "World/Clockworks", "CW_ControlConsole"),
     (r"world\prop\clockworks\factory\conveyor_x2_01.glb",  "World/Clockworks", "CW_Conveyor2"),
     (r"world\prop\clockworks\lamp_rail01.glb",             "World/Clockworks", "CW_LampRail"),
+    # The ready room, the hub a knight appears in. One compound model holding the whole room: its shell, the control
+    # panel, the monitor banks and the furniture. The scene file beside it places only the furniture, so the model is
+    # the better source.
+    (r"world\readyroom\model_readyroom.glb",               "World/Rooms",      "ReadyRoom"),
     (r"world\prop\generic\altar_x3.glb",                   "World/Props",      "AltarX3"),
     # The Snarbolax's beast bell, rebuilt as a skinned prop with its clips (build_beastbell.py, 2026-09-15).
     (r"_exports_2026_09_15\BeastBell\BeastBell.glb",       "World/Props", "BeastBell"),
