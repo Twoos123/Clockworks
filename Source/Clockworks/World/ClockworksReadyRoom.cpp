@@ -28,6 +28,7 @@ AClockworksReadyRoom::AClockworksReadyRoom()
 
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
 	RootComponent = Camera;
+	Camera->SetFieldOfView(CameraFOV);
 
 	ActivitiesClass = UClockworksActivitiesPanel::StaticClass();
 	UplinkClass = UClockworksUplinkPanel::StaticClass();
@@ -86,6 +87,10 @@ void AClockworksReadyRoom::Enter()
 
 	// The room is looked at, not walked around: the camera is this actor's, and the knight the game mode spawned is
 	// neither shown nor driven. The original gives no movement here at all.
+	if (Camera)
+	{
+		Camera->SetFieldOfView(CameraFOV);
+	}
 	Controller->SetViewTargetWithBlend(this, 0.f);
 
 	if (APawn* Pawn = Controller->GetPawn())

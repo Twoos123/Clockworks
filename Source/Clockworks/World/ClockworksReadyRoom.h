@@ -61,6 +61,15 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Ready Room")
 	FVector SetCentre = FVector::ZeroVector;
 
+	/**
+	 * The camera's horizontal field of view, in degrees.
+	 *
+	 * The original records 30 degrees, but Clyde's `fov` is **vertical** and Unreal's is horizontal, so the recovered
+	 * horizontal figure for the aspect goes here - 50.94 at 16:9.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Ready Room", meta = (ClampMin = "5.0", ClampMax = "170.0"))
+	float CameraFOV = 50.942f;
+
 	/** Where the room is looked at from. Placed in the level, pointed at the set. */
 	UPROPERTY(VisibleAnywhere, Category = "Ready Room")
 	TObjectPtr<UCameraComponent> Camera;
