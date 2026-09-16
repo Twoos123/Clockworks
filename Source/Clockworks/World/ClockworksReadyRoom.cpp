@@ -6,6 +6,7 @@
 #include "ClockworksCharacter.h"
 #include "ClockworksPlayerController.h"
 #include "UI/ClockworksActivitiesPanel.h"
+#include "UI/ClockworksUplinkPanel.h"
 #include "Camera/CameraComponent.h"
 #include "ClockworksFloorBuilder.h"
 #include "ClockworksFloorDefinition.h"
@@ -28,6 +29,7 @@ AClockworksReadyRoom::AClockworksReadyRoom()
 	RootComponent = Camera;
 
 	ActivitiesClass = UClockworksActivitiesPanel::StaticClass();
+	UplinkClass = UClockworksUplinkPanel::StaticClass();
 }
 
 // Runs on: all machines; only the local one does anything.
@@ -47,6 +49,11 @@ void AClockworksReadyRoom::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		Activities->RemoveFromParent();
 		Activities = nullptr;
+	}
+	if (Uplink)
+	{
+		Uplink->RemoveFromParent();
+		Uplink = nullptr;
 	}
 	if (UWorld* World = GetWorld())
 	{
@@ -96,6 +103,14 @@ void AClockworksReadyRoom::Enter()
 		if (Activities)
 		{
 			Activities->AddToPlayerScreen(100);
+		}
+	}
+	if (!Uplink && UplinkClass)
+	{
+		Uplink = CreateWidget<UClockworksUplinkPanel>(Controller, UplinkClass);
+		if (Uplink)
+		{
+			Uplink->AddToPlayerScreen(90);
 		}
 	}
 

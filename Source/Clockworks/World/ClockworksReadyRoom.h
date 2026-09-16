@@ -8,6 +8,7 @@
 
 class UCameraComponent;
 class UClockworksActivitiesPanel;
+class UClockworksUplinkPanel;
 
 /**
  * The ready room: a fixed view of a set, with the interface over it.
@@ -69,6 +70,13 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UClockworksActivitiesPanel> Activities;
+
+	/** The Spiral Uplink window in the middle: news, mail and invitations. */
+	UPROPERTY(EditAnywhere, Category = "Ready Room")
+	TSubclassOf<UClockworksUplinkPanel> UplinkClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UClockworksUplinkPanel> Uplink;
 
 	/**
 	 * How long to wait before taking over, in seconds. The game mode spawns the knight and the controller builds its
