@@ -172,6 +172,28 @@ def object_meshes(row):
     return found
 
 
+
+def marker_meshes(entry):
+    """The imported meshes of whatever actor a marker places.
+
+    A shop, a machine, a respawn pad or a toughbox is placed as a marker with an actor behind it, and its model is
+    named on the marker rather than in the floor's mesh list - which is why an imported lobby had its walls and none of
+    its machines."""
+    found = []
+    for model in entry.get("actorModels") or []:
+        model = model.replace(chr(92), "/")
+        if any(part in model for part in NOT_GEOMETRY):
+            continue
+        glb = os.path.splitext(model)[0] + ".glb"
+        category, name = floor_model_names.model_asset(glb)
+        folder = "/Game/SK/%s/%s/StaticMeshes" % (category, name)
+        for path in unreal.EditorAssetLibrary.list_assets(folder, recursive=False, include_folder=False):
+            asset = unreal.EditorAssetLibrary.load_asset(path)
+            if isinstance(asset, unreal.StaticMesh):
+                found.append(asset)
+    return found
+
+
 def mesh_groups(manifest, report):
     """One entry per imported static mesh, carrying every copy of it on this floor.
 
@@ -305,10 +327,11 @@ def markers(manifest, wiring, classes, report):
                 wired += 1
 
         rules = classes.get(entry.get("config") or "")
+        # A marker's own actor model wins: it is what that particular placement puts there.
+        pieces = marker_meshes(entry) or (object_meshes(rules) if rules else [])
+        if pieces:
+            marker.set_editor_property("meshes", pieces)
         if rules:
-            pieces = object_meshes(rules)
-            if pieces:
-                marker.set_editor_property("meshes", pieces)
             if rules.get("behaviour"):
                 marker.set_editor_property("behaviour", rules["behaviour"])
             params = {name: str(value) for name, value in (rules.get("params") or {}).items()}

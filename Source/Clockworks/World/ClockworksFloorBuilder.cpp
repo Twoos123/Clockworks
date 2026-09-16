@@ -10,6 +10,10 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Components/SkyLightComponent.h"
+#include "Engine/PointLight.h"
+#include "Components/PointLightComponent.h"
+#include "Engine/SpotLight.h"
+#include "Components/SpotLightComponent.h"
 #include "Engine/PostProcessVolume.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/ExponentialHeightFog.h"
@@ -101,6 +105,11 @@ void AClockworksFloorBuilder::BuildFloor(UClockworksFloorDefinition* InFloor)
 	BuildCollision();
 	SpawnFloorObjects();
 
+	if (bBuildLights)
+	{
+		BuildLights();
+	}
+
 	if (bApplyFloorLighting)
 	{
 		ApplyFloorLighting();
@@ -134,6 +143,14 @@ void AClockworksFloorBuilder::ClearFloor()
 		}
 	}
 	Objects.Reset();
+	for (AActor* Light : Lights)
+	{
+		if (IsValid(Light))
+		{
+			Light->Destroy();
+		}
+	}
+	Lights.Reset();
 	SignalsSent.Reset();
 
 	Built.Reset();
@@ -585,4 +602,74 @@ void AClockworksFloorBuilder::ApplyFloorLighting()
 
 	UE_LOG(LogClockworks, Warning, TEXT("Floor: lit from the scene's own ambient %s (strength %.2f), sun %.1f lux, exposure EV %.1f"),
 		*Ambient.ToString(), AmbientStrength, SunLux, ExposureEV);
+}
+
+// Runs on: every machine. Lights are cosmetic and come from the same data everywhere, so none of this is replicated.
+void AClockworksFloorBuilder::BuildLights()
+{
+	UWorld* World = GetWorld();
+	if (!World || !Floor)
+	{
+		return;
+	}
+
+	static const FName LightCategory(TEXT("light"));
+	int32 Points = 0, Spots = 0;
+
+	for (const FClockworksFloorMarker& Marker : Floor->Markers)
+	{
+		if (Marker.Category != LightCategory)
+		{
+			continue;
+		}
+
+		FActorSpawnParameters Params;
+		Params.Owner = this;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+		// The config name is the only thing the archive says about a light beyond where it stands.
+		const bool bSpot = Marker.Config.Contains(TEXT("Spot"));
+		if (bSpot)
+		{
+			ASpotLight* Light = World->SpawnActor<ASpotLight>(ASpotLight::StaticClass(), Marker.Where, Params);
+			if (!Light)
+			{
+				continue;
+			}
+			Light->SetMobility(EComponentMobility::Movable);
+			if (USpotLightComponent* Component = Cast<USpotLightComponent>(Light->GetLightComponent()))
+			{
+				Component->SetIntensity(SpotLightIntensity);
+				Component->SetLightColor(LightColor);
+				Component->SetAttenuationRadius(LightRadiusCm);
+				Component->SetOuterConeAngle(SpotOuterAngle);
+				Component->SetInnerConeAngle(SpotOuterAngle * 0.5f);
+			}
+			Lights.Add(Light);
+			++Spots;
+		}
+		else
+		{
+			APointLight* Light = World->SpawnActor<APointLight>(APointLight::StaticClass(), Marker.Where, Params);
+			if (!Light)
+			{
+				continue;
+			}
+			Light->SetMobility(EComponentMobility::Movable);
+			if (UPointLightComponent* Component = Cast<UPointLightComponent>(Light->GetLightComponent()))
+			{
+				Component->SetIntensity(PointLightIntensity);
+				Component->SetLightColor(LightColor);
+				Component->SetAttenuationRadius(LightRadiusCm);
+			}
+			Lights.Add(Light);
+			++Points;
+		}
+	}
+
+	if (Points + Spots > 0)
+	{
+		UE_LOG(LogClockworks, Warning, TEXT("Floor: %d lights (%d point, %d spot) - colour and brightness are ours, not the original's"),
+			Points + Spots, Points, Spots);
+	}
 }

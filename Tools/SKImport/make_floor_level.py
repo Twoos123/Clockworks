@@ -69,7 +69,16 @@ def main():
     rules = []
     for behaviour, cls in (("door", unreal.ClockworksFloorDoor),
                            ("switch", unreal.ClockworksFloorSwitch),
-                           ("block", unreal.ClockworksFloorBlock)):
+                           ("block", unreal.ClockworksFloorBlock),
+                           # Everything else that carries a model: the alchemy machine, the arsenal, vendors,
+                           # toughboxes, respawn pads, bones. Seen, not fought.
+                           ("shop", unreal.ClockworksFloorProp),
+                           ("npc_spawn", unreal.ClockworksFloorProp),
+                           ("prop", unreal.ClockworksFloorProp),
+                           ("misc_dynamic", unreal.ClockworksFloorProp),
+                           ("treasure", unreal.ClockworksFloorProp),
+                           ("respawn_pad", unreal.ClockworksFloorProp),
+                           ("boss_object", unreal.ClockworksFloorProp)):
         rule = unreal.ClockworksFloorObjectRule()
         rule.set_editor_property("category", behaviour)
         rule.set_editor_property("object_class", cls)

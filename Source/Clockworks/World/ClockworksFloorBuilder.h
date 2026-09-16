@@ -160,6 +160,30 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Floor")
 	bool bApplyFloorLighting = true;
 
+	/** Whether to put a light wherever the floor's own data has one. */
+	UPROPERTY(EditAnywhere, Category = "Floor Lights")
+	bool bBuildLights = true;
+
+	/**
+	 * INFERRED, not the original's. The archive records each light's position and whether it is a point or a spot, but
+	 * not its colour, range or brightness - those live in the light's own config and have not been read yet. These are
+	 * ours, so the floors at least have their lamps lit until the real numbers are recovered.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Floor Lights")
+	FLinearColor LightColor = FLinearColor(1.f, 0.72f, 0.42f);
+
+	UPROPERTY(EditAnywhere, Category = "Floor Lights", meta = (ClampMin = "0.0"))
+	float PointLightIntensity = 12.f;
+
+	UPROPERTY(EditAnywhere, Category = "Floor Lights", meta = (ClampMin = "10.0"))
+	float LightRadiusCm = 900.f;
+
+	UPROPERTY(EditAnywhere, Category = "Floor Lights", meta = (ClampMin = "0.0"))
+	float SpotLightIntensity = 20.f;
+
+	UPROPERTY(EditAnywhere, Category = "Floor Lights", meta = (ClampMin = "1.0"))
+	float SpotOuterAngle = 44.f;
+
 	/**
 	 * How brightly the floor is exposed, as an exposure compensation in stops. Higher is brighter; each step of 1
 	 * doubles it.
@@ -209,6 +233,15 @@ private:
 	void SpawnFloorObjects();
 
 	/**
+	 * Runs on: every machine. Puts a light wherever the floor has one.
+	 *
+	 * The archive records each light's position and whether it is a point or a spot, but not its colour, its range or
+	 * its brightness - those live in the light's own config and are not recovered yet. So the numbers below are ours,
+	 * marked as such, and the floors at least have their lamps lit until the real ones are read.
+	 */
+	void BuildLights();
+
+	/**
 	 * Runs on: every machine. Lights the floor the way the original lights it.
 	 *
 	 * Each archived scene records its own ambient colour and background, and they are not decoration: the Mission Lobby
@@ -219,6 +252,10 @@ private:
 
 	/** The rule for one marker, or none. The most particular rule wins, so a general one can be a fallback. */
 	const FClockworksFloorObjectRule* FindRule(FName Category, const FString& Config) const;
+
+	/** Every light BuildLights made, cleared with the floor. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<AActor>> Lights;
 
 	/** Everything SpawnFloorObjects made, so a new floor can clear the old one's. */
 	UPROPERTY(Transient)
