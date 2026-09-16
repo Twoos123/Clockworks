@@ -14,6 +14,7 @@ Usage:
   python Tools/SKImport/stage_and_import.py --import   # ...and run the commandlet
   python Tools/SKImport/stage_and_import.py --import --groups Gear,Monsters   # only these categories
   python Tools/SKImport/stage_and_import.py --import --names Devilite,RoyalPolyp   # only these asset names
+  python Tools/SKImport/stage_and_import.py --import --groups World/Floors --floors Mission_Lobby__scenesmain__351
 """
 import json
 import os
@@ -21,6 +22,8 @@ import re
 import shutil
 import subprocess
 import sys
+
+import floor_model_names
 
 SK_ASSETS = r"D:\Dev\SKAssets"
 STAGING = os.path.join(SK_ASSETS, "_staging")
@@ -296,6 +299,9 @@ SOUNDS = [
     (r"effect\monster\gremlin\gremlin_chat_cry.ogg",        "Audio", "S_GremlinHurt"),
     (r"effect\monster\gremlin_death_01.ogg",                "Audio", "S_GremlinDeath"),
     # Snarbolax, the boss.
+    # The beast bell's strike, which lives with the world's dynamic objects rather than with the Snarbolax. The game
+    # ships no separate sound for hitting it on cooldown; the bell falls back to a monster hurt sound for that.
+    (r"effect\world\dynamic\snarby_bell_strike.ogg",         "Audio", "S_BeastBellRing"),
     (r"effect\monster\snarbolax\snarby_howl.ogg",           "Audio", "S_SnarbolaxAggro"),
     (r"effect\monster\snarbolax\snarby_bite_01.ogg",        "Audio", "S_SnarbolaxAttack"),
     (r"effect\monster\snarbolax\snarby_rush.ogg",           "Audio", "S_SnarbolaxRush"),
@@ -541,6 +547,49 @@ def fix_armor_glb(src, dst):
 # brings it in one armour per headless run. Icons are the per-item PNGs bake_gear_icons.py writes.
 # ---------------------------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------------------------
+# The floors themselves.
+#
+# D:\Dev\SKAssets\_floors holds one manifest per archived Spiral Knights scene: every tile and prop
+# it places, the grid under them, and its markers. Between them they name 377 model files, which is
+# far too many to list here and exactly the sort of list that is wrong within a week, so the models
+# a floor needs are read out of the manifests instead. floor_model_names.model_asset decides where
+# each lands, and generate_floor_assets.py reads the same rule when it points a floor at them.
+# ---------------------------------------------------------------------------------------------
+
+FLOORS_DIR = os.path.join(SK_ASSETS, "_floors")
+
+
+def floor_entries(manifests=None):
+    """(glb relative to SK_ASSETS, content category, asset name) for every model the floor manifests name.
+
+    Pass `manifests` (file names without the .json) to stage only what those floors need."""
+    entries, seen = [], set()
+    if not os.path.isdir(FLOORS_DIR):
+        return entries
+    for file in sorted(os.listdir(FLOORS_DIR)):
+        if not file.endswith(".json") or file == "report.json":
+            continue
+        if manifests and os.path.splitext(file)[0] not in manifests:
+            continue
+        with open(os.path.join(FLOORS_DIR, file), encoding="utf-8") as handle:
+            try:
+                manifest = json.load(handle)
+            except ValueError:
+                continue
+        for group in manifest.get("meshes") or []:
+            glb = (group.get("glb") or "").replace("/", os.sep)
+            # Editor-only markers (the collision tester's own tiles) are not part of the floor anyone plays.
+            if not glb or glb in seen or not group.get("glbExists") or group.get("editorOnly"):
+                continue
+            seen.add(glb)
+            category, name = floor_model_names.model_asset(group["glb"])
+            # The handful imported before the pipeline existed keep their folders and are not staged again.
+            if group["glb"] not in floor_model_names.PRE_IMPORTED:
+                entries.append((glb, category, name))
+    return entries
+
+
 GEAR_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gear.json")
 GEAR_EXPORT = os.path.join(SK_ASSETS, "_gear_export")
 GEAR_ICON_MANIFEST = os.path.join(SK_ASSETS, "_gear_icons", "gear_icons.json")
@@ -761,7 +810,7 @@ def gear_skin_entries():
     return entries
 
 
-def stage(only=None, names=None):
+def stage(only=None, names=None, floors=None):
     groups = {}
     missing = []
 
@@ -769,7 +818,8 @@ def stage(only=None, names=None):
     fx_models, fx_sounds = fx_entries()
     gear_models, gear_icons = gear_entries()
 
-    for rel, category, name in list(MODELS) + catalogue_models + fx_models + gear_models + armor_piece_entries():
+    for rel, category, name in (list(MODELS) + catalogue_models + fx_models + gear_models
+                                + armor_piece_entries() + floor_entries(floors)):
         if only and category not in only:
             continue
         if names and name not in names:
@@ -784,7 +834,7 @@ def stage(only=None, names=None):
         # A bullet model's spin is the game's procedural animation, redone in C++; import it still.
         gear = category in ("Gear/Helmets", "Gear/Shields")
         # Loose armour pieces are already in their bone's space: static, but their node offsets are real.
-        static = category in ("WeaponModels", "Projectiles", "Gear/ArmorPieces") or gear
+        static = category in ("WeaponModels", "Projectiles", "Gear/ArmorPieces", "World/Floors") or gear
         fix_glb(src, dst, static_only=static, zero_mesh_offsets=gear)
         groups.setdefault(category, []).append(dst)
 
@@ -839,5 +889,9 @@ if __name__ == "__main__":
     names = None
     if "--names" in sys.argv:
         names = sys.argv[sys.argv.index("--names") + 1].split(",")
-    if stage(only, names) and "--import" in sys.argv:
+    # Only the models these floor manifests need (file names without .json), instead of all 377.
+    floors = None
+    if "--floors" in sys.argv:
+        floors = set(sys.argv[sys.argv.index("--floors") + 1].split(","))
+    if stage(only, names, floors) and "--import" in sys.argv:
         sys.exit(run_import())
