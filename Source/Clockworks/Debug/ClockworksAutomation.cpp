@@ -9,6 +9,7 @@
 #include "ClockworksFloorDefinition.h"
 #include "ClockworksGameState.h"
 #include "ClockworksProfileSave.h"
+#include "ClockworksReadyRoom.h"
 #include "Engine/PostProcessVolume.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "ClockworksPlayerController.h"
@@ -267,6 +268,30 @@ namespace
 					Boom->SetRelativeRotation(Rotation);
 				}
 				UE_LOG(LogClockworks, Warning, TEXT("Automation: camera arm %.0f"), Boom->TargetArmLength);
+			}));
+
+	// ---------------------------------------------------------------------------------------------
+	// Clockworks.RoomCamera <dx> <dy> <dz>
+	// ---------------------------------------------------------------------------------------------
+	FAutoConsoleCommandWithWorldAndArgs GRoomCameraCommand(
+		TEXT("Clockworks.RoomCamera"),
+		TEXT("Clockworks.RoomCamera <dx> <dy> <dz> - moves the ready room's camera to an offset from the set and points "
+			 "it back, so angles can be compared in one headless run."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateStatic([](const TArray<FString>& Args, UWorld* World)
+			{
+				UWorld* Game = GameWorld(World);
+				if (!Game || Args.Num() < 3)
+				{
+					UE_LOG(LogClockworks, Warning, TEXT("Automation: Clockworks.RoomCamera <dx> <dy> <dz>"));
+					return;
+				}
+				const FVector Offset(FCString::Atof(*Args[0]), FCString::Atof(*Args[1]), FCString::Atof(*Args[2]));
+				for (TActorIterator<AClockworksReadyRoom> It(Game); It; ++It)
+				{
+					It->FrameSet(Offset);
+					return;
+				}
+				UE_LOG(LogClockworks, Warning, TEXT("Automation: no ready room in this level"));
 			}));
 
 	// ---------------------------------------------------------------------------------------------

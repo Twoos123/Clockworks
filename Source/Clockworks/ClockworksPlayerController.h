@@ -159,6 +159,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ShowCharacterSelect();
 
+	/**
+	 * Runs on: the local machine. Shows or hides the play HUD.
+	 *
+	 * The ready room is not play: it has no health to watch, no weapon belt to read and nothing on a radar, and its
+	 * own panels carry what it does need. Without this the HUD's activities list and the room's stand side by side,
+	 * which is where the duplicate came from.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "UI")
+	void SetPlayHUDVisible(bool bVisible);
+
 	/** "The Forge is not built yet." */
 	UFUNCTION(BlueprintCallable, Category = "UI")
 	void ShowNotBuiltYet(const FText& What);

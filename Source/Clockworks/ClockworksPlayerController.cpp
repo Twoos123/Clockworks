@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "ClockworksPlayerController.h"
+#include "UI/ClockworksPlayerHUD.h"
 #include "UI/ClockworksNotice.h"
 #include "UI/ClockworksCharacterSelect.h"
 #include "UI/ClockworksTitleScreen.h"
@@ -176,6 +177,15 @@ bool AClockworksPlayerController::IsAnyMenuOpen() const
 		|| (PauseMenu && PauseMenu->IsMenuOpen())
 		|| (GuideScreen && GuideScreen->IsMenuOpen())
 		|| (GearScreen && GearScreen->IsMenuOpen());
+}
+
+// Runs on: the local machine only.
+void AClockworksPlayerController::SetPlayHUDVisible(bool bVisible)
+{
+	if (PlayerHUD)
+	{
+		PlayerHUD->SetVisibility(bVisible ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Collapsed);
+	}
 }
 
 // Runs on: the local machine only.

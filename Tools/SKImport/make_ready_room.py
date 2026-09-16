@@ -119,8 +119,10 @@ def build_level(asset, low, high):
     builder.set_editor_property("build_lights", False)
     builder.set_actor_label("ReadyRoomSet")
 
-    # A three-quarter view from in front and a little above, which is how the original frames it.
-    eye = unreal.Vector(centre.x - 520.0, centre.y - 430.0, centre.z + 230.0)
+    # Chosen by comparing six angles in headless runs: this one faces the control console, which is what the original
+    # puts in front of you. The original's own framing is in a bounded camera whose numbers are not recovered, and
+    # `Clockworks.RoomCamera` moves this one live if a better angle is wanted.
+    eye = unreal.Vector(centre.x, centre.y + 560.0, centre.z + 140.0)
     look = unreal.MathLibrary.find_look_at_rotation(eye, centre)
     room = unreal.EditorLevelLibrary.spawn_actor_from_class(unreal.ClockworksReadyRoom, eye, look)
     room.set_actor_label("ReadyRoom")

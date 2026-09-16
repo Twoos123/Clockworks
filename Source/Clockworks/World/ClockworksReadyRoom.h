@@ -38,6 +38,27 @@ protected:
 	/** Runs on: the local machine. Takes the camera and the input, and raises the panels. */
 	void Enter();
 
+public:
+
+	/**
+	 * Runs on: the local machine. Puts the camera at an offset from the set and points it back at it.
+	 *
+	 * The original frames this room with a bounded camera whose numbers are not recovered, so the angle here is
+	 * chosen by eye. `Clockworks.RoomCamera` drives this so several can be compared in one headless run.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Ready Room")
+	void FrameSet(const FVector& Offset);
+
+	/** Where the set is, for pointing the camera at it. */
+	UFUNCTION(BlueprintPure, Category = "Ready Room")
+	FVector GetSetCentre() const { return SetCentre; }
+
+protected:
+
+	/** The middle of the set, found from the built floor when the room is entered. */
+	UPROPERTY(EditAnywhere, Category = "Ready Room")
+	FVector SetCentre = FVector::ZeroVector;
+
 	/** Where the room is looked at from. Placed in the level, pointed at the set. */
 	UPROPERTY(VisibleAnywhere, Category = "Ready Room")
 	TObjectPtr<UCameraComponent> Camera;
