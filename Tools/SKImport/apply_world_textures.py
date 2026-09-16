@@ -98,11 +98,18 @@ def main():
                 continue
 
             current = unreal.MaterialEditingLibrary.get_material_instance_texture_parameter_value(material, TEXTURE_PARAM)
-            if current == texture:
+            switched = unreal.MaterialEditingLibrary.get_material_instance_static_switch_parameter_value(
+                material, "bHasBaseColorTexture")
+            if current == texture and switched:
                 already += 1
                 continue
 
             unreal.MaterialEditingLibrary.set_material_instance_texture_parameter_value(material, TEXTURE_PARAM, texture)
+            # And switch it on. The glTF master gates every texture slot behind a static switch, and a material that was
+            # imported with no texture has it off - so the texture is assigned, ignored, and the surface renders as the
+            # white base colour factor. This is the line that actually makes the walls gold.
+            unreal.MaterialEditingLibrary.set_material_instance_static_switch_parameter_value(
+                material, "bHasBaseColorTexture", True)
             # The original's own flags for it: a cut-out fence is not a solid slab, and a sheet is seen from both sides.
             properties = record.get("properties") or {}
             if properties.get("twoSided"):
