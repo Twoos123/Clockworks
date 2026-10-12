@@ -112,9 +112,32 @@ function applyParameter(config: any, param: any, value: unknown) {
   for (const path of param.paths ?? []) setPath(config, path, value);
 }
 
+/**
+ * Deep-copies an imported object graph, preserving cycles and shared references but
+ * sharing typed arrays (vertex and index data), which arguments never modify.
+ */
+export function cloneGraph<T>(value: T, seen = new Map<unknown, unknown>()): T {
+  if (value === null || typeof value !== "object" || ArrayBuffer.isView(value)) return value;
+  const prior = seen.get(value);
+  if (prior) return prior as T;
+  if (Array.isArray(value)) {
+    const out: unknown[] = [];
+    seen.set(value, out);
+    for (const v of value) out.push(cloneGraph(v, seen));
+    return out as T;
+  }
+  const out: Record<string, unknown> = {};
+  seen.set(value, out);
+  for (const k of Object.keys(value)) out[k] = cloneGraph((value as Record<string, unknown>)[k], seen);
+  return out as T;
+}
+
+export const hasArguments = (ref: any) => (ref?.arguments?.entries?.length ?? 0) > 0;
+
 /** Applies every argument in a ConfigReference to a clone of config. */
 export function applyArguments(config: any, ref: any): any {
-  const clone = structuredClone(config);
+  if (!hasArguments(ref)) return config;
+  const clone = cloneGraph(config);
   for (const [k, v] of ref?.arguments?.entries ?? []) applyArgument(clone, String(k), v);
   return clone;
 }

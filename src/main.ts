@@ -1,6 +1,8 @@
 import { lookAt, perspective, type Vec3 } from "./math";
 import { loadAnimation, ModelLoader, type LoadedModel } from "./model";
 import { Renderer, type ModelInstance } from "./render/renderer";
+import { SceneLoader, sceneName, type LoadedScene } from "./scene";
+import type { Mat4 } from "./math";
 import {
   canPickDirectory, DevServerVfs, FileListVfs, HandleVfs, recallHandle, rememberHandle, VfsError, type Vfs,
 } from "./vfs";
@@ -117,6 +119,10 @@ class Viewer {
   private readonly renderer: Renderer;
   private readonly canvas = $<HTMLCanvasElement>("canvas");
   private instance: ModelInstance | null = null;
+  private sceneItems: { instance: ModelInstance; matrix: Mat4 }[] | null = null;
+  private readonly sceneLoader: SceneLoader;
+  private readonly instances = new Map<LoadedModel, Promise<ModelInstance>>();
+  private shares = new Map<ModelInstance, number>();
   private model: LoadedModel | null = null;
   private readonly datFiles: string[];
   private az = -0.6; private el = 0.35; private dist = 3;
@@ -126,9 +132,11 @@ class Viewer {
   private last = performance.now();
   private loadToken = 0;
 
-  constructor(vfs: Vfs, files: string[]) {
+  constructor(private readonly vfs: Vfs, files: string[]) {
     this.loader = new ModelLoader(vfs);
     this.renderer = new Renderer(this.canvas, vfs);
+    this.sceneLoader = new SceneLoader(this.loader);
+    this.listScenes(vfs);
     this.datFiles = files.filter(f => f.endsWith(".dat")).sort();
     $("sourceLabel").textContent = `${vfs.label} · ${files.length.toLocaleString()} files`;
     const search = $<HTMLInputElement>("search");
@@ -138,10 +146,12 @@ class Viewer {
     $("pause").onclick = () => { this.paused = !this.paused; $("pause").textContent = this.paused ? "Play" : "Pause"; };
     $("reset").onclick = () => { this.dist = this.home.dist; this.target = [...this.home.target]; this.az = -0.6; this.el = 0.35; };
     this.setupCamera();
-    const fromHash = new URLSearchParams(location.hash.substring(1)).get("model");
+    const hash = new URLSearchParams(location.hash.substring(1));
+    const fromHash = hash.get("model");
     search.value = fromHash ? fromHash.replace(/\.dat$/, "") : "jellycube/model";
     this.renderList();
     if (fromHash) this.select(fromHash);
+    else if (hash.get("scene")) this.selectScene(hash.get("scene")!);
     requestAnimationFrame(this.frame);
     if (import.meta.env.DEV) (window as any).__viewer = this;
   }
@@ -174,6 +184,88 @@ class Viewer {
     return results;
   }
 
+  private async listScenes(vfs: Vfs) {
+    const ids = await vfs.scenes();
+    if (ids.length === 0) return;
+    const named = await Promise.all(ids.map(async id => {
+      try { return { id, name: await sceneName(await vfs.readScene(id)) }; } catch { return null; }
+    }));
+    const ul = $("scenes");
+    const found = named.filter((s): s is { id: string; name: string } => s !== null);
+    ul.replaceChildren(...found.sort((a, b) => a.name.localeCompare(b.name)).map(s => {
+      const li = document.createElement("li");
+      li.textContent = s.name;
+      li.dataset.scene = s.id;
+      li.onclick = () => this.selectScene(s.id);
+      return li;
+    }));
+    $("scenesBox").hidden = false;
+  }
+
+  private instanceOf(model: LoadedModel): Promise<ModelInstance> {
+    let p = this.instances.get(model);
+    if (!p) { p = this.renderer.instantiate(model); this.instances.set(model, p); }
+    return p;
+  }
+
+  private async selectScene(id: string) {
+    const token = ++this.loadToken;
+    this.status("Loading scene " + id + "...");
+    for (const li of $("scenes").children) li.classList.toggle("active", (li as HTMLElement).dataset.scene === id);
+    for (const li of $("list").children) li.classList.remove("active");
+    history.replaceState(null, "", "#scene=" + id);
+    const t0 = performance.now();
+    try {
+      const scene = await this.sceneLoader.load(id, await this.vfs.readScene(id), (done, total) => {
+        if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
+      });
+      const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
+      if (token !== this.loadToken) return;
+      this.sceneItems = items;
+      this.shares = new Map();
+      for (const it of items) this.shares.set(it.instance, (this.shares.get(it.instance) ?? 0) + 1);
+      this.instance = null;
+      this.model = null;
+      this.frameScene(scene);
+      const anim = $<HTMLSelectElement>("anim");
+      anim.replaceChildren(new Option("Scene animations", ""));
+      anim.disabled = true;
+      const ms = Math.round(performance.now() - t0);
+      this.status(scene.name + " · " + scene.objects.length.toLocaleString() + " objects · loaded in " + ms + " ms");
+      this.showSceneInfo(scene);
+    } catch (e) {
+      if (token !== this.loadToken) return;
+      this.status("Could not load scene " + id + ": " + (e as Error).message, true);
+    }
+  }
+
+  private frameScene(scene: LoadedScene) {
+    const { min, max } = scene.bounds;
+    const ok = isFinite(min[0]);
+    const cx = ok ? (min[0] + max[0]) / 2 : 0, cy = ok ? (min[1] + max[1]) / 2 : 0;
+    const extent = ok ? Math.max(max[0] - min[0], max[1] - min[1]) : 20;
+    this.target = [cx, cy, 0];
+    this.dist = Math.max(10, extent * 0.55);
+    this.home = { dist: this.dist, target: [cx, cy, 0] };
+    this.el = 0.95;
+    this.az = -Math.PI / 2;
+  }
+
+  private showSceneInfo(scene: LoadedScene) {
+    const rows: [string, string][] = [
+      ["Scene", scene.name],
+      ["Cache file", "scenes/" + scene.id],
+      ["Tiles", scene.stats.tiles.toLocaleString()],
+      ["Props", scene.stats.placeables.toLocaleString()],
+      ["Distinct models", scene.stats.uniqueModels.toLocaleString()],
+      ["Editor markers hidden", scene.stats.markers.toLocaleString()],
+      ["Unresolved", scene.stats.unresolved.toLocaleString()],
+    ];
+    const table = document.createElement("table");
+    for (const [k, v] of rows) { const tr = table.insertRow(); tr.insertCell().textContent = k; tr.insertCell().textContent = v; }
+    $("info").replaceChildren(table);
+  }
+
   private renderList() {
     const q = $<HTMLInputElement>("search").value.trim().toLowerCase();
     const only = $<HTMLInputElement>("onlyModels").checked;
@@ -203,6 +295,8 @@ class Viewer {
       if (token !== this.loadToken) return;
       this.model = model;
       this.instance = inst;
+      this.sceneItems = null;
+      for (const li of $("scenes").children) li.classList.remove("active");
       this.frameModel(model);
       await this.fillAnimations(model);
       const ms = Math.round(performance.now() - t0);
@@ -337,15 +431,21 @@ class Viewer {
     const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1);
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-    if (this.instance) {
-      if (!this.paused) this.instance.time += dt;
+    if (this.instance || this.sceneItems) {
+      if (!this.paused) {
+        if (this.instance) this.instance.time += dt;
+        // shared instances appear in several placements; advance each clock once per frame
+        for (const it of this.sceneItems ?? []) it.instance.time += dt / (this.shares.get(it.instance) ?? 1);
+      }
       const eye: Vec3 = [
         this.target[0] + this.dist * Math.cos(this.el) * Math.cos(this.az),
         this.target[1] + this.dist * Math.cos(this.el) * Math.sin(this.az),
         this.target[2] + this.dist * Math.sin(this.el),
       ];
       const proj = perspective(0.75, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
-      this.renderer.draw(this.instance, proj, lookAt(eye, this.target, [0, 0, 1]));
+      const view = lookAt(eye, this.target, [0, 0, 1]);
+      if (this.sceneItems) this.renderer.drawAll(this.sceneItems, proj, view);
+      else this.renderer.draw(this.instance!, proj, view);
     }
     requestAnimationFrame(this.frame);
   };

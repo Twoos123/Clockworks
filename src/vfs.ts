@@ -1,5 +1,7 @@
 // Read-only access to the player's own Spiral Knights install. Nothing is uploaded or
-// copied off the machine: files are read in the page, on demand.
+// copied off the machine: files are read in the page, on demand. Only two folders are
+// ever exposed: rsrc/ (game data) and scenes/ (scenes the server sent this player's
+// client). The proprietary code/ folder is never listed or read.
 //
 // Sources, in order of preference:
 //  - a directory handle from showDirectoryPicker (Chromium), remembered in IndexedDB
@@ -15,7 +17,13 @@ export interface Vfs {
   read(path: string): Promise<Uint8Array>;
   /** Returns a Blob for a file relative to rsrc/ (used for image decoding). */
   blob(path: string): Promise<Blob>;
+  /** File names in the install's scenes/ cache (empty if rsrc itself was picked). */
+  scenes(): Promise<string[]>;
+  /** Reads one cached scene file. */
+  readScene(name: string): Promise<Uint8Array>;
 }
+
+const SCENE_NAME = /^[0-9]+$/;
 
 export class VfsError extends Error {}
 
@@ -36,6 +44,7 @@ function rsrcPrefix(paths: string[]): string | null {
 
 export class FileListVfs implements Vfs {
   private readonly files = new Map<string, File>();
+  private readonly sceneFiles = new Map<string, File>();
   readonly label: string;
 
   constructor(files: Iterable<[string, File]>, label: string) {
@@ -49,8 +58,20 @@ export class FileListVfs implements Vfs {
       for (const [p, f] of all) this.files.set(p.substring(root.length), f);
     } else {
       for (const [p, f] of all) if (p.startsWith(prefix)) this.files.set(p.substring(prefix.length), f);
+      const scenes = prefix.substring(0, prefix.length - 5) + "scenes/";
+      for (const [p, f] of all) {
+        const name = p.substring(scenes.length);
+        if (p.startsWith(scenes) && SCENE_NAME.test(name)) this.sceneFiles.set(name, f);
+      }
     }
     this.label = label;
+  }
+
+  async scenes() { return [...this.sceneFiles.keys()]; }
+  async readScene(name: string) {
+    const f = this.sceneFiles.get(name);
+    if (!f) throw new VfsError(`Missing scene: ${name}`);
+    return new Uint8Array(await f.arrayBuffer());
   }
 
   async list() { return [...this.files.keys()]; }
@@ -76,6 +97,7 @@ function commonRoot(paths: string[]): string {
 /** Wraps a FileSystemDirectoryHandle, resolving paths lazily segment by segment. */
 export class HandleVfs implements Vfs {
   private rsrc?: FileSystemDirectoryHandle;
+  private scenesDir?: FileSystemDirectoryHandle;
   private readonly dirs = new Map<string, Promise<FileSystemDirectoryHandle>>();
   readonly label: string;
 
@@ -86,6 +108,7 @@ export class HandleVfs implements Vfs {
   async init(): Promise<this> {
     try {
       this.rsrc = await this.root.getDirectoryHandle("rsrc");
+      try { this.scenesDir = await this.root.getDirectoryHandle("scenes"); } catch { /* none cached */ }
     } catch {
       // maybe the user picked rsrc itself
       try {
@@ -138,6 +161,22 @@ export class HandleVfs implements Vfs {
 
   async read(path: string) { return new Uint8Array(await (await this.file(path)).arrayBuffer()); }
   async blob(path: string) { return this.file(path); }
+
+  async scenes(): Promise<string[]> {
+    const out: string[] = [];
+    if (!this.scenesDir) return out;
+    // @ts-expect-error: values() is not yet in every DOM lib version
+    for await (const e of this.scenesDir.values() as AsyncIterable<FileSystemHandle>) {
+      if (e.kind === "file" && SCENE_NAME.test(e.name)) out.push(e.name);
+    }
+    return out;
+  }
+
+  async readScene(name: string) {
+    if (!this.scenesDir || !SCENE_NAME.test(name)) throw new VfsError(`Missing scene: ${name}`);
+    const f = await (await this.scenesDir.getFileHandle(name)).getFile();
+    return new Uint8Array(await f.arrayBuffer());
+  }
 }
 
 /** Development-only source served by the Vite plugin in vite.config.ts. */
@@ -153,6 +192,15 @@ export class DevServerVfs implements Vfs {
     const r = await fetch("/__sk/rsrc/" + norm(path).split("/").map(encodeURIComponent).join("/"));
     if (!r.ok) throw new VfsError(`Missing file: ${path}`);
     return r.blob();
+  }
+  async scenes(): Promise<string[]> {
+    const r = await fetch("/__sk/scenelist");
+    return r.ok ? r.json() : [];
+  }
+  async readScene(name: string) {
+    const r = await fetch("/__sk/scenes/" + encodeURIComponent(name));
+    if (!r.ok) throw new VfsError(`Missing scene: ${name}`);
+    return new Uint8Array(await r.arrayBuffer());
   }
   static async available(): Promise<boolean> {
     if (!import.meta.env.DEV) return false;

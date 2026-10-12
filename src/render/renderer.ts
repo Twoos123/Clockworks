@@ -22,7 +22,8 @@ layout(location=2) in vec2 a_uv;
 layout(location=3) in vec4 a_color;
 layout(location=4) in vec4 a_boneIdx;
 layout(location=5) in vec4 a_boneW;
-uniform mat4 u_proj, u_view, u_model;
+layout(location=6) in mat4 a_model; // per instance (locations 6-9)
+uniform mat4 u_proj, u_view;
 uniform bool u_skinned, u_sphereMap;
 uniform highp sampler2D u_bones;
 out vec3 v_normal;
@@ -42,7 +43,7 @@ void main() {
     pos = skin * pos;
     nrm = mat3(skin) * nrm;
   }
-  mat4 mv = u_view * u_model;
+  mat4 mv = u_view * a_model;
   v_normal = mat3(mv) * nrm;
   v_uv = a_uv;
   if (u_sphereMap) {
@@ -127,6 +128,8 @@ export class ModelInstance {
   readonly world = new Map<string, Mat4>();
   clip: AnimationClip | null = null;
   time = 0;
+  /** Frame number of the last update, so shared instances update once per frame. */
+  private updatedFrame = -1;
 
   constructor(readonly model: LoadedModel) {
     if (model.root) {
@@ -141,7 +144,11 @@ export class ModelInstance {
   }
 
   /** Recomputes node transforms for the current animation time. */
-  update() {
+  update(frame = -1) {
+    if (frame >= 0) {
+      if (frame === this.updatedFrame) return;
+      this.updatedFrame = frame;
+    }
     if (!this.model.root) return;
     const overrides = this.sample();
     const walk = (n: NodeDef, parent: Mat4) => {
@@ -193,6 +200,8 @@ export class Renderer {
   private readonly textures = new Map<string, Promise<WebGLTexture | null>>();
   private readonly loadedTextures = new Map<string, WebGLTexture | null>();
   private readonly boneTex: WebGLTexture;
+  private readonly instanceBuffer: WebGLBuffer;
+  private instanceData = new Float32Array(16 * 1024);
   private readonly white: WebGLTexture;
   stats = { draws: 0, triangles: 0 };
 
@@ -210,6 +219,7 @@ export class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, this.boneTex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    this.instanceBuffer = gl.createBuffer()!;
     this.white = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.white);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
@@ -302,7 +312,16 @@ export class Renderer {
     return [...this.loadedTextures].filter(([, t]) => t === null).map(([p]) => p);
   }
 
+  private frame = 0;
+
+  /** Draws one model at the origin. */
   draw(root: ModelInstance, proj: Mat4, view: Mat4) {
+    this.drawAll([{ instance: root, matrix: identity() }], proj, view);
+  }
+
+  /** Draws many placed model instances (instances may be shared between placements). */
+  drawAll(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4) {
+    const frame = ++this.frame;
     const gl = this.gl;
     const w = this.canvas.width, h = this.canvas.height;
     gl.viewport(0, 0, w, h);
@@ -319,30 +338,46 @@ export class Renderer {
     gl.uniform1i(this.u.u_bones, 1);
     this.stats = { draws: 0, triangles: 0 };
 
-    const queue: { inst: ModelInstance; gp: GpuPart; model: Mat4 }[] = [];
+    // Group placements by mesh part so each part and pass is one instanced draw. A part
+    // belongs to one (possibly shared) ModelInstance, so all of its placements share a pose.
+    const groups = new Map<GpuPart, { inst: ModelInstance; matrices: Mat4[] }>();
     const collect = (inst: ModelInstance, placement: Mat4) => {
-      inst.update();
+      inst.update(frame);
       for (const gp of inst.parts) {
         const m = gp.part.node ? multiply(placement, inst.nodeMatrix(gp.part.node)) : placement;
-        queue.push({ inst, gp, model: m });
+        let g = groups.get(gp);
+        if (!g) groups.set(gp, g = { inst, matrices: [] });
+        g.matrices.push(m);
       }
       for (const c of inst.children) {
         const at = c.node && inst.world.has(c.node) ? multiply(placement, inst.nodeMatrix(c.node)) : placement;
         collect(c.instance, multiply(at, c.transform));
       }
     };
-    collect(root, identity());
+    for (const it of items) collect(it.instance, it.matrix);
 
-    const rank = (q: string) => QUEUE_ORDER[q] ?? 2;
-    queue.sort((a, b) => rank(a.gp.part.material.queue) - rank(b.gp.part.material.queue));
-    for (const { inst, gp, model } of queue) this.drawPart(inst, gp, model);
+    // upload every instance matrix for this frame in one buffer
+    let total = 0;
+    for (const g of groups.values()) total += g.matrices.length;
+    if (this.instanceData.length < total * 16) this.instanceData = new Float32Array(total * 16 * 2);
+    const order = [...groups].sort((a, b) =>
+      (QUEUE_ORDER[a[0].part.material.queue] ?? 2) - (QUEUE_ORDER[b[0].part.material.queue] ?? 2));
+    const offsets = new Map<GpuPart, number>();
+    let at = 0;
+    for (const [gp, g] of order) {
+      offsets.set(gp, at);
+      for (const m of g.matrices) { this.instanceData.set(m, at * 16); at++; }
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.subarray(0, total * 16), gl.DYNAMIC_DRAW);
+
+    for (const [gp, g] of order) this.drawPart(g.inst, gp, offsets.get(gp)!, g.matrices.length);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
   }
 
-  private drawPart(inst: ModelInstance, gp: GpuPart, model: Mat4) {
+  private drawPart(inst: ModelInstance, gp: GpuPart, first: number, instances: number) {
     const gl = this.gl;
-    gl.uniformMatrix4fv(this.u.u_model, false, model);
     const skinned = !!(gp.part.bones && gp.part.boneIndices && gp.part.boneWeights);
     gl.uniform1i(this.u.u_skinned, skinned ? 1 : 0);
     gl.activeTexture(gl.TEXTURE1);
@@ -352,12 +387,18 @@ export class Renderer {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, bones.length / 4, 1, 0, gl.RGBA, gl.FLOAT, bones);
     }
     gl.bindVertexArray(gp.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
+    for (let k = 0; k < 4; k++) {
+      gl.enableVertexAttribArray(6 + k);
+      gl.vertexAttribPointer(6 + k, 4, gl.FLOAT, false, 64, first * 64 + k * 16);
+      gl.vertexAttribDivisor(6 + k, 1);
+    }
     gp.part.material.passes.forEach((pass, i) => {
       this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color);
-      if (gp.indexed) gl.drawElements(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0);
-      else gl.drawArrays(gp.primitive, 0, gp.count);
+      if (gp.indexed) gl.drawElementsInstanced(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0, instances);
+      else gl.drawArraysInstanced(gp.primitive, 0, gp.count, instances);
       this.stats.draws++;
-      if (gp.primitive === gl.TRIANGLES) this.stats.triangles += gp.count / 3;
+      if (gp.primitive === gl.TRIANGLES) this.stats.triangles += (gp.count / 3) * instances;
     });
     gl.bindVertexArray(null);
   }

@@ -4,6 +4,7 @@
 // articulated attachments). Particle systems and scripted models are reported, not drawn.
 
 import { ConfigLibrary, defaultMaterialRef, localConfigs, type LocalConfigs, type ResolvedMaterial } from "./config/materials";
+import { applyArguments, hasArguments } from "./config/params";
 import { importBinary, type JObject } from "./export/BinaryImport";
 import { IDENTITY_TRANSFORM, readTransform, type Transform } from "./math";
 import type { Vfs } from "./vfs";
@@ -121,6 +122,7 @@ function boundsOf(b: any): LoadedModel["bounds"] {
 
 export class ModelLoader {
   private readonly cache = new Map<string, Promise<JObject>>();
+  private readonly models = new Map<string, Promise<LoadedModel>>();
   private library?: Promise<ConfigLibrary>;
   constructor(readonly vfs: Vfs) {}
 
@@ -140,18 +142,33 @@ export class ModelLoader {
     return p;
   }
 
-  async load(path: string, depth = 0): Promise<LoadedModel> {
-    const root = await this.importFile(path);
-    if (root?.$class !== "com.threerings.opengl.model.config.ModelConfig") {
-      throw new Error(`${path} is a ${short(String(root?.$class ?? typeof root))}, not a model`);
+  /**
+   * Loads a model file. When a reference with arguments is given (as tiles, props and
+   * derived models supply), the arguments are applied through the model's parameters first.
+   * Results are cached per path and argument set, so identical references share GPU data.
+   */
+  load(path: string, ref?: any, depth = 0): Promise<LoadedModel> {
+    const key = hasArguments(ref) ? path + "|" + argKey(ref) : path;
+    let p = this.models.get(key);
+    if (!p) {
+      p = (async () => {
+        let root: any = await this.importFile(path);
+        if (root?.$class !== "com.threerings.opengl.model.config.ModelConfig") {
+          throw new Error(`${path} is a ${short(String(root?.$class ?? typeof root))}, not a model`);
+        }
+        root = applyArguments(root, ref);
+        return this.fromImplementation(path, root.implementation, depth, localConfigs(root));
+      })();
+      this.models.set(key, p);
     }
-    return this.fromImplementation(path, (root as any).implementation, depth, localConfigs(root));
+    return p;
   }
 
-  private async loadRef(ref: any, depth: number): Promise<LoadedModel | null> {
+  /** Loads the model a ConfigReference names, or null if it is not a model file. */
+  async loadRef(ref: any, depth = 0): Promise<LoadedModel | null> {
     const name: string | undefined = ref?.name;
-    if (!name || !name.endsWith(".dat") || depth > 6) return null;
-    try { return await this.load(name, depth + 1); } catch { return null; }
+    if (!name || !name.endsWith(".dat") || depth > 8) return null;
+    try { return await this.load(name, ref, depth + 1); } catch { return null; }
   }
 
   private async fromImplementation(path: string, impl: any, depth: number, local: LocalConfigs): Promise<LoadedModel> {
@@ -162,7 +179,8 @@ export class ModelLoader {
     };
     if (!impl) return model;
 
-    // Derived models point at another model (with parameter overrides we do not apply yet)
+    // Derived models point at another model; their own arguments were already pushed into
+    // impl.model's argument map by the derived config's parameters
     if (impl.$class.endsWith("ModelConfig$Derived")) {
       const base = await this.loadRef(impl.model, depth);
       if (base) return { ...base, path, kind: `Derived → ${base.kind}` };
@@ -269,4 +287,9 @@ export async function loadAnimation(loader: ModelLoader, path: string, depth = 0
     targets: impl.targets,
     frames: (impl.transforms as any[]).map(f => (f as any[]).map(readTransform)),
   };
+}
+
+/** A stable key for a reference's arguments (nested references included). */
+function argKey(ref: any): string {
+  return JSON.stringify(ref.arguments, (k, v) => (k === "$outer" ? undefined : ArrayBuffer.isView(v) ? Array.from(v as any) : v));
 }

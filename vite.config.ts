@@ -32,6 +32,19 @@ function localInstall(): Plugin {
           res.end(JSON.stringify(listing));
           return;
         }
+        const scenes = join(SK_DIR, "scenes");
+        if (url === "/scenelist") {
+          res.setHeader("content-type", "application/json");
+          res.end(JSON.stringify(existsSync(scenes) ? readdirSync(scenes).filter(n => /^[0-9]+$/.test(n)) : []));
+          return;
+        }
+        if (url.startsWith("/scenes/")) {
+          const name = url.substring(8);
+          const file = join(scenes, name);
+          if (!/^[0-9]+$/.test(name) || !existsSync(file)) { res.statusCode = 404; res.end(); return; }
+          createReadStream(file).pipe(res);
+          return;
+        }
         if (url.startsWith("/rsrc/")) {
           const file = normalize(join(rsrc, url.substring(6)));
           if (!file.startsWith(normalize(rsrc) + sep) || !existsSync(file)) {

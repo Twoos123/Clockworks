@@ -33,6 +33,11 @@
   <main id="app" hidden>
     <aside class="sidebar">
       <div class="source"><span id="sourceLabel"></span><button id="change" class="link">change</button></div>
+      <div id="scenesBox" hidden>
+        <h2>Scenes you have visited</h2>
+        <ul id="scenes" class="list scenes"></ul>
+      </div>
+      <h2>Models</h2>
       <input id="search" type="search" placeholder="Search models, e.g. jellycube/model" autocomplete="off" spellcheck="false">
       <label class="toggle"><input id="onlyModels" type="checkbox" checked> Likely models only</label>
       <div id="count" class="muted"></div>
