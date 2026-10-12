@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clyde Web Viewer</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <section id="welcome" class="welcome">
+    <div class="card">
+      <h1>Clyde Web Viewer</h1>
+      <p>A browser viewer for models built with Three Rings' open-source Clyde engine.
+        It reads models straight from your own game install. Files stay on your computer and
+        are never uploaded.</p>
+      <p class="hint">Pick the game's install folder (the one containing <code>rsrc</code>).
+        For a Steam install that is usually
+        <code>C:\Program Files (x86)\Steam\steamapps\common\Spiral Knights</code>.</p>
+      <div class="actions">
+        <button id="pick" class="primary">Choose install folder</button>
+        <button id="reopen" hidden></button>
+        <button id="dev" hidden>Use local dev install</button>
+        <label id="fallback" class="button" hidden>
+          Choose install folder
+          <input id="dirInput" type="file" webkitdirectory multiple hidden>
+        </label>
+      </div>
+      <p class="hint">You can also drop the folder onto this page.</p>
+      <p id="welcomeError" class="error" hidden></p>
+    </div>
+  </section>
+
+  <main id="app" hidden>
+    <aside class="sidebar">
+      <div class="source"><span id="sourceLabel"></span><button id="change" class="link">change</button></div>
+      <input id="search" type="search" placeholder="Search models, e.g. jellycube/model" autocomplete="off" spellcheck="false">
+      <label class="toggle"><input id="onlyModels" type="checkbox" checked> Likely models only</label>
+      <div id="count" class="muted"></div>
+      <ul id="list" class="list"></ul>
+    </aside>
+    <section class="stage">
+      <canvas id="canvas"></canvas>
+      <div class="toolbar">
+        <select id="anim" title="Animation"><option value="">Bind pose</option></select>
+        <button id="pause" title="Pause animation">Pause</button>
+        <button id="reset" title="Reset camera">Reset view</button>
+      </div>
+      <div id="status" class="status">Choose a model from the list.</div>
+      <details class="info" open>
+        <summary>Model info</summary>
+        <div id="info"></div>
+      </details>
+    </section>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

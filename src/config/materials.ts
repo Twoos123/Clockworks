@@ -1,0 +1,189 @@
+// Resolves Clyde MaterialConfig references (from the install's config/material.dat) into
+// the render states each pass needs. This is the data side of the fixed-function
+// emulation: alpha test and blending, depth and cull state, color overrides, lighting
+// overrides, texture environments and texture-coordinate generation.
+
+import { applyArguments, CONFIG_REF, getArg, setArg } from "./params";
+
+export type Rgba = [number, number, number, number];
+
+export interface TextureUnitState {
+  texture: string | null;
+  /** Modulate, Replace, Add, Decal, Blend or Combine. */
+  env: string;
+  rgbScale: number;
+  sphereMap: boolean;
+}
+
+export interface PassState {
+  srcBlend: string;
+  destBlend: string;
+  alphaFunc: string;
+  alphaRef: number;
+  depthFunc: string;
+  depthMask: boolean;
+  cullFace: string;
+  /** Color State Override, multiplied into the result. */
+  color: Rgba | null;
+  /** False when the pass disables lighting (full-bright). */
+  lit: boolean;
+  ambient: Rgba | null;
+  /** Lights supplied by a light-state override (none means ambient only). */
+  overrideLights: number;
+  ignoreVertexColors: boolean;
+  units: TextureUnitState[];
+  /** GLSL programs the original pass uses; this renderer emulates them, see renderer.ts. */
+  shaders: string[];
+}
+
+export interface ResolvedMaterial {
+  name: string;
+  queue: string;
+  passes: PassState[];
+  /** True when the material came from the library rather than a fallback. */
+  resolved: boolean;
+}
+
+/** Configs stored inside a model file's own ConfigManager. */
+export interface LocalConfigs {
+  materials: Map<string, any>;
+  textures: Map<string, any>;
+}
+
+export function localConfigs(modelConfig: any): LocalConfigs {
+  const out: LocalConfigs = { materials: new Map(), textures: new Map() };
+  for (const group of modelConfig?.configs?.groups ?? []) {
+    for (const c of group.configs ?? []) {
+      if (c.$class?.endsWith("MaterialConfig")) out.materials.set(c.name, c);
+      else if (c.$class?.endsWith("TextureConfig")) out.textures.set(c.name, c);
+    }
+  }
+  return out;
+}
+
+const color = (c: any): Rgba | null => c ? [c.r ?? 0, c.g ?? 0, c.b ?? 0, c.a ?? 0] : null;
+const enumName = (e: any, def: string): string => e?.name ?? def;
+
+export class ConfigLibrary {
+  private materials = new Map<string, any>();
+  private textures = new Map<string, any>();
+  private readonly cache = new Map<string, ResolvedMaterial>();
+
+  async load(importFile: (path: string) => Promise<any>) {
+    const list = async (path: string) => {
+      try {
+        const root = await importFile(path);
+        return (Array.isArray(root) ? root : []) as any[];
+      } catch { return []; }
+    };
+    for (const c of await list("config/material.dat")) this.materials.set(c.name, c);
+    for (const c of await list("config/texture.dat")) this.textures.set(c.name, c);
+    return this;
+  }
+
+  get materialCount() { return this.materials.size; }
+
+  /**
+   * Resolves a material reference (name plus arguments) into render passes. Configs local to
+   * a model (its own ConfigManager) take precedence over the shared library, as in Clyde.
+   */
+  resolve(ref: any, fallbackTexture: string | null, local?: LocalConfigs): ResolvedMaterial {
+    if (local?.materials.has(ref?.name)) return this.resolveUncached(ref, fallbackTexture, local);
+    const key = JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v)) + "|" + fallbackTexture;
+    let r = this.cache.get(key);
+    if (!r) {
+      r = this.resolveUncached(ref, fallbackTexture, local);
+      this.cache.set(key, r);
+    }
+    return r;
+  }
+
+  private resolveUncached(ref: any, fallbackTexture: string | null, local?: LocalConfigs, depth = 0): ResolvedMaterial {
+    const base = local?.materials.get(ref?.name) ?? this.materials.get(ref?.name);
+    if (!base || depth > 8) return fallback(ref?.name ?? "Model/Opaque", fallbackTexture);
+    const cfg = applyArguments(base, ref);
+    const impl = cfg.implementation;
+    if (impl?.$class?.endsWith("MaterialConfig$Derived")) {
+      return { ...this.resolveUncached(impl.material, fallbackTexture, local, depth + 1), name: ref.name };
+    }
+    const technique = (impl?.techniques ?? [])[0];
+    const enqueuer = technique?.enqueuer;
+    const passes: PassState[] = (enqueuer?.passes ?? []).map((p: any) => this.pass(p, local));
+    return { name: ref.name, queue: enqueuer?.queue ?? "Opaque", passes, resolved: true };
+  }
+
+  private pass(p: any, local?: LocalConfigs): PassState {
+    const alpha = p.alphaState ?? {}, depth = p.depthState ?? {}, cull = p.cullState ?? {};
+    const light = p.lightStateOverride;
+    const shaders: string[] = [];
+    if (p.shaderState?.$class?.endsWith("$Enabled")) {
+      for (const s of [p.shaderState.vertex, p.shaderState.fragment]) if (s?.name) shaders.push(s.name);
+    }
+    return {
+      srcBlend: enumName(alpha.srcBlendFactor, "ONE"),
+      destBlend: enumName(alpha.destBlendFactor, "ZERO"),
+      alphaFunc: enumName(alpha.testFunc, "ALWAYS"),
+      alphaRef: alpha.testRef ?? 0,
+      depthFunc: enumName(depth.testFunc, "LEQUAL"),
+      depthMask: depth.mask ?? true,
+      cullFace: enumName(cull.face, "BACK"),
+      color: p.colorStateOverride ? color(p.colorStateOverride.color ?? { r: 1, g: 1, b: 1, a: 1 }) : null,
+      lit: !light?.$class?.endsWith("$Disabled"),
+      ambient: light?.$class?.endsWith("$Enabled") ? color(light.globalAmbient ?? { r: 0.2, g: 0.2, b: 0.2, a: 1 }) : null,
+      overrideLights: light?.lights?.length ?? 0,
+      ignoreVertexColors: !!p.ignoreVertexColors,
+      units: (p.textureState?.units ?? []).map((u: any) => this.unit(u, local)),
+      shaders,
+    };
+  }
+
+  private unit(u: any, local?: LocalConfigs): TextureUnitState {
+    const env = u.environment?.$class ?? "Modulate";
+    const scale = u.environment?.rgbScale?.name;
+    return {
+      texture: this.texturePath(u.texture, local),
+      env: env.substring(env.lastIndexOf("$") + 1),
+      rgbScale: scale === "TWO" ? 2 : scale === "FOUR" ? 4 : 1,
+      sphereMap: !!u.coordGenS?.$class?.endsWith("$SphereMap"),
+    };
+  }
+
+  /** Resolves a TextureConfig reference to an image path under rsrc/. */
+  texturePath(ref: any, local?: LocalConfigs): string | null {
+    if (!ref) return null;
+    const base = local?.textures.get(ref.name) ?? this.textures.get(ref.name);
+    if (base) {
+      const cfg = applyArguments(base, ref);
+      const file = cfg.implementation?.contents?.file;
+      if (typeof file === "string") return file;
+      if (file && typeof file === "object" && file.$file) return file.$file;
+    }
+    const direct = getArg(ref, "File");
+    return typeof direct === "string" ? direct : null;
+  }
+}
+
+/** Mirrors ModelConfig.Imported's default material: textured, lit, opaque. */
+function fallback(name: string, texture: string | null): ResolvedMaterial {
+  const n = name.toLowerCase();
+  const translucent = n.includes("translucent") || n.includes("additive");
+  return {
+    name, queue: translucent ? "Transparent" : "Opaque", resolved: false,
+    passes: [{
+      srcBlend: translucent ? "SRC_ALPHA" : "ONE",
+      destBlend: n.includes("additive") ? "ONE" : translucent ? "ONE_MINUS_SRC_ALPHA" : "ZERO",
+      alphaFunc: n.includes("masked") ? "GEQUAL" : "ALWAYS", alphaRef: n.includes("masked") ? 0.5 : 0,
+      depthFunc: "LEQUAL", depthMask: !translucent, cullFace: "BACK", color: null, lit: true, ambient: null, overrideLights: 0,
+      ignoreVertexColors: false, units: [{ texture, env: "Modulate", rgbScale: 1, sphereMap: false }], shaders: [],
+    }],
+  };
+}
+
+/** Builds the material reference Clyde uses for a mesh with no explicit mapping. */
+export function defaultMaterialRef(tag: string, texture: string) {
+  const ref: any = { $class: CONFIG_REF, name: tag === "skinned" ? "Model/Skinned/Opaque" : "Model/Opaque" };
+  const tex: any = { $class: CONFIG_REF, name: "2D/File/Default" };
+  setArg(tex, "File", texture);
+  setArg(ref, "Texture", tex);
+  return ref;
+}
