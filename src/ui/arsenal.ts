@@ -6,12 +6,13 @@ import type { GameData } from "../game/data";
 import { price, type Loadout } from "../game/save";
 import type { GuiContext } from "./gui";
 
-type Tab = "weapons" | "shield" | "armor" | "helmet" | "craft";
+type Tab = "weapons" | "shield" | "armor" | "helmet" | "trinket" | "craft";
 const TABS: { id: Tab; label: string; test: RegExp }[] = [
   { id: "weapons", label: "Weapons", test: /^Weapon\/(Sword|Handgun|Bomb)\// },
   { id: "shield", label: "Shields", test: /^Gear\/Shield\// },
   { id: "armor", label: "Armour", test: /^Gear\/Armor\// },
   { id: "helmet", label: "Helmets", test: /^Gear\/Helm\// },
+  { id: "trinket", label: "Trinkets", test: /^Gear\/Trinket\// },
   { id: "craft", label: "Craft", test: /^$/ },
 ];
 
@@ -51,7 +52,7 @@ export class Arsenal {
 
   /** Opens the arsenal (owned gear), or a shop when `shop` is given. */
   async open(loadout: Loadout, shop: ShopMode | null = null) {
-    this.loadout = { ...loadout, weapons: [...loadout.weapons] };
+    this.loadout = { ...loadout, weapons: [...loadout.weapons], trinkets: [...(loadout.trinkets ?? [])] };
     this.shop = shop;
     if (shop && !shop.tabs.includes(this.tab)) this.tab = shop.tabs[0];
     await this.data.preload("config/item.dat");
@@ -81,7 +82,7 @@ export class Arsenal {
     for (const name of lib.keys()) {
       if (!t.test.test(name) || SKIP.test(name)) continue;
       const impl = this.data.resolveSync("config/item.dat", { name }, "item");
-      if (!impl?.model || !impl.icon) continue;
+      if (!impl?.icon || (!impl.model && tab !== "trinket")) continue;
       if (tab === "weapons" && !impl.attacks && !impl.chargedAttack) continue;
       const kind = String(impl.$class ?? "").split("$").pop() ?? "";
       list.push({ name, label: name.split("/").pop()!, kind: kind === "SwingingHandgun" ? "Handgun" : kind, rarity: impl.rarity ?? 0, icon: impl.icon });
@@ -93,7 +94,8 @@ export class Arsenal {
 
   private equipped(e: Entry): boolean {
     const l = this.loadout;
-    return this.tab === "weapons" ? l.weapons.includes(e.name) : this.tab !== "craft" && l[this.tab] === e.name;
+    return this.tab === "weapons" ? l.weapons.includes(e.name) : this.tab === "trinket" ? l.trinkets.includes(e.name)
+      : this.tab !== "craft" && l[this.tab] === e.name;
   }
 
   private toggle(e: Entry) {
@@ -102,11 +104,15 @@ export class Arsenal {
       const i = l.weapons.indexOf(e.name);
       if (i >= 0) { if (l.weapons.length > 1) l.weapons.splice(i, 1); }
       else { if (l.weapons.length >= 3) l.weapons.shift(); l.weapons.push(e.name); }
+    } else if (this.tab === "trinket") {
+      const i = l.trinkets.indexOf(e.name);
+      if (i >= 0) l.trinkets.splice(i, 1);
+      else { if (l.trinkets.length >= 2) l.trinkets.shift(); l.trinkets.push(e.name); }
     } else if (this.tab !== "craft") {
       const slot = this.tab;
       l[slot] = l[slot] === e.name && slot !== "shield" ? "" : e.name;
     }
-    this.onChange({ ...l, weapons: [...l.weapons] });
+    this.onChange({ ...l, weapons: [...l.weapons], trinkets: [...l.trinkets] });
     this.render();
   }
 
@@ -215,7 +221,7 @@ export class Arsenal {
     if (this.tab === "craft") return "Recipes from the game's recipe library. Crafting uses the materials and the base item (which must be levelled with heat).";
     if (this.shop) return `Stock up to ${this.shop.maxRarity}★. Bought items go to your arsenal; owned items show a tick.`;
     const l = this.loadout, last = (n: string) => n ? n.split("/").pop() : "default";
-    return `Equipped: ${l.weapons.map(last).join(", ")} · ${last(l.shield)} · ${last(l.armor)} · ${last(l.helmet)}. Changes apply on the next floor.`;
+    return `Equipped: ${l.weapons.map(last).join(", ")} · ${last(l.shield)} · ${last(l.armor)} · ${last(l.helmet)}${l.trinkets.length ? " · " + l.trinkets.map(last).join(", ") : ""}. Changes apply on the next floor.`;
   }
 
   private fillGrid(grid: HTMLElement) {

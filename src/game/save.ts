@@ -9,6 +9,8 @@ export interface Loadout {
   /** Empty for the knight model's default armour and helmet. */
   armor: string;
   helmet: string;
+  /** Up to two trinkets. */
+  trinkets: string[];
 }
 
 export interface SaveData {
@@ -39,10 +41,11 @@ export const DEFAULT_LOADOUT: Loadout = {
   shield: "Gear/Shield/Proto Shield",
   armor: "",
   helmet: "",
+  trinkets: [],
 };
 
 export function loadSave(): SaveData {
-  const fresh: SaveData = { version: 1, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons] }, crowns: 0, heat: 0,
+  const fresh: SaveData = { version: 1, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons], trinkets: [] }, crowns: 0, heat: 0,
     materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield], color: 257, weaponHeat: {}, pocket: [] };
   try {
     const raw = localStorage.getItem(KEY);
@@ -50,11 +53,12 @@ export function loadSave(): SaveData {
     const d = JSON.parse(raw) as Partial<SaveData>;
     return {
       ...fresh, ...d,
-      loadout: { ...fresh.loadout, ...(d.loadout ?? {}), weapons: (d.loadout?.weapons ?? fresh.loadout.weapons).slice(0, 3) },
+      loadout: { ...fresh.loadout, ...(d.loadout ?? {}), weapons: (d.loadout?.weapons ?? fresh.loadout.weapons).slice(0, 3),
+        trinkets: (d.loadout?.trinkets ?? []).slice(0, 2) },
       materials: { ...(d.materials ?? {}) },
       weaponHeat: { ...(d.weaponHeat ?? {}) },
       pocket: (d.pocket ?? []).filter(p => Array.isArray(p) && p[1] > 0).slice(0, POCKET_SLOTS),
-      owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet]
+      owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? [])]
         .filter((x): x is string => !!x))],
     };
   } catch { return fresh; }

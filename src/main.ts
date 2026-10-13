@@ -587,7 +587,7 @@ class Viewer {
   private async openShop(keeper: string) {
     const k = keeper.toLowerCase();
     const tabs: ShopMode["tabs"] = /sword|gun|bomb|weapon/.test(k) ? ["weapons"] : /armor|helm/.test(k) ? ["armor", "helmet"]
-      : /shield|trinket/.test(k) ? ["shield"] : ["weapons", "shield", "armor", "helmet"];
+      : /shield/.test(k) ? ["shield", "trinket"] : /trinket|jewel/.test(k) ? ["trinket"] : ["weapons", "shield", "armor", "helmet", "trinket"];
     this.paused = true;
     await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity: shopTier(this.save) });
   }

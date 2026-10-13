@@ -13,6 +13,7 @@ import type { CollisionMap } from "./collision";
 import { dealt, mainType, TYPE_COLORS } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
+import { addItemBonuses, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind } from "./props";
 import { intersects } from "./shapes";
@@ -121,6 +122,8 @@ export class Knight extends Actor {
   chainUsed = 0;
   shield: ShieldDef | null = null;
   armor: ArmorDef[] = [];
+  /** Bonuses from armour, helmet, shield and trinkets. */
+  bonuses: Bonuses = emptyBonuses();
   /** Seconds the attack button has been held for a charge, or null when not charging. */
   charge: number | null = null;
   shielding = false;
@@ -325,6 +328,11 @@ export class World implements LogicHost {
     knight.weapons = loadouts;
     knight.shield = shield;
     knight.armor = armor;
+    // gear bonuses (global modifiers and status resists) from everything worn
+    await this.data.preload("config/item.dat");
+    for (const n of [gear.armor, gear.helmet, gear.shield, ...(gear.trinkets ?? [])]) {
+      if (n) addItemBonuses(knight.bonuses, this.data.resolveSync("config/item.dat", { name: n }, "item"));
+    }
     this.updateKnightStats(knight);
     knight.health = knight.maxHealth;
     // the upper body: spine and everything above it (arms, head, weapon and shield bones)
@@ -823,7 +831,8 @@ export class World implements LogicHost {
     const d = zeroAmounts();
     for (const a of k.armor) if (a.defense) this.data.depth.defense(a.defense, this.ctx(a.rarity), d);
     k.defense = d;
-    k.maxHealth = KNIGHT_HEALTH;
+    // a heart pip in the game is 40 health; here the knight has 100 for the game's 400
+    k.maxHealth = KNIGHT_HEALTH + k.bonuses.health / 4;
     if (k.shield) {
       const sctx = this.ctx(k.shield.rarity);
       k.shieldMax = Math.max(1, this.data.depth.evaluate(k.shield.healthScale, sctx) || 50);
@@ -1029,7 +1038,7 @@ export class World implements LogicHost {
         k.charge += dt;
         this.overlay(k, CHARGE_ANIMS[weapon?.kind ?? "Other"], true);
       } else {
-        const full = k.charge * 1000 >= (weapon?.chargeTime ?? 2000);
+        const full = k.charge * 1000 >= (weapon?.chargeTime ?? 2000) * Math.max(0.3, 1 - forWeapon(k.bonuses.charge, weapon?.kind));
         k.charge = null;
         k.instance.overlay = null;
         const def = full ? weapon?.chargedAttack : weapon?.incompleteChargedAttack;
@@ -1042,7 +1051,7 @@ export class World implements LogicHost {
     // Guns and bombs walk at the weapon's attacking speed.
     const [mx, my] = input.move;
     const len = Math.hypot(mx, my);
-    let factor = (k.charge !== null ? 0.5 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? -0.5) : 1) * this.statusSpeed(k);
+    let factor = (k.charge !== null ? 0.5 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? -0.5) : 1) * this.statusSpeed(k) * (1 + k.bonuses.speed);
     if (k.attack) {
       const at = k.attack;
       if (at.overlay) factor = weapon?.attackingSpeed ?? 0.5;
@@ -1167,7 +1176,11 @@ export class World implements LogicHost {
   }
 
   /** One-shot attack animation: upper body for walking attacks, else whole body. */
+  /** The knight's attack rate from attack speed bonuses for the weapon in hand. */
+  private attackRate(a: Actor) { return a === this.knight ? 1 + forWeapon(this.knight.bonuses.attackSpeed, this.knight.weapon?.kind) : 1; }
+
   private animate(a: Actor, path: string | any, speed: number) {
+    speed *= this.attackRate(a);
     if (a.attack?.overlay) { this.overlay(a, path, false, speed); return; }
     a.instance.overlay = null;
     this.play(a, path, { loop: false, speed, blend: 0.06 });
@@ -1202,6 +1215,7 @@ export class World implements LogicHost {
    */
   private advanceAttack(a: Actor, dt: number, chain?: () => boolean) {
     const at = a.attack!;
+    dt *= this.attackRate(a);
     at.t += dt;
     if (at.phase === "start" && (this.animDone(a) || !at.def.start || at.t > 1.5)) this.enterFire(a);
     else if (at.phase === "fire") {
@@ -1256,7 +1270,8 @@ export class World implements LogicHost {
   private attackerCtx(a: Actor): DepthContext {
     if (a !== this.knight) return this.ctx(0);
     const w = this.knight.weapon;
-    return { ...this.ctx(w?.rarity ?? 0), multiplier: levelMultiplier(this.weaponLevels.get(w?.name ?? "") ?? 1) * this.buffDamage(this.knight) };
+    return { ...this.ctx(w?.rarity ?? 0), multiplier: levelMultiplier(this.weaponLevels.get(w?.name ?? "") ?? 1) * this.buffDamage(this.knight)
+      * (1 + forWeapon(this.knight.bonuses.damage, w?.kind)) };
   }
 
   /** Applies an attack's damage shape in front of the attacker. */
@@ -1307,8 +1322,10 @@ export class World implements LogicHost {
     if (target.dead || !this.conditions) return;
     const got = this.conditions.get(ref, ctx);
     if (!got) return;
-    if (Math.random() >= (chance ?? got.chance)) return;
-    const def = got.def;
+    // gear resists cut a condition's chance and length on the knight
+    const resist = target instanceof Knight ? resistFactor(target.bonuses.resist[STATUS_BITS[got.def.kind] ?? 0] ?? 0) : 1;
+    if (Math.random() >= (chance ?? got.chance) * resist) return;
+    const def = resist < 1 ? { ...got.def, duration: got.def.duration * resist } : got.def;
     // buffs of different kinds (attack, defence, speed) stack; the same one refreshes
     const same = target.statuses.find(s => s.def.kind === def.kind && (def.kind !== "Buff" || s.def.icon === def.icon));
     // monsters stay frozen longer (monsterDurationMultiplier)
