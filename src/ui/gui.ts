@@ -1276,10 +1276,11 @@ function drawTextField(c: Component, s: Style, g: CanvasRenderingContext2D, bx: 
 /** Image.render(sx, sy, sw, sh, tx, ty, tw, th) with Clyde's bottom-up source and target y. */
 function blit(g: CanvasRenderingContext2D, im: GuiImage, sx: number, sy: number, sw: number, sh: number,
   bx: number, by: number, tx: number, ty: number, tw: number, th: number) {
-  if (tw <= 0 || th <= 0 || sw < 0 || sh < 0) return;
-  // a frame whose insets cover the whole image has an empty middle; GL stretches the edge texel
-  if (sw === 0) { sw = 1; sx = Math.min(sx, im.width - 1); }
-  if (sh === 0) { sh = 1; sy = Math.min(sy, im.height - 1); }
+  if (tw <= 0 || th <= 0) return;
+  // a zero-size source (a frame whose insets cover the whole image) still fills its target in
+  // the game: GL stretches the single texel line at the seam, so sample that line
+  if (sw <= 0) { if (sx >= im.width) sx = im.width - 1; sw = 1; }
+  if (sh <= 0) { if (sy >= im.height) sy = im.height - 1; sy = Math.max(0, sy - (sy > 0 ? 1 : 0)); sh = 1; }
   g.drawImage(im.source, sx, im.height - sy - sh, sw, sh, bx + tx, by - ty - th, tw, th);
 }
 
