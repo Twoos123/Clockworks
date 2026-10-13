@@ -90,7 +90,10 @@ export class ElevatorScreen extends OverlayScreen {
     set(m, "labelLevelType", n?.title ?? adv);
     set(m, "labelLevelSubtype", n?.zone ?? "");
     set(m, "labelDepth", n?.depth ?? "", !!n?.depth);
-    set(m, "labelAutoAdvance", q("floorInfo")?.textContent ?? "");
+    // the floor's tally, kept short for the countdown's slot
+    const info = q("floorInfo")?.textContent ?? "";
+    const tally = /(\d+) monsters defeated, (\d+) crowns, (\d+) heat/.exec(info);
+    set(m, "labelAutoAdvance", tally ? `${tally[2]} crowns, ${tally[3]} heat` : info.length > 40 ? "" : info);
     const toHaven = /haven/i.test(adv);
     set(m, "buttonAdvance", toHaven ? "Ride Up" : /fight/i.test(adv) ? "Fight On" : "Advance");
     set(m, "buttonQuit", "Return to Haven", !!this.quitBtn);
