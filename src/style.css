@@ -192,3 +192,9 @@ button.danger { background: #7a1f1f; color: #fff; border-color: #a33; }
 .gate h3 { margin: 0 0 4px; color: #f3d36b; font-style: italic; }
 .gate-stratum { font-size: 12px; padding: 3px 6px; border-radius: 4px; background: #16283a; }
 .gate-stratum.tier2 { background: #1d2e1d; } .gate-stratum.tier3 { background: #33201a; }
+
+/* the game app: no asset browser, the stage fills the window */
+.title-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; }
+body.game main { grid-template-columns: 1fr; }
+body.game .sidebar, body.game .info, body.game #status, body.game #anim, body.game #pause, body.game #reset,
+body.game #play, body.game #arsenalBtn, body.game #spawnJelly, body.game .toolbar label.button { display: none; }

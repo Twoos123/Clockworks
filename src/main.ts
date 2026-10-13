@@ -16,6 +16,10 @@ import { Arsenal } from "./ui/arsenal";
 import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
 import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
+import { TitleScreen } from "./ui/title";
+
+/** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
+const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, loadSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
@@ -54,6 +58,12 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // ---------------------------------------------------------------- choosing the install
 
 async function start() {
+  if (GAME) {
+    document.title = "Spiral Knights";
+    document.querySelector("#welcome h1")!.textContent = "Spiral Knights";
+    document.querySelector("#welcome .card p")!.textContent =
+      "A single-player browser port of Spiral Knights that plays from your own game install. Nothing is uploaded or downloaded: the game's files stay on your computer.";
+  }
   // Wire every control before any async work, so a folder picked immediately is not lost.
   $("pick").onclick = async () => {
     let handle: FileSystemDirectoryHandle;
@@ -229,7 +239,7 @@ class Viewer {
       playing: () => !!this.world,
       resume: () => { this.paused = false; this.canvas.focus(); },
       returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
-      leave: () => { this.paused = false; this.stopPlaying(); },
+      leave: () => { this.paused = false; this.stopPlaying(); if (GAME) void this.enterTitle(); },
       saveReplaced: d => { this.save = d; },
       sound: f => this.uiSound(f),
     });
@@ -371,6 +381,23 @@ class Viewer {
       return li;
     }));
     $("scenesBox").hidden = false;
+    if (GAME) void this.enterTitle();
+  }
+
+  private title: TitleScreen | null = null;
+
+  /** The title screen over Haven (the game app's start; the asset viewer lives behind #viewer). */
+  private async enterTitle() {
+    document.body.classList.add("game");
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    this.title ??= new TitleScreen(this.gui, $<HTMLCanvasElement>("titleCanvas"), {
+      play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide(); void this.startPlaying(); },
+      options: () => this.settings?.open(),
+      viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
+    });
+    const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+    if (haven && this.scene?.id !== haven.id) await this.selectScene(haven.id);
+    await this.title.show();
   }
 
   private instanceOf(model: LoadedModel): Promise<ModelInstance> {
@@ -1229,6 +1256,8 @@ class Viewer {
         // shared instances appear in several placements; advance each clock once per frame
         for (const it of this.sceneItems ?? []) it.instance.time += dt / (this.shares.get(it.instance) ?? 1);
       }
+      // the title screen's camera drifts slowly around the town
+      if (!this.world && this.title?.visible) this.az += dt * 0.04;
       if (this.world) {
         const mv = this.moveInput();
         // a gamepad adds to the keyboard and mouse; sticks are camera-relative like WASD
