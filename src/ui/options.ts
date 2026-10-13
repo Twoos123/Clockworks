@@ -1,16 +1,18 @@
 // The options window: the game's own rsrc/ui/options/interface.dat (General, Video, Game,
 // Controls... tabs) drawn full screen over the game, its controls bound to our settings. The
-// parts the game drives from its servers or its desktop window (language, region, screen mode,
-// chat, Steam, bug reports) are hidden. The Advanced buttons open the game's advanced video and
-// game windows (ui/options/advanced_*.dat) over it, Custom shows its custom controls page (key
-// bindings, src/ui/keybinds.ts), and the Steam tab's page holds the save data. Settings the
-// game's pages have no control for get rows copied from the same page's own label, check box
-// and slider configs, so everything is drawn in the game's styles.
+// parts the game drives from its servers or its desktop window (region, screen mode, chat,
+// Steam, bug reports) are hidden; the language box picks the locale of the game's text (the
+// locales the install has bundles for; it applies on the next start). The Advanced buttons open
+// the game's advanced video and game windows (ui/options/advanced_*.dat) over it, Custom shows
+// its custom controls page (key bindings, src/ui/keybinds.ts), and the Steam tab's page holds the
+// save data. Settings the game's pages have no control for get rows copied from the same page's
+// own label, check box and slider configs, so everything is drawn in the game's styles.
 
 import { CONFIG_REF } from "../config/params";
 import { loadSave, writeSave, type SaveData } from "../game/save";
 import { checklist } from "../game/levels";
-import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, type GuiContext } from "./gui";
+import { messages } from "../i18n";
+import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, setComboItems, type GuiContext } from "./gui";
 import { findParent, KeyBindings } from "./keybinds";
 import { buildUi, uiRef } from "./screen";
 import type { Settings, Tab } from "./settings";
@@ -193,6 +195,7 @@ export class OptionsScreen {
     check("monster_health", "healthBars");
     check("auto_target", "autoAim");
     check("show_damage_effects", "screenFlash");
+    await this.languages(ui);
     on("keyboard_mouse", () => act.sound("sound/feedback/ui_confirm.ogg"));
     on("keyboard_only", () => act.sound("sound/feedback/ui_confirm.ogg"));
     on("dismiss", () => this.close());
@@ -260,6 +263,26 @@ export class OptionsScreen {
     c.onAction = () => {
       this.settings[key] = !!c.value;
       for (const o of this.flags.get(key) ?? []) o.value = this.settings[key];
+      this.actions.sound("sound/feedback/ui_confirm.ogg");
+      this.actions.changed();
+    };
+  }
+
+  /** OptionsDialog's language box: the base text and each locale the install has, by its own name. */
+  private async languages(ui: Component) {
+    const combo = ui.find("language");
+    if (!combo) return;
+    const codes = ["", ...messages.available];
+    const own = (code: string) => {
+      const tag = code || "en";
+      try { const n = new Intl.DisplayNames([tag], { type: "language" }).of(tag) ?? tag; return n[0].toUpperCase() + n.slice(1); } catch { return tag; }
+    };
+    if (codes.length === 1) { const box = ui.find("language_container"); if (box) box.visible = false; return; }
+    await setComboItems(this.ctx, combo, codes.map(own), Math.max(0, codes.indexOf(this.settings.locale)));
+    combo.onAction = c => {
+      const code = codes[c.selectedIndex] ?? "";
+      if (code === this.settings.locale) return;
+      this.settings.locale = code;
       this.actions.sound("sound/feedback/ui_confirm.ogg");
       this.actions.changed();
     };

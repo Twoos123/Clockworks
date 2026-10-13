@@ -13,7 +13,8 @@
 
 import { applyArguments } from "../config/params";
 import { rng } from "../gen/layout";
-import { BOSSES, FAMILIES, STYLES, type BossKey, type Family, type Floor, type Gate, type LevelStyle, type Stratum, type StratumTheme } from "./clockworks";
+import { hasMessage, text, xlate } from "../i18n";
+import { bossName, BOSSES, FAMILIES, STYLES, type BossKey, type Family, type Floor, type Gate, type LevelStyle, type Stratum, type StratumTheme } from "./clockworks";
 
 export type MissionClass = "Rank" | "Prestige" | "Hidden" | "Expansion";
 export type MissionKind = "dungeon" | "conversation" | "exchange" | "gate" | "gate-conversation";
@@ -65,8 +66,10 @@ export interface Mission {
   repeatable: boolean;
   onceOnly: boolean;
   daily: boolean;
-  /** A short English line about the mission (the game's own text is unavailable). */
+  /** The briefing: the game's (the mission bundle's b.<id>), else a short English line of ours. */
   summary: string;
+  /** The objective line (the mission bundle's o.<id>), or "". */
+  objective: string;
 }
 
 /** The knight's mission progress (kept in the save). */
@@ -83,12 +86,14 @@ export interface MissionProgress {
 export const freshProgress = (): MissionProgress => ({ rank: 1, subrank: 1, completed: [], prestige: 0, cycles: {} });
 
 /**
- * Rank titles. The game's titles live in its message bundles, which this project does not
- * read; these are the titles as players know them (Knight at rank 4, Defender at 6, Champion
- * at 10), the ones between from memory.
+ * Rank titles: the mission bundle's m.rank_title_<rank>, as the loadout panel and name plates
+ * show them. RANK_NAMES stands in when the bundle is missing.
  */
 export const RANK_NAMES = ["Wanderer", "Recruit", "Squire", "Knight", "Guardian", "Defender", "Striker", "Vanguard", "Warden", "Champion"];
-export const rankName = (rank: number) => RANK_NAMES[Math.max(1, Math.min(10, rank)) - 1];
+export const rankName = (rank: number) => {
+  const r = Math.max(1, Math.min(10, rank));
+  return text("mission", `m.rank_title_${r}`, RANK_NAMES[r - 1]);
+};
 export const rankLabel = (p: MissionProgress) => `RANK ${p.rank}-${p.subrank}`;
 
 /** Clockworks tiers and the rank each needs (tier 2 from depth 8, tier 3 from depth 18). */
@@ -182,12 +187,21 @@ export function parseMission(c: any, props: Map<string, any>): Mission | null {
     ingredients, choose, gateTheme, setting: null,
     production: enumName(i.deployment) === "PRODUCTION",
     repeatable: i.repeatable === true, onceOnly: i.onceOnly === true, daily: i.daily === true,
-    summary: "",
+    summary: "", objective: "",
   };
   if (kind === "dungeon") m.setting = missionSetting(m);
+  // the game's text: MissionConfig's name key (m.<id>), briefing (its own key or b.<id>) and
+  // objective (o.<id>), in the mission bundle; ours where the bundle has none
+  m.title = text("mission", `m.${m.id}`, m.title);
   m.summary = summarize(m);
+  const brief = typeof i.briefing === "string" && i.briefing ? i.briefing : `b.${m.id}`;
+  if (hasMessage("mission", brief)) m.summary = xlate("mission", brief);
+  m.objective = text("mission", `o.${m.id}`, "");
   return m;
 }
+
+/** A mission's text with the knight's name where the game's text has {0}. */
+export const withName = (s: string, name: string) => s.replace(/\{0\}/g, name);
 
 // ------------------------------------------------------------------------------ settings
 
@@ -430,8 +444,12 @@ const NPC_NAMES: Record<string, string> = { kora: "Kora", rendon: "Rhendon", fer
   morlin: "Morlin", vaelyn: "Vaelyn", bechamel: "Bechamel", desna: "Desna", plume: "Plume", kozma: "Kozma", barrus: "Barrus",
   armorstylist: "the armour stylist", geo: "Geo" };
 
-/** The NPC a conversation is with: from its model, else from the card ("knight-kora_comlink"). */
-export function npcName(m: Pick<Mission, "npcModel" | "cardImage">): string | null {
+/**
+ * The NPC a conversation is with: the mission bundle's speaker name (n.<id>), else from its
+ * model, else from the card ("knight-kora_comlink").
+ */
+export function npcName(m: Pick<Mission, "npcModel" | "cardImage"> & { id?: string }): string | null {
+  if (m.id && hasMessage("mission", `n.${m.id}`)) return xlate("mission", `n.${m.id}`);
   const fromModel = /model_([a-z]+)\.dat$/.exec(m.npcModel ?? "")?.[1];
   const fromCard = /knight-([a-z]+)/.exec((m.cardImage ?? "").split("/").pop() ?? "")?.[1];
   const key = fromModel ?? fromCard;
@@ -487,7 +505,7 @@ function summarize(m: Mission): string {
     case "gate": return `Clear a ${m.gateTheme} stratum in any Arcade gate today.`;
     default: {
       const s = m.setting!;
-      return `${s.floors} floors at depth ${s.depth}: ${s.family} monsters${s.boss ? `, ending with ${BOSSES[s.boss].name}` : ""}.`;
+      return `${s.floors} floors at depth ${s.depth}: ${s.family} monsters${s.boss ? `, ending with ${bossName(s.boss)}` : ""}.`;
     }
   }
 }

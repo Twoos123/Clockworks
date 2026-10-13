@@ -11,6 +11,7 @@
 // themselves come from the game's servers, so the choices here are our own, seeded per day.
 
 import { rng } from "../gen/layout";
+import { firstKey, levelText, monsterName } from "./text";
 
 export const FAMILIES = ["Beast", "Construct", "Fiend", "Gremlin", "Slime", "Undead"] as const;
 export const ELEMENTS = ["Fire", "Freeze", "Poison", "Shock"] as const;
@@ -42,13 +43,45 @@ const ELEMENT_TILESETS: Record<string, string> = { Fire: "clockworks-fire", Free
 
 export type BossKey = "jelly" | "snarbolax" | "twins" | "vanaduke";
 /** The four bosses: their levels, tiers, and the actors their arenas start (all in config/actor.dat). */
-export const BOSSES: Record<BossKey, { name: string; level: string; tier: number; actors: string[]; tileset: string }> = {
-  jelly: { name: "Royal Jelly", level: "Royal Jelly Palace", tier: 1, actors: ["Character/NPC/Monster/Boss/Royal Jelly/Royal Jelly 1"], tileset: "castle" },
-  snarbolax: { name: "Snarbolax", level: "Gloaming Wildwoods", tier: 1, actors: ["Character/NPC/Monster/Boss/Snarbolax/Snarbolax"], tileset: "sky-night" },
+export const BOSSES: Record<BossKey, { name: string; level: string; tier: number; actors: string[]; tileset: string; nameKey: string; levelKey: string }> = {
+  jelly: { name: "Royal Jelly", level: "Royal Jelly Palace", tier: 1, actors: ["Character/NPC/Monster/Boss/Royal Jelly/Royal Jelly 1"], tileset: "castle",
+    nameKey: "n.royal_jelly", levelKey: "m.royal_jelly_lair" },
+  snarbolax: { name: "Snarbolax", level: "Gloaming Wildwoods", tier: 1, actors: ["Character/NPC/Monster/Boss/Snarbolax/Snarbolax"], tileset: "sky-night",
+    nameKey: "n.snarbolax", levelKey: "m.gloaming_wildwoods_snarbolax" },
   twins: { name: "Roarmulus Twins", level: "Ironclaw Munitions Factory", tier: 2,
-    actors: ["Character/NPC/Monster/Boss/Roarmulus Twins/East", "Character/NPC/Monster/Boss/Roarmulus Twins/West"], tileset: "clockworks" },
-  vanaduke: { name: "Lord Vanaduke", level: "Firestorm Citadel", tier: 3, actors: ["Character/NPC/Monster/Boss/Vanaduke/Stage 1"], tileset: "castle-fire" },
+    actors: ["Character/NPC/Monster/Boss/Roarmulus Twins/East", "Character/NPC/Monster/Boss/Roarmulus Twins/West"], tileset: "clockworks",
+    nameKey: "n.roarmulus_twins", levelKey: "m.ironclaw_munitions_factory_twins" },
+  vanaduke: { name: "Lord Vanaduke", level: "Firestorm Citadel", tier: 3, actors: ["Character/NPC/Monster/Boss/Vanaduke/Stage 1"], tileset: "castle-fire",
+    nameKey: "n.vanaduke", levelKey: "m.firestorm_citadel_vanaduke" },
 };
+
+/** A boss's name in the monster bundle (our English without it). */
+export const bossName = (b: BossKey) => monsterName({ nameKey: BOSSES[b].nameKey, name: BOSSES[b].name }, BOSSES[b].name);
+
+/**
+ * Dungeon bundle keys for the level styles' names: "<prefix>_<theme>" when the game has that
+ * theme's variant (its subtitle becomes the zone line), else the first key listed. Styles of
+ * our own, with no level of that name in the game, keep their names.
+ */
+const STYLE_KEYS: Record<string, string[]> = {
+  tunnels: ["m.ct", "m.ct_construct"], valley: ["m.jigsaw_valley", "m.jigsaw_valley_emerald_axis"], den: ["m.wolver_den", "m.wolver_den_fire"],
+  keep: ["m.candlestick_keep", "m.candlestick_keep_fire"], graveyard: ["m.graveyard", "m.graveyard_fire"],
+  deconstruction: ["m.deconstruction_zone", "m.deconstruction_zone_fire"],
+};
+
+/** The game's name (and zone line, for a theme of its own) for a stratum's levels. */
+function styleText(s: Stratum): { title: string; zone: string } {
+  const keys = STYLE_KEYS[s.style.key];
+  if (!keys) return { title: s.style.name, zone: "" };
+  const own = firstKey("dungeon", [keys[0] + "_" + s.theme.toLowerCase()]);
+  const t = levelText(own ?? keys[1]);
+  return t ? { title: t.title, zone: own ? t.zone : "" } : { title: s.style.name, zone: "" };
+}
+
+/** A fixed level's title and zone from the dungeon bundle, else our English. */
+function fixedText(key: string, title: string, zone = "") {
+  return levelText(key) ?? { title, zone };
+}
 
 export interface Stratum {
   index: number;
@@ -91,6 +124,8 @@ export interface Floor {
   tileset: string;
   /** A special level: a treasure vault, a floor with a danger room, or an arena (src/gen/features.ts). */
   special?: "vault" | "danger" | "arena";
+  /** The loading screen's zone line, when the game's text has one for the floor. */
+  zone?: string;
 }
 
 export interface Gate { id: string; name: string; seed: number; strata: Stratum[]; emblem: string }
@@ -136,15 +171,18 @@ export function gateFloors(g: Gate): Floor[] {
   for (let d = 0; d <= 29; d++) {
     const s = g.strata.find(x => d >= x.first && d <= x.last) ?? null;
     const base = { depth: d, tier: tierOf(d), stratum: s };
-    if (d === 0) floors.push({ ...base, kind: "lobby", name: "Arcade", tileset: "" });
-    else if (d === 4 || d === 13 || d === 23) floors.push({ ...base, kind: "terminal", name: "Clockwork Terminal", tileset: "" });
-    else if (d === 8) floors.push({ ...base, kind: "subtown", name: "Moorcroft Manor", tileset: "" });
-    else if (d === 18) floors.push({ ...base, kind: "subtown", name: "Emberlight", tileset: "" });
-    else if (d === 29) floors.push({ ...base, kind: "core", name: "Terminal above the Core", tileset: "" });
-    else if (s && s.boss && d === s.last) floors.push({ ...base, kind: "boss", name: BOSSES[s.boss].level, tileset: BOSSES[s.boss].tileset });
-    else if (s) {
+    const named = (t: { title: string; zone: string }) => ({ name: t.title, ...(t.zone ? { zone: t.zone } : {}) });
+    if (d === 0) floors.push({ ...base, kind: "lobby", ...named(fixedText("m.arcade_lobby", "Arcade")), tileset: "" });
+    else if (d === 4 || d === 13 || d === 23) floors.push({ ...base, kind: "terminal", ...named(fixedText("m.terminal_1", "Clockwork Terminal")), tileset: "" });
+    else if (d === 8) floors.push({ ...base, kind: "subtown", ...named(fixedText("m.moorcroft", "Moorcroft Manor")), tileset: "" });
+    else if (d === 18) floors.push({ ...base, kind: "subtown", ...named(fixedText("m.emberlight", "Emberlight")), tileset: "" });
+    else if (d === 29) floors.push({ ...base, kind: "core", ...named(fixedText("m.core_1", "Terminal above the Core")), tileset: "" });
+    else if (s && s.boss && d === s.last) {
+      const b = BOSSES[s.boss];
+      floors.push({ ...base, kind: "boss", ...named(fixedText(b.levelKey, b.level)), tileset: b.tileset });
+    } else if (s) {
       const element = ELEMENT_TILESETS[s.theme];
-      floors.push({ ...base, kind: "level", name: s.style.name, tileset: element ?? s.style.tileset });
+      floors.push({ ...base, kind: "level", ...named(styleText(s)), tileset: element ?? s.style.tileset });
     }
   }
   // special floors: in each stratum, one level floor (never its first) may be a treasure
@@ -157,9 +195,12 @@ export function gateFloors(g: Gate): Floor[] {
     if (!levels.length || roll >= SPECIAL_CHANCE) continue;
     const f = levels[Math.floor(at * levels.length)];
     f.special = which < 0.3 ? "vault" : which < 0.65 ? "danger" : "arena";
-    if (f.special === "vault") { f.name = "Treasure Vault"; f.tileset = "prize-vault"; }
-    else if (f.special === "arena") f.name = `${s.style.name} Arena`;
-    else f.name = `${s.style.name}, Danger Room`;
+    const title = styleText(s).title;
+    if (f.special === "vault") {
+      const t = fixedText(firstKey("dungeon", ["m.tvault_" + s.theme.toLowerCase()]) ?? "m.tvault_vanilla", "Treasure Vault");
+      f.name = t.title; f.zone = t.zone || undefined; f.tileset = "prize-vault";
+    } else if (f.special === "arena") f.name = `${title} Arena`;
+    else f.name = `${title}, Danger Room`;
   }
   return floors;
 }

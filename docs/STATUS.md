@@ -87,8 +87,9 @@ A single-player loop runs in the browser, built from the install's own data:
    danger rooms, arenas) and dungeon objects (crystal gates, explosives, prism gates, trap runs,
    rescue cages, healing totems, gun blocks): see docs/research/generated-features.md. Rescue
    camps themselves (their townsfolk and missions) are missing.
-2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
-   code jars, which this project does not read. Names come from config paths instead.
+2. **Text.** The game's message bundles are read from the install's projectx-config.jar
+   (src/i18n.ts). Text the game makes on its servers, and things this port invents (some
+   generated level styles, run summaries, notices, our settings rows), are still our English.
 3. **Shop catalogues** are server-side (`config/catalog.dat` ships empty). Prices are the
    game's own (`item_property.dat`); each keeper sells every item of its kind in the star
    range its place allows, and Basil picks twelve recipes per visit.

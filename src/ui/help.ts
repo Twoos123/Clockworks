@@ -1,9 +1,11 @@
 // The help window (the HUD's ? button, H): the game's rsrc/ui/help/interface.dat. Its tabs
-// were filled in by the game's code; here they hold the controls, keyboard keys as bound in the
+// were filled in by the game's code: here its Controls, Clockworks and Monsters pages come from
+// the help bundle as HelpWindow lays them out, followed by the keyboard keys as bound in the
 // options, in the window's own text styles. The forum and wiki links are hidden (this port
 // opens no web pages).
 
 import { CONFIG_REF } from "../config/params";
+import { messages, taint } from "../i18n";
 import { buildComponentConfig, type Component } from "./gui";
 import { GuiScreen, type ScreenHost } from "./screen";
 
@@ -23,6 +25,34 @@ const MOUSE: [string, string][] = [
 
 const style = (name: string) => ({ $class: CONFIG_REF, name });
 const label = (text: string, s: string) => ({ $class: "ComponentConfig$Label", text, style: style(s) });
+
+/**
+ * HelpWindow's tabs and their entries in the help bundle: "t." keys are headings, "m." keys
+ * paragraphs (help is control-aware, so "[[ACTION]]" shows the bound key); its links ("l.",
+ * "u.") are left out. The support and energy tabs are about the game's servers.
+ */
+const GAME_TABS: [string, string[]][] = [
+  ["t.controls", ["t.controls_move", "m.controls_move", "t.controls_attack", "m.controls_attack", "t.controls_weapon", "m.controls_weapon",
+    "t.controls_inventory", "m.controls_inventory", "t.controls_defend", "m.controls_defend"]],
+  ["t.clockworks", ["t.clockworks_1", "m.clockworks_1", "m.clockworks_2", "t.tier_1", "m.tier_1_equip", "m.tier_1_monster",
+    "t.tier_2", "m.tier_2_equip", "m.tier_2_monster", "t.tier_3", "m.tier_3_equip", "m.tier_3_monster"]],
+  ["t.monsters", ["t.monster_1", "m.monster_1", "t.monster_slime", "m.monster_slime", "t.monster_beast", "m.monster_beast",
+    "t.monster_gremlin", "m.monster_gremlin", "t.monster_construct", "m.monster_construct", "t.monster_fiend", "m.monster_fiend",
+    "t.monster_undead", "m.monster_undead"]],
+];
+
+/** A help tab's page: its headings and paragraphs (tainted, so they are shown as written), scrolling. */
+function gamePage(entries: string[]) {
+  const help = messages.getBundle("help");
+  const children = entries.filter(k => help.exists(k)).map(k => ({
+    component: { ...label(taint(help.get(k)), k.startsWith("t.") ? "Text/Header Text" : "Text/Body Text"), preferredSize: { width: 520, height: -1 } },
+  }));
+  return {
+    $class: "ComponentConfig$ScrollPane", showScrollbarAlways: false,
+    child: { $class: "ComponentConfig$Container",
+      layout: { $class: "LayoutConfig$VerticalGroup", policy: { name: "NONE" }, justification: { name: "TOP" }, offAxisPolicy: { name: "STRETCH" }, gap: 8, children } },
+  };
+}
 
 /** A two-column table of [action, key] rows under a header line. */
 function page(header: string, rows: [string, string][]) {
@@ -64,7 +94,11 @@ export class HelpScreen extends GuiScreen {
     if (!ui || !old) return;
     const keys = this.help.keys();
     const half = Math.ceil(keys.length / 2);
+    const help = messages.getBundle("help");
+    const game = GAME_TABS.filter(([title]) => help.exists(title))
+      .map(([title, entries]) => ({ title: taint(help.get(title)), component: gamePage(entries) }));
     const tabs = await buildComponentConfig(this.ctx, { ...old.config, tabs: [
+      ...game,
       { title: "Keyboard", component: page("Keys (change them in Options, Controls)", keys.slice(0, half)) },
       { title: "More keys", component: page("Items, sprites, windows and the camera", keys.slice(half)) },
       { title: "Mouse", component: page("The mouse", MOUSE) },

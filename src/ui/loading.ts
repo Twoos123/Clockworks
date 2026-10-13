@@ -3,18 +3,22 @@
 // the spinning gear with the progress label, a gameplay tip (ui/tip/interface.dat) and the
 // destination's title band (ui/report/parts/title_nextfloor.dat: name, zone and depth).
 //
-// The game's tips live in its message bundles (inside the code jars, not read here); the
-// install carries two tips as interface defaults (the loading screen's LMB tip and the tip
-// interface's own), and the rest below are written for this port around the install's tip icons.
+// The tips are the game's own, from the helptips bundle (t.loadingN the header, m.loadingN the
+// text, i.loadingN the ui/tip icon), leaving out the ones about online features. Without the
+// bundles the tips below stand in: two the install carries as interface defaults and the rest
+// written for this port around the install's tip icons. Titles and zones come from the dungeon
+// bundle's level names (src/game/clockworks.ts).
 
 import { CONFIG_REF } from "../config/params";
+import { messages } from "../i18n";
 import { buildInterface, layout, type Component, type GuiContext } from "./gui";
 import { OverlayScreen } from "./overlay";
-import { BOSSES, type Floor } from "../game/clockworks";
+import { bossName, type Floor } from "../game/clockworks";
+import { depthText, levelText } from "../game/text";
 
 export interface Tip { header: string; body: string; image: string }
 
-export const TIPS: Tip[] = [
+export const OWN_TIPS: Tip[] = [
   { header: "Press LMB to Run", image: "ui/tip/tip_lmb.png",
     body: "While holding the Left Mouse Button, your knight will run in the direction of your in-world cursor. (Note that your knight can't move if any of menus are open.)" },
   { header: "The world is always changing...", image: "ui/tip/tip_world.png",
@@ -45,6 +49,34 @@ export const TIPS: Tip[] = [
     body: "Monsters drop heat. Your equipped weapons absorb it and level up, growing stronger as they do." },
 ];
 
+/** Tip icons of tips about online features (bug reports, parties), which this port leaves out. */
+const ONLINE_TIPS = /tip_(f2|party)\.png$/;
+
+/** The game's loading tips from the helptips bundle, in order; empty without the bundle. */
+export function gameTips(): Tip[] {
+  const b = messages.getBundle("helptips"), out: Tip[] = [];
+  for (let i = 0; i < 100; i++) {
+    const header = b.raw(`t.loading${i}`), body = b.raw(`m.loading${i}`), icon = b.raw(`i.loading${i}`);
+    if (header === null || body === null) { if (i > 0) break; continue; }
+    const image = "ui/tip/" + (icon?.trim() || "tip_exclamation.png");
+    if (!ONLINE_TIPS.test(image)) out.push({ header, body, image });
+  }
+  return out;
+}
+
+let tips: Tip[] | null = null;
+/** The tips shown: the game's, or ours without its bundles. */
+export function loadingTips(): Tip[] {
+  if (!tips || (tips === OWN_TIPS && messages.loaded)) { const g = gameTips(); tips = g.length ? g : OWN_TIPS; }
+  return tips;
+}
+
+/** "Loading...42%", as the bundle's m.loading words it. */
+function progressText(percent: number, bundle = "global"): string {
+  const b = messages.getBundle(bundle);
+  return b.exists("m.loading") ? b.get("m.loading", String(percent)) : `Loading...${percent}%`;
+}
+
 export interface LoadingInfo {
   /** The title band: the destination's name, its zone line and the depth (empty for towns). */
   title: string;
@@ -60,26 +92,31 @@ const IMAGES = "ui/loading/images/";
 export function loadingInfo(name: string, floor: Floor | null, gateName?: string): LoadingInfo {
   if (floor) {
     const s = floor.stratum;
-    const depth = `DEPTH ${floor.depth}`;
+    const depth = depthText(floor.depth);
+    const zone = floor.zone;
     switch (floor.kind) {
-      case "terminal": case "core": return { title: floor.name, zone: gateName ?? "The Clockworks", depth, image: IMAGES + "default.jpg" };
-      case "subtown": return { title: floor.name, zone: floor.depth === 8 ? "Tier 2 begins" : "Tier 3 begins", depth,
+      case "terminal": case "core": return { title: floor.name, zone: zone ?? gateName ?? "The Clockworks", depth, image: IMAGES + "default.jpg" };
+      case "subtown": return { title: floor.name, zone: zone ?? (floor.depth === 8 ? "Tier 2 begins" : "Tier 3 begins"), depth,
         image: IMAGES + (floor.depth === 18 ? "emberlight.jpg" : "moorcroft.jpg") };
       case "boss": {
-        const b = s?.boss ? BOSSES[s.boss] : null;
         const img = s?.boss === "snarbolax" ? "wildwoods.jpg" : s?.boss === "twins" ? "imf.jpg" : "default.jpg";
-        return { title: floor.name, zone: b ? `Lair of ${b.name}` : "Boss", depth, image: IMAGES + img };
+        return { title: floor.name, zone: zone ?? (s?.boss ? `Lair of ${bossName(s.boss)}` : "Boss"), depth, image: IMAGES + img };
       }
-      default: return { title: floor.name, zone: s ? `${s.theme} Stratum ${s.index} - Tier ${s.tier}` : (gateName ?? ""), depth,
+      default: return { title: floor.name, zone: zone ?? (s ? `${s.theme} Stratum ${s.index} - Tier ${s.tier}` : (gateName ?? "")), depth,
         image: IMAGES + "default.jpg" };
     }
   }
   const n = name.toLowerCase();
-  if (/haven|bazaar/.test(n)) return { title: "Haven", zone: "Home sweet Home", depth: "", image: IMAGES + "haven.jpg" };
-  if (/^hall\b|guild/.test(n)) return { title: "Guild Hall", zone: "Haven", depth: "", image: IMAGES + "guildhall.jpg" };
-  if (/emberlight/.test(n)) return { title: "Emberlight", zone: "The Clockworks", depth: "", image: IMAGES + "emberlight.jpg" };
+  // the dungeon and town bundles' names for these places, else ours
+  const real = (key: string, bundle: string, title: string, zone: string) => {
+    const t = levelText(key, bundle);
+    return t ? { title: t.title, zone: t.zone || zone } : { title, zone };
+  };
+  if (/haven|bazaar/.test(n)) return { ...real("m.haven_bazaar", "dungeon", "Haven", "Home sweet Home"), depth: "", image: IMAGES + "haven.jpg" };
+  if (/^hall\b|guild/.test(n)) return { ...real("m.border_guildhall", "town", "Guild Hall", "Haven"), depth: "", image: IMAGES + "guildhall.jpg" };
+  if (/emberlight/.test(n)) return { ...real("m.emberlight", "dungeon", "Emberlight", "The Clockworks"), depth: "", image: IMAGES + "emberlight.jpg" };
   if (/ready ?room/.test(n)) return { title: "Ready Room", zone: "Haven", depth: "", image: IMAGES + "readyroom.jpg" };
-  if (/arena/.test(n)) return { title: "Arena", zone: "Survive the waves", depth: "", image: IMAGES + "default.jpg" };
+  if (/arena/.test(n)) return { ...real("m.battle_arena_1", "dungeon", "Arena", "Survive the waves"), depth: "", image: IMAGES + "default.jpg" };
   const title = name.replace(/\s*·.*$/, "").replace(/\b\w/g, c => c.toUpperCase());
   return { title, zone: "The Clockworks", depth: "", image: IMAGES + "default.jpg" };
 }
@@ -90,7 +127,7 @@ export class LoadingScreen extends OverlayScreen {
   private shown = 0;
   private progressValue = 0;
   private shownValue = 0;
-  private tipIndex = Math.floor(Math.random() * TIPS.length);
+  private tipIndex = -1;
 
   constructor(private readonly ctx: GuiContext, parent: HTMLElement) {
     super(parent, 7, "loading-canvas");
@@ -110,7 +147,8 @@ export class LoadingScreen extends OverlayScreen {
     this.progressValue = 0;
     this.shownValue = 0;
     this.shown = performance.now();
-    this.tipIndex = (this.tipIndex + 1) % TIPS.length;
+    const all = loadingTips();
+    this.tipIndex = this.tipIndex < 0 ? Math.floor(Math.random() * all.length) : (this.tipIndex + 1) % all.length;
     this.open();
     await this.build();
     const ui = this.ui;
@@ -119,7 +157,7 @@ export class LoadingScreen extends OverlayScreen {
     set("gate", info.title);
     set("zonename", info.zone);
     set("depth", info.depth);
-    const tip = TIPS[this.tipIndex];
+    const tip = all[this.tipIndex];
     set("tipheader", tip.header);
     set("tipbody", tip.body);
     const [icon, picture] = await Promise.all([this.ctx.image(tip.image), this.ctx.image(info.image)]);
@@ -148,7 +186,7 @@ export class LoadingScreen extends OverlayScreen {
     const ui = this.ui;
     if (!ui) return;
     const p = ui.find("progress");
-    if (p) p.text = `Loading...${Math.round(this.shownValue * 100)}%`;
+    if (p) p.text = progressText(Math.round(this.shownValue * 100), p.bundle);
     // the interface's add action: AnimateOffset on the gear, rotation clock() * -0.8
     const gear = ui.find("loadingGear");
     if (gear) gear.offset = { tx: 0, ty: 0, rotation: this.time * -0.8, scale: 1 };
@@ -162,7 +200,7 @@ export class LoadingScreen extends OverlayScreen {
       g.fillStyle = "#d0dcf2";
       g.font = "italic 22px 'Arial Black', sans-serif";
       g.textAlign = "center";
-      g.fillText(`Loading...${Math.round(this.shownValue * 100)}%`, w / 2, h * 0.55);
+      g.fillText(progressText(Math.round(this.shownValue * 100)), w / 2, h * 0.55);
       g.textAlign = "start";
     }
   }

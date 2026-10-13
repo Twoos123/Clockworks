@@ -36,6 +36,8 @@ export class ShopScreen extends GuiScreen {
   private eco: Economy | null = null;
   private keeper = "Shop";
   private maxRarity = 2;
+  /** The keeper's title line (the shop bundle's, from its description), or "" for ours. */
+  private subtitle = "";
   private stock: StockItem[] = [];
   private cart: Line[] = [];
   private page = 0;
@@ -55,9 +57,10 @@ export class ShopScreen extends GuiScreen {
   }
 
   /** Opens a keeper's shop with its stock. */
-  async openFor(title: string, stock: StockItem[], maxRarity: number, portrait: ViewModel | null = null) {
+  async openFor(title: string, stock: StockItem[], maxRarity: number, portrait: ViewModel | null = null, subtitle = "") {
     if (title !== this.keeper) { this.cart = []; this.page = 0; this.selling = false; }
     this.keeper = title;
+    this.subtitle = subtitle;
     this.portrait = portrait;
     this.maxRarity = maxRarity;
     this.stock = stock;
@@ -155,7 +158,7 @@ export class ShopScreen extends GuiScreen {
 
   private tip(e: StockItem, flavor: string) {
     const it = this.eco!.info(e.name);
-    return itemTip({ label: itemLabel(e.name), type: TYPES[it?.category ?? ""] ?? "Item", rarity: e.rarity, flavor, lines: [`${fmt(e.price)} crowns`] });
+    return itemTip({ label: itemLabel(e.name), type: TYPES[it?.category ?? ""] ?? "Item", rarity: e.rarity, flavor, item: e.name, kind: it?.category ?? "item", lines: [`${fmt(e.price)} crowns`] });
   }
 
   protected async refresh() {
@@ -164,7 +167,7 @@ export class ShopScreen extends GuiScreen {
     const save = this.shop.save(), owned = new Set(save.owned);
     const set = (root: Component, tag: string, text: string) => { const c = root.find(tag); if (c) c.text = text; };
     set(v, "name_vendor", this.keeper);
-    set(v, "title_vendor", this.selling ? "Selling" : `${"★".repeat(Math.max(1, this.maxRarity))} goods`);
+    set(v, "title_vendor", this.selling ? "Selling" : this.subtitle || `${"★".repeat(Math.max(1, this.maxRarity))} goods`);
     set(v, "vendorlevel", String(this.maxRarity));
     const bar = v.find("expbar");
     if (bar) bar.preferredSize = { width: Math.round(128 * this.maxRarity / 5), height: bar.preferredSize?.height ?? 10 };

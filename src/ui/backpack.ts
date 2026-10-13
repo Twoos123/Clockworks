@@ -72,7 +72,7 @@ export class BackpackScreen extends GuiScreen {
       const info = eco.info(item[0]);
       this.icons_.set(ring, info?.icon ?? null);
       const kind = pocket.has(item[0]) ? (/Vial/.test(item[0]) ? "Vial" : "Capsule") : info?.category === "mineral" ? "Mineral" : "Material";
-      this.tips.set(slot, itemTip({ label: itemLabel(item[0]), type: kind, rarity: info?.rarity ?? 0,
+      this.tips.set(slot, itemTip({ label: itemLabel(item[0]), type: kind, rarity: info?.rarity ?? 0, item: item[0], kind,
         flavor: pocket.has(item[0]) ? "Carried in the pocket: use it from the quickbar." : "A crafting material: the forge's recipes call for it.",
         lines: [`${item[1]} carried`, ...(eco.sellPrice(item[0]) ? [`Sells for ${eco.sellPrice(item[0]).toLocaleString("en-US")} crowns`] : [])] }));
     }
