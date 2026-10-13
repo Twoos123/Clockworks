@@ -19,7 +19,6 @@ import { GameScreens } from "./ui/screens";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
-import { openWardrobe } from "./ui/wardrobe";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen } from "./ui/elevator";
 import { MusicPlayer } from "./game/musicplayer";
@@ -68,11 +67,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // ---------------------------------------------------------------- choosing the install
 
 async function start() {
-  if (GAME) {
-    document.title = "Spiral Knights";
-    document.querySelector("#welcome h1")!.textContent = "Spiral Knights";
-    document.querySelector("#welcome .card p")!.textContent =
-      "A single-player browser port of Spiral Knights that plays from your own game install. Nothing is uploaded or downloaded: the game's files stay on your computer.";
+  if (!GAME) {
+    document.title = "Clyde Web Viewer";
+    document.querySelector("#welcome h1")!.textContent = "Clyde Web Viewer";
+    $("welcomeIntro").textContent = "A browser viewer for models built with Three Rings' open-source Clyde engine. " +
+      "It reads models straight from your own game install. Files stay on your computer and are never uploaded.";
   }
   // Wire every control before any async work, so a folder picked immediately is not lost.
   $("pick").onclick = async () => {
@@ -113,7 +112,18 @@ async function start() {
       await open(() => new HandleVfs(saved).init());
     };
   }
-  if (location.hash.includes("dev=1") && !$("dev").hidden) await open(async () => new DevServerVfs());
+  if (location.hash.includes("dev=1") && !$("dev").hidden) return void await open(async () => new DevServerVfs());
+  if (GAME) {
+    // the game never asks for its install: the local server (npm start, or the dev server)
+    // finds it and serves it; without one the page explains how to start the game
+    if (!$("dev").hidden) return void await open(async () => new DevServerVfs());
+    $("welcome").querySelector(".actions")!.remove();
+    $("welcome").querySelectorAll(".hint").forEach(h => h.remove());
+    $("welcomeIntro").innerHTML = "Spiral Knights wasn't found on this computer.<br><br>Start the game with <code>npm start</code>: " +
+      "it finds your install (Steam or the standalone installer) by itself. If the game is somewhere unusual, " +
+      "set <code>SK_DIR</code> to its folder first.";
+  }
+  $("welcome").classList.add("ready");
 }
 
 function showWelcomeError(msg: string) {
@@ -285,7 +295,7 @@ class Viewer {
       void this.startPlaying();
     };
     // the run's menu buttons click with the game's button sound
-    for (const id of ["descend", "deeper", "revive", "giveUp", "clockworks", "arenaBtn"]) {
+    for (const id of ["descend", "deeper", "revive", "giveUp"]) {
       $(id).addEventListener("click", () => this.uiSound(id === "giveUp" ? "sound/feedback/ui_dismiss.ogg" : "sound/feedback/button_press.ogg"));
     }
     $("descend").onclick = () => void this.descend();
@@ -294,8 +304,6 @@ class Viewer {
       if (this.gate) { $("floorDone").hidden = true; this.paused = false; this.gate = null; void this.returnToHaven(); return; }
       void this.descend(true);
     };
-    $("clockworks").onclick = () => this.openGates();
-    $("arenaBtn").onclick = () => void this.enterArena();
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
     // reviving costs crowns from the bank (the game spends energy); giving up returns to town
     $("revive").onclick = () => {
@@ -647,9 +655,6 @@ class Viewer {
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
-    const town = TOWN.test(this.scene.name);
-    $("clockworks").hidden = !town;
-    $("arenaBtn").hidden = !town;
     world.color = this.save.color;
     world.gear = this.save.gear;
     if (this.eco) world.economy = this.eco;
@@ -690,7 +695,6 @@ class Viewer {
     } });
     void this.gameHud.init(hudState(world, knightName(this.save))).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
-    if (import.meta.env.DEV) openWardrobe(this.outfit, () => this.world, () => this.save, () => writeSave(this.save));
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
@@ -716,8 +720,6 @@ class Viewer {
     this.hud?.clear();
     $("defeated").hidden = true;
     $("floorDone").hidden = true;
-    $("clockworks").hidden = true;
-    $("arenaBtn").hidden = true;
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
