@@ -198,3 +198,7 @@ button.danger { background: #7a1f1f; color: #fff; border-color: #a33; }
 body.game main { grid-template-columns: 1fr; }
 body.game .sidebar, body.game .info, body.game #status, body.game #anim, body.game #pause, body.game #reset,
 body.game #play, body.game #arsenalBtn, body.game #spawnJelly, body.game .toolbar label.button { display: none; }
+
+/* the elevator screen (src/ui/elevator.ts) fronts the floor dialog: its card stays as the fallback */
+.gui-elevator { background: none; pointer-events: none; }
+.gui-elevator > .defeated-card { display: none; }

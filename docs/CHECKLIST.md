@@ -7,7 +7,7 @@ be done fully, with the reason.
 - [ ] Game app by default (title screen from `ui/logon`, no asset viewer); viewer behind `#viewer` / `#dev=1`
 - [ ] Haven → Arcade → gate selection (`ui/mission/interface_gate.dat`, adventure board)
 - [ ] Clockworks gates: 4 strata, depth 0 to 28, tiers 1 to 3 (depths 1-7, 8-17, 18-28), terminals between strata, Core at the bottom
-- [ ] Elevator screen between floors (`ui/elevator`), loading screen with tips (`ui/loading`)
+- [x] Elevator screen between floors (`ui/elevator/nextlevel`), loading screen with tips and progress (`ui/loading`); FLAG: tip texts beyond the two in the install's interfaces are written here (the game's are in message bundles)
 - [ ] In-level gates and puzzles on generated floors (Iron Gates: gold key, monster, trigger, energy)
 - [ ] Terminals: shop, heal, elevator onward
 - [ ] Depth record, run summary
@@ -15,7 +15,7 @@ be done fully, with the reason.
 
 ## Content
 - [ ] Generated floors for all 22 tilesets
-- [ ] Every theme's music (`full-music-bundle.jar`) mapped to its levels
+- [x] Every theme's music (`full-music-bundle.jar` and `sound/music`) mapped to its levels, bosses, towns and stingers (`docs/research/music.md`)
 - [ ] Boss arenas: Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
 - [ ] Danger rooms, treasure vaults, arenas inside gates
 - [ ] Missions: all 272 configs (rank missions 1-9 with prestige, exchange and gate missions), mission board, rewards, rescue camps
