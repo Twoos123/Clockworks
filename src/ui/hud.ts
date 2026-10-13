@@ -74,6 +74,8 @@ export interface HudState {
   objectives: string[];
   /** In a town (the activities panel opens; in dungeons it starts folded). */
   town: boolean;
+  /** The portrait's rank label ("RANK 1-1"). */
+  rank?: string;
 }
 
 export function hudState(world: World, name: string, floor = ""): HudState {
@@ -308,6 +310,8 @@ export class GameHud {
     const px = (v: number) => Math.round(Math.max(0, v) / HEALTH_PER_PIP * PIP_WIDTH);
     bar(ui.find("health_ui"), px(s.maxHealth), px(s.health), px(s.recentDamage));
     bar(ui.find("shield_ui"), px(s.shieldMax), s.shieldBroken ? 0 : px(s.shield), 0);
+    const rank = s.rank ? ui.find("rank_label") : null;
+    if (rank) rank.text = s.rank!;
     // the heat meter shows the equipped weapon's level in the Clockworks
     const heat = ui.find("heat");
     if (heat) heat.visible = s.heatLevel > 0;
