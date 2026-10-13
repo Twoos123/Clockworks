@@ -12,10 +12,11 @@ import type { GameData } from "../game/data";
 import type { Floor, Gate, StratumTheme } from "../game/clockworks";
 import {
   canExchange, completeMission, crownReward, daysUntilActive, exchangeNeeds, freshProgress, isGear, missionRun, missionStatus,
-  npcName, parseMissions, rankLabel, rankName, rewardItems, weeklyPrestige, type Ingredient, type Mission, type MissionProgress,
+  npcName, parseMissions, rankLabel, rankName, rewardItems, weeklyPrestige, withName, type Ingredient, type Mission, type MissionProgress,
   type MissionStatus,
 } from "../game/missions";
-import type { SaveData } from "../game/save";
+import { knightName, type SaveData } from "../game/save";
+import { loadConversation, type Conversation } from "../game/conversation";
 import { SpawnTables } from "../game/spawntable";
 import { itemName } from "../game/text";
 import { buildComponentConfig, Component, type GuiContext, type GuiImage } from "./gui";
@@ -244,6 +245,17 @@ export class MissionBoard {
 
   /** @internal An item's inventory IconConfig. */
   iconOf(item: string): any { return this.host.data.resolveSync("config/item.dat", { name: item }, "item")?.icon ?? null; }
+
+  /** @internal The knight's name, for the {0} in the game's mission text. */
+  knight(): string { return knightName(this.host.save()); }
+
+  /** @internal A mission's briefing with the knight's name in it. */
+  briefingOf(m: Mission): string { return withName(m.summary, this.knight()); }
+
+  /** @internal A conversation mission's dialogue (config/conversation.dat), or null. */
+  conversationOf(m: Mission): Promise<Conversation | null> {
+    return m.conversation ? loadConversation(this.host.data, m.conversation, this.knight()) : Promise.resolve(null);
+  }
 }
 
 /** The mission window on its canvas. */
@@ -440,7 +452,7 @@ class MissionScreen extends GuiScreen {
     if (brief) {
       set(brief, "briefing", m ? m.title.toUpperCase() : "BRIEFING");
       const body = brief.children.find(k => k.kind === "label" && k.tag !== "briefing");
-      if (body) body.text = m ? m.summary + (npcName(m) ? `\n\nWith ${npcName(m)}.` : "") : b.tabNote(this.tab);
+      if (body) body.text = m ? b.briefingOf(m) +(npcName(m) ? `\n\nWith ${npcName(m)}.` : "") : b.tabNote(this.tab);
       // the chosen mission's action sits under its briefing
       brief.children = brief.children.filter(k => k.tag !== "mission_action");
       const st = m ? missionStatus(m, p) : null;
@@ -544,7 +556,7 @@ class MissionScreen extends GuiScreen {
     const set = (tag: string, text: string) => { const c = win.find(tag); if (c) c.text = text; };
     set("title", "Mission Complete");
     set("name", m.title.toUpperCase());
-    set("objective", m.summary);
+    set("objective", withName(m.objective || m.summary, this.board.knight()));
     const rewards = win.find("rewards");
     if (rewards) {
       const pills = await Promise.all([this.prestigePill(m.prestige, "done"), this.crownPill(crowns, "done"), ...items.slice(0, 8).map(it => this.itemPill(it.item, it.count, "done"))]);
@@ -567,15 +579,26 @@ class MissionScreen extends GuiScreen {
     await this.refresh();
   }
 
-  /** A conversation mission's briefing in the game's confirmation prompt; Done completes it. */
+  /**
+   * A conversation mission's briefing in the game's confirmation prompt. With the game's
+   * dialogue (config/conversation.dat and the mission bundle), each line in turn, the knight's
+   * reply on the button; without it, the briefing text. The last button completes it.
+   */
   async briefing(m: Mission) {
-    const o = await buildUi(this.ctx, uiRef(PROMPT));
+    const [o, talk] = await Promise.all([buildUi(this.ctx, uiRef(PROMPT)), this.board.conversationOf(m).catch(() => null)]);
     if (!o) return;
     this.briefed = m;
     const set = (tag: string, text: string) => { const c = o.find(tag); if (c) c.text = text; };
     set("title", m.title);
-    const npc = npcName(m);
-    set("prompt", (npc ? `${npc}:\n` : "") + m.summary);
+    const npc = talk?.speaker ?? npcName(m);
+    const steps = talk?.steps ?? [];
+    let at = 0;
+    const show = () => {
+      set("prompt", (npc ? `${npc}:\n` : "") + (steps[at]?.message ?? this.board.briefingOf(m)));
+      const ok = o.find("accept");
+      if (ok) ok.text = steps[at]?.responses[0] ?? "Done";
+    };
+    show();
     const check = o.find("confirm");
     if (check) check.visible = false;
     const walk = (c: Component) => {
@@ -587,8 +610,11 @@ class MissionScreen extends GuiScreen {
     this.on(o, "dismiss", shut);
     const cancel = this.on(o, "cancel", shut);
     if (cancel) cancel.text = "Cancel";
-    const ok = this.on(o, "accept", () => { shut(); this.board.finish(m); });
-    if (ok) ok.text = "Done";
+    this.on(o, "accept", () => {
+      if (at < steps.length - 1) { at++; show(); this.host.sound("sound/feedback/button_press.ogg"); return; }
+      shut(); this.board.finish(m);
+    });
+    show();
     this.overlays.push(o);
   }
 }

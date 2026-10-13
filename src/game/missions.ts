@@ -13,7 +13,7 @@
 
 import { applyArguments } from "../config/params";
 import { rng } from "../gen/layout";
-import { text } from "../i18n";
+import { hasMessage, text, xlate } from "../i18n";
 import { bossName, BOSSES, FAMILIES, STYLES, type BossKey, type Family, type Floor, type Gate, type LevelStyle, type Stratum, type StratumTheme } from "./clockworks";
 
 export type MissionClass = "Rank" | "Prestige" | "Hidden" | "Expansion";
@@ -66,8 +66,10 @@ export interface Mission {
   repeatable: boolean;
   onceOnly: boolean;
   daily: boolean;
-  /** A short English line about the mission (the game's own text is unavailable). */
+  /** The briefing: the game's (the mission bundle's b.<id>), else a short English line of ours. */
   summary: string;
+  /** The objective line (the mission bundle's o.<id>), or "". */
+  objective: string;
 }
 
 /** The knight's mission progress (kept in the save). */
@@ -185,12 +187,21 @@ export function parseMission(c: any, props: Map<string, any>): Mission | null {
     ingredients, choose, gateTheme, setting: null,
     production: enumName(i.deployment) === "PRODUCTION",
     repeatable: i.repeatable === true, onceOnly: i.onceOnly === true, daily: i.daily === true,
-    summary: "",
+    summary: "", objective: "",
   };
   if (kind === "dungeon") m.setting = missionSetting(m);
+  // the game's text: MissionConfig's name key (m.<id>), briefing (its own key or b.<id>) and
+  // objective (o.<id>), in the mission bundle; ours where the bundle has none
+  m.title = text("mission", `m.${m.id}`, m.title);
   m.summary = summarize(m);
+  const brief = typeof i.briefing === "string" && i.briefing ? i.briefing : `b.${m.id}`;
+  if (hasMessage("mission", brief)) m.summary = xlate("mission", brief);
+  m.objective = text("mission", `o.${m.id}`, "");
   return m;
 }
+
+/** A mission's text with the knight's name where the game's text has {0}. */
+export const withName = (s: string, name: string) => s.replace(/\{0\}/g, name);
 
 // ------------------------------------------------------------------------------ settings
 
@@ -433,8 +444,12 @@ const NPC_NAMES: Record<string, string> = { kora: "Kora", rendon: "Rhendon", fer
   morlin: "Morlin", vaelyn: "Vaelyn", bechamel: "Bechamel", desna: "Desna", plume: "Plume", kozma: "Kozma", barrus: "Barrus",
   armorstylist: "the armour stylist", geo: "Geo" };
 
-/** The NPC a conversation is with: from its model, else from the card ("knight-kora_comlink"). */
-export function npcName(m: Pick<Mission, "npcModel" | "cardImage">): string | null {
+/**
+ * The NPC a conversation is with: the mission bundle's speaker name (n.<id>), else from its
+ * model, else from the card ("knight-kora_comlink").
+ */
+export function npcName(m: Pick<Mission, "npcModel" | "cardImage"> & { id?: string }): string | null {
+  if (m.id && hasMessage("mission", `n.${m.id}`)) return xlate("mission", `n.${m.id}`);
   const fromModel = /model_([a-z]+)\.dat$/.exec(m.npcModel ?? "")?.[1];
   const fromCard = /knight-([a-z]+)/.exec((m.cardImage ?? "").split("/").pop() ?? "")?.[1];
   const key = fromModel ?? fromCard;
