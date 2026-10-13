@@ -12,9 +12,7 @@ import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
-import { Arsenal } from "./ui/arsenal";
 import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
-import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 
@@ -22,6 +20,7 @@ import { TitleScreen } from "./ui/title";
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { OptionsScreen } from "./ui/options";
+import { GameScreens } from "./ui/screens";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 import { decodeTiles } from "./gen/autotile";
@@ -187,7 +186,6 @@ class Viewer {
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
   private save: SaveData = loadSave();
-  private arsenal: Arsenal | null = null;
   /** Scenes in the install's cache, by name. */
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
@@ -302,7 +300,7 @@ class Viewer {
       if (!this.world || typing()) return;
       // Esc opens the options menu (and closes whatever window is open)
       if (e.key === "Escape") {
-        if (this.arsenal?.isOpen) { this.arsenal.close(); return; }
+        if (this.screens?.escape()) return;
         if (this.settings?.isOpen) this.settings.close();
         else if (this.options?.isOpen) this.options.close();
         else { this.paused = true; void this.openOptions(); }
@@ -323,6 +321,7 @@ class Viewer {
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       if (b("arsenal") && !e.repeat) void this.toggleArsenal();
+      if (b("backpack") && !e.repeat) void this.ensureScreens().toggleBackpack();
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
@@ -541,7 +540,7 @@ class Viewer {
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
       { audio: this.audio, depth: this.run.depth, arena: this.arenaMode && !TOWN.test(this.scene.name) });
     world.onArenaCheckpoint = wave => this.arenaCheckpoint(wave);
-    this.arsenal?.close();
+    this.screens?.closeAll();
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
@@ -653,12 +652,32 @@ class Viewer {
     return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase()) : `Depth ${this.run.depth}`;
   }
 
+  private screens: GameScreens | null = null;
+  private previewView: { key: string; view: PortraitView } | null = null;
+  private fallbackData: GameData | null = null;
+
+  /** The game's item windows (arsenal, forge, shops, backpack). */
+  private ensureScreens() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.screens ??= new GameScreens({
+      gui: this.gui, colors: this.renderer.colors,
+      data: () => this.world?.data ?? (this.fallbackData ??= new GameData(this.loader)),
+      save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
+      paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
+      view: (c, g, x, y, w, h) => {
+        const ref = this.world?.portraitRef();
+        if (!ref) return;
+        const key = JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v));
+        if (this.previewView?.key !== key) this.previewView = { key, view: new PortraitView(this.renderer, this.loader, ref) };
+        this.previewView.view.draw(c, g, x, y, w, h);
+      },
+    });
+  }
+
   /** Opens or closes the arsenal; the world pauses while it is open. */
-  private async toggleArsenal(tab?: "craft" | "weapons") {
-    const arsenal = this.ensureArsenal();
-    if (arsenal.isOpen) { arsenal.close(); this.paused = false; this.canvas.focus(); return; }
-    this.paused = !!this.world;
-    await arsenal.open(this.save.loadout, null, tab);
+  private async toggleArsenal(tab?: "craft") {
+    const screens = this.ensureScreens();
+    await (tab === "craft" ? screens.toggleForge() : screens.toggleArsenal());
   }
 
   /** Applies the options menu's settings to audio, rendering, the HUD and input. */
@@ -698,7 +717,8 @@ class Viewer {
     switch (tag) {
       case "button_menu": this.openSettings(); break;
       case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
-      case "button_loadout": case "button_gear": case "button_arsenal": void this.toggleArsenal(); break;
+      case "button_loadout": case "button_gear": void this.toggleArsenal(); break;
+      case "button_arsenal": void this.ensureScreens().toggleBackpack(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
       case "button_haven": void this.returnToHaven(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
@@ -743,67 +763,12 @@ class Viewer {
     this.audio.ui(file);
   }
 
-  private ensureArsenal() {
-    if (!this.gui) this.gui = new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    this.arsenal ??= new Arsenal($("arsenal"), this.world?.data ?? new GameData(this.loader), this.gui,
-      l => { this.save.loadout = l; writeSave(this.save); },
-      () => ({ crowns: this.save.crowns, heat: this.save.heat }),
-      () => new Set(this.save.owned),
-      (name, cost) => {
-        if (this.save.crowns < cost || this.save.owned.includes(name)) return false;
-        this.save.crowns -= cost;
-        this.save.owned.push(name);
-        writeSave(this.save);
-        return true;
-      });
-    this.arsenal.onClose = () => { this.paused = false; this.canvas.focus(); };
-    this.arsenal.sound = file => this.uiSound(file);
-    this.arsenal.crafting = {
-      materials: () => this.save.materials,
-      level: name => this.save.owned.includes(name) ? (/^Weapon\//.test(name) ? weaponLevel(this.save.weaponHeat[name] ?? 0) : 10) : 0,
-      crowns: () => this.save.crowns,
-      craft: r => {
-        if (this.save.crowns < r.cost || r.materials.some(([n, k]) => (this.save.materials[n] ?? 0) < k)) return false;
-        this.save.crowns -= r.cost;
-        for (const [n, k] of r.materials) this.save.materials[n] -= k;
-        if (r.consumes) {
-          // the base item becomes the new one, wherever it was equipped
-          this.save.owned = this.save.owned.filter(o => o !== r.consumes);
-          const l = this.save.loadout;
-          l.weapons = l.weapons.map(w => (w === r.consumes ? r.output : w));
-          for (const slot of ["shield", "armor", "helmet"] as const) if (l[slot] === r.consumes) l[slot] = r.output;
-          if (this.save.weaponHeat[r.consumes] !== undefined) this.save.weaponHeat[r.output] = 0;
-        }
-        this.save.owned.push(r.output);
-        writeSave(this.save);
-        return true;
-      },
-    };
-    this.arsenal.color = this.save.color;
-    this.arsenal.onColor = print => { this.save.color = print; writeSave(this.save); };
-    // the personal colour class (the default print's class) and its named colours
-    void this.renderer.colors.then(pos => {
-      const cls = pos?.classes.get(this.save.color >> 8);
-      if (!pos || !cls || !this.arsenal) return;
-      this.arsenal.colors = [...cls.colors.values()].map(c => {
-        const z = pos.byPrint((cls.classId << 8) | c.colorId);
-        return { print: (cls.classId << 8) | c.colorId, name: c.name, rgb: z ? z.colorizedRoot() : [128, 128, 128] as [number, number, number] };
-      });
-      this.arsenal.refresh();
-    });
-    return this.arsenal;
-  }
-
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
   private async openShop(keeper: string) {
-    const k = keeper.toLowerCase();
-    const tabs: ShopMode["tabs"] = /sword|gun|bomb|weapon/.test(k) ? ["weapons"] : /armor|helm/.test(k) ? ["armor", "helmet"]
-      : /shield/.test(k) ? ["shield", "trinket"] : /trinket|jewel/.test(k) ? ["trinket"] : ["weapons", "shield", "armor", "helmet", "trinket", "vitapod"];
-    this.paused = true;
     // in the Clockworks a terminal's Supply Depot stocks gear for its tier
     const f = this.gate ? this.floors[this.run.depth] : null;
     const maxRarity = f ? Math.max(shopTier(this.save), tierStars(f.tier)) : shopTier(this.save);
-    await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity });
+    await this.ensureScreens().openShop(keeper, maxRarity);
   }
 
   /** The knight reached the exit elevator: offer the next floor. */

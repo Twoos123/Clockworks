@@ -84,7 +84,7 @@ export function shopTier(d: SaveData): number {
 }
 
 /** Heat for weapon levels 1 to 10. The game's curve is server data; these are tuning numbers. */
-const LEVEL_HEAT = [0, 5, 15, 30, 50, 80, 120, 170, 230, 300];
+export const LEVEL_HEAT = [0, 5, 15, 30, 50, 80, 120, 170, 230, 300];
 export const weaponLevel = (heat: number) => LEVEL_HEAT.filter(h => heat >= h).length;
 /** Damage bonus per weapon level above 1 (tuning). */
 export const levelMultiplier = (level: number) => 1 + 0.03 * (level - 1);

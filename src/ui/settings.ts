@@ -22,6 +22,7 @@ export const ACTIONS = {
   cycle: { label: "Next weapon", key: "tab" },
   arsenal: { label: "Arsenal", key: "i" },
   forge: { label: "Forge (crafting)", key: "k" },
+  backpack: { label: "Backpack", key: "b" },
   help: { label: "Controls help", key: "h" },
   turnLeft: { label: "Turn camera left", key: "q" },
   turnRight: { label: "Turn camera right", key: "e" },

@@ -8,8 +8,11 @@ A single-player loop runs in the browser, built from the install's own data:
 
 1. **Haven.** The town loads from the scenes cache. Shopkeepers stand in the bazaar and sell
    gear for crowns.
-2. **Arsenal.** Every weapon, shield, armour and helmet is available with its icon, plus a
-   personal colour.
+2. **Arsenal.** The game's own arsenal and equipment windows (`ui/arsenal`, `ui/status`):
+   owned gear by category with icons, stars and heat levels, the game's item tooltips, sockets
+   for helmet, armour, shield, two trinkets, three weapons and the vitapod, the knight
+   preview, and the personal colour. B opens the backpack (`ui/inventory`): pocket items and
+   materials.
 3. **Runs.** Enter the Clockworks from town. Each cached combat level is followed by a
    newly generated floor of its theme, one depth per floor. The Core's elevator returns to
    Haven; "go deeper" past the end keeps generating floors.
@@ -33,8 +36,10 @@ A single-player loop runs in the browser, built from the install's own data:
 7. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
    deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
    boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
-8. **Crafting.** Recipes from `config/recipe.dat` turn materials, crowns and a levelled base
-   item into the next item.
+8. **Crafting.** The game's forge (`ui/forge`, K): recipes from `config/recipe.dat` turn
+   materials, crowns and a levelled base item into the next item, with the forging animation
+   played by the interface's own scripts. Shops use the game's vendor and cart windows
+   (`ui/shop`).
 9. **Saving.** The browser keeps:
    - loadout, owned items and colour;
    - banked crowns, heat and materials;

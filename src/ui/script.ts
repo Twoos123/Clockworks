@@ -17,6 +17,8 @@ function ease(e: any, t: number): number {
     case "CubicIn": return t * t * t;
     case "CubicOut": { const u = t - 1; return u * u * u + 1; }
     case "CubicInAndOut": { let u = t * 2; if (u < 1) return 0.5 * u * u * u; u -= 2; return 0.5 * (u * u * u + 2); }
+    // Easing.CubicOutOvershoot: past the end and back
+    case "CubicOutOvershoot": { const o = e.overshoot ?? 1.70158, u = t - 1; return u * u * ((o + 1) * u + o) + 1; }
     default: return t;
   }
 }
@@ -32,6 +34,8 @@ type Tick = (dt: number) => boolean;
 /** Plays scripts and actions against one interface (a UserInterface component). */
 export class ScriptRunner {
   private ticks: Tick[] = [];
+  /** Plays a PlaySound action's sound, when set. */
+  onSound: ((file: string) => void) | null = null;
 
   constructor(private readonly ui: Component) {}
 
@@ -60,6 +64,7 @@ export class ScriptRunner {
     const k = kind(action);
     if (k === "Compound") { for (const a of action.actions ?? []) this.execute(a); return; }
     if (k === "RunScript") { this.runScript(action.interfaceScript); return; }
+    if (k === "PlaySound") { if (action.sound) this.onSound?.(action.sound); return; }
     const target = action.target ? this.ui.find(action.target) : null;
     if (!target) return;
     const timed = (interval: number, step: (t: number) => void) => {
@@ -75,6 +80,19 @@ export class ScriptRunner {
     };
     switch (k) {
       case "SetAlpha": target.setAlpha(action.alpha ?? 1); break;
+      case "SetVisible": target.visible = action.visible ?? true; break;
+      case "SetEnabled": target.enabled = action.enabled ?? true; break;
+      case "SetOffset": target.offset = offsetOf(action.offset); break;
+      case "AnimateAlpha": {
+        const a = floatExpr(action.value, 1), duration: number = action.duration ?? 0;
+        let clock = performance.now() / 1000, elapsed = 0;
+        this.ticks.push(dt => {
+          clock += dt; elapsed += dt;
+          target.setAlpha(Math.max(0, Math.min(1, a(clock))));
+          return duration <= 0 || elapsed < duration;
+        });
+        break;
+      }
       case "FadeAlpha": {
         const start = action.start ?? 0, end = action.end ?? 1;
         timed(action.interval ?? 1, t => target.setAlpha(lerp(start, end, t)));
@@ -108,6 +126,10 @@ export class ScriptRunner {
   stop() { this.ticks = []; }
 
   tick(dt: number) {
-    this.ticks = this.ticks.filter(t => t(dt));
+    // animations started while ticking (a script running another) join after this pass
+    const current = this.ticks;
+    this.ticks = [];
+    const kept = current.filter(t => t(dt));
+    this.ticks = [...kept, ...this.ticks];
   }
 }
