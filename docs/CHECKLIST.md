@@ -42,6 +42,8 @@ be done fully, with the reason.
 ## Also done or in progress
 - [x] Economy: item levels for all gear, level tables, unique variants, loot by depth, shop catalogues, recipes to buy, selling; FLAG: daily catalogues and energy are server-side
 - [x] Battle sprites (all 20 configs, skills, levels, perks) given by the sprite missions; accessories and costumes
+- [x] Point, spot and directional lights from scene entries and models (LightConfig influences: attenuation, spot exponent and cutoff, box extents; the nearest eight per object, as GL's fixed-function lights; models with light influences off are skipped), including the editor light markers the game's scenes and generated floors place
+- [x] White-quad particles fixed: textures are premultiplied on load as Clyde does (WebGL ignores UNPACK_PREMULTIPLY for ImageBitmaps, so alpha-only sprites drew as white squares under additive blending); second texture units (masks, "Separate Mask" materials) are applied; particle layers use their material's own blend
 - [ ] Audit and fixes: every monster and weapon animation; lichen fusion
 
 ## Done earlier (see STATUS.md)

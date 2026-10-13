@@ -45,7 +45,7 @@ A single-player loop runs in the browser, built from the install's own data:
 
 | Area | What is in |
 |---|---|
-| Rendering | Every model and cached scene; library materials, colours, lights, fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
+| Rendering | Every model and cached scene; library materials (two texture units), colours, lights (scene directional plus point, spot and directional influences, nearest eight per object), fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
 | Knight | Gear from the arsenal, personal colour, idle, run, hurt, death, dash; keyboard and mouse or gamepad |
 | Weapons | Swords (combos with lunges, charge), guns (clips, reload, charge shots, auto-aim), bombs (charge, fuse, blast), from item and attack data |
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |

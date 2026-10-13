@@ -21,6 +21,8 @@ export interface TextureUnitState {
   env: string;
   rgbScale: number;
   sphereMap: boolean;
+  /** Which of the mesh's texture-coordinate sets the unit samples (TextureUnitConfig.coordSet). */
+  coordSet: number;
   /** Texture-coordinate transform: static, or animated by a dynamic binding. */
   transform: F<Mat4> | null;
 }
@@ -200,6 +202,7 @@ export class ConfigLibrary {
       env: env.substring(env.lastIndexOf("$") + 1),
       rgbScale: scale === "TWO" ? 2 : scale === "FOUR" ? 4 : 1,
       sphereMap: !!u.coordGenS?.$class?.endsWith("$SphereMap"),
+      coordSet: u.coordSet ?? 0,
       transform,
     };
   }
@@ -254,7 +257,7 @@ function fallback(name: string, texture: string | null): ResolvedMaterial {
       alphaFunc: n.includes("masked") ? "GEQUAL" : "ALWAYS", alphaRef: n.includes("masked") ? 0.5 : 0,
       depthFunc: "LEQUAL", depthMask: !translucent, cullFace: "BACK", color: null, lit: true, ambient: null, overrideLights: 0,
       ignoreVertexColors: false, fog: true, units: [{ texture, colorizations: [], premultiply: true,
-        sampler: { wrapS: "REPEAT", wrapT: "REPEAT", minFilter: "LINEAR_MIPMAP_LINEAR", magFilter: "LINEAR" }, env: "Modulate", rgbScale: 1, sphereMap: false, transform: null }], shaders: [],
+        sampler: { wrapS: "REPEAT", wrapT: "REPEAT", minFilter: "LINEAR_MIPMAP_LINEAR", magFilter: "LINEAR" }, env: "Modulate", rgbScale: 1, sphereMap: false, coordSet: 0, transform: null }], shaders: [],
     }],
   };
 }
