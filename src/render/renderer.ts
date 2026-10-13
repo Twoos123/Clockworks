@@ -219,7 +219,8 @@ interface WorldLight {
 }
 
 /** GL's limit on fixed-function lights; Clyde picks up to this many influences per object. */
-const MAX_LOCAL_LIGHTS = 8;
+// lights per object, as Clyde (SceneInfluenceSet.MAX_LIGHTS)
+const MAX_LOCAL_LIGHTS = 4;
 
 type Box = { min: Vec3; max: Vec3 };
 
