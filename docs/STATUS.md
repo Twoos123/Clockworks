@@ -80,7 +80,9 @@ A single-player loop runs in the browser, built from the install's own data:
 
 1. **Level variety.** Generated floors come in the themes the cache has (Jigsaw Valley and
    the Clockwork tunnels). More cached levels would add themes and improve the learned
-   tiling. Generated floors have no puzzles, doors or keys.
+   tiling. Generated floors have the cached levels' puzzles (gold keys, switch gates,
+   block walls, spike runs, secret treasure rooms) and special floors (treasure vaults,
+   danger rooms, arenas): see docs/research/generated-features.md. Rescue camps are missing.
 2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
    code jars, which this project does not read. Names come from config paths instead.
 3. **Shop catalogues** are server-side (`config/catalog.dat` ships empty). Prices are the
