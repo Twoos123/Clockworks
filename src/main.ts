@@ -132,6 +132,8 @@ class Viewer {
   private world: World | null = null;
   private hud: Hud | null = null;
   private attackPressed = false;
+  private attackHeld = false;
+  private shieldHeld = false;
   /** Mouse position over the canvas in CSS pixels, for aiming. */
   private mouse: [number, number] | null = null;
   private lastProj: Mat4 | null = null;
@@ -183,7 +185,7 @@ class Viewer {
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
     addEventListener("keyup", e => this.keys.delete(e.key.toLowerCase()));
-    addEventListener("blur", () => this.keys.clear());
+    addEventListener("blur", () => { this.keys.clear(); this.attackHeld = false; this.shieldHeld = false; });
     const hash = new URLSearchParams(location.hash.substring(1));
     const fromHash = hash.get("model");
     search.value = fromHash ? fromHash.replace(/\.dat$/, "") : "jellycube/model";
@@ -530,10 +532,21 @@ class Viewer {
     const c = this.canvas;
     let drag: { x: number; y: number; button: number } | null = null;
     c.addEventListener("pointerdown", e => {
-      if (this.world && e.button === 0) { this.attackPressed = true; return; }
+      if (this.world && (e.button === 0 || e.button === 2)) {
+        // play mode: left attacks (hold to charge), right raises the shield
+        if (e.button === 0) { this.attackPressed = true; this.attackHeld = true; } else this.shieldHeld = true;
+        c.setPointerCapture(e.pointerId);
+        return;
+      }
       drag = { x: e.clientX, y: e.clientY, button: this.world ? 0 : e.button };
       c.setPointerCapture(e.pointerId);
     });
+    const release = (e: PointerEvent) => {
+      if (e.button === 0) this.attackHeld = false;
+      if (e.button === 2) this.shieldHeld = false;
+    };
+    c.addEventListener("pointerup", release);
+    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; });
     c.addEventListener("pointermove", e => {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
@@ -571,10 +584,20 @@ class Viewer {
       }
       if (this.world) {
         const mv = this.moveInput();
-        if (!this.paused) this.world.update(dt, { move: [mv.x, mv.y], attack: this.attackPressed, aim: this.aimPoint() });
+        if (!this.paused) {
+          this.world.update(dt, {
+            move: [mv.x, mv.y], attackDown: this.attackPressed, attackHeld: this.attackHeld,
+            shield: this.shieldHeld || this.keys.has("shift"), aim: this.aimPoint(),
+          });
+        }
         this.attackPressed = false;
+        // Q and E turn the camera; it follows the knight smoothly
+        if (this.keys.has("q")) this.az += dt * 1.8;
+        if (this.keys.has("e")) this.az -= dt * 1.8;
         const k = this.world.knight;
-        this.target = [k.x, k.y, k.z + 1];
+        const f = 1 - Math.exp(-dt * 10);
+        this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
+          this.target[2] + (k.z + 1 - this.target[2]) * f];
         $("defeated").hidden = !this.world.defeated;
       }
       const eye: Vec3 = [

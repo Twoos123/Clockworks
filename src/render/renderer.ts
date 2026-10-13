@@ -187,6 +187,32 @@ export class ModelInstance {
   private blendDuration = 0;
   /** Frame number of the last update, so shared instances update once per frame. */
   private updatedFrame = -1;
+  /**
+   * A second clip layered over the first on a subset of nodes (the upper body), so a knight
+   * can swing a sword while its legs run. Its time is advanced by the owner.
+   */
+  overlay: { clip: AnimationClip; time: number; speed: number; mask: Set<string>; blendIn: number } | null = null;
+
+  /** Plays a clip on the masked nodes only, over whatever the base clip does. */
+  playOverlay(clip: AnimationClip, mask: Set<string>, opts: { loop?: boolean; speed?: number; blendIn?: number } = {}) {
+    if (this.overlay && this.overlay.clip.path === clip.path && (opts.loop ?? false) && this.overlay.clip.loop) return;
+    this.overlay = { clip: { ...clip, loop: opts.loop ?? false }, time: 0, speed: opts.speed ?? 1, mask, blendIn: opts.blendIn ?? 0.08 };
+  }
+
+  get overlayFinished(): boolean {
+    const o = this.overlay;
+    return !!o && !o.clip.loop && o.time * o.speed >= (o.clip.frames.length - 1) / o.clip.rate;
+  }
+
+  /** Names of a node and all nodes below it in this model's skeleton. */
+  subtree(name: string): Set<string> {
+    const out = new Set<string>();
+    const find = (n: NodeDef): NodeDef | null => n.name === name ? n : n.children.map(find).find(Boolean) ?? null;
+    const start = this.model.root ? find(this.model.root) : null;
+    const add = (n: NodeDef) => { out.add(n.name); n.children.forEach(add); };
+    if (start) add(start);
+    return out;
+  }
 
   constructor(readonly model: LoadedModel) {
     if (model.root) {
@@ -249,6 +275,19 @@ export class ModelInstance {
       }
     } else {
       this.prev = null;
+    }
+    const o = this.overlay;
+    if (o) {
+      const layer = sampleClip(o.clip, o.time * o.speed);
+      const w = Math.min(1, o.time / Math.max(0.001, o.blendIn));
+      if (pose === current) pose = new Map(current);
+      for (const name of o.mask) {
+        const b = layer.get(name);
+        if (!b) continue;
+        const a = pose.get(name) ?? this.bindLocal.get(name);
+        pose.set(name, w >= 1 || !a || a.matrix || b.matrix ? b
+          : { t: lerp3(a.t, b.t, w), r: slerp(a.r, b.r, w), s: a.s + (b.s - a.s) * w });
+      }
     }
     const overrides = new Map<string, Mat4>();
     for (const [name, x] of pose) overrides.set(name, toMatrix(x));

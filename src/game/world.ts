@@ -7,13 +7,27 @@ import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader }
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
 import type { CollisionMap } from "./collision";
-import { GameData, type AttackDef, type MonsterDef } from "./data";
+import { GameData, type AttackDef, type MonsterDef, type ShieldDef, type WeaponDef } from "./data";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43, KNIGHT_HEALTH = 200;
 const MONSTER_MASK = 1 | 2 | 8 | 32;
 const AGGRO_RANGE = 10, LEASH_RANGE = 18;
 const STARTER_WEAPON = "Weapon/Sword/Proto Sword";
+const STARTER_SHIELD = "Gear/Shield/Proto Shield";
+
+export interface KnightInput {
+  /** Desired movement direction in world space. */
+  move: [number, number];
+  /** The attack button went down this frame. */
+  attackDown: boolean;
+  /** The attack button is held. */
+  attackHeld: boolean;
+  /** The shield button is held. */
+  shield: boolean;
+  /** World point under the mouse, for aiming. */
+  aim: [number, number] | null;
+}
 
 export interface Floater { x: number; y: number; z: number; text: string; color: string; age: number }
 
@@ -27,6 +41,8 @@ abstract class Actor {
   /** Knockback velocity, decaying. */
   kx = 0; ky = 0;
   attack: { def: AttackDef; phase: Phase; t: number; hit: boolean } | null = null;
+  /** Nodes animated by the upper-body overlay (knights); null plays attacks whole-body. */
+  upperBody: Set<string> | null = null;
   abstract radius: number;
   constructor(readonly instance: ModelInstance, readonly scale = 1) {}
 
@@ -48,7 +64,13 @@ export class Knight extends Actor {
   buffered = false;
   invulnerable = 0;
   hurtTime = 0;
+  sinceAttack = 0;
   attacks: AttackDef[] = [];
+  weapon: WeaponDef | null = null;
+  shield: ShieldDef | null = null;
+  /** Seconds the attack button has been held for a charge, or null when not charging. */
+  charge: number | null = null;
+  shielding = false;
 }
 
 export class Monster extends Actor {
@@ -112,18 +134,29 @@ export class World {
 
   async start(at: [number, number]) {
     const weapon = await this.data.weapon(STARTER_WEAPON);
-    // the knight body takes its weapon through the "Weapon" parameter (attachment at bone_weapon_r)
+    const shield = await this.data.shield(STARTER_SHIELD);
+    // the knight body takes its gear through parameters: "Weapon" (attachment at bone_weapon_r)
+    // and "Shield" (attachment at bone_shield, with quality variants)
+    const args: [string, any][] = [];
+    if (weapon) args.push(["Weapon", weapon.model]);
+    if (shield) args.push(["Shield", shield.model]);
     const ref: any = { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
-      arguments: { $map: "com.threerings.config.ArgumentMap", entries: weapon ? [["Weapon", weapon.model]] : [] } };
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
     const model = await this.loader.load("character/pc/model.dat", ref);
     const knight = new Knight(await this.renderer.instantiate(model));
     knight.attacks = weapon?.attacks ?? [];
+    knight.weapon = weapon;
+    knight.shield = shield;
+    // the upper body: spine and everything above it (arms, head, weapon and shield bones)
+    knight.upperBody = knight.instance.subtree("Bip01 Spine");
     knight.health = knight.maxHealth = KNIGHT_HEALTH;
     [knight.x, knight.y] = at;
     knight.z = this.collision.groundZ(at[0], at[1]);
     this.knight = knight;
     await this.preload("character/pc/idle.dat", "character/pc/run_forward.dat", "character/pc/hurt_soft.dat",
-      "character/pc/dead.dat", ...knight.attacks.flatMap(a => [a.start, a.fire, a.end]));
+      "character/pc/dead.dat", "character/pc/charge_sword_hold.dat", "character/pc/blend_shield.dat",
+      "character/pc/shield_hit.dat",
+      ...[...knight.attacks, ...(weapon?.chargedAttack ? [weapon.chargedAttack] : [])].flatMap(a => [a.start, a.fire, a.end]));
     this.play(knight, "character/pc/idle.dat");
     await this.spawnStartupActors();
   }
@@ -157,7 +190,7 @@ export class World {
 
   // ---------------------------------------------------------------- update
 
-  update(dt: number, input: { move: [number, number]; attack: boolean; aim: [number, number] | null }) {
+  update(dt: number, input: KnightInput) {
     this.updateKnight(dt, input);
     this.checkTriggers();
     for (const m of this.monsters) this.updateMonster(m, dt);
@@ -186,92 +219,165 @@ export class World {
     a.kx *= decay; a.ky *= decay;
   }
 
-  private updateKnight(dt: number, input: { move: [number, number]; attack: boolean; aim: [number, number] | null }) {
+  /**
+   * Knight controls, after Spiral Knights: click to swing (clicks during a swing chain the
+   * combo), keep holding after a swing to charge and release when full for the weapon's
+   * charge attack, hold the shield button to defend. Attacks play on the upper body so the
+   * knight keeps moving (slower) while swinging, and face the mouse while attacking.
+   */
+  private updateKnight(dt: number, input: KnightInput) {
     const k = this.knight;
     k.instance.time += dt;
+    if (k.instance.overlay) k.instance.overlay.time += dt;
     k.invulnerable -= dt;
     k.hurtTime -= dt;
-    if (k.dead) return;
+    k.sinceAttack += dt;
+    if (k.dead) { k.instance.overlay = null; this.setShieldEffect(false); return; }
     this.applyKnockback(k, dt, KNIGHT_MASK);
 
-    if (input.attack) {
-      if (!k.attack) this.beginKnightSwing(input.aim);
-      else k.buffered = true;
+    const aimAngle = input.aim ? Math.atan2(input.aim[1] - k.y, input.aim[0] - k.x) : k.heading;
+    const weapon = k.weapon;
+
+    // shield: only when not swinging or charging
+    k.shielding = input.shield && !k.attack && k.charge === null && !!k.shield;
+    this.setShieldEffect(k.shielding);
+
+    // attack input
+    if (input.attackDown && !k.shielding) {
+      if (!k.attack && k.charge === null) this.knightSwing(0, aimAngle);
+      else if (k.attack) k.buffered = true;
     }
 
     if (k.attack) {
+      k.turnToward(aimAngle, 22, dt);
       this.advanceAttack(k, dt, () => {
-        // chain into the next swing if the player clicked during this one
-        if (k.buffered && k.chain + 1 < k.attacks.length) {
-          k.chain++;
-          k.buffered = false;
-          this.startAttack(k, k.attacks[k.chain]);
-          if (input.aim) k.heading = Math.atan2(input.aim[1] - k.y, input.aim[0] - k.x);
-          return true;
-        }
+        if (k.buffered && k.chain + 1 < k.attacks.length) { this.knightSwing(k.chain + 1, aimAngle); return true; }
         return false;
       });
-      // moving during the follow-through cancels it
-      const [mx, my] = input.move;
-      if (k.attack?.phase === "end" && Math.hypot(mx, my) > 0.01) { k.attack = null; k.chain = 0; }
-      if (k.attack) return;
+      // holding the button through the follow-through starts a charge instead of idling
+      if (!k.attack && input.attackHeld && weapon?.chargedAttack && !k.buffered) k.charge = 0;
+    } else if (k.charge !== null) {
+      k.turnToward(aimAngle, 18, dt);
+      if (input.attackHeld) {
+        k.charge += dt;
+        this.overlay(k, "character/pc/charge_sword_hold.dat", true);
+      } else {
+        const full = k.charge * 1000 >= (weapon?.chargeTime ?? 2000);
+        k.charge = null;
+        if (full && weapon?.chargedAttack) {
+          const def = weapon.chargedAttack;
+          // the charge is a burst around the knight; its damage args are depth-scaled
+          this.startAttack(k, { ...def, damage: Math.max(def.damage, 80),
+            shape: { forward: 0.6, side: 0, halfLength: 0, halfWidth: 0, radius: 2.2 }, knockback: 1.2 });
+        } else {
+          k.instance.overlay = null;
+        }
+      }
     }
 
+    // movement: slower while attacking, charging or shielding
     const [mx, my] = input.move;
     const len = Math.hypot(mx, my);
+    const factor = k.attack ? 0.55 : k.charge !== null ? 0.5 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? -0.5) : 1;
     if (len > 0.01) {
-      this.move(k, (mx / len) * KNIGHT_SPEED * dt, (my / len) * KNIGHT_SPEED * dt, KNIGHT_MASK);
-      k.turnToward(Math.atan2(my, mx), 14, dt);
-      this.play(k, "character/pc/run_forward.dat");
-    } else if (k.hurtTime <= 0) {
-      this.play(k, "character/pc/idle.dat");
+      this.move(k, (mx / len) * KNIGHT_SPEED * factor * dt, (my / len) * KNIGHT_SPEED * factor * dt, KNIGHT_MASK);
+      if (!k.attack && k.charge === null && !k.shielding) k.turnToward(Math.atan2(my, mx), 16, dt);
+      else if (k.shielding) k.turnToward(aimAngle, 12, dt);
+      this.play(k, "character/pc/run_forward.dat", { speed: Math.max(0.5, factor) });
+    } else {
+      if (k.shielding) k.turnToward(aimAngle, 12, dt);
+      if (k.hurtTime <= 0) this.play(k, "character/pc/idle.dat");
+    }
+
+    // upper body: shield pose when defending, nothing otherwise
+    if (!k.attack && k.charge === null) {
+      if (k.shielding) this.overlay(k, "character/pc/blend_shield.dat", true);
+      else if (k.instance.overlay && k.hurtTime <= 0) k.instance.overlay = null;
     }
   }
 
-  private beginKnightSwing(aim: [number, number] | null) {
+  private knightSwing(index: number, aimAngle: number) {
     const k = this.knight;
     if (!k.attacks.length) return;
-    k.chain = 0;
+    k.chain = index;
     k.buffered = false;
-    if (aim) k.heading = Math.atan2(aim[1] - k.y, aim[0] - k.x);
-    this.startAttack(k, k.attacks[0]);
+    k.heading = aimAngle;
+    k.sinceAttack = 0;
+    this.startAttack(k, k.attacks[index]);
   }
+
+  /** Plays a clip on the knight's upper body. */
+  private overlay(a: Actor, path: string | undefined, loop = false, speed = 1) {
+    const c = this.clip(path);
+    if (c && a.upperBody) a.instance.playOverlay(c, a.upperBody, { loop, speed });
+  }
+
+  private shieldFx: Effect | null = null;
+  private setShieldEffect(on: boolean) {
+    const k = this.knight;
+    if (on && !this.shieldFx && k.shield?.effect && !this.shieldLoading) {
+      this.shieldLoading = true;
+      this.loader.loadRef(k.shield.effect).then(async m => {
+        if (m && this.knight.shielding) {
+          this.shieldFx = { instance: await this.renderer.instantiate(m), matrix: k.matrix(), life: 1e9, follow: k };
+          this.effects.push(this.shieldFx);
+        }
+      }).finally(() => { this.shieldLoading = false; });
+    } else if (!on && this.shieldFx) {
+      this.shieldFx.life = 0;
+      this.shieldFx = null;
+    }
+  }
+  private shieldLoading = false;
 
   private startAttack(a: Actor, def: AttackDef) {
     a.attack = { def, phase: "start", t: 0, hit: false };
-    if (def.start) this.play(a, def.start, { loop: false, speed: def.startSpeed, blend: 0.08 });
+    if (def.start) this.animate(a, def.start, def.startSpeed);
     else this.enterFire(a);
+  }
+
+  /** One-shot attack animation: upper-body overlay for actors that have one, else whole body. */
+  private animate(a: Actor, path: string, speed: number) {
+    if (a.upperBody) this.overlay(a, path, false, speed);
+    else this.play(a, path, { loop: false, speed, blend: 0.06 });
+  }
+
+  private animDone(a: Actor) {
+    return a.upperBody ? a.instance.overlayFinished || !a.instance.overlay : a.instance.finished;
   }
 
   private enterFire(a: Actor) {
     const at = a.attack!;
     at.phase = "fire";
     at.t = 0;
-    if (at.def.fire) this.play(a, at.def.fire, { loop: false, speed: at.def.fireSpeed, blend: 0.05 });
-    if (at.def.swing) this.spawnEffect(at.def.swing, a.matrix(), 0.6, a);
+    if (at.def.fire) this.animate(a, at.def.fire, at.def.fireSpeed);
+    if (at.def.swing) {
+      const ref = at.def.swing.$class?.endsWith("SpawnTransient") ? at.def.swing.model : at.def.swing;
+      this.spawnEffect(ref, a.matrix(), 0.7, a);
+    }
   }
 
   /**
    * Steps an attacker through start, fire (damage after `delay`) and end. `chain` may start
-   * another attack when the end phase begins; it returns true if it did.
+   * the next attack in a combo when the fire phase completes or during the clear window.
    */
   private advanceAttack(a: Actor, dt: number, chain?: () => boolean) {
     const at = a.attack!;
     at.t += dt;
-    if (at.phase === "start" && (a.instance.finished || !at.def.start || at.t > 1.5)) this.enterFire(a);
+    if (at.phase === "start" && (this.animDone(a) || !at.def.start || at.t > 1.5)) this.enterFire(a);
     else if (at.phase === "fire") {
       if (!at.hit && at.t * 1000 >= at.def.delay) { at.hit = true; this.resolveHit(a, at.def); }
-      if (a.instance.finished || !at.def.fire || at.t > 1.5) {
+      if (this.animDone(a) || !at.def.fire || at.t > 1.5) {
         if (chain?.()) return;
         at.phase = "end";
         at.t = 0;
-        if (at.def.end) this.play(a, at.def.end, { loop: false, speed: at.def.endSpeed, blend: 0.05 });
+        if (at.def.end) this.animate(a, at.def.end, at.def.endSpeed);
       }
     } else if (at.phase === "end") {
-      if (chain && a.attack?.phase === "end" && at.t * 1000 < at.def.clear && this.knight.buffered && chain()) return;
-      if (a.instance.finished || !at.def.end || at.t > 1.5) {
+      if (chain && at.t * 1000 < at.def.clear && chain()) return;
+      if (this.animDone(a) || !at.def.end || at.t > 1.5) {
         a.attack = null;
-        if (a === this.knight) this.knight.chain = 0;
+        if (a === this.knight) { this.knight.chain = 0; this.knight.instance.overlay = null; }
       }
     }
   }
@@ -334,6 +440,16 @@ export class World {
   private damageKnight(amount: number, knockback: number, from: Actor) {
     const k = this.knight;
     if (k.invulnerable > 0 || k.dead) return;
+    // a raised shield blocks hits from the front
+    const toAttacker = Math.atan2(from.y - k.y, from.x - k.x);
+    const facing = Math.abs(Math.atan2(Math.sin(toAttacker - k.heading), Math.cos(toAttacker - k.heading)));
+    if (k.shielding && facing < 1.9) {
+      this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: "Blocked", color: "#9ad8ff", age: 0 });
+      this.knock(k, from, knockback * 0.3);
+      k.invulnerable = 0.25;
+      this.overlay(k, "character/pc/shield_hit.dat");
+      return;
+    }
     const dmg = Math.max(1, Math.round(amount * (0.9 + Math.random() * 0.2)));
     k.health = Math.max(0, k.health - dmg);
     k.invulnerable = 0.5;
@@ -346,7 +462,8 @@ export class World {
       this.play(k, "character/pc/dead.dat", { loop: false, blend: 0.1 });
     } else if (!k.attack) {
       k.hurtTime = 0.35;
-      this.play(k, "character/pc/hurt_soft.dat", { loop: false, blend: 0.05 });
+      k.charge = null;
+      this.overlay(k, "character/pc/hurt_soft.dat");
     }
   }
 

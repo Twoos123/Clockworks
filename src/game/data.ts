@@ -61,6 +61,18 @@ export interface WeaponDef {
   name: string;
   model: any;
   attacks: AttackDef[];
+  /** Milliseconds of holding the attack button to fully charge. */
+  chargeTime: number;
+  chargedAttack: AttackDef | null;
+}
+
+export interface ShieldDef {
+  name: string;
+  model: any;
+  /** The bubble shown while defending. */
+  effect: any;
+  /** Movement speed change while defending (-0.5 = half speed). */
+  defendingSpeed: number;
 }
 
 export class GameData {
@@ -152,7 +164,14 @@ export class GameData {
       const def = r?.ref ? await this.attack(r.ref) : null;
       if (def) attacks.push(def);
     }
-    return { name, model: w.model, attacks };
+    const chargedAttack = w.chargedAttack ? await this.attack(w.chargedAttack) : null;
+    return { name, model: w.model, attacks, chargeTime: w.chargeTime ?? 2000, chargedAttack };
+  }
+
+  async shield(name: string): Promise<ShieldDef | null> {
+    const s = await this.resolve("config/item.dat", { name }, "item");
+    if (!s?.model) return null;
+    return { name, model: s.model, effect: s.effect, defendingSpeed: s.defendingSpeed ?? -0.5 };
   }
 
   /**

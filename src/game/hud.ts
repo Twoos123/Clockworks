@@ -61,6 +61,18 @@ export class Hud {
 
     // knight health, bottom centre
     const k = world.knight;
+
+    // charge meter above the knight
+    if (k.charge !== null && k.weapon) {
+      const p = project(k.x, k.y, k.z + 2.1);
+      if (p) {
+        const frac = Math.min(1, (k.charge * 1000) / k.weapon.chargeTime);
+        g.fillStyle = "rgba(0,0,0,0.6)";
+        g.fillRect(p[0] - 31, p[1] - 1, 62, 9);
+        g.fillStyle = frac >= 1 ? (Math.floor(performance.now() / 120) % 2 ? "#ffe066" : "#fff6c2") : "#8ec5ff";
+        g.fillRect(p[0] - 30, p[1], 60 * frac, 7);
+      }
+    }
     const bw = Math.min(360, cw - 40), bx = (cw - bw) / 2, by = ch - 48;
     g.fillStyle = "rgba(10,12,18,0.75)";
     roundRect(g, bx - 8, by - 22, bw + 16, 46, 8);
