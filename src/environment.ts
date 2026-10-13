@@ -27,7 +27,7 @@ export interface Environment {
   models: LoadedModel[];
   camera: { azimuth: number; elevation: number; distance: number } | null;
   /** Music tracks (a weighted mix picks one) and their gain. */
-  music?: { files: { file: string; weight: number }[]; gain: number } | null;
+  music?: { files: { file: string; weight: number }[]; gain: number; crossFade?: number } | null;
   /** Looping ambient sounders (wind, rain) heard everywhere in the scene. */
   ambience?: any[];
   /** Colour and opacity of the round shadows under actors ("Environment/Shadow Color"). */
@@ -89,7 +89,7 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
     }
     if (ref.name === "world/environment/global_music_mix.dat") {
       const files = ((arg("Files") ?? []) as any[]).filter(f => f?.file).map(f => ({ file: f.file as string, weight: f.weight ?? 1 }));
-      if (files.length) env.music = { files, gain: arg("Gain") ?? 1 };
+      if (files.length) env.music = { files, gain: arg("Gain") ?? 1, crossFade: arg("Cross Fade") ?? 0 };
       return;
     }
     if (ref.name === "world/environment/global_skybox.dat" && /sounder/.test(arg("Model")?.name ?? "")) {

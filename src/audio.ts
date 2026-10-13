@@ -37,7 +37,7 @@ export class AudioSystem {
   private buffers = new Map<string, Promise<AudioBuffer | null>>();
   private sounders: Promise<Map<string, any>>;
   private listener: Vec3 = [0, 0, 0];
-  private music: { key: string; source: AudioBufferSourceNode; gain: GainNode } | null = null;
+  private music: { key: string; source: AudioBufferSourceNode; gain: GainNode; loop: boolean; duration: number } | null = null;
   /** Looping ambient sources, stopped together when leaving a scene. */
   private loops: AudioBufferSourceNode[] = [];
   /** Limits how many copies of one file may start within a short window (bullet storms). */
@@ -205,34 +205,117 @@ export class AudioSystem {
     for (const s of this.loops.splice(0)) { try { s.stop(); } catch { /* already stopped */ } }
   }
 
-  /** Music: one stream at a time, cross-faded, looping its last queued file. */
+  /** Music: one stream at a time, cross-faded. A Meta Stream plays as a mix (playMix). */
   private stream(cfg: any) {
-    const files: { file: string; loop: boolean }[] = kind(cfg) === "Stream"
-      ? (cfg.queue ?? []).map((q: any) => ({ file: q.file, loop: !!q.loop }))
-      : [{ file: weighted<any>(cfg.files ?? [])?.file, loop: true }];
+    if (kind(cfg) === "MetaStream") {
+      const files = (cfg.files ?? []).filter((f: any) => f?.file).map((f: any) => ({ file: f.file as string, weight: f.weight ?? 1 }));
+      this.playMix(files, cfg.gain ?? 1, cfg.crossFade ?? 0, cfg.fadeIn ?? 1);
+      return;
+    }
+    const files: { file: string; loop: boolean }[] = (cfg.queue ?? []).map((q: any) => ({ file: q.file, loop: !!q.loop }));
     const pick = files.find(f => f.loop) ?? files[files.length - 1];
     if (pick?.file) void this.playMusic(pick.file, cfg.gain ?? 1, cfg.fadeIn ?? 1);
   }
 
-  async playMusic(file: string, gain = 1, fadeIn = 1.5) {
+  /** The music file playing (or last asked for), for tests and the docs. */
+  nowPlaying: string | null = null;
+  /** The last stinger started. */
+  lastStinger: string | null = null;
+  private musicToken = 0;
+  private mixState: { key: string; files: { file: string; weight: number }[]; gain: number; crossFade: number; last: string; timer: ReturnType<typeof setTimeout> | null } | null = null;
+
+  /**
+   * Plays one music file, cross-fading from whatever plays now. A looping file repeats until
+   * replaced, and asking for it again keeps it playing. Concurrent requests resolve to the
+   * last one: a slow decode never starts over a newer track.
+   */
+  async playMusic(file: string, gain = 1, fadeIn = 1.5, loop = true, fadeOut = 1.5) {
     if (!this.ctx || !this.musicBus) return;
-    if (this.music?.key === file) return;
+    if (loop) this.clearMix();
+    if (loop && this.music?.key === file && this.music.loop) { this.musicToken++; this.setMusicGain(gain, fadeIn); return; }
+    const token = ++this.musicToken;
+    this.nowPlaying = file;
     const buf = await this.buffer(file);
-    if (!buf || !this.ctx) return;
-    this.stopMusic(1.5);
+    if (!buf || !this.ctx || token !== this.musicToken) return;
+    this.fadeOutMusic(fadeOut);
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
-    src.loop = true;
+    src.loop = loop;
     const g = this.ctx.createGain();
     const t = this.ctx.currentTime;
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(gain, t + Math.max(0.05, fadeIn));
     src.connect(g).connect(this.musicBus);
     src.start();
-    this.music = { key: file, source: src, gain: g };
+    this.music = { key: file, source: src, gain: g, loop, duration: buf.duration };
   }
 
-  stopMusic(fadeOut = 1) {
+  /**
+   * A Meta Stream: plays a weighted pick from the files through, then another (not the same
+   * one twice running when there is a choice), cross-fading over `crossFade` seconds. A single
+   * file loops. Asking for the mix that already plays keeps it going.
+   */
+  playMix(files: { file: string; weight: number }[], gain = 1, crossFade = 0, fadeIn = 1.5) {
+    if (!files.length) return;
+    if (files.length === 1) { void this.playMusic(files[0].file, gain, fadeIn); return; }
+    const key = files.map(f => f.file).join("|");
+    if (this.mixState?.key === key) { this.mixState.gain = gain; this.setMusicGain(gain, fadeIn); return; }
+    this.clearMix();
+    this.mixState = { key, files, gain, crossFade, last: "", timer: null };
+    void this.nextInMix(fadeIn);
+  }
+
+  private async nextInMix(fadeIn: number) {
+    const m = this.mixState;
+    if (!m) return;
+    const choices = m.files.length > 1 ? m.files.filter(f => f.file !== m.last) : m.files;
+    const pick = weighted(choices) ?? m.files[0];
+    m.last = pick.file;
+    await this.playMusic(pick.file, m.gain, fadeIn, false, Math.max(0.05, m.crossFade));
+    const cur = this.music;
+    if (this.mixState !== m || cur?.key !== pick.file) return;
+    const lead = Math.min(m.crossFade, cur.duration / 2);
+    m.timer = setTimeout(() => { if (this.mixState === m) void this.nextInMix(Math.max(0.05, m.crossFade)); },
+      Math.max(1000, (cur.duration - lead) * 1000));
+  }
+
+  private clearMix() {
+    if (this.mixState?.timer) clearTimeout(this.mixState.timer);
+    this.mixState = null;
+  }
+
+  /** Ramps the playing track to a new level (the same track asked for at another gain). */
+  private setMusicGain(gain: number, time: number) {
+    const m = this.music;
+    if (!m || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    m.gain.gain.cancelScheduledValues(t);
+    m.gain.gain.setValueAtTime(m.gain.gain.value, t);
+    m.gain.gain.linearRampToValueAtTime(gain, t + Math.max(0.05, time));
+  }
+
+  /** A one-shot stinger (a fanfare) over the music, which ducks under it. */
+  async stinger(file: string, gain = 0.8, duck = 0.3) {
+    if (!this.ctx || !this.musicBus || !this.master) return;
+    this.lastStinger = file;
+    const buf = await this.buffer(file);
+    if (!buf || !this.ctx || !this.musicBus || !this.master) return;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const g = this.ctx.createGain();
+    g.gain.value = gain * this.musicVolume / 0.45;
+    src.connect(g).connect(this.master);
+    const t = this.ctx.currentTime, bus = this.musicBus.gain, full = this.musicVolume;
+    bus.cancelScheduledValues(t);
+    bus.setValueAtTime(bus.value, t);
+    bus.linearRampToValueAtTime(full * duck, t + 0.3);
+    bus.setValueAtTime(full * duck, t + Math.max(0.3, buf.duration - 0.5));
+    bus.linearRampToValueAtTime(full, t + buf.duration + 0.5);
+    src.start();
+  }
+
+  /** Fades the current track out; it stops once silent. */
+  private fadeOutMusic(fadeOut: number) {
     const m = this.music;
     if (!m || !this.ctx) return;
     const t = this.ctx.currentTime;
@@ -241,5 +324,12 @@ export class AudioSystem {
     m.gain.gain.linearRampToValueAtTime(0, t + fadeOut);
     m.source.stop(t + fadeOut + 0.05);
     this.music = null;
+  }
+
+  stopMusic(fadeOut = 1) {
+    this.clearMix();
+    this.musicToken++;
+    this.nowPlaying = null;
+    this.fadeOutMusic(fadeOut);
   }
 }
