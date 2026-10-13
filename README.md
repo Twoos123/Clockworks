@@ -19,13 +19,17 @@ The plan, research, and current status are in [docs/](docs/).
 - Resolves materials through the install's own material and texture libraries, using a
   reimplementation of Clyde's parameter system, and emulates the fixed-function OpenGL
   states those materials need on WebGL 2.
-- Renders Tudey scenes that the player's client has cached, such as towns and dungeon
-  floors they have visited, using instanced drawing.
+- Renders Tudey scenes that the player's client has cached, such as towns, guild halls and
+  dungeon floors they have visited, with their lighting, fog, skyboxes, particles and
+  animated props.
+- Applies the game's texture colorizations.
+- Lets you walk a knight around any cached scene ("Play as knight").
 
 ## What it deliberately does not do
 
-- It never lists or reads the install's `code/` folder, which holds the proprietary game
-  client. Only `rsrc/` and `scenes/` are exposed (see `src/vfs.ts`).
+- It never decompiles or runs the proprietary game client. From the install's `code/` folder
+  it reads exactly one data file, the colour definitions inside `projectx-config.jar`;
+  otherwise only `rsrc/` and `scenes/` are exposed (see `src/vfs.ts`).
 - It hosts and distributes no game files. Each player supplies their own install.
 - It does not connect to any game server.
 
@@ -56,6 +60,7 @@ These read the local install from Node and print reports. None of them copy data
 | Command | What it does |
 |---|---|
 | `npm test` | Format and parameter-path unit tests; needs no game files |
+| `npm run e2e -- <folder>` | Picks a mock install through the folder input in Chromium, Firefox and WebKit (needs `npm run dev`) |
 | `npm run scan` | Parses every `.dat` under `rsrc/` and reports failures |
 | `npx tsx tools/dump.ts <path>` | Prints one file's object graph |
 | `npx tsx tools/meshes.ts <path>` | Summarizes a model's meshes and materials |
