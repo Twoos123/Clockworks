@@ -26,7 +26,7 @@ import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
@@ -195,6 +195,9 @@ class Viewer {
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
+  /** Totals for the current gate run, for the summary when it ends. */
+  private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
+
   /** The gate being descended and its floors by depth (null outside the Clockworks). */
   private gate: Gate | null = null;
   private floors: Floor[] = [];
@@ -902,6 +905,10 @@ class Viewer {
     // equipped weapons absorb the floor's heat
     for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
+    const t = this.runTotals;
+    t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
+    t.materials += [...l.materials.values()].reduce((a, b) => a + b, 0);
+    t.deepest = Math.max(t.deepest, this.run.depth);
     writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
@@ -963,18 +970,55 @@ class Viewer {
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
   private async returnToHaven() {
+    // the end of a gate run: a summary of what it brought home
+    const t = this.runTotals;
+    const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
+    this.gate = null;
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
     this.stopPlaying();
     this.run = { depth: 0, health: null, floors: 0 };
     const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
     if (!haven) return;
     await this.selectScene(haven.id);
     await this.startPlaying();
+    if (summary && summary.deepest > 0) {
+      this.showPanel("Back in Haven", body => {
+        const rows: [string, string][] = [["Gate", summary.gate || "The Clockworks"], ["Deepest depth this run", String(summary.deepest)],
+          ["Deepest depth ever", String(summary.best)], ["Monsters defeated", String(summary.kills)],
+          ["Crowns banked", String(summary.crowns)], ["Heat earned", String(summary.heat)], ["Materials and items", String(summary.materials)]];
+        for (const [k, v] of rows) {
+          const r = document.createElement("div");
+          r.className = "settings-row";
+          r.innerHTML = `<span>${k}</span><b>${v}</b><span></span>`;
+          body.append(r);
+        }
+      });
+    }
   }
 
   /** The cached levels in run order. */
   // ------------------------------------------------------------------ the Arcade and its gates
 
-  /** The Arcade's gate board: today's four gates and their strata. */
+  private iconUrls = new Map<string, Promise<string>>();
+  /** An install image as a URL for HTML panels (cached). */
+  private iconUrl(path: string): Promise<string> {
+    let p = this.iconUrls.get(path);
+    if (!p) this.iconUrls.set(path, p = this.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => ""));
+    return p;
+  }
+  private img(path: string, cls: string, title = "") {
+    const im = document.createElement("img");
+    im.className = cls;
+    if (title) im.title = title;
+    void this.iconUrl(path).then(u => { if (u) im.src = u; });
+    return im;
+  }
+
+  /**
+   * The Arcade's gate board: today's four gates, each with its emblem and the lineup of its
+   * floors as the game draws it, with the level icons (rsrc/ui/icon/map) under each stratum's
+   * theme icon (rsrc/ui/icon/theme).
+   */
   private openGates() {
     const root = $("gates");
     root.replaceChildren();
@@ -986,35 +1030,47 @@ class Viewer {
     h.textContent = "The Arcade";
     const close = document.createElement("button");
     close.textContent = "Close";
-    close.onclick = () => { root.hidden = true; this.paused = false; };
+    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
     head.append(h, close);
     card.append(head);
     const note = document.createElement("p");
     note.className = "settings-note";
-    note.textContent = "Choose a gate. Each runs from depth 1 to the Core at depth 29 through three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
+    note.textContent = "Today's gates. Each runs from the Arcade to the Core in three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
     card.append(note);
-    const grid = document.createElement("div");
-    grid.className = "gates-grid";
     for (const g of arcadeGates()) {
-      const col = document.createElement("div");
-      col.className = "gate";
-      const t = document.createElement("h3");
-      t.textContent = g.name;
-      col.append(t);
-      for (const s of g.strata) {
-        const row = document.createElement("div");
-        row.className = "gate-stratum tier" + s.tier;
-        row.textContent = `${s.first}-${s.last} · ${s.theme} · ${s.style.name}${s.boss ? " · " + BOSSES[s.boss].name : ""}`;
-        col.append(row);
+      const row = document.createElement("div");
+      row.className = "gate-row";
+      const name = document.createElement("div");
+      name.className = "gate-name";
+      const emblem = this.img(`ui/icon/gate/${g.emblem}.png`, "gate-emblem");
+      emblem.style.filter = "hue-rotate(-100deg) saturate(0.9)";
+      name.append(emblem, document.createTextNode(g.name));
+      const lineup = document.createElement("div");
+      lineup.className = "gate-lineup";
+      const floors = gateFloors(g);
+      for (const f of floors.slice(1)) {
+        const cell = document.createElement("div");
+        cell.className = `gate-cell tier${f.tier}` + (f.stratum && f.depth === f.stratum.first ? " first" : "");
+        const theme = f.stratum && f.kind !== "terminal" && f.kind !== "subtown" ? f.stratum.theme.toLowerCase() : "";
+        if (f.stratum && f.depth === f.stratum.first) cell.append(this.img(`ui/icon/theme/${theme || "unk"}.png`, "gate-theme", f.stratum.theme));
+        else cell.append(document.createElement("span"));
+        const icon = this.img(`ui/icon/map/${floorIcon(f)}.png`, "gate-level", `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`);
+        // the icons are colourisation masks (magenta); tint them by the stratum's theme
+        const hue = f.kind === "terminal" || f.kind === "subtown" || f.kind === "core" ? 200 : THEME_HUES[f.stratum?.theme ?? ""] ?? 200;
+        icon.style.filter = `hue-rotate(${hue - 300}deg) saturate(0.85)`;
+        cell.append(icon);
+        const d = document.createElement("small");
+        d.textContent = String(f.depth);
+        cell.append(d);
+        lineup.append(cell);
       }
       const go = document.createElement("button");
       go.className = "primary";
       go.textContent = "Enter";
       go.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_confirm.ogg"); void this.enterGate(g); };
-      col.append(go);
-      grid.append(col);
+      row.append(name, lineup, go);
+      card.append(row);
     }
-    card.append(grid);
     // the arena: endless waves on a cached level, a checkpoint every fifth wave
     const arena = document.createElement("button");
     arena.textContent = "Arena: endless waves (bank every fifth wave)";
@@ -1029,6 +1085,7 @@ class Viewer {
   /** Starts a gate at depth 1. */
   private async enterGate(g: Gate, floors = gateFloors(g)) {
     this.gate = g;
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name };
     this.usedScenes.clear();
     this.floors = floors;
     this.arenaMode = false;
@@ -1478,6 +1535,9 @@ class Viewer {
 }
 
 start();
+
+/** Hues the gate lineup tints its level icons with, by stratum theme. */
+const THEME_HUES: Record<string, number> = { Fire: 5, Freeze: 190, Poison: 110, Shock: 52, Beast: 30, Construct: 215, Fiend: 280, Gremlin: 22, Slime: 135, Undead: 165 };
 
 /** The scenes cache, for genTheme's availability check (set once scenes are listed). */
 let genScenes: { id: string; name: string }[] | null = null;

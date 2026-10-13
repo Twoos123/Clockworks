@@ -62,6 +62,24 @@ export interface Stratum {
   last: number;
 }
 
+/** The gate lineup's level icon (rsrc/ui/icon/map/<icon>.png) for a level style. */
+export const STYLE_ICONS: Record<string, string> = {
+  tunnels: "clockwork", valley: "island", den: "woods", grove: "island", keep: "castle", graveyard: "graveyard",
+  compound: "city", deconstruction: "decon", frostwood: "island", halls: "castle", pools: "island",
+};
+
+/** A floor's lineup icon. */
+export function floorIcon(f: { kind: string; stratum: Stratum | null }): string {
+  switch (f.kind) {
+    case "lobby": return "lobby";
+    case "terminal": return "terminal";
+    case "subtown": return "town";
+    case "core": return "core";
+    case "boss": return "boss";
+    default: return STYLE_ICONS[f.stratum?.style.key ?? ""] ?? "monsters";
+  }
+}
+
 export type FloorKind = "lobby" | "level" | "terminal" | "subtown" | "boss" | "core";
 export interface Floor {
   depth: number;
@@ -73,14 +91,14 @@ export interface Floor {
   tileset: string;
 }
 
-export interface Gate { id: string; name: string; seed: number; strata: Stratum[] }
+export interface Gate { id: string; name: string; seed: number; strata: Stratum[]; emblem: string }
 
 const STRATA: [number, number, number][] = [[1, 1, 3], [1, 5, 7], [2, 9, 12], [2, 14, 17], [3, 19, 22], [3, 24, 28]];
-/** Gate names (the Arcade's gates are named for gems in the game; these are ours). */
-const GATE_NAMES = ["Amber Gate", "Topaz Gate", "Emerald Gate", "Sapphire Gate", "Ruby Gate", "Amethyst Gate", "Pearl Gate", "Onyx Gate"];
+/** The Arcade's gate emblems (rsrc/ui/icon/gate/<emblem>.png); a gate is named for its emblem. */
+const EMBLEMS = ["pawn", "rook", "knight", "bishop", "queen", "king", "lion", "falcon", "serpent", "sparrow", "sun", "titan", "clover", "dragonfly", "phantom", "skull"];
 
 /** A gate from a seed: six strata with themes, styles and (sometimes) a boss. */
-export function makeGate(seed: number, index = 0): Gate {
+export function makeGate(seed: number, index = 0, emblemIndex?: number): Gate {
   const rand = rng(seed);
   const pick = <T>(a: readonly T[]) => a[Math.floor(rand() * a.length)];
   const strata: Stratum[] = [];
@@ -98,12 +116,15 @@ export function makeGate(seed: number, index = 0): Gate {
     const boss = i % 2 === 1 && rand() < 0.5 ? pick(bosses) : null;
     strata.push({ index: i + 1, tier, theme, style, boss, first, last });
   }
-  return { id: `gate${index}-${seed}`, name: GATE_NAMES[(seed + index) % GATE_NAMES.length], seed, strata };
+  const emblem = EMBLEMS[(emblemIndex ?? seed + index * 7) % EMBLEMS.length];
+  return { id: `gate${index}-${seed}`, name: emblem[0].toUpperCase() + emblem.slice(1) + " Gate", seed, strata, emblem };
 }
 
 /** The Arcade's four gates for a day (gates rotate daily). */
 export function arcadeGates(day = Math.floor(Date.now() / 86400000)): Gate[] {
-  return [0, 1, 2, 3].map(i => makeGate((day * 4 + i) * 2654435761 >>> 0, i));
+  // four different emblems a day
+  const first = (day * 5) % EMBLEMS.length;
+  return [0, 1, 2, 3].map(i => makeGate((day * 4 + i) * 2654435761 >>> 0, i, first + i * 3));
 }
 
 /** Every floor of a gate, indexed by depth (0 to 29). */

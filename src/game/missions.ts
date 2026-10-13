@@ -271,7 +271,7 @@ export function missionRun(m: Mission, runs = 0): { gate: Gate; floors: Floor[] 
     floors[d] = { depth: d, tier: tierOf(d), stratum, kind: boss ? "boss" : "level",
       name: boss ? BOSSES[s.boss!].level : m.title, tileset: boss ? BOSSES[s.boss!].tileset : s.tileset };
   }
-  return { gate: { id: `mission:${m.id}`, name: m.title, seed: (hash(m.id) + runs * 7919) >>> 0, strata: [stratum] }, floors };
+  return { gate: { id: `mission:${m.id}`, name: m.title, seed: (hash(m.id) + runs * 7919) >>> 0, strata: [stratum], emblem: "knight" }, floors };
 }
 
 // ------------------------------------------------------------------------------ schedules
