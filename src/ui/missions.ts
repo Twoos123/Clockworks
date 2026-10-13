@@ -12,6 +12,9 @@ import {
 import type { SaveData } from "../game/save";
 import { SpawnTables } from "../game/spawntable";
 import type { GuiContext, GuiImage } from "./gui";
+import { notice } from "./notice";
+
+export { notice };
 
 /** What the board needs from the game. */
 export interface MissionHost {
@@ -352,18 +355,4 @@ export class MissionBoard {
     this.root.hidden = false;
     this.host.pause(true);
   }
-}
-
-/** A short notice over the game (rank locks, mission results), gone after a few seconds. */
-export function notice(text: string, seconds = 6) {
-  let n = document.getElementById("notice");
-  if (!n) {
-    n = el("div", "game-notice");
-    n.id = "notice";
-    (document.getElementById("gates")?.parentElement ?? document.body).append(n);
-  }
-  n.textContent = text;
-  n.hidden = false;
-  clearTimeout((n as any)._t);
-  (n as any)._t = setTimeout(() => { n!.hidden = true; }, seconds * 1000);
 }
