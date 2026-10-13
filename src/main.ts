@@ -161,6 +161,8 @@ class Viewer {
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
+  /** Arena mode: waves on a cached level instead of its own wiring. */
+  private arenaMode = false;
   private attackPressed = false;
   private attackHeld = false;
   /** A weapon slot picked with the number keys, applied on the next update. */
@@ -208,8 +210,12 @@ class Viewer {
       void this.startPlaying();
     };
     $("descend").onclick = () => void this.descend();
-    $("deeper").onclick = () => void this.descend(true);
-    $("clockworks").onclick = () => { this.run = { depth: 0, health: null, floors: 0 }; void this.descend(); };
+    $("deeper").onclick = () => {
+      if (this.arenaMode && this.world?.arena) { $("floorDone").hidden = true; this.paused = false; this.world.continueArena(); return; }
+      void this.descend(true);
+    };
+    $("clockworks").onclick = () => { this.run = { depth: 0, health: null, floors: 0 }; this.arenaMode = false; void this.descend(); };
+    $("arenaBtn").onclick = () => void this.enterArena();
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
     // reviving costs crowns from the bank (the game spends energy); giving up returns to town
     $("revive").onclick = () => {
@@ -400,12 +406,15 @@ class Viewer {
     this.status("Spawning a knight...");
     this.audio ??= new AudioSystem(this.vfs, this.loader);
     this.audio.unlock();
-    const world = new World(this.loader, this.renderer, this.scene, this.scene.collision, { audio: this.audio, depth: this.run.depth });
+    const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
+      { audio: this.audio, depth: this.run.depth, arena: this.arenaMode && !TOWN.test(this.scene.name) });
+    world.onArenaCheckpoint = wave => this.arenaCheckpoint(wave);
     this.arsenal?.close();
     world.onNextFloor = () => this.floorCleared();
     world.onOpenShop = keeper => void this.openShop(keeper);
     const town = TOWN.test(this.scene.name);
     $("clockworks").hidden = !town;
+    $("arenaBtn").hidden = !town;
     world.color = this.save.color;
     for (const [n, h] of Object.entries(this.save.weaponHeat)) world.weaponLevels.set(n, weaponLevel(h));
     await world.start(spawn, this.save.loadout);
@@ -451,6 +460,7 @@ class Viewer {
     $("defeated").hidden = true;
     $("floorDone").hidden = true;
     $("clockworks").hidden = true;
+    $("arenaBtn").hidden = true;
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
@@ -553,6 +563,37 @@ class Viewer {
   }
 
   /** The run's next level after the current scene, or null when the run is over. */
+  /** The arena: a random combat level with its wiring off and waves instead. */
+  private async enterArena() {
+    const levels = this.runLevels().filter(s => /jigsaw|valley|dark halls|grove|cave|keep/i.test(s.name));
+    const pick = (levels.length ? levels : this.runLevels())[Math.floor(Math.random() * Math.max(1, levels.length))];
+    if (!pick) return;
+    this.stopPlaying();
+    this.arenaMode = true;
+    this.run = { depth: 1, health: null, floors: 0 };
+    await this.selectScene(pick.id);
+    await this.startPlaying();
+  }
+
+  /** Every fifth arena wave: bank the loot, then fight on or go home. */
+  private arenaCheckpoint(wave: number) {
+    if (!this.world) return;
+    const l = this.world.loot;
+    this.save.crowns += l.crowns;
+    this.save.heat += l.heat;
+    for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
+    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
+    l.crowns = 0; l.heat = 0; l.materials.clear();
+    writeSave(this.save);
+    this.paused = true;
+    $("floorTitle").textContent = `Arena: wave ${wave} cleared`;
+    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.`;
+    $("descend").textContent = "Ride up to Haven";
+    $("deeper").textContent = "Fight on";
+    $("deeper").hidden = false;
+    $("floorDone").hidden = false;
+  }
+
   /** Crowns a revive costs: more the deeper the knight is (towns are free). */
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
@@ -586,6 +627,8 @@ class Viewer {
    */
   private async descend(deeper = false) {
     $("floorDone").hidden = true;
+    this.paused = false;
+    if (this.arenaMode) { this.arenaMode = false; await this.returnToHaven(); return; }
     let next = this.nextLevel();
     if (deeper && !next) next = this.runLevels()[0] ?? null;
     this.stopPlaying();

@@ -187,6 +187,8 @@ export interface WorldOptions {
   depth?: number;
   difficulty?: Difficulty;
   audio?: AudioSystem | null;
+  /** Arena: the level's own spawners and triggers are off; waves come instead. */
+  arena?: boolean;
 }
 
 export class World implements LogicHost {
@@ -227,7 +229,13 @@ export class World implements LogicHost {
     this.depth = opts.depth ?? 1;
     this.difficulty = opts.difficulty ?? "medium";
     this.audio = opts.audio ?? null;
+    if (opts.arena) this.arena = { wave: 0, timer: 3, family: "" };
   }
+
+  /** Arena state: the current wave, the pause before the next, and its monster family. */
+  arena: { wave: number; timer: number; family: string } | null = null;
+  /** Called every fifth arena wave cleared (a checkpoint to bank or carry on). */
+  onArenaCheckpoint: ((wave: number) => void) | null = null;
 
   /** The level's collision cells (for the minimap). */
   get collisionMap() { return this.collision; }
@@ -348,6 +356,8 @@ export class World implements LogicHost {
     this.logic.startActor(ke);
     const props: [Entity, any][] = [];
     for (const le of this.scene.logic) {
+      // in the arena the level's spawners and wave triggers stay quiet
+      if (this.arena && /Spawn|Player Enter|Actor Removed|One Time Action|Trigger\//.test(le.name)) continue;
       const e = new Entity(false, le.name);
       e.x = le.x; e.y = le.y; e.rotation = le.rotation;
       e.fixedShape = le.shape;
@@ -484,6 +494,44 @@ export class World implements LogicHost {
         return undefined;
     }
   }
+
+  /**
+   * Arena waves: when the field is clear, a short pause, then a bigger wave from a random
+   * monster family (the game's single-family spawn tables), one depth deeper every two waves.
+   */
+  private updateArena(dt: number) {
+    const a = this.arena!;
+    if (this.knight.dead) return;
+    // count spawned actors (monsters load asynchronously after their logic actor exists)
+    const ke = this.knightEntity;
+    if (this.logic.actors.some(e => e.mobile && e !== ke && !e.destroyed && !(e.game instanceof Monster && e.game.passive))) return;
+    if (a.wave > 0 && a.timer === 3) {
+      // a wave was just cleared
+      this.loot.crowns += 10 * a.wave;
+      this.floaters.push({ x: this.knight.x, y: this.knight.y, z: this.knight.z + 2, text: `Wave ${a.wave} cleared  +${10 * a.wave} cr`, color: "#ffd84d", age: 0 });
+      if (a.wave % 5 === 0) { a.timer = 2.99; this.onArenaCheckpoint?.(a.wave); return; }
+    }
+    a.timer -= dt;
+    if (a.timer > 0) return;
+    a.wave++;
+    a.timer = 3;
+    this.depth = Math.min(29, 1 + Math.floor((a.wave - 1) / 2));
+    const families = [...this.data.library_("config/spawn_table.dat").keys()]
+      .filter(n => /^Monster\/Single Family\/.*Scaled - /.test(n) && !/Friendly|Snarbolax|Pit Boss|Giant|Trojan|Overtimer/.test(n));
+    a.family = families[Math.floor(Math.random() * families.length)] ?? "Monster/Single Family/Slime/Scaled - Jelly Cube";
+    const count = Math.min(12, 2 + a.wave);
+    const k = this.knight;
+    for (let i = 0; i < count; i++) {
+      const ang = Math.random() * Math.PI * 2, d = 5 + Math.random() * 3;
+      const spot = this.collision.findSpawn(k.x + Math.cos(ang) * d, k.y + Math.sin(ang) * d, 0.5, MONSTER_MASK);
+      if (!spot) continue;
+      const results = this.tables.evaluate({ name: a.family }, { depth: this.depth, tier: this.tier(), difficulty: this.difficulty });
+      for (const r of results) if (r.actor) this.logic.spawn(r.actor, spot[0], spot[1], ang + Math.PI, this.knightEntity, this.knightEntity);
+    }
+  }
+
+  /** Resumes the arena after a checkpoint. */
+  continueArena() { if (this.arena) this.arena.timer = 2; }
 
   /** Spawn tables have tiers by depth (1 to 8, 9 to 17, 18 and below). */
   private tier() { return this.depth >= 18 ? 3 : this.depth >= 9 ? 2 : 1; }
@@ -742,6 +790,7 @@ export class World implements LogicHost {
     ke.collisionFlags = this.knight.dead ? 0 : 4;
     for (const m of this.monsters) if (m.entity) { m.entity.x = m.x; m.entity.y = m.y; m.entity.rotation = m.heading; }
     this.logic.tick(dt * 1000);
+    if (this.arena) this.updateArena(dt);
     this.separate();
     this.updateProjectiles(dt);
     this.runEvents();
