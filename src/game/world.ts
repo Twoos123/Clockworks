@@ -265,7 +265,7 @@ export class World implements LogicHost {
    */
   onOpenShop: ((keeper: string, portrait: { ref: any; idle: any } | null) => void) | null = null;
   /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
-  onPortal: ((tags: string[], sceneId: number, portal: string) => void) | null = null;
+  onPortal: ((tags: string[], sceneId: number, portal: string, more: { area: string; townName?: string; sceneInternalId?: string }) => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
   /**
@@ -652,7 +652,8 @@ export class World implements LogicHost {
     switch (k) {
       case "ScenePortal":
         // a town exit the knight walked into: the game decides where it leads
-        if (activator === this.knightEntity && !this.knight.dead) this.onPortal?.(source.tags ?? [], Number(cfg.sceneId), String(cfg.portal?.tag ?? ""));
+        if (activator === this.knightEntity && !this.knight.dead) this.onPortal?.(source.tags ?? [], Number(cfg.sceneId), String(cfg.portal?.tag ?? ""),
+          { area: source.name, townName: cfg.townName, sceneInternalId: cfg.sceneInternalId });
         return true;
       case "ActivateMonster": case "TableSpawn": case "TableSpawnPerMember": {
         const table = cfg.spawnTable ?? cfg.table;

@@ -40,9 +40,11 @@ import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
-import { initNotices } from "./ui/notice";
+import { currentNotice, initNotices } from "./ui/notice";
 import { UplinkScreen } from "./ui/uplink";
 import { HelpScreen } from "./ui/help";
+import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
+import { messageText } from "./ui/gui";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site/i;
@@ -343,7 +345,7 @@ class Viewer {
     if (fromHash) this.select(fromHash);
     else if (hash.get("scene")) this.selectScene(hash.get("scene")!);
     requestAnimationFrame(this.frame);
-    if (import.meta.env.DEV) (window as any).__viewer = this;
+    if (import.meta.env.DEV) { (window as any).__viewer = this; (window as any).__notice = currentNotice; }
   }
 
   /** Development smoke test: loads every matching file and reports failures. */
@@ -613,7 +615,10 @@ class Viewer {
     if (!this.scene || this.world) return;
     const { min, max } = this.scene.bounds;
     // knights arrive on the level's start platform, else near the middle
-    const [sx, sy] = this.scene.start ?? [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2];
+    // (towns: at the portal the knight walked in through, else the scene's default entrance)
+    const arrival = this.scene.start ? null : arrivalPoint(this.scene.logic, this.arrivalTag ?? "");
+    this.arrivalTag = null;
+    const [sx, sy] = this.scene.start ?? (arrival ? [arrival.x, arrival.y] : [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2]);
     const spawn = this.places.spawn(this.scene.id) ?? this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
@@ -639,9 +644,9 @@ class Viewer {
       }
       return best;
     };
-    // Haven's north exit leads to the Arcade, which the scenes cache lacks: walking into it
-    // brings up the Arcade's gate board
-    world.onPortal = tags => { if (tags.some(t => /arcade/i.test(t)) && !this.gate) this.openGates(); };
+    // town exits lead to their scenes (src/game/portals.ts); the Arcade, which the scenes cache
+    // lacks, brings up its gate board
+    world.onPortal = (tags, sceneId, portal, more) => this.walkOut({ tags, sceneId, portal, ...more });
     // energy uses (energy gates, crates) are paid in crowns: the floor's first, then the bank's
     world.spendCrowns = n => {
       const l = world.loot, fromFloor = Math.min(l.crowns, n);
@@ -659,6 +664,7 @@ class Viewer {
     world.pocket = this.save.pocket;
     await this.outfit.dress(world);
     await world.start(spawn, this.save.loadout);
+    if (arrival && !this.places.spawn(this.scene.id)) world.knight.heading = arrival.heading;
     this.eco ??= world.economy;
     this.outfit.hotkeys = (["sprite1", "sprite2", "sprite3"] as const).map(a => keyName(this.bound(a)));
     void this.outfit.accompany(world);
@@ -705,6 +711,35 @@ class Viewer {
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
     this.places.started(this.scene.id);
+  }
+
+  /** The portal tag the knight arrives at in the next scene (a town exit walked through). */
+  private arrivalTag: string | null = null;
+  private travelling = false;
+
+  /**
+   * The knight walked into a town exit: on to the scene it leads to, arriving at its portal
+   * there, after the loading screen; the Arcade's gate board for the Arcade; and for a place
+   * the scenes cache lacks, the game's notice that it is not available.
+   */
+  private walkOut(info: PortalInfo) {
+    if (this.travelling) return;
+    const t = exitTarget(info, this.sceneList);
+    if (t.kind === "arcade") { if (!this.gate) this.openGates(); return; }
+    if (t.kind === "missing") {
+      const msg = messageText("%helptips:m.sl_elevator_closed");
+      notice(t.place ? `${messageText(t.place)}: ${msg}` : msg, 4);
+      return;
+    }
+    this.travelling = true;
+    void (async () => {
+      try {
+        this.stopPlaying();
+        await this.selectScene(t.id);
+        this.arrivalTag = t.portal;
+        await this.startPlaying();
+      } finally { this.travelling = false; }
+    })();
   }
 
   private stopPlaying() {

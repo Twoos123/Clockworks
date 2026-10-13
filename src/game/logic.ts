@@ -223,6 +223,8 @@ export class Logic {
    * such as pet skills in loot drops stay off.
    */
   private run(action: any, source: Entity, activator: Entity | null): boolean {
+    // a town exit whose (server) action the data dropped altogether: still an exit
+    if (action == null && /^Portals\//.test(source.name)) return this.host.gameAction({ $class: "ScenePortal" }, source, activator, this) ?? true;
     if (action && kind(action) === "Conditional" && action.condition == null) return this.execute(action.action, source, activator);
     return this.execute(action, source, activator);
   }
@@ -407,7 +409,9 @@ export class Logic {
     else if (cfg && !cfg.$class && cfg.actor?.name) cfg = { ...cfg, $class: "com.threerings.tudey.config.ActionConfig$SpawnActor" };
     // ...and one with a portal and a scene id is the game's scene change (a town's exits);
     // the game handles it, so it goes to the host under a name of our own
-    else if (cfg && !cfg.$class && cfg.portal && cfg.sceneId !== undefined) return this.host.gameAction({ ...cfg, $class: "ScenePortal" }, source, activator, this) ?? true;
+    // (a town move names a town and scene instead, a training floor a floor: src/game/portals.ts)
+    else if (cfg && !cfg.$class && cfg.portal && (cfg.sceneId !== undefined || cfg.townName !== undefined || cfg.sceneInternalId !== undefined || cfg.floor !== undefined))
+      return this.host.gameAction({ ...cfg, $class: "ScenePortal" }, source, activator, this) ?? true;
     if (!cfg?.$class) return true;
     const k = kind(cfg);
     if (!pkg(cfg).includes("tudey.config.ActionConfig")) {
