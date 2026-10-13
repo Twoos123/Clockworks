@@ -7,6 +7,7 @@
 // servers; only the one cached hall exists here, so every guild gets that layout.
 
 import type { SaveData } from "./save";
+import { itemName } from "./text";
 
 /** One furniture item standing in the hall. */
 export interface Placement {
@@ -84,7 +85,7 @@ export function furnitureCatalogue(names: Iterable<string>, resolve: (name: stri
     if (!isFurniture(name)) continue;
     const impl = resolve(name);
     if (!impl || !/FurniConfig\$/.test(impl.$class ?? "") || !(impl.model || impl.placeable || impl.actor)) continue;
-    out.push({ name, label: name.split("/").pop()!, category: name.split("/")[1] ?? "Other", rarity: impl.rarity ?? 0, icon: impl.icon ?? null,
+    out.push({ name, label: itemName(name), category: name.split("/")[1] ?? "Other", rarity: impl.rarity ?? 0, icon: impl.icon ?? null,
       width: Math.max(1, impl.footprintWidth ?? 1), height: Math.max(1, impl.footprintHeight ?? 1) });
   }
   out.sort((a, b) => a.category.localeCompare(b.category) || a.rarity - b.rarity || a.label.localeCompare(b.label));

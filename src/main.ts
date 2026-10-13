@@ -27,7 +27,9 @@ import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
+import { loadMessages, messages, text } from "./i18n";
+import { itemName } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
@@ -36,7 +38,7 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, bossName, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
@@ -181,6 +183,8 @@ async function open(make: () => Promise<Vfs>) {
     const vfs = await make();
     const files = await vfs.list();
     if (!files.some(f => f.endsWith(".dat"))) throw new VfsError("No .dat files were found in that folder.");
+    // the game's text, from the install's message bundles (our own English where they are missing)
+    await loadMessages(vfs, loadSettings().locale).catch(() => 0);
     $("welcome").hidden = true;
     $("app").hidden = false;
     new Viewer(vfs, files);
@@ -271,6 +275,7 @@ class Viewer {
   constructor(private readonly vfs: Vfs, files: string[]) {
     this.loader = new ModelLoader(vfs);
     this.renderer = new Renderer(this.canvas, vfs);
+    messages.controls = command => commandKeys(this.options_, command);
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
     this.places = this.makePlaces();
@@ -843,7 +848,7 @@ class Viewer {
     if (f && (f.kind === "terminal" || f.kind === "subtown" || f.kind === "core")) {
       return { town: true, objectives: [`${f.name}, depth ${f.depth}: rest, resupply at the Supply Depot, then take the elevator down.`] };
     }
-    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? BOSSES[f.stratum.boss].name : "the boss"}.`, "The elevator opens when it falls."] };
+    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? bossName(f.stratum.boss) : "the boss"}.`, "The elevator opens when it falls."] };
     const town = !!this.scene && TOWN.test(this.scene.name);
     const a = this.world?.arena;
     const objectives = town ? ["Visit the shops, then enter the Clockworks."]
@@ -1008,7 +1013,9 @@ class Viewer {
     const kp = eco.keeper(keeper, { tier, maxRarity });
     // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
     const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
-    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity, portrait);
+    // the keeper's name and title line from its description config, in the shop bundle
+    const desc = await (this.world?.data ?? new GameData(this.loader)).actorDescription(keeper).catch(() => null);
+    await this.ensureScreens().openShop(text("shop", desc?.dname, kp.title), stock, kp.maxRarity, portrait, text("shop", desc?.title, ""));
   }
 
   /** The economy over the install's configs (prices, levels, variants, recipes). */
@@ -1042,7 +1049,7 @@ class Viewer {
         notes.push(`Found ${eco.displayName(it.name, this.save.gear[it.name])}`);
       }
     }
-    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${up.name.split("/").pop()} reached level ${up.level}`);
+    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${itemName(up.name)} reached level ${up.level}`);
     return notes;
   }
 

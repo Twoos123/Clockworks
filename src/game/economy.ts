@@ -31,6 +31,7 @@
 // keeper's kind within the star range its place allows.
 
 import { resolveRef } from "./logic";
+import { itemName, variantText } from "./text";
 import type { DepthContext } from "./depth";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
@@ -175,7 +176,7 @@ export class Economy {
       const props = list.length ? list[Math.max(0, Math.min(list.length - 1, rarity))] : null;
       const tags: string[] = ((impl.tags?.tags ?? []) as any[]).filter(t => typeof t === "string");
       const auto = impl.autoSpawnType ? enumName(impl.autoSpawnType) : null;
-      out = { name, label: last(name), category, rarity, icon: impl.icon ?? null, props, tags, autoSpawn: auto,
+      out = { name, label: itemName(name), category, rarity, icon: impl.icon ?? null, props, tags, autoSpawn: auto,
         heatable: ["sword", "handgun", "bomb", "shield", "armor", "helm"].includes(category) && !!props?.levelTable };
     }
     this.infos.set(name, out);
@@ -455,10 +456,11 @@ export class Economy {
     return e;
   }
 
-  /** "Beast Damage: Medium" */
+  /** "Beast Damage: Medium": the variant's line in the item bundle, else ours. */
   variantLabel(name: string): string {
     const v = this.variant(name);
-    return v ? `${v.label}: ${GRADES[Math.min(4, v.grade)]}` : last(name);
+    const ours = v ? `${v.label}: ${GRADES[Math.min(4, v.grade)]}` : last(name);
+    return v ? variantText(this.resolve("config/variant.dat", name, "variant"), ours) : ours;
   }
 
   /** An item's name with its variants, as the arsenal and tooltips show it. */

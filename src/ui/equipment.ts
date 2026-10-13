@@ -724,7 +724,7 @@ export class ArsenalScreen extends GuiScreen {
     const flavor = heatable
       ? `${g?.heat ?? 0} heat absorbed.${lv < MAX_LEVEL ? " Gear levels up with the heat it gathers in the Clockworks." : " Fully heated."}`
       : `${e.category.label.replace(/s$/, "")}.`;
-    return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity,
+    return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
       flavor: flavor + (worn ? " Equipped." : " Click to equip."), level: heatable ? lv : undefined,
       progress: eco.heatProgress(save, e.name), equipped: worn, lines });
   }

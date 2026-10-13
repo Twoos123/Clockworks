@@ -12,6 +12,7 @@ export function nodeLoader(): ModelLoader {
     read: async p => new Uint8Array(readFileSync(join(root, p))),
     blob: async p => new Blob([readFileSync(join(root, p))]),
     scenes: async () => [], readScene: async () => new Uint8Array(), colorDefs: async () => null,
+    messageBundles: async () => [], messageBundle: async () => null,
   };
   return new ModelLoader(vfs);
 }
