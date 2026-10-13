@@ -11,6 +11,7 @@ import { GuiContext } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
+import { Gamepads } from "./gamepad";
 import { Arsenal } from "./ui/arsenal";
 import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
 import type { ShopMode } from "./ui/arsenal";
@@ -170,6 +171,7 @@ class Viewer {
   /** The action key (F) went down since the last update. */
   private interactPressed = false;
   private dashPressed = false;
+  private readonly pads = new Gamepads();
   private shieldHeld = false;
   /** Mouse position over the canvas in CSS pixels, for aiming. */
   private mouse: [number, number] | null = null;
@@ -854,11 +856,25 @@ class Viewer {
       }
       if (this.world) {
         const mv = this.moveInput();
+        // a gamepad adds to the keyboard and mouse; sticks are camera-relative like WASD
+        const pad = this.pads.poll();
+        const fx = -Math.cos(this.az), fy = -Math.sin(this.az);
+        const rel = (x: number, y: number): [number, number] => [fx * y + fy * x, fy * y - fx * x];
+        let move: [number, number] = [mv.x, mv.y], aim = this.aimPoint();
+        if (pad) {
+          if (pad.move[0] || pad.move[1]) move = rel(pad.move[0], pad.move[1]);
+          if (pad.aim) { const [ax, ay] = rel(pad.aim[0], pad.aim[1]); const k = this.world.knight; aim = [k.x + ax * 3, k.y + ay * 3]; }
+          else if (pad.move[0] || pad.move[1]) aim = null;
+          if (pad.cycle && this.world.knight.weapons.length) {
+            const n = this.world.knight.weapons.length;
+            this.weaponSlot = (this.world.knight.slot + pad.cycle + n) % n;
+          }
+        }
         if (!this.paused) {
           this.world.update(dt, {
-            move: [mv.x, mv.y], attackDown: this.attackPressed, attackHeld: this.attackHeld,
-            shield: this.shieldHeld || this.keys.has("shift"), aim: this.aimPoint(), weaponSlot: this.weaponSlot,
-            interact: this.interactPressed, dash: this.dashPressed,
+            move, attackDown: this.attackPressed || !!pad?.attackDown, attackHeld: this.attackHeld || !!pad?.attackHeld,
+            shield: this.shieldHeld || this.keys.has("shift") || !!pad?.shield, aim, weaponSlot: this.weaponSlot,
+            interact: this.interactPressed || !!pad?.interact, dash: this.dashPressed || !!pad?.dash,
           });
           this.dashPressed = false;
           this.weaponSlot = null;
