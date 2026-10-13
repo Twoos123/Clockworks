@@ -167,6 +167,7 @@ class Viewer {
   private weaponSlot: number | null = null;
   /** The action key (F) went down since the last update. */
   private interactPressed = false;
+  private dashPressed = false;
   private shieldHeld = false;
   /** Mouse position over the canvas in CSS pixels, for aiming. */
   private mouse: [number, number] | null = null;
@@ -224,6 +225,7 @@ class Viewer {
       if (e.key === "Escape") { this.stopPlaying(); return; }
       if (/^[1-9]$/.test(e.key)) this.weaponSlot = Number(e.key) - 1;
       if (e.key.toLowerCase() === "f" && !e.repeat) this.interactPressed = true;
+      if (e.key === " " && !e.repeat) this.dashPressed = true;
       if (e.key.toLowerCase() === "i" && !e.repeat) void this.toggleArsenal();
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
@@ -758,8 +760,9 @@ class Viewer {
           this.world.update(dt, {
             move: [mv.x, mv.y], attackDown: this.attackPressed, attackHeld: this.attackHeld,
             shield: this.shieldHeld || this.keys.has("shift"), aim: this.aimPoint(), weaponSlot: this.weaponSlot,
-            interact: this.interactPressed,
+            interact: this.interactPressed, dash: this.dashPressed,
           });
+          this.dashPressed = false;
           this.weaponSlot = null;
           this.interactPressed = false;
         }

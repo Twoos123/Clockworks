@@ -34,6 +34,8 @@ const STARTER_ARMOR = ["Gear/Armor/Parts/Proto (Base)", "Gear/Helm/Parts/Proto (
  * lives in game code, not data); the data's explicit combo lunges are 1.25 to 2.5 units.
  */
 const DEFAULT_SWING_IMPULSE = { forward: 1, side: 0, delay: 0, duration: 150 };
+/** The dash: its numbers live in game code, so these are tuning values. */
+const DASH = { distance: 3.2, time: 0.25, cooldown: 0.9 };
 const CHARGE_ANIMS: Record<string, string> = {
   Sword: "character/pc/charge_sword_hold.dat", Handgun: "character/pc/charge_pistol_hold.dat",
   Bomb: "character/pc/charge_bomb_hold.dat", Other: "character/pc/charge_sword_hold.dat",
@@ -54,6 +56,8 @@ export interface KnightInput {
   weaponSlot?: number | null;
   /** The action key went down this frame (pick up, drop, use, talk). */
   interact?: boolean;
+  /** The dash key went down this frame. */
+  dash?: boolean;
 }
 
 export interface Floater { x: number; y: number; z: number; text: string; color: string; age: number }
@@ -68,7 +72,7 @@ abstract class Actor {
   dead = false;
   /** Knockback velocity, decaying. */
   kx = 0; ky = 0;
-  attack: { def: AttackDef; phase: Phase; t: number; hit: boolean; lunged: boolean; overlay: boolean } | null = null;
+  attack: { def: AttackDef; phase: Phase; t: number; hit: boolean; lunged: boolean; overlay: boolean; touched?: Set<Actor> } | null = null;
   /** Lunge from an attack's impulse: velocity and remaining seconds. */
   lunge = { vx: 0, vy: 0, t: 0 };
   /** Nodes animated by the upper-body overlay (knights); null plays attacks whole-body. */
@@ -122,6 +126,8 @@ export class Knight extends Actor {
   sinceShieldHit = 1e9;
   /** Seconds left while the shield is broken. */
   shieldBroken = 0;
+  /** Seconds until the next dash. */
+  dashCooldown = 0;
   /** Health lost recently, shown on the HUD as a damage segment that drains away. */
   recentDamage = 0;
   sinceDamage = 1e9;
@@ -291,6 +297,8 @@ export class World implements LogicHost {
       this.preload("character/pc/idle.dat", "character/pc/run_forward.dat", "character/pc/hurt_soft.dat",
         "character/pc/dead.dat", "character/pc/blend_shield.dat", "character/pc/shield_hit.dat", ...Object.values(CHARGE_ANIMS)),
       ...weapons.map(w => this.preloadAttacks([...w.attacks, w.chargedAttack, w.incompleteChargedAttack, w.cooldownAttack])),
+      this.preloadAttacks([shield?.bash]),
+      this.preload("character/pc/dodge/dodge_fire.dat", "character/pc/dodge/dodge_end.dat"),
     ]);
     this.play(knight, "character/pc/idle.dat");
     await this.startLogic();
@@ -793,6 +801,7 @@ export class World implements LogicHost {
     k.sinceDamage += dt;
     if (k.sinceDamage > 0.6) k.recentDamage = Math.max(0, k.recentDamage - dt * 60);
     k.rearm -= dt;
+    k.dashCooldown -= dt;
     if (k.dead) { k.instance.overlay = null; this.setShieldEffect(false); return; }
     this.applyKnockback(k, dt, KNIGHT_MASK);
     if (this.tickStatuses(k, dt)) {
@@ -813,6 +822,29 @@ export class World implements LogicHost {
     k.shielding = input.shield && !k.attack && k.charge === null && !!k.shield;
     this.setShieldEffect(k.shielding);
 
+    // shield bash: attack with the shield up and a full bar; it costs half the bar
+    if (input.attackDown && k.shielding && k.shield?.bash && k.shieldBroken <= 0 && k.shieldHealth >= k.shieldMax * 0.98) {
+      k.shieldHealth -= k.shieldMax / 2;
+      k.sinceShieldHit = 0;
+      k.shielding = false;
+      this.setShieldEffect(false);
+      k.heading = aimAngle;
+      this.startAttack(k, k.shield.bash);
+      input = { ...input, attackDown: false };
+    }
+    // dash: a quick dodge along the movement direction (or facing), briefly untouchable
+    if (input.dash && !k.attack && k.charge === null && k.dashCooldown <= 0) {
+      const [mx0, my0] = input.move;
+      const dir = Math.hypot(mx0, my0) > 0.01 ? Math.atan2(my0, mx0) : k.heading;
+      k.heading = dir;
+      k.dashCooldown = DASH.cooldown;
+      k.invulnerable = Math.max(k.invulnerable, DASH.time);
+      k.lunge = { vx: Math.cos(dir) * DASH.distance / DASH.time, vy: Math.sin(dir) * DASH.distance / DASH.time, t: DASH.time };
+      this.play(k, "character/pc/dodge/dodge_fire.dat", { loop: false, blend: 0.04 });
+      k.hurtTime = DASH.time;
+      return;
+    }
+    if (k.lunge.t > 0 && k.dashCooldown > DASH.cooldown - DASH.time) { this.applyLunge(k, dt, KNIGHT_MASK); return; }
     // attack input: bombs (charge-only weapons) start charging on the press
     if (input.attackDown && !k.shielding) {
       if (!k.attack && k.charge === null && k.rearm <= 0) {
@@ -997,6 +1029,7 @@ export class World implements LogicHost {
         const dur = Math.max(0.05, imp.duration / 1000), c = Math.cos(a.heading), sn = Math.sin(a.heading);
         a.lunge = { vx: (imp.forward * c - imp.side * sn) / dur, vy: (imp.forward * sn + imp.side * c) / dur, t: dur };
       }
+      if (at.def.contact && a.lunge.t > 0) this.contactHits(a, at);
       if (!at.hit && at.t * 1000 >= at.def.delay) {
         at.hit = true;
         if (at.def.spawn) this.spawnProjectile(a, at.def);
@@ -1019,6 +1052,19 @@ export class World implements LogicHost {
           this.knight.rearm = at.def.rearm / 1000;
         }
       }
+    }
+  }
+
+  /** A shield bash's one-time hit on every enemy the charging knight touches. */
+  private contactHits(a: Actor, at: NonNullable<Actor["attack"]>) {
+    const c = at.def.contact!;
+    at.touched ??= new Set();
+    if (a !== this.knight) return;
+    for (const m of this.monsters) {
+      if (m.state === "dying" || m.state === "spawning" || at.touched.has(m)) continue;
+      if (Math.hypot(m.x - a.x, m.y - a.y) > m.radius + a.radius + 0.5) continue;
+      at.touched.add(m);
+      this.damageMonster(m, this.amounts(c.damage, this.ctx(this.knight.shield?.rarity ?? 0)), c.knockback, a.x, a.y);
     }
   }
 

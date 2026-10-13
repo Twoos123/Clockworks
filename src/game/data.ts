@@ -52,6 +52,8 @@ export interface AttackDef {
   impulse: { forward: number; side: number; delay: number; duration: number } | null;
   /** An actor the attack spawns (a bullet or bomb), with its spread in radians. */
   spawn: { actor: any; variance: number; rotation: number } | null;
+  /** Shield bash: damage dealt once to each enemy touched during the attack's charge. */
+  contact: { damage: any; knockback: number } | null;
 }
 
 export interface MonsterDef {
@@ -125,6 +127,8 @@ export interface ShieldDef {
   healthScale: any;
   defense: any;
   rarity: number;
+  /** The shield bash (raise the shield with a full bar, then attack). */
+  bash: AttackDef | null;
 }
 
 export interface ArmorDef {
@@ -236,7 +240,8 @@ export class GameData {
 
   async attack(ref: any): Promise<AttackDef | null> {
     const a = await this.resolve("config/attack.dat", ref, "attack");
-    if (!a || kind(a) !== "Original") return null;
+    if (!a || (kind(a) !== "Original" && kind(a) !== "ShieldBash")) return null;
+    const contactAction = kind(a) === "ShieldBash" ? a.handler?.action : null;
     const fire = (a.fireRefs ?? []).find((f: any) => f?.ref)?.ref;
     const kb = getArg(fire, "Knock-Back") as any;
     const actor = (getArg(fire, "Actor") ?? getArg(fire, "Bullet")) as any;
@@ -257,6 +262,7 @@ export class GameData {
         delay: a.impulseReceived.delay ?? 0, duration: a.impulseReceived.duration ?? 150,
       } : null,
       spawn: actor?.name ? { actor, variance: Number(getArg(fire, "Rotation Variance") ?? 0), rotation: Number(getArg(fire, "Rotation") ?? 0) } : null,
+      contact: contactAction ? { damage: contactAction.damage ?? null, knockback: (contactAction.impulseDealt?.translation?.x ?? 3) / 6 } : null,
     };
   }
 
@@ -324,7 +330,8 @@ export class GameData {
     if (!s?.model) return null;
     return { name, model: s.model, effect: s.effect, defendingSpeed: s.defendingSpeed ?? -0.5, icon: s.icon ?? null,
       regenTime: s.regenTime ?? 6000, breakTime: s.breakTime ?? 8000, hitTime: s.hitTime ?? 3000, breakEffect: s.breakEffect,
-      healthScale: s.healthScale ?? null, defense: s.defense ?? null, rarity: s.rarity ?? 0 };
+      healthScale: s.healthScale ?? null, defense: s.defense ?? null, rarity: s.rarity ?? 0,
+      bash: s.bash ? await this.attack(s.bash) : null };
   }
 
   async armor(name: string): Promise<ArmorDef | null> {
