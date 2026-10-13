@@ -4,6 +4,8 @@
 
 import type { GearState } from "./economy";
 import type { GuildSave } from "./guild";
+import { normalizeAppearance, type Appearance } from "./accessories";
+import { normalizeSpriteSave, type SpriteSave } from "./sprites";
 
 export interface Loadout {
   /** Item config names, e.g. "Weapon/Sword/Proto Sword"; up to three weapons. */
@@ -40,6 +42,10 @@ export interface SaveData {
   pocket: [string, number][];
   /** Until when (ms) the heat amplifier doubles heat; 0 for none. An Energy item in the game. */
   heatAmplifier: number;
+  /** Battle sprites: the one in the field and each one's level and augments (sprites.ts). */
+  sprites?: SpriteSave;
+  /** Accessories and costumes the knight shows (accessories.ts). */
+  appearance?: Appearance;
   /** Rank, completed missions and prestige (src/game/missions.ts); made on first use. */
   missions?: MissionProgress;
   /** Sparks of Life: each revives a knocked-out knight (a fresh knight has three). */
@@ -98,6 +104,8 @@ export function loadSave(): SaveData {
         gear: { ...(d.gear ?? {}) },
         recipes: [...new Set(d.recipes ?? [])],
         pocket: (d.pocket ?? []).filter(p => Array.isArray(p) && p[1] > 0).slice(0, POCKET_SLOTS),
+        sprites: normalizeSpriteSave(d.sprites),
+        appearance: normalizeAppearance(d.appearance),
         owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? []), d.loadout?.vitapod]
           .filter((x): x is string => !!x))],
       };

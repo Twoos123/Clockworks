@@ -26,6 +26,8 @@ export interface MissionHost {
   startRun(gate: Gate, floors: Floor[]): void;
   /** Opens the Arcade's gate board (prestige gate missions are played there). */
   openGates(): void;
+  /** A mission was completed (sprite missions give the knight its battle sprite). */
+  completed?(m: Mission): void;
 }
 
 const LIBS = ["config/mission.dat", "config/mission_property.dat", "config/recipe.dat", "config/spawn_table.dat", "config/item.dat"];
@@ -169,6 +171,7 @@ export class MissionBoard {
     const crowns = crownReward(m);
     save.crowns += crowns;
     completeMission(this.missions, m, p);
+    this.host.completed?.(m);
     this.host.write();
     const after = rankLabel(p);
     this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
