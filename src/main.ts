@@ -339,7 +339,9 @@ class Viewer {
         const first = model.autoAnimations[0];
         if (first && model.root) {
           const clip = await loadAnimation(this.loader, first).catch(() => null);
-          if (clip) inst.clip = { ...clip, loop: true };
+          // each plays as its config says: idle machinery loops, the start elevator's
+          // arrival plays once and holds its last frame
+          if (clip) inst.clip = clip;
         }
         return inst;
       });
@@ -454,6 +456,8 @@ class Viewer {
     const spawn = this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
+    // one-shot scene animations (the start elevator arriving) play from the top as the knight arrives
+    for (const it of this.sceneItems ?? []) if (it.instance.clip && !it.instance.clip.loop) it.instance.time = 0;
     this.audio ??= new AudioSystem(this.vfs, this.loader);
     this.audio.unlock();
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
