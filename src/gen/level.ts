@@ -6,7 +6,8 @@
 // and the source's lighting, fog, music and camera globals.
 
 import { learn, paint, type TileModel } from "./autotile";
-import { generateLayout, rng, type Room } from "./layout";
+import { generateLayout, rng, type LayoutOptions, type Room } from "./layout";
+import { State } from "./autotile";
 
 const clone = <T>(o: T): T => JSON.parse(JSON.stringify(o, (k, v) => (k === "$outer" ? undefined : v)));
 const CLS = "com.threerings.tudey.data.TudeySceneModel$";
@@ -36,9 +37,11 @@ const models = new Map<string, TileModel>();
 /**
  * Builds a scene root. `sources` are parsed scene roots of one theme; `tileInfo` gives each
  * tile reference's footprint and whether it is walkable floor (resolved from config/tile.dat).
+ * `opts.layout` shapes the floor plan (an arena floor's big hall). The root carries the plan
+ * as `gen` (rooms, start, exit, floor cells) for the post-processing in src/gen/features.ts.
  */
 export function generateLevel(sources: { id: string; root: any }[], tileInfo: (ref: any) => TileInfo, seed: number, title: string,
-  pool: any[] = []): any {
+  pool: any[] = [], opts: { layout?: LayoutOptions } = {}): any {
   const rand = rng(seed);
   const key = sources.map(s => s.id).join(",");
   let model = models.get(key);
@@ -46,7 +49,7 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
     model = learn(sources.map(s => s.root), r => { const t = tileInfo(r); return [t.width, t.height]; }, r => tileInfo(r).walkable);
     models.set(key, model);
   }
-  const layout = generateLayout(rand, { deepEdges: model.deepEdges > 0.25 });
+  const layout = generateLayout(rand, { ...opts.layout, deepEdges: model.deepEdges > 0.25 });
   const painted = paint(model, layout.cells, rand);
 
   // --- the tile grid: CoordIntMap cells of 8x8, values (config << 16 | elevation << 2 | rotation)
@@ -113,5 +116,7 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
     if (treasure.length && rand() < 0.45) place(treasure[0], r.x + 1.5 + (rand() < 0.5 ? 0 : r.w - 3), r.y + 1.5 + (rand() < 0.5 ? 0 : r.h - 3));
   });
 
-  return { $class: "com.threerings.tudey.data.TudeySceneModel", name: title, sceneId: 0, version: 0, tiles, tileConfigs, entries };
+  const gen = { rooms: layout.rooms, start: layout.start, exit: layout.exit,
+    floor: [...layout.cells].filter(([, s]) => s === State.Floor).map(([k]) => k) };
+  return { $class: "com.threerings.tudey.data.TudeySceneModel", name: title, sceneId: 0, version: 0, tiles, tileConfigs, entries, gen };
 }

@@ -68,6 +68,8 @@ export interface Floor {
   stratum: Stratum | null;
   /** The generator theme to paint the floor with (levels and bosses). */
   tileset: string;
+  /** A special level: a treasure vault, a floor with a danger room, or an arena (src/gen/features.ts). */
+  special?: "vault" | "danger" | "arena";
 }
 
 export interface Gate { id: string; name: string; seed: number; strata: Stratum[] }
@@ -121,8 +123,25 @@ export function gateFloors(g: Gate): Floor[] {
       floors.push({ ...base, kind: "level", name: s.style.name, tileset: element ?? s.style.tileset });
     }
   }
+  // special floors: in each stratum, one level floor (never its first) may be a treasure
+  // vault, a floor with a danger room, or an arena; the game's gates mix such floors into
+  // their strata the same way (the lineups are server-side, so the odds are ours)
+  const rand = rng((g.seed ^ 0x6a09e667) >>> 0);
+  for (const s of g.strata) {
+    const levels = floors.filter(f => f.kind === "level" && f.stratum === s && f.depth > s.first);
+    const roll = rand(), which = rand(), at = rand();
+    if (!levels.length || roll >= SPECIAL_CHANCE) continue;
+    const f = levels[Math.floor(at * levels.length)];
+    f.special = which < 0.3 ? "vault" : which < 0.65 ? "danger" : "arena";
+    if (f.special === "vault") { f.name = "Treasure Vault"; f.tileset = "prize-vault"; }
+    else if (f.special === "arena") f.name = `${s.style.name} Arena`;
+    else f.name = `${s.style.name}, Danger Room`;
+  }
   return floors;
 }
+
+/** The chance a stratum holds a special floor (vault, danger room or arena). */
+export const SPECIAL_CHANCE = 0.6;
 
 /**
  * Spawn tables for a stratum's monsters: the family's role tables (grunts, brutes, support,

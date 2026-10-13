@@ -24,6 +24,7 @@ import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Se
 import { OptionsScreen } from "./ui/options";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { decodeTiles } from "./gen/autotile";
 import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
@@ -199,6 +200,9 @@ class Viewer {
   private genTables = new Map<string, string[]>();
   /** Names generated floors show (by scene id). */
   private genNames = new Map<string, string>();
+  /** Special floor styles (vault, danger, arena) by scene id, and the last floor's feature report. */
+  private genStyles = new Map<string, FloorStyle>();
+  genReport: FeatureReport | null = null;
   /** The boss of the floor being played, if any. */
   private bossFloor: BossKey | null = null;
   /** Arena mode: waves on a cached level instead of its own wiring. */
@@ -445,12 +449,15 @@ class Viewer {
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
     const pool = (await Promise.all(others.map(async sid => (await this.sceneLoader.parse(await this.vfs.readScene(sid))).entries ?? []))).flat();
-    const root = generateLevel(sources, info, Number(seed), this.genNames.get(id) ?? `${theme.label} · new floor`, pool);
+    const style = this.genStyles.get(id);
+    const root = generateLevel(sources, info, Number(seed), this.genNames.get(id) ?? `${theme.label} · new floor`, pool, { layout: layoutFor(style) });
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
+    // puzzles, the floor style's special rooms and decoration (src/gen/features.ts); then
     // rooms seal while their waves are fought, as the game's own levels do
     const walk = walkableCells(root, info);
+    this.genReport = addFeatures(root, { style, theme: key, tables, rand: rng(Number(seed) ^ 0x2545f491), walkable: (x, y) => walk.has(x + "," + y) });
     arenaRooms(root, (x, y) => walk.has(x + "," + y));
     return root;
   }
@@ -955,7 +962,7 @@ class Viewer {
     if (f.kind === "core") return cached(/^terminal core$/i) ?? cached(/^terminal 1$/i) ?? null;
     if (f.kind === "subtown") return (f.depth === 18 ? cached(/^emberlight$/i) : cached(/^dark halls lobby$/i)) ?? cached(/^terminal 1$/i) ?? null;
     const s = f.stratum!;
-    if (f.kind === "level" && s.style.cached) {
+    if (f.kind === "level" && s.style.cached && !f.special) {
       const options = this.sceneList.filter(sc => s.style.cached!.test(sc.name) && !this.usedScenes.has(sc.id));
       if (options.length && Math.random() < 0.5) { this.usedScenes.add(options[0].id); return options[0]; }
     }
@@ -964,6 +971,7 @@ class Viewer {
     const id = `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} (${s.theme})`);
+    if (f.special) this.genStyles.set(id, f.special);
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   private usedScenes = new Set<string>();
@@ -1461,6 +1469,9 @@ function arenaRooms(root: any, walkable: (x: number, y: number) => boolean) {
     side(range(rx, rx + rw).map(x => [x, ry - 1] as [number, number]), 0);
     side(range(ry, ry + rh).map(y => [rx - 1, y] as [number, number]), Math.PI / 2);
     side(range(ry, ry + rh).map(y => [rx + rw, y] as [number, number]), Math.PI / 2);
+    // a mouth a puzzle gate already holds (src/gen/features.ts) keeps that gate
+    const held = entries.filter(e => /\/Door\//.test(e.placeable?.name ?? "")).map(e => e.transform.translation);
+    for (let i = doors.length - 1; i >= 0; i--) if (held.some((t: any) => Math.hypot(t.x - doors[i].x, t.y - doors[i].y) < 1)) doors.splice(i, 1);
     if (!doors.length) continue;
     for (const d of doors) entries.push(placeEntry(id++, "Dynamic/Door/Iron Gate/Monster 3", [["Open", true], ["Tag", doorTag]], d.x, d.y, d.rot));
     // entering: close the gates, wake wave one
