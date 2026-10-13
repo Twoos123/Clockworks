@@ -68,10 +68,16 @@ export interface MonsterDef {
   healthScale: any;
   defense: any;
   turnRate: number;
-  idle?: string;
-  move?: string;
+  /** Animation references (their arguments, such as playback speed, apply). */
+  idle?: any;
+  move?: any;
   moveSpeed: number;
-  activation?: string;
+  activation?: any;
+  /** A hit of at least this fraction of maximum health interrupts the monster for reactTime ms. */
+  minReactPercent: number;
+  reactTime: number;
+  /** Played when the monster appears. */
+  creationFx?: any;
   attacks: AttackDef[];
   hitFx?: any;
   deathFx?: any;
@@ -291,10 +297,13 @@ export class GameData {
       healthScale: m.healthScale ?? null,
       defense: m.defense ?? null,
       turnRate: m.turnRate ?? 180,
-      idle: (sprite.targetedIdles ?? sprite.idles)?.[0]?.animation?.name,
-      move: (sprite.targetedMovements ?? sprite.movements)?.[0]?.animation?.name,
+      idle: refOf((sprite.targetedIdles ?? sprite.idles)?.[0]?.animation),
+      move: refOf((sprite.targetedMovements ?? sprite.movements)?.[0]?.animation),
       moveSpeed: (sprite.targetedMovements ?? sprite.movements)?.[0]?.speed ?? 2,
-      activation: sprite.activation?.name,
+      activation: refOf(sprite.activation),
+      minReactPercent: m.minReactPercent ?? 0.25,
+      reactTime: m.reactTime ?? 300,
+      creationFx: sprite.creationTransient ?? undefined,
       attacks: await this.attacks(m.attacks),
       hitFx: transient(sprite.hitTransient),
       deathFx: transient(sprite.destructionTransient),
@@ -392,6 +401,11 @@ function findActorRef(o: any, depth = 0, isActor?: (name: string) => boolean): a
   if (o.$map) { for (const [, v] of o.entries) { const r = findActorRef(v, depth + 1, isActor); if (r) return r; } return null; }
   for (const k of Object.keys(o)) { if (k === "$outer") continue; const r = findActorRef(o[k], depth + 1, isActor); if (r) return r; }
   return null;
+}
+
+/** An animation reference, kept whole when it names a file (its arguments matter). */
+function refOf(r: any): any {
+  return r?.name?.endsWith(".dat") ? r : undefined;
 }
 
 function readShape(s: any): DamageShape {

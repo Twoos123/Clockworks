@@ -150,6 +150,8 @@ export class Monster extends Actor {
   state: "spawning" | "idle" | "chase" | "attack" | "dying" = "spawning";
   stateTime = 0;
   cooldown = 1;
+  /** Seconds left in a hit reaction (interrupted, not acting). */
+  reacting = 0;
   homeX = 0; homeY = 0;
   constructor(instance: ModelInstance, readonly def: MonsterDef, health: number) {
     super(instance, def.scale);
@@ -1352,6 +1354,11 @@ export class World implements LogicHost {
     if (m.passive) return;
     const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m)) * (0.95 + Math.random() * 0.1)));
     this.hitStatuses(m, amounts);
+    // a big enough hit interrupts the monster (minReactPercent of its health)
+    if (dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning") {
+      m.attack = null;
+      m.reacting = m.def.reactTime / 1000;
+    }
     m.health -= dmg;
     this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.2, text: String(dmg), color: TYPE_COLORS[mainType(amounts)], age: 0 });
     this.knock(m, fx, fy, knockback);
@@ -1451,6 +1458,7 @@ export class World implements LogicHost {
     m.z = this.collision.groundZ(m.x, m.y);
     m.heading = e.rotation;
     m.entity = e;
+    if (def.creationFx) this.spawnEffect(def.creationFx, m.matrix(), 2);
     e.game = m;
     this.play(m, def.activation ?? def.idle, { loop: !def.activation });
     this.monsters.push(m);
@@ -1485,6 +1493,7 @@ export class World implements LogicHost {
     this.applyKnockback(m, dt, MONSTER_MASK);
     this.applyLunge(m, dt, MONSTER_MASK);
     if (this.tickStatuses(m, dt)) return;
+    if (m.reacting > 0) { m.reacting -= dt; return; }
     if (m.passive) { if (m.state !== "spawning") this.play(m, m.def.idle); m.state = m.state === "spawning" && m.stateTime < 1.2 ? m.state : "idle"; return; }
     const k = this.knight;
     const dx = k.x - m.x, dy = k.y - m.y, dist = Math.hypot(dx, dy) || 1e-3;
