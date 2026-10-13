@@ -8,9 +8,9 @@ be done fully, with the reason.
 - [x] Haven → Arcade → gate selection (gate board drawn from the game's gate, map and theme icons)
 - [x] Clockworks gates: six strata, depth 0 to 29, tiers 1 to 3, terminals at 4/13/23, Moorcroft Manor (8), Emberlight (18), the Core's terminal (29), boss floors
 - [x] Elevator screen between floors (`ui/elevator/nextlevel`), loading screen with tips and progress (`ui/loading`); FLAG: tips beyond the two in the install's interfaces are written here (the game's are in message bundles)
-- [x] Arena rooms on generated floors (Iron Gates close, two waves, reopen); gold keys and gold gates, party-platform and hidden-button gates, secret treasure rooms, block and crystal walls, spike runs, Gun Puppy turrets, mineral nodes, themed decoration (`src/gen/features.ts`, docs/research/generated-features.md); FLAG: point/spot lights emitted but not rendered (directional lights only), ghost/prism/timed-explosive blocks and healing totems not used (closed behaviour)
+- [x] Arena rooms on generated floors (Iron Gates close, two waves, reopen); gold keys and gold gates, party-platform and hidden-button gates, secret treasure rooms, block and crystal walls, spike runs, Gun Puppy turrets, mineral nodes, themed decoration (`src/gen/features.ts`, docs/research/generated-features.md); point/spot lights and ghost/prism/timed-explosive blocks, healing totems, trap turrets (agents: renderer, dungeon objects)
 - [x] Terminals: heal on arrival, tiered Supply Depot, elevator onward
-- [ ] Depth record, run summary
+- [x] Depth record, run summary; knockouts with the game's revive window (Sparks of Life)
 - [ ] FLAG: exact layouts of levels not in the scenes cache (server-streamed); generated instead
 
 ## Content
@@ -39,9 +39,9 @@ be done fully, with the reason.
 - [ ] Real arsenal / loadout / forge / shop screens (agent: arsenal UI)
 - [x] Message keys shown as readable English
 
-## Also in progress (agents)
-- [ ] Economy: item levels for all gear, level tables, unique variants, loot by depth, shop catalogues, recipes to buy, selling
-- [ ] Battle sprites (Drakon, Maskeraith, Seraphynx) and accessories/costumes
+## Also done or in progress
+- [x] Economy: item levels for all gear, level tables, unique variants, loot by depth, shop catalogues, recipes to buy, selling; FLAG: daily catalogues and energy are server-side
+- [x] Battle sprites (all 20 configs, skills, levels, perks) given by the sprite missions; accessories and costumes
 - [ ] Audit and fixes: every monster and weapon animation; lichen fusion
 
 ## Done earlier (see STATUS.md)
