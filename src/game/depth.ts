@@ -4,6 +4,7 @@
 // item star rating or by difficulty. Damage and defence configs refer to these scales.
 
 import { applyArguments } from "../config/params";
+import { modifyDamage } from "./combat";
 import type { ModelLoader } from "../model";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
@@ -16,16 +17,20 @@ export interface DepthContext {
   /** Star rating of the item a scale belongs to, 0 to 5. */
   rarity: number;
   difficulty: Difficulty;
-  /** Extra damage factor for an attacker (a levelled weapon). */
+  /** Extra damage factor for an attacker (buffs). */
   multiplier?: number;
+  /** An uncapped damage bonus (a weapon's level), applied with the game's damage modifier. */
+  uncapped?: number;
+  /** The attacker's summed damage bonus (gear and capped level bonuses), before tags. */
+  bonus?: number;
   /** Family damage bonuses of the attacking knight's gear, by family tag (fam_slime). */
   tagged?: Record<string, number>;
 }
 
 export const DAMAGE_TYPES = ["NORMAL", "PIERCING", "ELEMENTAL", "SHADOW"] as const;
 export type DamageType = (typeof DAMAGE_TYPES)[number];
-/** Damage or defence amounts per type. */
-export type Amounts = Record<DamageType, number>;
+/** Damage or defence amounts per type; unblockable damage (no defence meets it) is apart. */
+export type Amounts = Record<DamageType, number> & { UNBLOCKABLE?: number };
 export const zeroAmounts = (): Amounts => ({ NORMAL: 0, PIERCING: 0, ELEMENTAL: 0, SHADOW: 0 });
 
 export class DepthScales {
@@ -59,7 +64,12 @@ export class DepthScales {
     const sub = (r: any, c: DepthContext = ctx) => this.evaluate(r, c, lim - 1);
     switch (kind(n)) {
       case "Constant": return n.value ?? 0;
-      case "Multiplier": case "ModifyDamage": return sub(n.scale) * (n.multiplier ?? 1);
+      case "Multiplier": return sub(n.scale) * (n.multiplier ?? 1);
+      // the game's damage modifier (an increase halfway to the multiple); 2 by default
+      case "ModifyDamage": return modifyDamage(sub(n.scale), n.multiplier ?? 2);
+      case "LinearEntry": return twoPoint(n, ctx.depth, 1);
+      case "PowerEntry": return twoPoint(n, ctx.depth, n.power ?? 2);
+      case "Offset": return sub(n.scale, { ...ctx, depth: ctx.depth + (n.offset ?? 0) });
       case "Adder": return sub(n.scale) + (n.add ?? 0);
       case "MinValue": return Math.max(n.min ?? 0, sub(n.scale));
       case "DepthCap": return sub(n.scale, { ...ctx, depth: Math.min(ctx.depth, n.cap ?? ctx.depth) });
@@ -86,7 +96,8 @@ export class DepthScales {
       case "Piercing": out.PIERCING += d.amount ?? 0; break;
       case "Elemental": out.ELEMENTAL += d.amount ?? 0; break;
       case "Shadow": out.SHADOW += d.amount ?? 0; break;
-      case "Unblockable": out.NORMAL += d.amount ?? 0; break;
+      case "Unblockable": case "DepthUnblockable": out.UNBLOCKABLE = (out.UNBLOCKABLE ?? 0) + (d.amount ?? 0); break;
+      case "Optional": if (Math.random() < (d.probability ?? 0.5)) this.damage(d.damage, ctx, out); break;
       case "Compound": for (const x of d.damages ?? []) this.damage(x, ctx, out); break;
       case "DepthNormal": out.NORMAL += lerpDepth(d, ctx.depth); break;
       case "DepthScale": case "DepthScaleMulti": {
@@ -135,6 +146,13 @@ function lerpDepth(d: any, depth: number) {
   if (e <= s) return a;
   const t = Math.max(0, Math.min(1, (depth - s) / (e - s)));
   return a + (b - a) * t;
+}
+
+/** Linear and power entries: startValue to endValue between startDepth and endDepth. */
+function twoPoint(n: any, depth: number, power: number) {
+  const s = n.startDepth ?? 0, e = n.endDepth ?? 0, a = n.startValue ?? 0, b = n.endValue ?? 0;
+  const t = depth <= s ? 0 : depth >= e ? 1 : (depth - s) / (e - s);
+  return a + (b - a) * Math.pow(t, power);
 }
 
 /** Linear interpolation between (depth, value) points, clamped at the ends. */

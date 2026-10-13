@@ -1,17 +1,24 @@
-// Status conditions (config/status_condition.dat): fire, freeze, shock, poison, curse, sleep
-// and stun. The configs give durations, tick intervals, depth-scaled damage, the effect
-// model shown on the victim, application and removal effects, and the HUD icon. What each
-// condition does is game code, so the effects here follow the configs' own field names:
-// fire burns each tick, freeze holds the victim until its duration ends (damage
-// shortens it), shock spasms the victim and arcs to neighbours, poison weakens attack,
-// defence and healing, curse burns and stops attacks, sleep holds until hit, stun slows.
+// Status conditions (config/status_condition.dat): fire, freeze, shock, poison, curse, sleep,
+// stun and buffs. The configs give chance and power (StatusCodes levels), durations, tick
+// intervals, depth-scaled damage, the effect model shown on the victim, application and
+// removal effects, and the HUD icon. The client holds the field defaults and the level
+// tables (docs/research/client-fidelity.md); applying a condition is server code, so the
+// rule here for every "min/max" pair is the same: power picks the point between them.
+//
+// - fire burns every damageInterval;
+// - freeze holds the victim behind ice with its own health, which hits wear down;
+// - shock spasms the victim (it cannot act), weakens its defence and arcs to neighbours;
+// - poison weakens attack, defence and healing;
+// - curse burns (unblockable, capped) and stops attacks;
+// - sleep holds until hit and regenerates health;
+// - stun (a Slow) and slow cut movement speed.
 
 import { applyArguments } from "../config/params";
-import type { DepthContext, DepthScales } from "./depth";
+import type { DepthContext, DepthScales, Difficulty } from "./depth";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 
-export type StatusKind = "Fire" | "Freeze" | "Shock" | "Poison" | "Curse" | "Sleep" | "Stun" | "Buff";
+export type StatusKind = "Fire" | "Freeze" | "Shock" | "Poison" | "Curse" | "Sleep" | "Stun" | "Slow" | "Buff";
 
 /** A condition resolved for one application. */
 export interface StatusDef {
@@ -20,12 +27,29 @@ export interface StatusDef {
   cfg: any;
   /** Seconds the condition lasts. */
   duration: number;
-  /** Seconds between ticks (damage, spasms). */
+  /** Seconds between ticks (fire's damage, sleep's regeneration). */
   interval: number;
-  /** Damage per tick (fire, shock arcs, curse). */
+  /** Damage per tick (fire, curse); arc damage for shock. */
   tickDamage: number;
-  /** 0 to 1: how strong (poison reductions, stun slow). */
+  /** 0 to 1: the condition's power (StatusPower / 100), the point between each min and max. */
   power: number;
+  /** Movement factor (slow, stun). */
+  speed: number;
+  /** Factor on the victim's damage dealt (poison). */
+  attack: number;
+  /** Factor on the victim's defence (poison, shock). */
+  defense: number;
+  /** Factor on healing the victim receives (poison). */
+  heal: number;
+  /** Ice health (freeze). */
+  ice: number;
+  /** Shock: seconds between spasms and how long each lasts. */
+  spasmInterval: number;
+  spasmDuration: number;
+  /** Sleep: seconds asleep before regeneration starts, and health a tick (knight, monster). */
+  regenDelay: number;
+  regen: number;
+  playerRegen: number;
   /** The HUD icon name (the "Icon" argument of ui/health/debuff.dat, or buff.dat for buffs). */
   icon: string;
   /** The HUD icon interface: ui/health/debuff.dat or ui/health/buff.dat. */
@@ -33,12 +57,36 @@ export interface StatusDef {
 }
 
 /** An active condition on an actor. */
-export interface ActiveStatus { def: StatusDef; remaining: number; tick: number; fx: any }
+export interface ActiveStatus { def: StatusDef; remaining: number; tick: number; fx: any; ice?: number; spasm?: number; nextSpasm?: number; asleep?: number }
 
-// StatusCodes chance and power levels. Their values are game code; these are tuning numbers.
-const CHANCE: Record<string, number> = { LOW: 0.1, MEDIUM: 0.2, HIGH: 0.35, VERY_HIGH: 0.5, ULTRA: 0.7, MAXIMUM: 1 };
-const POWER: Record<string, number> = { MINOR: 0.2, MODERATE: 0.4, STRONG: 0.6, DEADLY: 0.8, ULTIMATE: 1 };
-const KINDS: StatusKind[] = ["Fire", "Freeze", "Shock", "Poison", "Curse", "Sleep", "Stun", "Buff"];
+/** StatusCodes StatusChance levels. */
+export const CHANCE: Record<string, number> = { LOW: 0.05, MEDIUM: 0.1, HIGH: 0.25, VERY_HIGH: 0.5, ULTRA: 0.65, MAXIMUM: 0.9 };
+/** StatusCodes StatusPower levels (0 to 100). */
+export const POWER: Record<string, number> = { MINOR: 20, MODERATE: 40, STRONG: 60, DEADLY: 80, ULTIMATE: 100 };
+const KINDS: StatusKind[] = ["Fire", "Freeze", "Shock", "Poison", "Curse", "Sleep", "Stun", "Slow", "Buff"];
+
+// DungeonCodes Difficulty: a base chance maps onto the difficulty's table between the levels
+const CHANCE_STEPS = [0, 0.05, 0.1, 0.25, 0.5, 0.65, 0.9, 1];
+const CHANCE_BY_DIFFICULTY: Partial<Record<Difficulty, number[]>> = {
+  easy: [0, 0.05, 0.05, 0.1, 0.25, 0.5, 0.65, 1],
+  hard: [0, 0.1, 0.25, 0.5, 0.65, 0.9, 0.9, 1],
+};
+/** DungeonCodes Difficulty status power change (easy -20, hard +20) and floor (easy 10). */
+const POWER_CHANGE: Record<Difficulty, number> = { easy: -20, medium: 0, hard: 20 };
+
+/** A status chance after the difficulty (DungeonCodes Difficulty getModifiedStatusChance). */
+export function difficultyChance(c: number, difficulty: Difficulty): number {
+  const t = CHANCE_BY_DIFFICULTY[difficulty];
+  if (!t) return c;
+  const i = CHANCE_STEPS.findIndex(s => c <= s);
+  if (i <= 0) return c;
+  const a = CHANCE_STEPS[i - 1], b = CHANCE_STEPS[i];
+  return t[i - 1] + (t[i] - t[i - 1]) * (c - a) / (b - a);
+}
+
+const total = (d: Record<string, number | undefined>) => Object.values(d).reduce<number>((s, x) => s + (x ?? 0), 0);
+const levelName = (v: unknown) => (v as any)?.name ?? (typeof v === "string" ? v.split(".").pop() : undefined);
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export class StatusConditions {
   constructor(private readonly lib: Map<string, any>, private readonly depth: DepthScales) {}
@@ -67,8 +115,8 @@ export class StatusConditions {
   }
 
   /**
-   * Resolves a condition reference with its chance and power arguments. Returns null for
-   * conditions this game does not model (buffs, boss scripts).
+   * Resolves a condition reference with its chance and power. Returns null for conditions
+   * this game does not model (boss scripts, shields, grabs).
    */
   get(ref: any, ctx: DepthContext): { def: StatusDef; chance: number } | null {
     const r = this.resolve(ref, ctx);
@@ -76,24 +124,44 @@ export class StatusConditions {
     const k = kind(r.cfg) as StatusKind;
     if (!KINDS.includes(k)) return null;
     const c = r.cfg, a = r.args;
-    const level = (v: unknown, table: Record<string, number>, custom: unknown) => {
-      const n = (v as any)?.name ?? (typeof v === "string" ? v.split(".").pop() : undefined);
-      if (n && n !== "CUSTOM" && table[n] !== undefined) return table[n];
-      return typeof custom === "number" ? custom : Number(custom ?? 0) || 0;
-    };
-    const chance = Math.max(0, Math.min(1, level(a.get("Status Chance"), CHANCE, a.get("Chance"))));
-    const power = Math.max(0, Math.min(1, level(a.get("Status Power"), POWER, a.get("Power")) || 0.3));
-    const minD = (c.minDuration ?? 4000) / 1000, maxD = (c.maxDuration ?? c.minDuration ?? 8000) / 1000;
-    const dmg = (x: any) => x ? this.depth.evaluate(x, ctx) : 0;
-    const tickDamage = dmg(c.damageStart) + (dmg(c.damageEnd) - dmg(c.damageStart)) * power
-      || (k === "Curse" ? (c.damage?.amount ?? 20) : 0);
+    // StatusChance / StatusPower: a named level, or CUSTOM and the config's own number
+    const named = (v: unknown, table: Record<string, number>) => { const n = levelName(v); return n && n !== "CUSTOM" ? table[n] : undefined; };
+    const num = (v: unknown) => (typeof v === "number" ? v : Number(v ?? 0) || 0);
+    const baseChance = named(c.statusChance ?? a.get("Status Chance"), CHANCE) ?? num(c.chance ?? a.get("Chance"));
+    const chance = Math.max(0, Math.min(1, difficultyChance(baseChance, ctx.difficulty)));
+    let powerPts = named(c.statusPower ?? a.get("Status Power"), POWER) ?? num(c.power ?? a.get("Power"));
+    powerPts += POWER_CHANGE[ctx.difficulty] ?? 0;
+    if (ctx.difficulty === "easy") powerPts = Math.max(10, powerPts);
+    if (ctx.difficulty === "hard") powerPts = Math.min(1000, powerPts);
+    const p = Math.max(0, Math.min(1, powerPts / 100));
+    const ms = (v: unknown, d: number) => (typeof v === "number" ? v : d) / 1000;
+    const scale = (x: any) => x ? this.depth.evaluate(x, ctx) : 0;
+    const between = (s: any, e: any) => lerp(scale(s), scale(e), p);
+    const tickDamage = k === "Fire" ? between(c.damageStart, c.damageEnd)
+      : k === "Curse" ? Math.min(c.maxCurseDamage ?? 120, between(c.damageStart, c.damageEnd) || (c.damage?.amount ?? 0))
+      : k === "Shock" ? total(this.depth.damage(c.arcDamage, ctx))
+      : 0;
+    const interval = k === "Fire" ? ms(c.damageInterval, 2000) : k === "Sleep" ? ms(c.healthRegenInterval, 2000) : Math.max(0.1, ms(c.signalInterval, 1000));
+    const red = (lo: unknown, hi: unknown, dlo: number, dhi: number) => lerp(num(lo ?? dlo), num(hi ?? dhi), p);
     return {
       chance,
       def: {
         name: ref.name, kind: k, cfg: c,
-        duration: minD + (maxD - minD) * power,
-        interval: (c.signalInterval ?? 1000) / 1000,
-        tickDamage, power,
+        duration: lerp(ms(c.minDuration, 1000), ms(c.maxDuration, 10000), p),
+        interval, tickDamage, power: p,
+        speed: k === "Stun" || k === "Slow" ? 1 - red(c.minSpeedReduction, c.maxSpeedReduction, 0.4, 0.6)
+          : k === "Buff" ? 1 + num(c.speedModifier) : 1,
+        attack: k === "Poison" ? 1 - red(c.minAttackReduction, c.maxAttackReduction, 0.15, 0.65) : 1,
+        defense: k === "Poison" ? 1 - red(c.minDefenseReduction, c.maxDefenseReduction, 0.15, 0.65)
+          : k === "Shock" ? 1 - red(c.minDefenseDebuff, c.maxDefenseDebuff, 0.15, 0.45)
+          : k === "Buff" ? 1 + num(c.defenseModifier) : 1,
+        heal: k === "Poison" ? 1 + red(c.minHealModifier, c.maxHealModifier, -0.1, -0.5) : 1,
+        ice: k === "Freeze" ? Math.max(1, between(c.healthStart, c.healthEnd)) : 0,
+        spasmInterval: lerp(ms(c.minSpasmInterval, 1000), ms(c.maxSpasmInterval, 4000), p),
+        spasmDuration: lerp(ms(c.minSpasmDuration, 500), ms(c.maxSpasmDuration, 2000), p),
+        regenDelay: ms(c.healthRegenDelay, 4000),
+        regen: lerp(num(c.minHealthRegen ?? 10), num(c.maxHealthRegen ?? 30), p),
+        playerRegen: lerp(num(c.minPlayerHealthRegen ?? 30), num(c.maxPlayerHealthRegen ?? 90), p),
         icon: String(c.icon?.arguments?.entries?.find?.(([n]: [string]) => n === "Icon")?.[1] ?? k),
         iconUi: String(c.icon?.name ?? "ui/health/debuff.dat"),
       },
