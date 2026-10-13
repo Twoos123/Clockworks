@@ -13,7 +13,8 @@
 
 import { applyArguments } from "../config/params";
 import { rng } from "../gen/layout";
-import { BOSSES, FAMILIES, STYLES, type BossKey, type Family, type Floor, type Gate, type LevelStyle, type Stratum, type StratumTheme } from "./clockworks";
+import { text } from "../i18n";
+import { bossName, BOSSES, FAMILIES, STYLES, type BossKey, type Family, type Floor, type Gate, type LevelStyle, type Stratum, type StratumTheme } from "./clockworks";
 
 export type MissionClass = "Rank" | "Prestige" | "Hidden" | "Expansion";
 export type MissionKind = "dungeon" | "conversation" | "exchange" | "gate" | "gate-conversation";
@@ -83,12 +84,14 @@ export interface MissionProgress {
 export const freshProgress = (): MissionProgress => ({ rank: 1, subrank: 1, completed: [], prestige: 0, cycles: {} });
 
 /**
- * Rank titles. The game's titles live in its message bundles, which this project does not
- * read; these are the titles as players know them (Knight at rank 4, Defender at 6, Champion
- * at 10), the ones between from memory.
+ * Rank titles: the mission bundle's m.rank_title_<rank>, as the loadout panel and name plates
+ * show them. RANK_NAMES stands in when the bundle is missing.
  */
 export const RANK_NAMES = ["Wanderer", "Recruit", "Squire", "Knight", "Guardian", "Defender", "Striker", "Vanguard", "Warden", "Champion"];
-export const rankName = (rank: number) => RANK_NAMES[Math.max(1, Math.min(10, rank)) - 1];
+export const rankName = (rank: number) => {
+  const r = Math.max(1, Math.min(10, rank));
+  return text("mission", `m.rank_title_${r}`, RANK_NAMES[r - 1]);
+};
 export const rankLabel = (p: MissionProgress) => `RANK ${p.rank}-${p.subrank}`;
 
 /** Clockworks tiers and the rank each needs (tier 2 from depth 8, tier 3 from depth 18). */
@@ -487,7 +490,7 @@ function summarize(m: Mission): string {
     case "gate": return `Clear a ${m.gateTheme} stratum in any Arcade gate today.`;
     default: {
       const s = m.setting!;
-      return `${s.floors} floors at depth ${s.depth}: ${s.family} monsters${s.boss ? `, ending with ${BOSSES[s.boss].name}` : ""}.`;
+      return `${s.floors} floors at depth ${s.depth}: ${s.family} monsters${s.boss ? `, ending with ${bossName(s.boss)}` : ""}.`;
     }
   }
 }

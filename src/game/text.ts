@@ -3,7 +3,7 @@
 // Each lookup falls back to the English this port made up before the bundles were read, so a
 // missing bundle or key never leaves a blank.
 
-import { hasMessage, qualify, text, xlate } from "../i18n";
+import { hasMessage, message, qualify, text, xlate } from "../i18n";
 
 type ItemResolver = (name: string) => any | null;
 let resolveItem: ItemResolver | null = null;
@@ -65,4 +65,24 @@ export function itemType(kind: string, fallback: string): string {
 export function monsterName(def: { nameKey?: string | null; name: string } | null | undefined, fallback?: string): string {
   const plain = fallback ?? last(def?.name ?? "").replace(/\s+\d+(\.\d+)?$/, "");
   return text("monster", def?.nameKey, plain);
+}
+
+/**
+ * A level's name from the dungeon bundle: its value is "Title|Subtitle" (the loading screen's
+ * name and zone lines), or a title alone. Null when the bundle lacks the key.
+ */
+export function levelText(key: string | null | undefined, bundle = "dungeon"): { title: string; zone: string } | null {
+  if (!key || !hasMessage(bundle, key)) return null;
+  const [title, zone = ""] = xlate(bundle, key).split("|");
+  return { title, zone };
+}
+
+/** The first of several keys the bundle has. */
+export function firstKey(bundle: string, keys: string[]): string | null {
+  return keys.find(k => hasMessage(bundle, k)) ?? null;
+}
+
+/** "DEPTH 12" as the dungeon bundle words it. */
+export function depthText(depth: number): string {
+  return hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", String(depth)) : `DEPTH ${depth}`;
 }

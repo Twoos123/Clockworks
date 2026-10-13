@@ -36,7 +36,7 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, bossName, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
@@ -840,7 +840,7 @@ class Viewer {
     if (f && (f.kind === "terminal" || f.kind === "subtown" || f.kind === "core")) {
       return { town: true, objectives: [`${f.name}, depth ${f.depth}: rest, resupply at the Supply Depot, then take the elevator down.`] };
     }
-    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? BOSSES[f.stratum.boss].name : "the boss"}.`, "The elevator opens when it falls."] };
+    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? bossName(f.stratum.boss) : "the boss"}.`, "The elevator opens when it falls."] };
     const town = !!this.scene && TOWN.test(this.scene.name);
     const a = this.world?.arena;
     const objectives = town ? ["Visit the shops, then enter the Clockworks."]
