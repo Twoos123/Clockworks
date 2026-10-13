@@ -699,7 +699,8 @@ export class World implements LogicHost {
     }
     const clip = anim ? this.clip(anim) : null;
     if (clip) p.instance.play(clip, { loop, blend: 0.05 });
-    else if (anim) void this.preload(anim).then(() => this.showPropState(p, changed));
+    // wait for the clip once (a clip that failed to load stays null: no retry)
+    else if (anim && !this.ready.has(clipKey(anim))) void this.preload(anim).then(() => { if (this.ready.get(clipKey(anim))) this.showPropState(p, changed); });
   }
 
   /** Doors open and close on signals; anything else listens through its handlers only. */

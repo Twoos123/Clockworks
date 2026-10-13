@@ -16,7 +16,7 @@ be done fully, with the reason.
 ## Content
 - [x] Generated floors for 21 tilesets (learned, mirrored, rule-based); FLAG: Water Temple models missing from the install, prism_track is not a tileset
 - [ ] Every theme's music (agent: music/loading/elevator) (`full-music-bundle.jar`) mapped to its levels
-- [ ] Boss arenas (agent: bosses): Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
+- [x] Boss arenas: Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
 - [ ] Danger rooms, treasure vaults, arenas inside gates
 - [x] Missions: all 272 configs read (238 shown: rank 1-10, prestige by schedule, operations), mission board, rewards, rank progression, tier locks (`src/game/missions.ts`, `src/ui/missions.ts`)
 - [ ] FLAG Mission levels, dialogue and rescue camps (server data and message bundles), event missions

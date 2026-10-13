@@ -79,8 +79,14 @@ A single-player loop runs in the browser, built from the install's own data:
 **Systems**
 
 4. **Energy.** Revives cost crowns rather than energy.
-5. **Boss levels.** Bosses run their own handlers in the Arena. Their scripted arenas (the
-   Jelly Palace, Snarbolax's bells) are server-streamed levels this cache lacks.
+5. **Boss levels.** The four Clockworks bosses have their own arena floors (`src/game/bosses.ts`):
+   the Royal Jelly's stage chain with polyps, minis it absorbs and its rage; the Snarbolax,
+   hurt only while a Beast Bell's ring has it stunned; the Roarmulus Twins, exposed only by
+   each other's rockets (pressure plates raise a blast wall); Lord Vanaduke's three body
+   stages and two burning masks, put out with water pots. The fights' server logic is not in
+   the client data (conditions, timers and signal names are stripped), so a director per boss
+   runs it, written from the configs and the wiki's fight descriptions. The arena layouts are
+   our own (the real levels are server-streamed).
 6. **Guilds and PvP.** Missions are in (below), but their own levels and dialogue are
    server data: dungeon missions play as themed generated floors, briefings show our summary.
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).

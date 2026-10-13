@@ -221,7 +221,9 @@ export abstract class BossFight implements BossDirector {
     if (loot) this.w.tableSpawn({ $class: REF, name: loot }, x, y);
     this.w.say(this.w.knight.x, this.w.knight.y, `${BOSS_NAMES[this.key]} defeated!`, "#ffd84d");
     // the boss's remaining minions scatter
-    for (const m of this.w.monsters) if (m.entity && !m.passive && m.state !== "dying" && m.entity !== this.w.knightEntity) this.w.logic.destroy(m.entity, this.ke);
+    for (const m of [...this.w.monsters]) {
+      if (m.entity && m.state !== "dying" && (!m.passive || /\/Boss\//.test(m.entity.name))) this.w.logic.destroy(m.entity, this.ke);
+    }
   }
 }
 
@@ -446,7 +448,7 @@ export class SnarbolaxFight extends BossFight {
     // the first SignalStart handler: the bell-break flash and ApplyStatus "Stun 3"
     const h = e.handlers.find(x => x.kind === "SignalStart");
     const act = h?.cfg?.action;
-    if (act) this.w.logic.execute(act.$class?.endsWith("$Conditional") && !act.condition ? act.action : act, e, p.entity);
+    if (act) this.w.logic.execute(act.$class?.endsWith("$Conditional") && !act.condition ? act.action : act, e, e);
     this.stunned = SNARB_STUN;
     this.stunDamage = 0;
     this.stuns++;
@@ -598,13 +600,15 @@ export class TwinsFight extends BossFight {
       return;
     }
     if (t.pending && this.w.time >= t.pending.at) {
-      // the rockets leave the launcher, aimed where the knight is (within the launcher's arc)
+      // the rockets leave the launcher side by side down its lane (stage 1 fires only straight
+      // ahead, later ones lean a little toward the knight), so a volley that misses the knight
+      // flies on to the twin at the other end
       const aim = Math.atan2(k.y - m.y, k.x - m.x);
-      let d = Math.atan2(Math.sin(aim - face), Math.cos(aim - face));
-      d = Math.max(-0.6, Math.min(0.6, d));
+      const arc = t.stage === 1 ? 0 : 0.15;
+      const h = face + Math.max(-arc, Math.min(arc, Math.atan2(Math.sin(aim - face), Math.cos(aim - face))));
       for (let i = 0; i < t.pending.n; i++) {
-        const h = face + d + (i - (t.pending.n - 1) / 2) * 0.12;
-        this.spawn(ROCKET, m.x + Math.cos(h) * 1.4, m.y + Math.sin(h) * 1.4 + (i - (t.pending.n - 1) / 2) * 0.3, h, [["Type", "Normal"]]);
+        const side = (i - (t.pending.n - 1) / 2) * 0.35;
+        this.spawn(ROCKET, m.x + Math.cos(h) * 1.4 - Math.sin(h) * side, m.y + Math.sin(h) * 1.4 + Math.cos(h) * side, h, [["Type", "Normal"]]);
       }
       t.pending = null;
     }
