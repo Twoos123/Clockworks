@@ -96,7 +96,15 @@ export class ItemList {
     if (e.ui) {
       const key = e.key + "|" + JSON.stringify(e.ui, (k, v) => (k === "$outer" ? undefined : v));
       let p = this.cache.get(key);
-      if (!p) { p = buildUi(this.ctx, e.ui); this.cache.set(key, p); }
+      if (!p) {
+        p = buildUi(this.ctx, e.ui).then(c => {
+          // a loadout pill's PvE and PvP tier meters: single player has no tiers
+          const walk = (k: Component) => { if (k.children.some(x => x.tag === "label_pve")) k.visible = false; k.children.forEach(walk); };
+          if (c) walk(c);
+          return c;
+        });
+        this.cache.set(key, p);
+      }
       return p;
     }
     const args: Record<string, unknown> = {
