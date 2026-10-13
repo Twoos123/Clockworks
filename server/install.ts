@@ -3,10 +3,10 @@
 // game's files go from the player's disk to the player's browser and nowhere else.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
-import { join, normalize, sep } from "node:path";
+import { dirname, join, normalize, sep } from "node:path";
 import { readZipDirectory, readZipEntry, type ZipEntry } from "./zip";
 
 const GAME_DIR = "Spiral Knights";
@@ -149,6 +149,38 @@ export function syncArchive(install: string | null, archive = archiveDir()): num
   return copied;
 }
 
+/**
+ * Each archived level's display name, kept in a JSON file beside the archive so the game learns
+ * the names of thousands of levels in one request; a level is parsed only when it is new or
+ * has changed. Returns [id, name] pairs.
+ */
+let indexing: Promise<[string, string][]> | null = null;
+export function sceneIndex(archive = archiveDir()): Promise<[string, string][]> {
+  return indexing ??= (async () => {
+    try {
+      const file = join(dirname(archive), "scene-index.json");
+      let cache: Record<string, { size: number; mtime: number; name: string }> = {};
+      try { cache = JSON.parse(readFileSync(file, "utf8")); } catch { /* first run */ }
+      const { sceneName } = await import("../src/scene");
+      const out: [string, string][] = [];
+      let changed = false;
+      for (const id of existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : []) {
+        const st = statSync(join(archive, id));
+        let e = cache[id];
+        if (!e || e.size !== st.size || e.mtime !== st.mtimeMs) {
+          let name = "";
+          try { name = await sceneName(new Uint8Array(readFileSync(join(archive, id)))); } catch { /* unreadable */ }
+          e = cache[id] = { size: st.size, mtime: st.mtimeMs, name };
+          changed = true;
+        }
+        if (e.name) out.push([id, e.name]);
+      }
+      if (changed) writeFileSync(file, JSON.stringify(cache));
+      return out;
+    } finally { setTimeout(() => { indexing = null; }, 0); }
+  })();
+}
+
 /** Handles /__sk requests: the install's rsrc files, scenes cache and colour definitions. */
 export function installMiddleware(dir: () => string | null, archive = archiveDir()) {
   let listing: string[] | null = null;
@@ -197,6 +229,14 @@ export function installMiddleware(dir: () => string | null, archive = archiveDir
       return;
     }
     // levels: the archive (every level ever cached), refreshed from the install on each listing
+    if (url === "/sceneindex") {
+      syncArchive(root, archive);
+      void sceneIndex(archive).then(list => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(list));
+      }, () => { res.statusCode = 500; res.end(); });
+      return;
+    }
     if (url === "/scenelist") {
       syncArchive(root, archive);
       res.setHeader("content-type", "application/json");
