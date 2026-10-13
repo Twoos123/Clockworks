@@ -58,14 +58,15 @@ export function placeKey(info: PortalInfo): string | null {
 }
 
 /**
- * Where an exit leads, given the scenes in the cache (their ids are the server's scene ids).
- * The Arcade (scene 3) is not cached: its gate board stands in for it.
+ * Where an exit leads, given the scenes in the cache and level archive (their ids are the
+ * server's scene ids). When the Arcade (scene 3) is not there, its gate board stands in for it.
  */
-export function exitTarget(info: PortalInfo, scenes: { id: string; name: string }[]): ExitTarget {
+export function exitTarget(info: PortalInfo, scenes: { id: string; name: string }[], ids: ReadonlySet<string> = new Set()): ExitTarget {
   const arcade = [...info.tags, info.portal].some(t => /arcade/i.test(t));
   if (Number.isFinite(info.sceneId)) {
-    const hit = scenes.find(s => s.id === String(info.sceneId));
-    if (hit) return { kind: "scene", id: hit.id, portal: info.portal };
+    // (the archive's ids, named or not: its file names are the scene ids)
+    const id = String(info.sceneId);
+    if (ids.has(id) || scenes.some(s => s.id === id)) return { kind: "scene", id, portal: info.portal };
     if (arcade) return { kind: "arcade" };
   } else if (info.sceneInternalId) {
     // a town move names the scene by its message key ("haven_eastside" is "%town:m.haven_eastside")

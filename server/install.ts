@@ -3,7 +3,7 @@
 // game's files go from the player's disk to the player's browser and nowhere else.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join, normalize, sep } from "node:path";
@@ -110,6 +110,45 @@ export function syncArchive(install: string | null, archive = archiveDir()): num
   return copied;
 }
 
+let naming: Promise<Record<string, string>> | null = null;
+
+/**
+ * The raw name of every archived level ("%town:m.haven_bazaar"), by scene id. Names are kept
+ * in names.json beside the archive with each file's size and time, so only new or changed
+ * levels are read again.
+ */
+export function sceneNames(archive = archiveDir()): Promise<Record<string, string>> {
+  const run = async () => {
+    const { importBinary } = await import("../src/export/BinaryImport");
+    const { inflateSync } = await import("node:zlib");
+    const store = join(archive, "..", "names.json");
+    let known: Record<string, { size: number; time: number; name: string }> = {};
+    try { known = JSON.parse(readFileSync(store, "utf8")); } catch { /* first run */ }
+    const out: Record<string, string> = {}, next: typeof known = {};
+    let changed = false;
+    for (const id of existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : []) {
+      try {
+        const st = statSync(join(archive, id));
+        let k = known[id];
+        if (!k || k.size !== st.size || k.time !== st.mtimeMs) {
+          const r: any = await importBinary(new Uint8Array(readFileSync(join(archive, id))), d => new Uint8Array(inflateSync(d)));
+          k = { size: st.size, time: st.mtimeMs, name: String(r.root?.name ?? "") };
+          changed = true;
+        }
+        next[id] = k;
+        out[id] = k.name;
+      } catch { /* unreadable level */ }
+    }
+    if (changed || Object.keys(known).length !== Object.keys(next).length) {
+      try { writeFileSync(store, JSON.stringify(next)); } catch { /* read-only */ }
+    }
+    return out;
+  };
+  const p = (naming ?? Promise.resolve(null)).catch(() => null).then(run);
+  naming = p;
+  return p;
+}
+
 /** Handles /__sk requests: the install's rsrc files, scenes cache and colour definitions. */
 export function installMiddleware(dir: () => string | null, archive = archiveDir()) {
   let listing: string[] | null = null;
@@ -146,6 +185,16 @@ export function installMiddleware(dir: () => string | null, archive = archiveDir
       syncArchive(root, archive);
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify(existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : []));
+      return;
+    }
+    // every level's name (its MessageBundle key), read once and remembered beside the archive,
+    // so the game need not download thousands of levels to list them
+    if (url === "/scenenames") {
+      syncArchive(root, archive);
+      void sceneNames(archive).then(names => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(names));
+      }, () => { res.statusCode = 500; res.end(); });
       return;
     }
     if (url.startsWith("/scenes/")) {

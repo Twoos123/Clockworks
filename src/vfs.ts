@@ -26,6 +26,8 @@ export interface Vfs {
   readScene(name: string): Promise<Uint8Array>;
   /** The colour pository (Java-serialized), or null if unavailable. */
   colorDefs(): Promise<Uint8Array | null>;
+  /** Every scene's raw name by id, when the source can list them without reading each scene. */
+  sceneNames?(): Promise<Record<string, string> | null>;
 }
 
 /** The only file read from code/: a data archive, from which only COLOR_DEFS is extracted. */
@@ -219,6 +221,9 @@ export class DevServerVfs implements Vfs {
   async scenes(): Promise<string[]> {
     const r = await fetch("/__sk/scenelist");
     return r.ok ? r.json() : [];
+  }
+  async sceneNames(): Promise<Record<string, string> | null> {
+    try { const r = await fetch("/__sk/scenenames"); return r.ok ? await r.json() : null; } catch { return null; }
   }
   async readScene(name: string) {
     const r = await fetch("/__sk/scenes/" + encodeURIComponent(name));

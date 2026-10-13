@@ -25,6 +25,14 @@ test("the Arcade (not cached) is the gate board; other uncached places are not a
   assert.equal(placeKey({ tags: [], sceneId: NaN, portal: "", area: "Portals/To Guild Training" }), "%guild:m.border_training_hall");
 });
 
+test("an archived scene not yet named is still walked into; an archived Arcade replaces the board", () => {
+  const ids = new Set(["3", "445"]);
+  assert.deepEqual(exitTarget({ tags: ["to_garrison_west"], sceneId: 445, portal: "from_town_square_east" }, scenes, ids),
+    { kind: "scene", id: "445", portal: "from_town_square_east" });
+  assert.deepEqual(exitTarget({ tags: ["to_arcade_central"], sceneId: 3, portal: "from_town_square_north" }, scenes, ids),
+    { kind: "scene", id: "3", portal: "from_town_square_north" });
+});
+
 test("a town move to a cached scene finds it by its internal name", () => {
   assert.deepEqual(exitTarget({ tags: [], sceneId: NaN, portal: "p", townName: "haven", sceneInternalId: "haven_bazaar" }, scenes), { kind: "scene", id: "2", portal: "p" });
 });

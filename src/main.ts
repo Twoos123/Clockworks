@@ -1,7 +1,7 @@
 import { lookAt, perspective, type Vec3 } from "./math";
 import { loadAnimation, ModelLoader, type LoadedModel } from "./model";
 import { Renderer, type ModelInstance } from "./render/renderer";
-import { SceneLoader, sceneName, type LoadedScene } from "./scene";
+import { prettySceneName, SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
 import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environment";
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
@@ -220,6 +220,8 @@ class Viewer {
   get outfit() { return this.outfit_ ??= new Outfit(this.loader, () => this.save, () => writeSave(this.save)); }
   /** Scenes in the install's cache, by name. */
   private sceneList: { id: string; name: string }[] = [];
+  /** Every scene id the archive and cache hold (named or not yet: exits lead to them by id). */
+  private sceneIds = new Set<string>();
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
   /** Totals for the current gate run, for the summary when it ends. */
@@ -378,9 +380,21 @@ class Viewer {
 
   private async listScenes(vfs: Vfs) {
     const ids = await vfs.scenes();
+    this.sceneIds = new Set(ids);
     if (ids.length === 0) return;
-    const named = await Promise.all(ids.map(async id => {
-      try { return { id, name: await sceneName(await vfs.readScene(id)) }; } catch { return null; }
+    // a few reads at a time: the level archive holds thousands of scenes, and starting every
+    // read at once runs the browser out of request slots (ERR_INSUFFICIENT_RESOURCES)
+    // (the local server names them all at once, remembering the names)
+    const names = await vfs.sceneNames?.().catch(() => null) ?? null;
+    const named: ({ id: string; name: string } | null)[] = ids.map(id => names && id in names ? { id, name: prettySceneName(names[id]) } : null);
+    const todo = ids.filter((_, i) => !named[i]);
+    let next = 0;
+    if (todo.length) await Promise.all(Array.from({ length: Math.min(16, todo.length) }, async () => {
+      while (next < ids.length) {
+        const i = next++, id = ids[i];
+        if (named[i]) continue;
+        try { named[i] = { id, name: await sceneName(await vfs.readScene(id)) }; } catch { /* unreadable */ }
+      }
     }));
     const ul = $("scenes");
     const found = named.filter((s): s is { id: string; name: string } => s !== null);
@@ -724,7 +738,7 @@ class Viewer {
    */
   private walkOut(info: PortalInfo) {
     if (this.travelling) return;
-    const t = exitTarget(info, this.sceneList);
+    const t = exitTarget(info, this.sceneList, this.sceneIds);
     if (t.kind === "arcade") { if (!this.gate) this.openGates(); return; }
     if (t.kind === "missing") {
       const msg = messageText("%helptips:m.sl_elevator_closed");
@@ -1661,6 +1675,14 @@ class Viewer {
           if (pad.cycle && this.world.knight.weapons.length) {
             const n = this.world.knight.weapons.length;
             this.weaponSlot = (this.world.knight.slot + pad.cycle + n) % n;
+          }
+        }
+        // the Arcade's gate control panels (their server action picks the gate): the gate board
+        if (!this.paused && (this.interactPressed || pad?.interact) && this.scene && /arcade/i.test(this.scene.name) && !this.gate) {
+          const k = this.world.knight;
+          if (this.scene.logic.some(e => /Gates\/Control Panel/.test(e.name) && Math.hypot(e.x - k.x, e.y - k.y) < 3)) {
+            this.interactPressed = false;
+            this.openGates();
           }
         }
         if (!this.paused) {
