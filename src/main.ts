@@ -7,7 +7,7 @@ import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environ
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { GuiContext } from "./ui/gui";
+import { buildInterface, GuiContext, pack, render as renderGui } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -25,9 +25,12 @@ import { OptionsScreen } from "./ui/options";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
+import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
+import { rankLabel, tierLock } from "./game/missions";
+import { MissionBoard, notice, progressOf } from "./ui/missions";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|\(|lobby/i;
@@ -46,7 +49,7 @@ const THEMES: { key: string; test: RegExp; label: string }[] = [
 ];
 const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
 /** Generated floor ids: "gen:<theme>:<seed>". */
-const GEN = /^gen:([a-z]+):(\d+)$/;
+const GEN = /^gen:([a-z-]+):(\d+)$/;
 
 /** The name shown on the HUD name plate. */
 const KNIGHT_NAME = "Knight";
@@ -193,11 +196,16 @@ class Viewer {
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
+  /** Totals for the current gate run, for the summary when it ends. */
+  private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
+
   /** The gate being descended and its floors by depth (null outside the Clockworks). */
   private gate: Gate | null = null;
   private floors: Floor[] = [];
   /** Spawn tables generated floors are re-themed with (by scene id). */
   private genTables = new Map<string, string[]>();
+  /** Generated floors that are safe towns (no monsters; an alchemy machine). */
+  private safeGen = new Set<string>();
   /** Names generated floors show (by scene id). */
   private genNames = new Map<string, string>();
   /** Special floor styles (vault, danger, arena) by scene id, and the last floor's feature report. */
@@ -205,6 +213,8 @@ class Viewer {
   genReport: FeatureReport | null = null;
   /** The boss of the floor being played, if any. */
   private bossFloor: BossKey | null = null;
+  /** The mission board (src/ui/missions.ts), made on first use. */
+  private missionBoard: MissionBoard | null = null;
   /** Arena mode: waves on a cached level instead of its own wiring. */
   private arenaMode = false;
   private attackPressed = false;
@@ -324,6 +334,8 @@ class Viewer {
       if (b("dash") && !e.repeat) this.dashPressed = true;
       if (b("help") && !e.repeat) $("playHint").hidden = !$("playHint").hidden;
       if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
+      if (key === "n" && !e.repeat) this.openFeed();
+      if (key === "m" && !e.repeat) this.openMail();
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       if (b("arsenal") && !e.repeat) void this.toggleArsenal();
@@ -387,6 +399,7 @@ class Viewer {
       return li;
     }));
     $("scenesBox").hidden = false;
+    genScenes = this.sceneList;
     if (GAME) void this.enterTitle();
   }
 
@@ -433,32 +446,50 @@ class Viewer {
    */
   private async generatedRoot(id: string): Promise<any> {
     const [, key, seed] = GEN.exec(id)!;
-    const theme = THEMES.find(t => t.key === key)!;
-    const ids = this.sceneList.filter(s => theme.test.test(s.name)).map(s => s.id);
-    const sources = await Promise.all(ids.map(async sid => ({ id: sid, root: await this.sceneLoader.parse(await this.vfs.readScene(sid)) })));
-    // resolve every tile the sources use first; the generator asks synchronously
-    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
-    for (const s of sources) {
-      for (const m of (s.root.tileConfigs?.items ?? s.root.tileConfigs ?? []) as any[]) {
-        const k = refKey(m?.tile);
-        if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
-      }
-    }
-    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
+    // the theme's tiling: learned from its cached levels, mirrored from a related theme, or
+    // rule-based (src/gen/themes.ts)
+    const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
+    const level = await themeLevel(key, {
+      scenes: this.sceneList, readRoot,
+      tileNames: () => this.sceneLoader.configNames("config/tile.dat"),
+      tileInfo: ref => this.sceneLoader.tileInfo(ref),
+    });
+    const ids = level.sources.map(s => s.id);
     // spawners and treasure from every cached combat level, for themes whose levels spawn
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
-    const pool = (await Promise.all(others.map(async sid => (await this.sceneLoader.parse(await this.vfs.readScene(sid))).entries ?? []))).flat();
+    const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
     const style = this.genStyles.get(id);
-    const root = generateLevel(sources, info, Number(seed), this.genNames.get(id) ?? `${theme.label} · new floor`, pool, { layout: layoutFor(style) });
+    const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
+      this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals, layout: layoutFor(style) });
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
-    // puzzles, the floor style's special rooms and decoration (src/gen/features.ts); then
-    // rooms seal while their waves are fought, as the game's own levels do
+    if (this.safeGen.has(id)) {
+      // a town floor: no spawners or encounters, and an alchemy machine near the start
+      root.entries = (root.entries as any[]).filter(e => !/Single Spawn/.test(e.placeable?.name ?? "") && e.area?.name !== "Player Enter/Spawn Activate");
+      const haven = this.sceneList.find(sc => /haven town square/i.test(sc.name));
+      const machine = haven ? ((await readRoot(haven.id)).entries as any[]).find(e => /^Shop\/Haven\/Alchemy$/.test(e.placeable?.name ?? "")) : null;
+      const start = (root.entries as any[]).find(e => /Elevator\/Start Platform/.test(e.placeable?.name ?? ""));
+      if (machine && start) {
+        const t = start.transform.translation;
+        root.entries.push({ ...JSON.parse(JSON.stringify(machine, (k, v) => (k === "$outer" ? undefined : v))), id: 999999,
+          transform: { ...start.transform, translation: { ...t, x: t.x + 4, y: t.y } } });
+      }
+      return root;
+    }
+    // rooms seal while their waves are fought, as the game's own levels do (walkability from
+    // the tiles the floor uses)
+    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
+    for (const m of (root.tileConfigs ?? []) as any[]) {
+      const k = refKey(m?.tile);
+      if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
+    }
+    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
     const walk = walkableCells(root, info);
-    this.genReport = addFeatures(root, { style, theme: key, tables, rand: rng(Number(seed) ^ 0x2545f491), walkable: (x, y) => walk.has(x + "," + y) });
     arenaRooms(root, (x, y) => walk.has(x + "," + y));
+    // puzzles, the floor style's special rooms and decoration (src/gen/features.ts)
+    this.genReport = addFeatures(root, { style, theme: key, tables, rand: rng(Number(seed) ^ 0x2545f491), walkable: (x, y) => walk.has(x + "," + y) });
     return root;
   }
 
@@ -705,13 +736,85 @@ class Viewer {
     switch (tag) {
       case "button_menu": this.openSettings(); break;
       case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
+      case "button_feed": this.openFeed(); break;
+      case "button_mail": this.openMail(); break;
       case "button_loadout": case "button_gear": case "button_arsenal": void this.toggleArsenal(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
-      case "button_haven": void this.returnToHaven(); break;
+      // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
+      case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
+      case "button_missions": void this.missions().toggle(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       case "button_guildhall": case "button_social": void this.goToGuildHall(); break;
       default: break;
     }
+  }
+
+  private missions(): MissionBoard {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.missionBoard ??= new MissionBoard({
+      data: this.world?.data ?? new GameData(this.loader), gui: this.gui,
+      save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
+      pause: on => { this.paused = on && !!this.world; },
+      startRun: (g, floors) => void this.enterGate(g, floors),
+      openGates: () => this.openGates(),
+    });
+  }
+
+  /** A simple window in the options' style (news and mail). */
+  private showPanel(title: string, fill: (body: HTMLElement) => void) {
+    const root = $("gates");
+    root.replaceChildren();
+    const card = document.createElement("div");
+    card.className = "settings-card";
+    const head = document.createElement("div");
+    head.className = "settings-head";
+    const h = document.createElement("h2");
+    h.textContent = title;
+    const close = document.createElement("button");
+    close.textContent = "Close";
+    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
+    head.append(h, close);
+    const body = document.createElement("div");
+    body.className = "settings-body";
+    fill(body);
+    card.append(head, body);
+    root.append(card);
+    root.hidden = false;
+    this.paused = !!this.world;
+  }
+
+  /** The news feed: what this port has and lacks (the game's feed came from its servers). */
+  private openFeed() {
+    this.showPanel("News", body => {
+      const items: [string, string][] = [
+        ["The Clockworks are open", "Four gates a day in the Arcade, six strata from depth 1 to 28, terminals, Moorcroft Manor, Emberlight and the Core."],
+        ["Generated floors", "Floors are built from the game's own tiles, spawners, gates and treasure; the real layouts of levels you have not visited are not in the install."],
+        ["Single player", "Parties, trading, PvP and guild chat are online features and are not part of this port."],
+      ];
+      for (const [t, d] of items) {
+        const p = document.createElement("p");
+        p.innerHTML = `<b style="color:#f3d36b">${t}</b><br>${d}`;
+        body.append(p);
+      }
+    });
+  }
+
+  /** The mailbox: letters kept in the save (a welcome note; missions add their rewards here). */
+  private openMail() {
+    const mail = this.save.mail ??= [];
+    if (!mail.length) mail.push({ from: "Spiral HQ", subject: "Welcome to Haven", at: Date.now(), read: false,
+      body: "Welcome, knight. Visit the Bazaar for gear, then take a gate in the Arcade into the Clockworks. Good luck below!" });
+    this.showPanel("Mail", body => {
+      for (const m of [...mail].reverse()) {
+        const d = document.createElement("details");
+        d.className = "settings-row";
+        d.style.display = "block";
+        d.innerHTML = `<summary><b>${m.read ? "" : "● "}${m.subject}</b> <span class="settings-note">from ${m.from}</span></summary><p>${m.body}</p>`;
+        d.ontoggle = () => { if (d.open && !m.read) { m.read = true; writeSave(this.save); } };
+        body.append(d);
+      }
+    });
+    writeSave(this.save);
   }
 
   /** Your guild hall: the cached hall scene. */
@@ -824,6 +927,10 @@ class Viewer {
     // equipped weapons absorb the floor's heat
     for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
+    const t = this.runTotals;
+    t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
+    t.materials += [...l.materials.values()].reduce((a, b) => a + b, 0);
+    t.deepest = Math.max(t.deepest, this.run.depth);
     writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
@@ -834,6 +941,9 @@ class Viewer {
       $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
       $("deeper").textContent = "Return to Haven";
       $("deeper").hidden = !next;
+      // an Arcade stratum cleared counts for prestige gate missions of its theme
+      const here = this.floors[this.run.depth], s = here?.stratum;
+      if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
       const last = this.nextLevel() === null;
       $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
@@ -882,18 +992,80 @@ class Viewer {
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
   private async returnToHaven() {
+    // the end of a gate run: a summary of what it brought home
+    const t = this.runTotals;
+    const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
+    this.gate = null;
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
     this.stopPlaying();
     this.run = { depth: 0, health: null, floors: 0 };
     const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
     if (!haven) return;
     await this.selectScene(haven.id);
     await this.startPlaying();
+    if (summary && summary.deepest > 0) {
+      this.showPanel("Back in Haven", body => {
+        const rows: [string, string][] = [["Gate", summary.gate || "The Clockworks"], ["Deepest depth this run", String(summary.deepest)],
+          ["Deepest depth ever", String(summary.best)], ["Monsters defeated", String(summary.kills)],
+          ["Crowns banked", String(summary.crowns)], ["Heat earned", String(summary.heat)], ["Materials and items", String(summary.materials)]];
+        for (const [k, v] of rows) {
+          const r = document.createElement("div");
+          r.className = "settings-row";
+          r.innerHTML = `<span>${k}</span><b>${v}</b><span></span>`;
+          body.append(r);
+        }
+      });
+    }
   }
 
   /** The cached levels in run order. */
   // ------------------------------------------------------------------ the Arcade and its gates
 
-  /** The Arcade's gate board: today's four gates and their strata. */
+  private iconUrls = new Map<string, Promise<string>>();
+  /** An install image as a URL for HTML panels (cached). */
+  private iconUrl(path: string): Promise<string> {
+    let p = this.iconUrls.get(path);
+    if (!p) this.iconUrls.set(path, p = this.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => ""));
+    return p;
+  }
+  private levelIcons = new Map<string, Promise<string>>();
+  /**
+   * A gate lineup icon drawn through the game's own ui/adventureboard/parts/map_levelicon.dat
+   * (its colourisation turns the mask images purple and light blue), as an image URL.
+   */
+  private levelIcon(path: string, locked = false): Promise<string> {
+    const key = path + (locked ? "|locked" : "");
+    let p = this.levelIcons.get(key);
+    if (!p) {
+      p = (async () => {
+        this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+        const ui = await buildInterface(this.gui, { $class: "com.threerings.config.ConfigReference", name: "ui/adventureboard/parts/map_levelicon.dat",
+          arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Icon", path], ["Locked", !locked], ["You are Here", false], ["Friend Here", false]] } });
+        if (!ui) return "";
+        const size = pack(ui);
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, size.width); c.height = Math.max(1, size.height);
+        renderGui(ui, c.getContext("2d")!, 0, size.height, {});
+        return c.toDataURL();
+      })().catch(() => "");
+      this.levelIcons.set(key, p);
+    }
+    return p;
+  }
+
+  private img(path: string, cls: string, title = "") {
+    const im = document.createElement("img");
+    im.className = cls;
+    if (title) im.title = title;
+    void this.iconUrl(path).then(u => { if (u) im.src = u; });
+    return im;
+  }
+
+  /**
+   * The Arcade's gate board: today's four gates, each with its emblem and the lineup of its
+   * floors as the game draws it, with the level icons (rsrc/ui/icon/map) under each stratum's
+   * theme icon (rsrc/ui/icon/theme).
+   */
   private openGates() {
     const root = $("gates");
     root.replaceChildren();
@@ -905,35 +1077,53 @@ class Viewer {
     h.textContent = "The Arcade";
     const close = document.createElement("button");
     close.textContent = "Close";
-    close.onclick = () => { root.hidden = true; this.paused = false; };
+    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
     head.append(h, close);
     card.append(head);
     const note = document.createElement("p");
     note.className = "settings-note";
-    note.textContent = "Choose a gate. Each runs from depth 1 to the Core at depth 29 through three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
+    note.textContent = "Today's gates. Each runs from the Arcade to the Core in three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
     card.append(note);
-    const grid = document.createElement("div");
-    grid.className = "gates-grid";
     for (const g of arcadeGates()) {
-      const col = document.createElement("div");
-      col.className = "gate";
-      const t = document.createElement("h3");
-      t.textContent = g.name;
-      col.append(t);
-      for (const s of g.strata) {
-        const row = document.createElement("div");
-        row.className = "gate-stratum tier" + s.tier;
-        row.textContent = `${s.first}-${s.last} · ${s.theme} · ${s.style.name}${s.boss ? " · " + BOSSES[s.boss].name : ""}`;
-        col.append(row);
+      const row = document.createElement("div");
+      row.className = "gate-row";
+      const name = document.createElement("div");
+      name.className = "gate-name";
+      const emblem = this.img(`ui/icon/gate/${g.emblem}.png`, "gate-emblem");
+      emblem.style.filter = "hue-rotate(-100deg) saturate(0.9)";
+      name.append(emblem, document.createTextNode(g.name));
+      const lineup = document.createElement("div");
+      lineup.className = "gate-lineup";
+      const floors = gateFloors(g);
+      for (const f of floors.slice(1)) {
+        const cell = document.createElement("div");
+        cell.className = `gate-cell tier${f.tier}` + (f.stratum && f.depth === f.stratum.first ? " first" : "");
+        const theme = f.stratum && f.kind !== "terminal" && f.kind !== "subtown" ? f.stratum.theme.toLowerCase() : "";
+        if (f.stratum && f.depth === f.stratum.first) cell.append(this.img(`ui/icon/theme/${theme || "unk"}.png`, "gate-theme", f.stratum.theme));
+        else cell.append(document.createElement("span"));
+        const icon = document.createElement("img");
+        icon.className = "gate-level";
+        icon.title = `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`;
+        // tiers above the knight's rank show the lock, as the game's map does
+        void this.levelIcon(`ui/icon/map/${floorIcon(f)}.png`).then(u => { if (u) icon.src = u; });
+        cell.append(icon);
+        const d = document.createElement("small");
+        d.textContent = String(f.depth);
+        cell.append(d);
+        lineup.append(cell);
       }
       const go = document.createElement("button");
       go.className = "primary";
       go.textContent = "Enter";
       go.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_confirm.ogg"); void this.enterGate(g); };
-      col.append(go);
-      grid.append(col);
+      row.append(name, lineup, go);
+      card.append(row);
     }
-    card.append(grid);
+    // the arena: endless waves on a cached level, a checkpoint every fifth wave
+    const arena = document.createElement("button");
+    arena.textContent = "Arena: endless waves (bank every fifth wave)";
+    arena.onclick = () => { root.hidden = true; this.paused = false; void this.enterArena(); };
+    card.append(arena);
     root.append(card);
     root.hidden = false;
     this.paused = !!this.world;
@@ -941,12 +1131,14 @@ class Viewer {
   }
 
   /** Starts a gate at depth 1. */
-  private async enterGate(g: Gate) {
+  private async enterGate(g: Gate, floors = gateFloors(g)) {
     this.gate = g;
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name };
     this.usedScenes.clear();
-    this.floors = gateFloors(g);
+    this.floors = floors;
     this.arenaMode = false;
-    this.run = { depth: 0, health: null, floors: 0 };
+    // the descent starts above the first floor (a mission's floors start deeper)
+    this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
     await this.descend();
   }
 
@@ -960,7 +1152,14 @@ class Viewer {
     const cached = (re: RegExp) => this.sceneList.find(s => re.test(s.name));
     if (f.kind === "terminal") return cached(/^terminal 1$/i) ?? null;
     if (f.kind === "core") return cached(/^terminal core$/i) ?? cached(/^terminal 1$/i) ?? null;
-    if (f.kind === "subtown") return (f.depth === 18 ? cached(/^emberlight$/i) : cached(/^dark halls lobby$/i)) ?? cached(/^terminal 1$/i) ?? null;
+    if (f.kind === "subtown" && f.depth === 18) return cached(/^emberlight$/i) ?? cached(/^terminal 1$/i) ?? null;
+    if (f.kind === "subtown") {
+      // Moorcroft Manor is not in the cache: a generated town in the graveyard's tiles
+      const id = `gen:${genTheme("graveyard")}:${((this.gate?.seed ?? 1) + 8) >>> 0}`;
+      this.safeGen.add(id);
+      this.genNames.set(id, "Moorcroft Manor");
+      return { id, name: "Moorcroft Manor" };
+    }
     const s = f.stratum!;
     if (f.kind === "level" && s.style.cached && !f.special) {
       const options = this.sceneList.filter(sc => s.style.cached!.test(sc.name) && !this.usedScenes.has(sc.id));
@@ -970,7 +1169,7 @@ class Viewer {
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
     const id = `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
-    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} (${s.theme})`);
+    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
     if (f.special) this.genStyles.set(id, f.special);
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
@@ -1035,7 +1234,15 @@ class Viewer {
       // the gate's next floor (after the Core's terminal, back to Haven)
       const f = this.floors[this.run.depth + 1];
       this.stopPlaying();
-      if (!f) { this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven(); return; }
+      if (!f) {
+        const id = this.gate.id;
+        this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven();
+        this.missionBoard?.runFinished(id);
+        return;
+      }
+      // deeper tiers need rank (missions take the knight to their own depth)
+      const lock = this.gate.id.startsWith("mission:") ? null : tierLock(f.tier, progressOf(this.save));
+      if (lock) { this.gate = null; await this.returnToHaven(); notice(lock); return; }
       const sc = this.floorScene(f);
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
@@ -1053,7 +1260,8 @@ class Viewer {
     let next = this.nextLevel();
     // past the end of the run, deeper floors are generated
     if (deeper && !next) {
-      const usable = THEMES.filter(t => this.sceneList.some(s => t.test.test(s.name)));
+      // any tileset theme whose source levels are cached (src/gen/themes.ts)
+      const usable = GEN_THEMES.filter(t => themeAvailable(t.key, this.sceneList));
       const t = usable[Math.floor(Math.random() * usable.length)];
       next = t ? { id: `gen:${t.key}:${Math.floor(Math.random() * 1e9)}`, name: `${t.label} · new floor` } : this.runLevels()[0] ?? null;
     }
@@ -1372,7 +1580,7 @@ class Viewer {
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext() }, dt);
+          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
           this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }
@@ -1384,10 +1592,13 @@ class Viewer {
 
 start();
 
+/** The scenes cache, for genTheme's availability check (set once scenes are listed). */
+let genScenes: { id: string; name: string }[] | null = null;
+
 /** Generator themes for a floor's tileset (src/gen); unknown tilesets fall back by family. */
 function genTheme(tileset: string): string {
-  const known = THEMES.map(t => t.key);
-  if (known.includes(tileset)) return tileset;
+  const known = GEN_THEMES.map(t => t.key);
+  if (known.includes(tileset) && (!genScenes || themeAvailable(tileset, genScenes))) return tileset;
   if (/^valley/.test(tileset) && known.includes("valley")) return "valley";
   return known.includes("clockworks") ? "clockworks" : known[0];
 }
@@ -1469,9 +1680,6 @@ function arenaRooms(root: any, walkable: (x: number, y: number) => boolean) {
     side(range(rx, rx + rw).map(x => [x, ry - 1] as [number, number]), 0);
     side(range(ry, ry + rh).map(y => [rx - 1, y] as [number, number]), Math.PI / 2);
     side(range(ry, ry + rh).map(y => [rx + rw, y] as [number, number]), Math.PI / 2);
-    // a mouth a puzzle gate already holds (src/gen/features.ts) keeps that gate
-    const held = entries.filter(e => /\/Door\//.test(e.placeable?.name ?? "")).map(e => e.transform.translation);
-    for (let i = doors.length - 1; i >= 0; i--) if (held.some((t: any) => Math.hypot(t.x - doors[i].x, t.y - doors[i].y) < 1)) doors.splice(i, 1);
     if (!doors.length) continue;
     for (const d of doors) entries.push(placeEntry(id++, "Dynamic/Door/Iron Gate/Monster 3", [["Open", true], ["Tag", doorTag]], d.x, d.y, d.rot));
     // entering: close the gates, wake wave one

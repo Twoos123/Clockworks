@@ -362,8 +362,8 @@ class Plan {
 
 /**
  * Adds puzzles, a special level style's rooms and decoration to a generated root (from
- * src/gen/level.ts, which leaves its plan in `root.gen`). Call before arenaRooms (main.ts),
- * which then seals the remaining encounter rooms.
+ * src/gen/level.ts, which leaves its plan in `root.gen`). Called after arenaRooms (main.ts):
+ * rooms given a role lose the arena wiring it added, and puzzle gates replace its gates.
  */
 export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
   const style = opts.style ?? "standard";
@@ -380,6 +380,13 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
   const mark = (kind: string, x: number, y: number) => report.marks.push({ kind, x, y });
 
   const place = (name: string, args: [string, unknown][] | null, x: number, y: number, rot = 0, z = 0) => {
+    // a puzzle gate takes a mouth's place from the arena gate arenaRooms (main.ts) put there
+    if (/\/Door\//.test(name)) {
+      for (let n = entries.length - 1; n >= 0; n--) {
+        const o = entries[n], t = o.transform?.translation;
+        if (/\/Door\//.test(o.placeable?.name ?? "") && t && Math.hypot(t.x - x, t.y - y) < 1) entries.splice(n, 1);
+      }
+    }
     const e = { $class: CLS + "PlaceableEntry", id: id++, placeable: args ? ref(name, args) : ref(name),
       transform: { $class: "com.threerings.math.Transform3D", translation: { $class: "com.threerings.math.Vector3f", x, y, z },
         rotation: { $class: "com.threerings.math.Quaternion", x: 0, y: 0, z: Math.sin(rot / 2), w: Math.cos(rot / 2) }, scale: 1 } };
@@ -391,6 +398,17 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
   const argOf = (e: any, k: string) => (e.placeable?.arguments?.entries as [string, any][] | undefined)?.find(([n]) => n === k)?.[1];
   /** The room's own fight (its "Player Enter" area and spawners) and treasure, removed. */
   const clearRoom = (i: number, treasureToo = false) => {
+    // the arena wiring arenaRooms (main.ts) gave the room: its gates and wave triggers
+    const ns = new Set<string>();
+    for (const e of entries) {
+      const t = posOf(e), m = /^gen spawn (\d+)/.exec(String(argOf(e, "Spawn Tag") ?? ""));
+      if (m && /Single Spawn/.test(e.placeable?.name ?? "") && inRoom(i, Math.floor(t.x), Math.floor(t.y))) ns.add(m[1]);
+    }
+    for (let n = entries.length - 1; n >= 0; n--) {
+      const e = entries[n];
+      const tag = String(argOf(e, "Tag") ?? ""), actor = String(argOf(e, "Actor Tag") ?? "");
+      if ([...ns].some(k => tag === `gen door ${k}` || actor === `gen wave ${k}` || actor === `gen wave ${k}b`)) entries.splice(n, 1);
+    }
     for (let n = entries.length - 1; n >= 0; n--) {
       const e = entries[n];
       if (e.area?.name === "Player Enter/Spawn Activate") {

@@ -37,14 +37,17 @@ const models = new Map<string, TileModel>();
 /**
  * Builds a scene root. `sources` are parsed scene roots of one theme; `tileInfo` gives each
  * tile reference's footprint and whether it is walkable floor (resolved from config/tile.dat).
- * `opts.layout` shapes the floor plan (an arena floor's big hall). The root carries the plan
- * as `gen` (rooms, start, exit, floor cells) for the post-processing in src/gen/features.ts.
+ * `opts.model` is a ready tiling (a theme's: see src/gen/themes.ts) used instead of learning
+ * from the sources, and `opts.globals` the GlobalEntry records used instead of the first
+ * source's; `sources` may then be empty, the wiring coming from `pool`. `opts.layout` shapes the
+ * floor plan (an arena floor's big hall). The root carries the plan as `gen` (rooms, start,
+ * exit, floor cells) for the post-processing in src/gen/features.ts.
  */
 export function generateLevel(sources: { id: string; root: any }[], tileInfo: (ref: any) => TileInfo, seed: number, title: string,
-  pool: any[] = [], opts: { layout?: LayoutOptions } = {}): any {
+  pool: any[] = [], opts: { model?: TileModel; globals?: any[]; layout?: LayoutOptions } = {}): any {
   const rand = rng(seed);
   const key = sources.map(s => s.id).join(",");
-  let model = models.get(key);
+  let model = opts.model ?? models.get(key);
   if (!model) {
     model = learn(sources.map(s => s.root), r => { const t = tileInfo(r); return [t.width, t.height]; }, r => tileInfo(r).walkable);
     models.set(key, model);
@@ -74,7 +77,8 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
   let id = 1;
   const place = (src: any, x: number, y: number, heading = 0, ref = src.placeable) =>
     entries.push({ $class: CLS + "PlaceableEntry", id: id++, placeable: ref, transform: transform(x, y, 0, heading) });
-  for (const g of sources[0].root.entries ?? []) if (g.$class.endsWith("GlobalEntry")) entries.push({ ...clone(g), id: id++ });
+  const globals = opts.globals ?? (sources[0]?.root.entries ?? []).filter((g: any) => g.$class.endsWith("GlobalEntry"));
+  for (const g of globals) entries.push({ ...clone(g), id: id++ });
 
   const mid = (r: Room): [number, number] => [r.x + r.w / 2, r.y + r.h / 2];
   const startPad = placeable(/Elevator\/Start Platform/)[0];
