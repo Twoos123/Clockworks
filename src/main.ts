@@ -24,6 +24,7 @@ import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Se
 import { OptionsScreen } from "./ui/options";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
 import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
@@ -45,7 +46,7 @@ const THEMES: { key: string; test: RegExp; label: string }[] = [
 ];
 const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
 /** Generated floor ids: "gen:<theme>:<seed>". */
-const GEN = /^gen:([a-z]+):(\d+)$/;
+const GEN = /^gen:([a-z-]+):(\d+)$/;
 
 /** The name shown on the HUD name plate. */
 const KNIGHT_NAME = "Knight";
@@ -385,6 +386,7 @@ class Viewer {
       return li;
     }));
     $("scenesBox").hidden = false;
+    genScenes = this.sceneList;
     if (GAME) void this.enterTitle();
   }
 
@@ -431,27 +433,32 @@ class Viewer {
    */
   private async generatedRoot(id: string): Promise<any> {
     const [, key, seed] = GEN.exec(id)!;
-    const theme = THEMES.find(t => t.key === key)!;
-    const ids = this.sceneList.filter(s => theme.test.test(s.name)).map(s => s.id);
-    const sources = await Promise.all(ids.map(async sid => ({ id: sid, root: await this.sceneLoader.parse(await this.vfs.readScene(sid)) })));
-    // resolve every tile the sources use first; the generator asks synchronously
-    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
-    for (const s of sources) {
-      for (const m of (s.root.tileConfigs?.items ?? s.root.tileConfigs ?? []) as any[]) {
-        const k = refKey(m?.tile);
-        if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
-      }
-    }
-    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
+    // the theme's tiling: learned from its cached levels, mirrored from a related theme, or
+    // rule-based (src/gen/themes.ts)
+    const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
+    const level = await themeLevel(key, {
+      scenes: this.sceneList, readRoot,
+      tileNames: () => this.sceneLoader.configNames("config/tile.dat"),
+      tileInfo: ref => this.sceneLoader.tileInfo(ref),
+    });
+    const ids = level.sources.map(s => s.id);
     // spawners and treasure from every cached combat level, for themes whose levels spawn
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
-    const pool = (await Promise.all(others.map(async sid => (await this.sceneLoader.parse(await this.vfs.readScene(sid))).entries ?? []))).flat();
-    const root = generateLevel(sources, info, Number(seed), this.genNames.get(id) ?? `${theme.label} · new floor`, pool);
+    const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
+    const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
+      this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals });
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
-    // rooms seal while their waves are fought, as the game's own levels do
+    // rooms seal while their waves are fought, as the game's own levels do (walkability from
+    // the tiles the floor uses)
+    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
+    for (const m of (root.tileConfigs ?? []) as any[]) {
+      const k = refKey(m?.tile);
+      if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
+    }
+    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
     const walk = walkableCells(root, info);
     arenaRooms(root, (x, y) => walk.has(x + "," + y));
     return root;
@@ -1106,7 +1113,8 @@ class Viewer {
     let next = this.nextLevel();
     // past the end of the run, deeper floors are generated
     if (deeper && !next) {
-      const usable = THEMES.filter(t => this.sceneList.some(s => t.test.test(s.name)));
+      // any tileset theme whose source levels are cached (src/gen/themes.ts)
+      const usable = GEN_THEMES.filter(t => themeAvailable(t.key, this.sceneList));
       const t = usable[Math.floor(Math.random() * usable.length)];
       next = t ? { id: `gen:${t.key}:${Math.floor(Math.random() * 1e9)}`, name: `${t.label} · new floor` } : this.runLevels()[0] ?? null;
     }
@@ -1437,10 +1445,13 @@ class Viewer {
 
 start();
 
+/** The scenes cache, for genTheme's availability check (set once scenes are listed). */
+let genScenes: { id: string; name: string }[] | null = null;
+
 /** Generator themes for a floor's tileset (src/gen); unknown tilesets fall back by family. */
 function genTheme(tileset: string): string {
-  const known = THEMES.map(t => t.key);
-  if (known.includes(tileset)) return tileset;
+  const known = GEN_THEMES.map(t => t.key);
+  if (known.includes(tileset) && (!genScenes || themeAvailable(tileset, genScenes))) return tileset;
   if (/^valley/.test(tileset) && known.includes("valley")) return "valley";
   return known.includes("clockworks") ? "clockworks" : known[0];
 }

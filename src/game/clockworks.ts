@@ -26,12 +26,15 @@ export interface LevelStyle { key: string; name: string; tileset: string; famili
 export const STYLES: LevelStyle[] = [
   { key: "tunnels", name: "Clockwork Tunnels", tileset: "clockworks", families: ["Construct", "Gremlin", "Slime", "Beast", "Fiend", "Undead"] },
   { key: "valley", name: "Jigsaw Valley", tileset: "valley", families: ["Construct", "Gremlin", "Slime", "Beast"], cached: /^jigsaw valley/i },
-  { key: "den", name: "Wolver Den", tileset: "valley-night", families: ["Beast", "Undead"] },
-  { key: "grove", name: "Lichenous Lumberyard", tileset: "valley-autumn", families: ["Slime", "Construct", "Beast"] },
-  { key: "keep", name: "Candlestick Keep", tileset: "castle", families: ["Fiend", "Undead", "Gremlin"], cached: /^dark halls/i },
+  { key: "den", name: "Wolver Den", tileset: "sky-night", families: ["Beast", "Undead"] },
+  { key: "grove", name: "Lichenous Lumberyard", tileset: "sky-autumn", families: ["Slime", "Construct", "Beast"] },
+  { key: "keep", name: "Candlestick Keep", tileset: "castle", families: ["Fiend", "Undead", "Gremlin"] },
   { key: "graveyard", name: "Graveyard", tileset: "graveyard", families: ["Undead", "Fiend"] },
   { key: "compound", name: "Gremlin Compound", tileset: "city", families: ["Gremlin", "Construct"] },
   { key: "deconstruction", name: "Deconstruction Zone", tileset: "clockworks-white", families: ["Construct", "Gremlin"] },
+  { key: "frostwood", name: "Frosty Islands", tileset: "sky-winter", families: ["Beast", "Slime", "Construct"] },
+  { key: "halls", name: "Dark Halls", tileset: "castle-light", families: ["Undead", "Fiend", "Beast"] },
+  { key: "pools", name: "Frozen Pools", tileset: "ice", families: ["Slime", "Beast", "Undead"] },
 ];
 
 /** Element strata paint their floors with the element's Clockworks tileset. */
@@ -41,7 +44,7 @@ export type BossKey = "jelly" | "snarbolax" | "twins" | "vanaduke";
 /** The four bosses: their levels, tiers, and the actors their arenas start (all in config/actor.dat). */
 export const BOSSES: Record<BossKey, { name: string; level: string; tier: number; actors: string[]; tileset: string }> = {
   jelly: { name: "Royal Jelly", level: "Royal Jelly Palace", tier: 1, actors: ["Character/NPC/Monster/Boss/Royal Jelly/Royal Jelly 1"], tileset: "castle" },
-  snarbolax: { name: "Snarbolax", level: "Gloaming Wildwoods", tier: 1, actors: ["Character/NPC/Monster/Boss/Snarbolax/Snarbolax"], tileset: "valley-night" },
+  snarbolax: { name: "Snarbolax", level: "Gloaming Wildwoods", tier: 1, actors: ["Character/NPC/Monster/Boss/Snarbolax/Snarbolax"], tileset: "sky-night" },
   twins: { name: "Roarmulus Twins", level: "Ironclaw Munitions Factory", tier: 2,
     actors: ["Character/NPC/Monster/Boss/Roarmulus Twins/East", "Character/NPC/Monster/Boss/Roarmulus Twins/West"], tileset: "clockworks" },
   vanaduke: { name: "Lord Vanaduke", level: "Firestorm Citadel", tier: 3, actors: ["Character/NPC/Monster/Boss/Vanaduke/Stage 1"], tileset: "castle-fire" },
