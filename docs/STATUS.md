@@ -2,88 +2,73 @@
 
 Last updated 2026-10-12. Measured against a Steam install updated 2026-10-07.
 
-## Gameplay roadmap
+## Where the game is
 
-| Phase | What you get in the browser | State |
-|---|---|---|
-| A. World viewer | Models, towns, dungeons, guild halls with correct colours, lighting, fog, particles | Done, gaps below |
-| B. Walk around | A knight with gear, movement, follow camera, collision, animations | Done |
-| C. Fight | Weapons, attacks, monsters, health, damage, shields, the game's HUD | Sword and shield done; other weapon families not started |
-| D. A playable dungeon | Doors, switches, pickups, level flow, sound and music, offline | Not started |
-| E. Multiplayer | Your own server for co-op in the browser | Not started |
-| F. The live game | Official servers | Only with Grey Havens' permission |
+A single-player loop runs in the browser, built from the install's own data:
 
-## What works now
+1. **Haven.** The town loads from the scenes cache. Shopkeepers stand in the bazaar and sell
+   gear for crowns.
+2. **Arsenal.** Every weapon, shield, armour and helmet is available with its icon, plus a
+   personal colour.
+3. **Runs.** Enter the Clockworks from town. The run goes through the cached levels in
+   order (Jigsaw Valley, Terminal 1, Emberlight, Dark Halls, Terminal Core), one depth per
+   floor, and the Core's elevator returns to Haven.
+4. **Levels play by their own wiring.**
+   - Spawners and trigger areas wake waves.
+   - Clearing a wave opens or closes gates.
+   - Buttons and platforms send signals.
+   - Gold keys unlock gold gates.
+   - Monsters drop crowns, heat and items.
+   - The exit elevator ends the floor.
+5. **Saving.** Loadout, owned items, colour, banked crowns and heat, deepest floor and runs
+   are kept in the browser.
 
-- **World.** Every model and cached scene loads, with library materials, colours, lights,
-  fog, particles and animation.
-- **Knight.** Armour, helmet, the Proto Sword and Proto Shield, idle, run, hurt and death
-  animations.
-- **Sword.** Data-driven combos with the attack's own lunge, chain window and rearm time, and
-  the charge attack.
-- **Shield.**
-  - Blocks hits from every direction until it breaks.
-  - Regenerates and breaks using the shield's own `hitTime`, `regenTime` and `breakTime`.
-- **Monsters.** Spawned from scene markers, spawn tables and triggers. They chase and attack,
-  and die with their own effects.
-- **HUD from the game's files.** A Clyde GUI renderer (`src/ui/`) draws the real
-  `rsrc/ui/hud_v2` interfaces:
-  - the status panel, with a live 3D portrait from the model's own camera node, the name
-    plate, and health and shield pips;
-  - the quickbar, showing the weapon icon;
-  - the hit flash, the low-health frame and the health bar shake, played from the
-    interfaces' own scripts.
+## What works
 
-  Raising the shield switches the panel to its Blocking layout, as the config defines.
+| Area | What is in |
+|---|---|
+| Rendering | Every model and cached scene; library materials, colours, lights, fog, particles, animation, scripted models |
+| Knight | Gear from the arsenal, personal colour, idle, run, hurt, death, dash |
+| Weapons | Swords (combos with lunges, charge), guns (clips, reload, charge shots, auto-aim), bombs (charge, fuse, blast), from item and attack data |
+| Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
+| Damage | Depth-scaled damage, health and defence from `config/depth_scale.dat`; four damage types; status conditions |
+| Status conditions | Fire, freeze, shock, poison, curse, sleep and stun, with the game's effects and HUD icons |
+| Monsters | Data-driven spawns, tiers by depth, loot, a clean-room AI (turrets, ranged spacing, melee) |
+| Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
+| Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
+| HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
+| Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
 
-## What is still needed for a true single-player game
+## What is still missing
 
-The game client fills its HUD and runs combat from code that is not open source, so each
-item below is clean-room work driven by the data files.
+**Content**
 
-**Combat**
+1. **Levels beyond the cache.** Full dungeon layouts are streamed by the game's servers. The
+   cache holds only levels this account has visited, so a run uses those. A real fix needs
+   a level source: more cached levels from playing, or generated or hand-made layouts.
+2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
+   code jars, which this project does not read. Names come from config paths instead.
+3. **Shop catalogues and prices** are server-side. The shops sell from the item library at
+   tuning prices.
 
-1. **The other weapon families.**
-   - 7 sword, 14 gun and 6 bomb families exist; see `docs/research/weapon-data.md`.
-   - Guns need bullets, clips and reloads. Bombs need charge, fuse and blast.
-2. **Damage types and defences.**
-   - Normal, piercing, elemental and shadow damage, monster weaknesses and armour defence.
-   - Depth-scaled damage and health from `config/depth_scale.dat`.
-3. **Status effects.** Fire, freeze, shock, poison, curse, stun and sleep, from
-   `config/status_condition.dat`, plus the debuff icons the status panel already has.
-4. **Monster behaviour per family.** Ranged attacks, charges and projectiles, using
-   `config/behavior.dat` and the attack configs.
-5. **Shield bash and bump, dash, and weapon switching.**
+**Systems**
 
-**Dungeons**
+4. **Weapon heat levels**: weapons level up with heat in the game.
+5. **Vitapods, trinkets, energy and revives**: revive is free and instant.
+6. **Bosses and special monsters**: those that rely on game-code behaviours (Royal Jelly,
+   Snarbolax) need their own AI.
+7. **Crafting, missions, guilds, PvP.**
 
-6. **Level objects.** Doors and gates that open when a wave is cleared, switches, keys,
-   treasure boxes, heal pads and elevators, from `config/actor.dat` and scene triggers.
-7. **Pickups.** Crowns, hearts, heat, and materials, with the quickbar's item slots.
-8. **Level content and flow.** The scenes cache holds only levels the account has visited.
-   Full dungeon layouts are streamed by the server, so the game needs a level source:
-   - visited caches;
-   - generated levels;
-   - our own layouts.
+**Fidelity**
 
-   Also needed: level sequencing, depth and the Clockworks map.
-9. **The minimap**, from `interface_minimap.dat`, drawn from the scene's tiles.
-
-**Presentation**
-
-10. **Audio.** Sound effects and music through Web Audio, from `config/sounder.dat` and the
-    animation frame actions (footsteps, swings, hits).
-11. **Knight appearance.** Personal colours, gear choice, and the charge glow.
-12. **Text.** The game's message bundles for names and descriptions.
-
-**Around the dungeon**
-
-13. **Haven and menus.** Arsenal, loadout and inventory screens from `rsrc/ui`, save data,
-    and Haven's NPCs.
-14. **An engine decision.** Either keep growing the TypeScript gameplay code, or compile
-    Clyde's open-source Tudey layer with TeaVM. The spike says Tudey compiles and runs, but it
-    provides only movement, collision, pathfinding and behaviours, not combat. See
-    `docs/research/engine-spike.md`.
+8. **Monster AI** is clean-room. The game's AI and attack selection are closed code.
+9. **Damage formula and several numbers are tuning values:**
+   - knight health, the defence formula, status chance and power levels;
+   - prices, the dash.
+10. **Unread defaults.** The export drops default-valued fields, and some game defaults
+    differ from upstream Clyde. The logic infers implicit objects and treats unnamed signal
+    handlers as hearing "activate". A few ExpressionSwitch case values are matched by
+    position.
 
 ## Measured results
 
@@ -91,22 +76,9 @@ item below is clean-room work driven by the data files.
 |---|---|
 | `.dat` files parsed byte-exact | 7,459 of 7,459 |
 | Model files loaded in the browser | 5,816 of 5,816, no failures |
-| Material uses resolved from the material library | all, zero fallbacks |
 | Cached scenes loaded | 12 of 12, zero unresolved references |
-| Weapons audited | 382, in 28 families |
-| Unit tests | 8 of 8 |
-| Folder-input end-to-end test | passes in Chromium, Firefox and WebKit |
-
-## Known gaps in what exists
-
-- **HUD bindings are our reading.** Which tag shows what, and 12 pixels per 10 health, are
-  inferred; the interface files do not say. The quickbar's position at the bottom centre is
-  a guess.
-- **HUD parts not drawn.** Tooltips, hover states and the old `ui/hud` set.
-- **Tuning values.** Knight health, shield health and monster damage are tuning numbers,
-  because the real values come from depth-scaled tables not yet evaluated.
-- **Scripted models** (99) and UI billboards (27) are not drawn.
-- **Local lights** placed in scenes are ignored; only scene-global lights apply.
+| A full run, Haven to Terminal Core and back | passes (automated) |
+| Unit tests | 12 of 12 |
 
 ## Decisions for you
 
@@ -114,9 +86,11 @@ item below is clean-room work driven by the data files.
    not yet.
 2. **Hosting.** The plan recommends a name and domain free of the game's trademarks and a
    self-hosted git mirror before publishing.
-3. **Engine route** for phase D onward, as described in item 14 above.
+3. **Level source.** More cached levels (from playing the real game), procedural layouts,
+   or hand-built ones.
 
 ## Side findings
 
 - The live client ships LWJGL 3 with GLFW, lwjgl3-awt and macOS arm64 natives.
-- `config/actor.dat` defines 210 monster types plus bullets, doors, switches and pickups.
+- Tudey's open-source logic compiles to the browser with TeaVM (`docs/research/engine-spike.md`);
+  the TypeScript engine was written instead, following `docs/research/tudey-logic.md`.
