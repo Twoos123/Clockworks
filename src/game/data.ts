@@ -42,7 +42,11 @@ export interface AttackDef {
   startSpeed: number;
   fireSpeed: number;
   endSpeed: number;
-  /** Milliseconds after firing until the attacker may move or chain (clear), and rearm. */
+  /**
+   * AttackConfig timings in ms: the attack lands (fires) `land` after it starts, may fire
+   * again `rearm` later, and clears (ends) `clear` after that; each part runs at its speed.
+   */
+  land: number;
   clear: number;
   rearm: number;
   /** The DamageConfig of the attack's hit (melee) or null. */
@@ -58,9 +62,10 @@ export interface AttackDef {
   interruptable: boolean;
   /**
    * Movement the attack gives the attacker (ImpulseConfig$ItemImpulse "impulseReceived"):
-   * units along its facing, spread over `duration` ms starting `delay` ms into the fire phase.
+   * units along its facing, spread over `duration` ms starting `delay` ms into the attack;
+   * a speed-modified impulse stretches with the attacker's status speed.
    */
-  impulse: { forward: number; side: number; delay: number; duration: number } | null;
+  impulse: { forward: number; side: number; delay: number; duration: number; speedModified?: boolean } | null;
   /** An actor the attack spawns (a bullet or bomb), with its spread in radians. */
   spawn: { actor: any; variance: number; rotation: number } | null;
   /** Upper-body attack (AttackConfig blended, true unless the config says otherwise). */
@@ -93,6 +98,8 @@ export interface MonsterDef {
   /** A hit of at least this fraction of maximum health interrupts the monster for reactTime ms. */
   minReactPercent: number;
   reactTime: number;
+  /** Impulses below this level do not move the monster (DungeonActorConfig impulseLevel). */
+  impulseLevel: number;
   /** Played when the monster appears. */
   creationFx?: any;
   /** The model's own hit reaction and death animations (its "reacting" and "dying" mappings). */
@@ -132,6 +139,8 @@ export interface WeaponDef {
   cooldownAttack: AttackDef | null;
   /** Movement speed factor while attacking, or null when attacks root the knight. */
   attackingSpeed: number | null;
+  /** Movement factor while charging (ItemConfig Weapon chargingSpeed, 1 by default). */
+  chargingSpeed: number;
   /** Auto-aim: distance and half-angle (degrees) within which attacks snap to a target. */
   targetingDist: number;
   targetingAngle: number;
@@ -303,7 +312,8 @@ export class GameData {
       name: ref?.name ?? "",
       start: a.start?.name ? a.start : undefined, fire: a.fire?.name ? a.fire : undefined, end: a.end?.name ? a.end : undefined,
       startSpeed: a.startSpeed ?? 1, fireSpeed: a.fireSpeed ?? 1, endSpeed: a.endSpeed ?? 1,
-      clear: a.clear ?? 400, rearm: a.rearm ?? 300,
+      // AttackConfig Original defaults: land 350, rearm 83, clear 833 ms
+      land: a.land ?? 350, clear: a.clear ?? 833, rearm: a.rearm ?? 83,
       damage: primary?.damage ?? null,
       delay: primary?.delay ?? 0,
       shape: primary ? primary.shape : readShape(undefined),
@@ -314,7 +324,8 @@ export class GameData {
       chainTo: kind(a) === "Chain" && typeof a.attack === "number" ? a.attack : null,
       impulse: a.impulseReceived ? {
         forward: a.impulseReceived.translation?.x ?? 0, side: a.impulseReceived.translation?.y ?? 0,
-        delay: a.impulseReceived.delay ?? 0, duration: a.impulseReceived.duration ?? 150,
+        delay: a.impulseReceived.delay ?? 0, duration: Math.max(1, a.impulseReceived.duration ?? 0),
+        speedModified: !!a.impulseReceived.speedModified,
       } : null,
       spawn: fires.find(f => f.spawn)?.spawn ?? null,
       fires: fires.length ? fires : [{ delay: 0, damage: null, shape: readShape(undefined), knockback: 0.5, spawn: null }],
@@ -346,19 +357,22 @@ export class GameData {
       model: sprite.model,
       scale: sprite.scale ?? 1,
       radius: m.shape?.radius ?? 0.5,
-      speed: m.speed ?? 2,
-      targetedSpeed: m.targetedSpeed ?? m.speed ?? 2,
+      // ActorConfig Mobile speed and Monster targetedSpeed both default to 6
+      speed: m.speed ?? 6,
+      targetedSpeed: m.targetedSpeed ?? 6,
       health: m.health ?? 100,
       healthScale: m.healthScale ?? null,
       defense: m.defense ?? null,
-      turnRate: m.turnRate ?? 180,
+      turnRate: m.turnRate ?? Math.PI,
       idle: refOf((sprite.targetedIdles ?? sprite.idles)?.[0]?.animation),
       move: refOf(movement?.animation ?? movement?.forward),
       moveSpeed: movement?.speed ?? 2,
       activation: refOf(sprite.activation),
-      minReactPercent: m.minReactPercent ?? 0.25,
-      reactTime: m.reactTime ?? 300,
-      deathTime: m.deathTime ?? 1000,
+      // DungeonActorConfig Monster defaults: react to any hit for 567 ms, die over 2467 ms
+      minReactPercent: m.minReactPercent ?? 0,
+      reactTime: m.reactTime ?? 567,
+      deathTime: m.deathTime ?? 2467,
+      impulseLevel: m.impulseLevel ?? 1,
       creationFx: sprite.creationTransient ?? undefined,
       attacks: await this.attacks(m.attacks),
       hitFx: transient(sprite.hitTransient),
@@ -385,16 +399,19 @@ export class GameData {
       chainCooldown: w.chainCooldown ?? 0,
       cooldownAttack: w.cooldownAttack ? await this.attack(w.cooldownAttack) : null,
       attackingSpeed: w.attackingSpeed ?? null,
-      targetingDist: w.targetingDist ?? 0,
-      targetingAngle: w.targetingAngle ?? 0,
+      chargingSpeed: w.chargingSpeed ?? 1,
+      // ItemConfig Weapon defaults: auto-targeting within 3 units and a 90 degree cone
+      targetingDist: w.targetingDist ?? 3,
+      targetingAngle: w.targetingAngle ?? 90,
     };
   }
 
   async shield(name: string): Promise<ShieldDef | null> {
     const s = await this.resolve("config/item.dat", { name }, "item");
     if (!s?.model) return null;
-    return { name, model: s.model, effect: s.effect, defendingSpeed: s.defendingSpeed ?? -0.5, icon: s.icon ?? null,
-      regenTime: s.regenTime ?? 6000, breakTime: s.breakTime ?? 8000, hitTime: s.hitTime ?? 3000, breakEffect: s.breakEffect,
+    // ItemConfig Shield defaults: regenTime 5000, hitTime 2000, breakTime 7000, defendingSpeed 0
+    return { name, model: s.model, effect: s.effect, defendingSpeed: s.defendingSpeed ?? 0, icon: s.icon ?? null,
+      regenTime: s.regenTime ?? 5000, breakTime: s.breakTime ?? 7000, hitTime: s.hitTime ?? 2000, breakEffect: s.breakEffect,
       healthScale: s.healthScale ?? null, defense: s.defense ?? null, rarity: s.rarity ?? 0,
       bash: s.bash ? await this.attack(s.bash) : null };
   }
@@ -418,9 +435,10 @@ export class GameData {
     const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : null);
     return {
       name: ref?.name ?? "", kind: k, model: p.sprite?.model ?? p.model ?? null,
-      speed: p.speed ?? 0, fuse: p.fuse ?? (k === "Bomb" ? 2000 : 500),
+      // Bullet: Mobile speed 6, fuse 1100, no offset or height; Bomb: fuse 2000
+      speed: p.speed ?? (k === "Bullet" ? 6 : 0), fuse: p.fuse ?? (k === "Bomb" ? 2000 : 1100),
       radius: p.shape?.radius ?? 0.2,
-      offset: [p.offset?.x ?? 0.5, p.offset?.y ?? 0], height: p.height ?? (k === "Bomb" ? 0 : 1),
+      offset: [p.offset?.x ?? 0, p.offset?.y ?? 0], height: p.height ?? 0,
       collisionMask: p.collisionMask ?? 1,
       damage: det?.damage ?? null,
       harmless: !!p.detonationAction && !det,

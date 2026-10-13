@@ -43,7 +43,8 @@ export interface HudTarget { key: string; name: string; health: number; maxHealt
 /** The low-health frame shows below this fraction of maximum health (our choice). */
 const LOW_HEALTH_FRACTION = 0.25;
 /** One health pip (12 px wide in the images) stands for this much health. */
-const HEALTH_PER_PIP = 10;
+/** A heart pip is 40 health (ItemValueKey HEALTH). */
+const HEALTH_PER_PIP = 40;
 const PIP_WIDTH = 12;
 
 const ref = (name: string, args: Record<string, unknown> = {}) =>

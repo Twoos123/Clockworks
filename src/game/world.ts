@@ -10,10 +10,10 @@ import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader }
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
 import type { CollisionMap } from "./collision";
-import { dealt, mainType, TYPE_COLORS } from "./combat";
+import { dealt, mainType, modifyDamage, TYPE_COLORS } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
-import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
-import { addItemBonuses, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
+import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
+import { addItemBonuses, capValue, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind, trapState } from "./props";
 import { BEAM_MODELS, DungeonObjects, ENERGY_CROWNS, isAlly, isCaptive, standInModel, type BeamResult } from "./objects";
@@ -27,8 +27,12 @@ import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
-/** Knight health. The game derives it from gear in closed code, so this is a tuning value. */
-const KNIGHT_HEALTH = 100;
+/**
+ * Knight health before gear: 200, five heart pips of 40 (the client's loadout panel counts
+ * starting pips as (gear health bonuses + 200) / 40). Gear adds health only through its
+ * HealthBonus level entries and modifiers.
+ */
+const KNIGHT_HEALTH = 200;
 const MONSTER_MASK = 1 | 2 | 8 | 32;
 const AGGRO_RANGE = 10, LEASH_RANGE = 18;
 export const STARTER_WEAPONS = ["Weapon/Sword/Proto Sword", "Weapon/Handgun/Proto Gun", "Weapon/Bomb/Proto Bomb"];
@@ -275,7 +279,7 @@ export class World implements LogicHost {
   /** Monster family tags of the floor's theme, for treasure that has no monster to name one. */
   themeTags: string[] = [];
   /** Per weapon: its level's and variants' damage, charge, attack speed and family damage. */
-  private weaponBonus = new Map<string, { damage: number; charge: number; attackSpeed: number; tagged: Record<string, number> }>();
+  private weaponBonus = new Map<string, { damage: number; uncapped: number; charge: number; attackSpeed: number; tagged: Record<string, number> }>();
   /** Per armour piece and shield: its level's defence increase (percent). */
   private defenseLevel = new Map<string, number>();
   /** Defence from damage type variants on worn gear, evaluated at that item's stars. */
@@ -1227,7 +1231,7 @@ export class World implements LogicHost {
     const level = (n: string) => this.gear[n]?.level ?? 1;
     for (const w of weapons) {
       const lv = level(w.name), st = eco.levelStats(w.name, lv, this.depth);
-      const b = { damage: st.damage, charge: st.charge, attackSpeed: 0, tagged: {} as Record<string, number> };
+      const b = { damage: st.damage, uncapped: st.uncapped, charge: st.charge, attackSpeed: 0, tagged: {} as Record<string, number> };
       for (const v of eco.variantEffects(this.gear[w.name]?.variants ?? [])) {
         if (v.tagged) b.tagged[v.tagged.tag] = (b.tagged[v.tagged.tag] ?? 0) + v.tagged.damage;
         b.attackSpeed += v.attackSpeed ?? 0;
@@ -1247,7 +1251,10 @@ export class World implements LogicHost {
       }
       for (const v of eco.variantEffects(this.gear[n]?.variants ?? [])) {
         if (v.defense) this.variantDefense.push({ def: v.defense, rarity: info?.rarity ?? 0 });
-        if (v.resist) for (let bit = 1; bit <= v.resist.mask; bit <<= 1) if (v.resist.mask & bit) k.bonuses.resist[bit] = (k.bonuses.resist[bit] ?? 0) + v.resist.points;
+        if (v.resist) for (let bit = 1; bit <= v.resist.mask; bit <<= 1) if (v.resist.mask & bit) {
+          const held = k.bonuses.resist[bit] ?? 0;
+          k.bonuses.resist[bit] = held + (v.resist.scaled ? Math.round(Math.min(1, 1 - held / 100) * v.resist.points) : v.resist.points);
+        }
         if (v.tagged) k.bonuses.tagged[v.tagged.tag] = (k.bonuses.tagged[v.tagged.tag] ?? 0) + v.tagged.damage;
         k.bonuses.health += v.health ?? 0;
         k.bonuses.speed += v.speed ?? 0;
@@ -1261,24 +1268,24 @@ export class World implements LogicHost {
     for (const a of k.armor) {
       if (!a.defense) continue;
       const own = this.data.depth.defense(a.defense, this.ctx(a.rarity));
-      const f = 1 + (this.defenseLevel.get(a.name) ?? 0) / 100;
-      for (const t of Object.keys(d) as (keyof Amounts)[]) d[t] += own[t] * f;
+      const add = this.defenseLevel.get(a.name) ?? 0;
+      for (const t of DAMAGE_TYPES) d[t] += own[t] > 0 ? own[t] + add : 0;
     }
     for (const { def, rarity } of this.variantDefense) {
       const t = def.type as keyof Amounts;
-      if (t in d) d[t] += def.depthScale ? this.data.depth.evaluate(def.depthScale, this.ctx(rarity)) : def.amount;
+      // VariantConfig DefenseTypeBonus: its depth scale, rounded up (no scale, no bonus)
+      if (t in d) d[t] += def.depthScale ? Math.ceil(this.data.depth.evaluate(def.depthScale, this.ctx(rarity))) : 0;
     }
     k.defense = d;
-    // a heart pip in the game is 40 health; here the knight has 100 for the game's 400
-    k.maxHealth = KNIGHT_HEALTH + k.bonuses.health / 4;
+    k.maxHealth = KNIGHT_HEALTH + k.bonuses.health;
     if (k.shield) {
       const sctx = this.ctx(k.shield.rarity);
       k.shieldMax = Math.max(1, this.data.depth.evaluate(k.shield.healthScale, sctx) || 50);
       k.shieldHealth = Math.min(k.shieldHealth, k.shieldMax);
       if (k.shieldHealth <= 1) k.shieldHealth = k.shieldMax;
       k.shieldDefense = k.shield.defense ? this.data.depth.defense(k.shield.defense, sctx) : null;
-      const f = 1 + (this.defenseLevel.get(k.shield.name) ?? 0) / 100;
-      if (k.shieldDefense && f !== 1) for (const t of Object.keys(k.shieldDefense) as (keyof Amounts)[]) k.shieldDefense[t] *= f;
+      const add = this.defenseLevel.get(k.shield.name) ?? 0;
+      if (k.shieldDefense && add) for (const t of DAMAGE_TYPES) if (k.shieldDefense[t] > 0) k.shieldDefense[t] += add;
     }
   }
 
@@ -1536,7 +1543,7 @@ export class World implements LogicHost {
         this.overlay(k, CHARGE_ANIMS[weapon?.kind ?? "Other"], true);
       } else {
         const own = this.weaponBonus.get(weapon?.name ?? "")?.charge ?? 0;
-        const full = k.charge * 1000 >= (weapon?.chargeTime ?? 2000) * Math.max(0.3, 1 - forWeapon(k.bonuses.charge, weapon?.kind) - own);
+        const full = k.charge * 1000 >= Math.trunc((weapon?.chargeTime ?? 2000) * (1 - capValue("CHARGE", forWeapon(k.bonuses.charge, weapon?.kind) + own)));
         k.charge = null;
         k.instance.overlay = null;
         const def = full ? weapon?.chargedAttack : weapon?.incompleteChargedAttack;
@@ -1549,10 +1556,12 @@ export class World implements LogicHost {
     // Guns and bombs walk at the weapon's attacking speed.
     const [mx, my] = input.move;
     const len = Math.hypot(mx, my);
-    let factor = (k.charge !== null ? 0.5 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? -0.5) : 1) * this.statusSpeed(k) * (1 + k.bonuses.speed);
+    // Dungeoneer speed: status x (1 + capped speed bonus) x the weapon's charging speed or
+    // the shield's (1 + defending speed)
+    let factor = (k.charge !== null ? weapon?.chargingSpeed ?? 1 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? 0) : 1) * this.statusSpeed(k) * (1 + capValue("SPEED", k.bonuses.speed));
     if (k.attack) {
       const at = k.attack;
-      if (at.overlay) factor = weapon?.attackingSpeed ?? 0.5;
+      if (at.overlay) factor *= weapon?.attackingSpeed ?? 1;
       else {
         const canCancel = at.phase === "end" && (at.def.interruptable || at.t * 1000 >= at.def.clear);
         if (!(canCancel && len > 0.01)) return;
@@ -1682,7 +1691,7 @@ export class World implements LogicHost {
   private attackRate(a: Actor) {
     if (a !== this.knight) return 1;
     const w = this.knight.weapon;
-    return 1 + forWeapon(this.knight.bonuses.attackSpeed, w?.kind) + (this.weaponBonus.get(w?.name ?? "")?.attackSpeed ?? 0);
+    return 1 + capValue("SPEED", forWeapon(this.knight.bonuses.attackSpeed, w?.kind) + (this.weaponBonus.get(w?.name ?? "")?.attackSpeed ?? 0));
   }
 
   private animate(a: Actor, path: string | any, speed: number) {
@@ -1797,8 +1806,8 @@ export class World implements LogicHost {
     const own = this.weaponBonus.get(w?.name ?? "");
     const tagged = { ...this.knight.bonuses.tagged };
     for (const [t, v] of Object.entries(own?.tagged ?? {})) tagged[t] = (tagged[t] ?? 0) + v;
-    return { ...this.ctx(w?.rarity ?? 0), multiplier: (1 + (own?.damage ?? 0)) * this.buffDamage(this.knight)
-      * (1 + forWeapon(this.knight.bonuses.damage, w?.kind)), tagged };
+    return { ...this.ctx(w?.rarity ?? 0), multiplier: this.buffDamage(this.knight), uncapped: own?.uncapped ?? 0,
+      bonus: (own?.damage ?? 0) + forWeapon(this.knight.bonuses.damage, w?.kind), tagged };
   }
 
   /** Applies an attack's damage shape in front of the attacker. */
@@ -1829,8 +1838,11 @@ export class World implements LogicHost {
   /** A DamageConfig as amounts per type; attacks without one deal a small normal hit. */
   private amounts(damage: any, ctx: DepthContext): Amounts {
     const a: Amounts & { statuses?: any[]; ctx?: DepthContext } = damage ? this.data.depth.damage(damage, ctx) : zeroAmounts();
-    if (a.NORMAL + a.PIERCING + a.ELEMENTAL + a.SHADOW <= 0) a.NORMAL = 10;
-    if (ctx.multiplier) for (const t of ["NORMAL", "PIERCING", "ELEMENTAL", "SHADOW"] as const) a[t] *= ctx.multiplier;
+    if (a.NORMAL + a.PIERCING + a.ELEMENTAL + a.SHADOW + (a.UNBLOCKABLE ?? 0) <= 0) a.NORMAL = 10;
+    // an uncapped level bonus scales damage the game's way; buffs multiply
+    if (ctx.uncapped) for (const t of DAMAGE_TYPES) a[t] = modifyDamage(a[t], 1 + ctx.uncapped);
+    if (ctx.multiplier) for (const t of DAMAGE_TYPES) a[t] *= ctx.multiplier;
+    if (ctx.bonus) (a as any).bonus = ctx.bonus;
     const statuses: any[] = [];
     const walk = (d: any, depth = 0) => {
       if (!d || depth > 6) return;
@@ -2117,10 +2129,14 @@ export class World implements LogicHost {
     // allies are immortal companions here (the game's rest and recover when worn down)
     if (m.passive || m.ally) return;
     this.lastStruck = { m, at: this.clock };
-    // gear bonuses against the monster's family (the family is its folder: Monster/Slime/...)
+    // the summed damage bonus: the attacker's pool plus its tag bonuses for this monster's
+    // tags (its family, fam_slime, from its folder when the config gives none); capped in dealt
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(m.entity?.name ?? "")?.[1]?.toLowerCase();
-    const bonus = fam ? (amounts as any).tagged?.[`fam_${fam}`] ?? 0 : 0;
-    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m)) * (1 + bonus) * (0.95 + Math.random() * 0.1)));
+    const tags = new Set([...(m.entity?.tags ?? []), ...(fam ? [`fam_${fam}`] : [])]);
+    const tagged: Record<string, number> = (amounts as any).tagged ?? {};
+    let bonus = (amounts as any).bonus ?? 0;
+    for (const t of tags) bonus += tagged[t] ?? 0;
+    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m), bonus)));
     if (this.boss?.damage) {
       dmg = Math.round(this.boss.damage(m, dmg));
       if (dmg <= 0) {
@@ -2183,7 +2199,7 @@ export class World implements LogicHost {
       if (k.shield.breakEffect) this.spawnEffect(k.shield.breakEffect, k.matrix(), 1.5);
       return;
     }
-    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k)) * (0.95 + Math.random() * 0.1)));
+    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k))));
     // a sprite shield (the Seraphynx's Angelic Aura) takes the hit first
     if (this.companion) { dmg = Math.round(this.companion.absorb(dmg)); if (dmg <= 0) { k.invulnerable = 0.25; return; } }
     this.hitStatuses(k, amounts);
