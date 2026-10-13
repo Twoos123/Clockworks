@@ -102,6 +102,7 @@ const ELEMENTS = ["normal", "fire", "freeze", "poison", "shock"] as const;
 /** Status themes as the keys spell them. */
 const THEMES = ["vanilla", "fire", "freeze", "poison", "shock"] as const;
 const FAMILIES = ["beast", "construct", "fiend", "gremlin", "slime", "undead"] as const;
+const FAMILY_NAMES = ["Beast", "Construct", "Fiend", "Gremlin", "Slime", "Undead"];
 const theme = (status: string) => status === "no status" ? "no status theme" : `the ${status} theme`;
 
 // Clockwork Tunnels: five status areas, six monster levels in each ("ct_beast", "bf_slime")
@@ -110,7 +111,7 @@ const TUNNEL_AREAS: [string, string, string][] = [["Clockwork Tunnels", "ct", "n
 const TUNNEL_LEVELS = ["Wild Path", "Mechanized Mile", "Infernal Passage", "Gremlin Grounds", "Slimeway", "Haunted Passage"];
 for (const [area, k, status] of TUNNEL_AREAS)
   TUNNEL_LEVELS.forEach((lv, i) => add("clockworks", "Clockwork Tunnels", `${area}: ${lv}`,
-    `Arcade gate, any tier: a ${FAMILIES[i]} stratum with ${theme(status)} (the most common level type)`, keys(`${k}_${FAMILIES[i]}`)));
+    `Arcade gate, any tier: a ${FAMILY_NAMES[i]} stratum with ${theme(status)} (the most common level type)`, keys(`${k}_${FAMILIES[i]}`)));
 
 // Battle Arenas: five status arenas, six monster bouts in each ("iea_beast")
 const ARENAS: [string, string, string][] = [["Iron Edge Arena", "iea", "no status"], ["Flame Lash Arena", "fla", "fire"],
@@ -118,7 +119,7 @@ const ARENAS: [string, string, string][] = [["Iron Edge Arena", "iea", "no statu
 const BOUTS = ["Beastly Brawl", "Robo Rampage", "Fiendish Fray", "Wrench Warfare", "Slimey Showdown", "Cadaverous Clash"];
 for (const [arena, k, status] of ARENAS)
   BOUTS.forEach((bout, i) => add("clockworks", "Battle Arena", `${arena}: ${bout}`,
-    `Arcade gate, any tier: an arena depth in a ${FAMILIES[i]} stratum with ${theme(status)}`, keys(`${k}_${FAMILIES[i]}`)));
+    `Arcade gate, any tier: an arena depth in a ${FAMILY_NAMES[i]} stratum with ${theme(status)}`, keys(`${k}_${FAMILIES[i]}`)));
 add("clockworks", "Battle Arena", "Fight for Glory, Fight for Treasure", "A Battle Arena level in the game's text (\"battle_arena_1\"), not on the wiki; probably the arenas' older form",
   keys("battle_arena_1"), "unknown");
 
@@ -363,10 +364,10 @@ const OLD_PRESTIGE: [string, [string, string[]][]][] = [
   ["Hazardous Heist", [["Gremlin Grounds", ["p_ct_gremlin"]], ["Construction Site", ["p_dz_vanilla"]]]],
   ["A Pinch of Salt", [["Slimeway", ["p_ct_slime"]], ["Research Site", ["p_ll_vanilla"]]]],
   ["Scared to Death", [["The Iron Courtyard", ["p_ct_undead"]], ["Retchwell Manor", ["p_ck_vanilla"]]]],
-  ["Demo Gate", [["Demo Gate", ["p_teasermission_1"]]]],
 ];
 for (const [m, floors] of OLD_PRESTIGE)
   mission("prestige", m, floors, "removed", "an old daily prestige mission, no longer in the mission data");
+mission("prestige", "Teaser Mission", [["Demo Gate", "p_teasermission_1"]], "removed", "a teaser mission's level, no longer in the mission data");
 
 // ---- towns and hubs
 
