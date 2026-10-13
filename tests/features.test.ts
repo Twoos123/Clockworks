@@ -4,6 +4,11 @@ import { generateLevel } from "../src/gen/level.ts";
 import { addFeatures, layoutFor, type FloorStyle } from "../src/gen/features.ts";
 import { rng } from "../src/gen/layout.ts";
 import { gateFloors, makeGate } from "../src/game/clockworks.ts";
+import { prismFaces, traceBeam, type BeamCell } from "../src/game/objects.ts";
+
+// the L bend prism and receiver (actor.dat Block/Prism/L Bend, Receiver): receptor faces
+const L_BEND = { receptors: [{ shape: { transform: { translation: { x: 0.5, y: 0 } } } }, { shape: { transform: { translation: { x: 0, y: -0.5 } } } }] };
+const RECEIVER = { receptors: [{}] };
 
 // A synthetic source level: a floor ringed by edges, with the start pad, the exit elevator, a
 // spawner and a treasure box (the entries generated floors copy).
@@ -44,7 +49,7 @@ test("every generated floor reaches its exit with its puzzles solved, and every 
         const args: [string, any][] = e.placeable?.arguments?.entries ?? [];
         if (!/\/Door\//.test(e.placeable?.name ?? "") || args.find(([k]) => k === "Open")?.[1] !== false) continue;
         const tag = JSON.stringify(args.find(([k]) => k === "Tag")?.[1]);
-        assert.ok((root.entries as any[]).some(o => /Party Platform|Start Up Trigger"?$|Start Up Trigger$/.test(o.placeable?.name ?? "")
+        assert.ok((root.entries as any[]).some(o => /Party Platform|Start Up Trigger"?$|Start Up Trigger$|Prism\/Receiver/.test(o.placeable?.name ?? "")
           && JSON.stringify(o.placeable.arguments).includes(tag)), `${style} ${seed}: gate ${tag} has an opener`);
       }
       assert.ok(report.keysReachable, `${style} ${seed}: key reachable`);
@@ -52,7 +57,8 @@ test("every generated floor reaches its exit with its puzzles solved, and every 
     }
   }
   // the features all turn up somewhere in a few dozen floors
-  for (const f of ["gold key", "secret room", "spike run", "danger room", "arena hall", "treasure vault", "decoration"]) assert.ok(seen.has(f), `${f} appears`);
+  for (const f of ["gold key", "secret room", "spike run", "danger room", "arena hall", "treasure vault", "decoration",
+    "crystal gate", "explosive wall", "trap run", "prism gate", "rescue cage", "healing totems", "gun block"]) assert.ok(seen.has(f), `${f} appears`);
   assert.ok(seen.has("block wall") || seen.has("crystal wall"), "a block wall appears");
 });
 
@@ -98,4 +104,44 @@ test("some strata of a gate hold a special floor", () => {
     }
   }
   assert.ok(specials > 30 && vaults > 0);
+});
+
+test("crystal gates have their key on the near side, and prism puzzles solve in a few turns", () => {
+  const arg = (e: any, k: string) => (e.placeable?.arguments?.entries as [string, any][] | undefined)?.find(([n]) => n === k)?.[1];
+  const at = (e: any) => e.transform.translation;
+  // the actor facing of an entry: its rotation less a quarter turn
+  const quarter = (e: any) => Math.round(2 * Math.atan2(e.transform.rotation.z, e.transform.rotation.w) / (Math.PI / 2)) - 1;
+  let gates = 0, prisms = 0;
+  for (let seed = 1; seed <= 80; seed++) {
+    const { root, report } = floor("standard", seed);
+    const es = root.entries as any[];
+    if (report.features.includes("crystal gate")) {
+      gates++;
+      const key = report.marks.find(m => m.kind === "crystal key")!;
+      const keyEntry = es.find(e => /^Dynamic\/Block\/Crystal\/(Blue|Green|Purple|Pink|Gold|Gray)$/.test(e.placeable?.name ?? "") && at(e).x === key.x && at(e).y === key.y);
+      assert.ok(keyEntry, `${seed}: key crystal placed`);
+      const colour = keyEntry.placeable.name.split("/").pop();
+      // it touches an unbreakable crystal of its colour
+      assert.ok(es.some(e => e.placeable?.name === `Dynamic/Block/Crystal/Unbreakable/${colour}` && Math.abs(at(e).x - key.x) + Math.abs(at(e).y - key.y) === 1), `${seed}: key touches its wall`);
+    }
+    if (report.features.includes("prism gate")) {
+      prisms++;
+      const em = es.find(e => e.placeable?.name === "Dynamic/Block/Prism/Emitter");
+      const pr = es.find(e => e.placeable?.name === "Dynamic/Block/Prism/L Bend");
+      const rc = es.find(e => e.placeable?.name === "Dynamic/Block/Prism/Receiver");
+      assert.ok(em && pr && rc && JSON.stringify(arg(rc, "On Action")).includes('"open"'));
+      // the beam reaches the receiver once the prism has been struck one to three times
+      const cells = new Map<string, BeamCell>();
+      const id = (e: any) => `${Math.floor(at(e).x)},${Math.floor(at(e).y)}`;
+      let solvedAfter = -1;
+      for (let hits = 0; hits < 4 && solvedAfter < 0; hits++) {
+        cells.set(id(pr), { kind: "prism", id: 1, faces: prismFaces(L_BEND), rotation: (quarter(pr) + hits) * Math.PI / 2 });
+        cells.set(id(rc), { kind: "prism", id: 2, faces: prismFaces(RECEIVER), rotation: 0 });
+        const r = traceBeam(Math.floor(at(em).x), Math.floor(at(em).y), ((quarter(em) % 4) + 4) % 4, "blue", (x, y) => cells.get(`${x},${y}`) ?? { kind: "open" }, () => false);
+        if (r.lit.has(2)) solvedAfter = hits;
+      }
+      assert.ok(solvedAfter >= 1 && solvedAfter <= 3, `${seed}: prism solves after ${solvedAfter} hits`);
+    }
+  }
+  assert.ok(gates > 3 && prisms > 3, `${gates} crystal gates, ${prisms} prism gates`);
 });

@@ -339,9 +339,6 @@ export class FurnitureWindow extends FloatScreen {
   protected async build(): Promise<Component | null> {
     const ui = await this.ui("ui/arsenal/interface.dat", { Mode: "Contained" });
     if (!ui) return null;
-    // the search field's text in the config is the hint shown while it is empty
-    const search = ui.find("searchfield");
-    if (search && !search.placeholder) { search.placeholder = search.text; search.text = ""; }
     this.list = new ItemList(this.ctx, ui, this.tips, f => this.host.sound(f));
     this.list.onPick = e => this.pick(e.key);
     this.on(ui, "dismiss", () => this.close());

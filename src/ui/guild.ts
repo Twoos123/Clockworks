@@ -125,8 +125,7 @@ export class GuildWindow extends GuiScreen {
 
   constructor(ctx: GuiContext, private readonly guild: GuildHooks) {
     super(ctx, { sound: f => guild.sound(f), closed: () => guild.onClose() }, "guildCanvas");
-    // the canvas would take the focus from the name field's hidden input on the press
-    this.canvas.addEventListener("pointerdown", e => { this.shift = e.shiftKey; e.preventDefault(); }, true);
+    this.canvas.addEventListener("pointerdown", e => { this.shift = e.shiftKey; }, true);
     this.canvas.addEventListener("wheel", e => this.wheel(e), { passive: true });
   }
 

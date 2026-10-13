@@ -27,9 +27,11 @@ The plan, research, and current status are in [docs/](docs/).
 
 ## What it deliberately does not do
 
-- It never decompiles or runs the proprietary game client. From the install's `code/` folder
-  it reads exactly one data file, the colour definitions inside `projectx-config.jar`;
-  otherwise only `rsrc/` and `scenes/` are exposed (see `src/vfs.ts`).
+- It never runs the proprietary game client or ships any of its code. Grey Havens gave this
+  project permission to decompile the client for study and reimplementation
+  ([docs/permissions/grey-havens.md](docs/permissions/grey-havens.md)); decompiled output
+  stays on the developer's machine, and the game's code is an independent TypeScript
+  reimplementation.
 - It hosts and distributes no game files. Each player supplies their own install.
 - It does not connect to any game server.
 
@@ -84,5 +86,8 @@ These read the local install from Node and print reports. None of them copy data
 
 New code is under the BSD 2-Clause license (see LICENSE). This project contains no code
 from Clyde, Narya or Nenya, but its file-format and parameter logic follows their published
-sources; see THIRD_PARTY_NOTICES.md. Spiral Knights is a trademark of its owner, and this
-project is not affiliated with or endorsed by Grey Havens or Three Rings.
+sources; see THIRD_PARTY_NOTICES.md. Spiral Knights is a trademark of its owner.
+
+**This is an unofficial fan project, not endorsed by Grey Havens.** Spiral Knights, its client
+and its assets belong to Grey Havens and Three Rings. Grey Havens' permission for this
+non-commercial remake: [docs/permissions/grey-havens.md](docs/permissions/grey-havens.md).

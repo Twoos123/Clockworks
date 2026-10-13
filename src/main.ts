@@ -30,6 +30,7 @@ import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
@@ -58,8 +59,8 @@ const THEMES: { key: string; test: RegExp; label: string }[] = [
   { key: "clockworks", test: /^(terminal 1|emberlight|terminal core)/i, label: "Clockwork Tunnels" },
 ];
 const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
-/** Generated floor ids: "gen:<theme>:<seed>". */
-const GEN = /^gen:([a-z-]+):(\d+)$/;
+/** Generated floor ids: "gen:<theme>:<seed>", or "gen:<theme>:<seed>:<boss>" for a boss arena. */
+const GEN = /^gen:([a-z-]+):(\d+)(?::([a-z]+))?$/;
 
 import { invert } from "./math";
 import {
@@ -505,7 +506,7 @@ class Viewer {
    * new layout with their spawners, treasure and elevators (src/gen).
    */
   private async generatedRoot(id: string): Promise<any> {
-    const [, key, seed] = GEN.exec(id)!;
+    const [, key, seed, boss] = GEN.exec(id)!;
     // the theme's tiling: learned from its cached levels, mirrored from a related theme, or
     // rule-based (src/gen/themes.ts)
     const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
@@ -519,6 +520,9 @@ class Viewer {
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
     const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
+    // a boss's arena (src/game/bosses.ts): its own plan, props and gates
+    if (boss) return bossArena(boss as BossKey, level.sources, Number(seed), this.genNames.get(id) ?? BOSSES[boss as BossKey].level, pool,
+      { model: level.model, globals: level.globals });
     const style = this.genStyles.get(id);
     const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
       this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals, layout: layoutFor(style) });
@@ -649,7 +653,15 @@ class Viewer {
     this.itemScreens?.closeAll();
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
-    world.onOpenShop = keeper => void this.openShop(keeper);
+    world.onOpenShop = (keeper, portrait) => void this.openShop(keeper, portrait);
+    // energy uses (energy gates, crates) are paid in crowns: the floor's first, then the bank's
+    world.spendCrowns = n => {
+      const l = world.loot, fromFloor = Math.min(l.crowns, n);
+      if (fromFloor + this.save.crowns < n) return false;
+      l.crowns -= fromFloor;
+      this.save.crowns -= n - fromFloor;
+      return true;
+    };
     world.color = this.save.color;
     world.gear = this.save.gear;
     if (this.eco) world.economy = this.eco;
@@ -691,6 +703,9 @@ class Viewer {
     } });
     void this.gameHud.init(hudState(world, knightName(this.save))).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
+    // in town, the item windows and the options are built while the player looks around, so
+    // their first opening is instant
+    if (TOWN.test(this.scene.name)) void this.prebuildWindows();
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
@@ -766,7 +781,22 @@ class Viewer {
   }
 
   private itemScreens: GameScreens | null = null;
-  private previewView: { key: string; view: PortraitView } | null = null;
+  /** The item windows' render views (the knight, the battle sprite, a shopkeeper), by model. */
+  private previewViews = new Map<string, PortraitView>();
+  private prebuilding: Promise<void> | null = null;
+
+  /**
+   * Builds the arsenal, backpack, forge and options windows in idle time, one at a time,
+   * once the knight is in town (building one takes long enough to notice on first open).
+   */
+  private prebuildWindows() {
+    const idle = () => new Promise<void>(r => typeof requestIdleCallback === "function" ? requestIdleCallback(() => r(), { timeout: 2000 }) : setTimeout(r, 200));
+    return this.prebuilding ??= (async () => {
+      await this.ensureScreens().prebuild(idle);
+      await idle();
+      await this.optionsScreen().prebuild().catch(e => console.warn("options prebuild failed", e));
+    })();
+  }
 
   /** The game's item windows: arsenal, forge, shops, backpack (src/ui/screens.ts). */
   private ensureScreens() {
@@ -778,13 +808,20 @@ class Viewer {
       write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); },
       paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
       arsenalClosed: () => this.places.arsenalClosed(),
-      // the equipment window's knight preview
-      view: (c, g, x, y, w, h) => {
-        const ref = this.world?.portraitRef();
+      outfit: () => this.outfit,
+      // the equipment window's knight preview, the battle sprite page's sprite, the vendor's keeper
+      view: (c, g, x, y, w, h, model) => {
+        const ref = model ? model.ref : this.world?.portraitRef();
         if (!ref) return;
-        const key = JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v));
-        if (this.previewView?.key !== key) this.previewView = { key, view: new PortraitView(this.renderer, this.loader, ref) };
-        this.previewView.view.draw(c, g, x, y, w, h);
+        const idle = model ? model.idle : "character/pc/idle.dat";
+        const key = JSON.stringify([ref, idle], (k, v) => (k === "$outer" ? undefined : v));
+        let view = this.previewViews.get(key);
+        if (!view) {
+          // a few views stay loaded (switching tabs or shops comes back to them)
+          if (this.previewViews.size >= 6) this.previewViews.delete(this.previewViews.keys().next().value!);
+          this.previewViews.set(key, view = new PortraitView(this.renderer, this.loader, ref, idle));
+        }
+        view.draw(c, g, x, y, w, h);
       },
     });
   }
@@ -948,8 +985,12 @@ class Viewer {
 
   /** The game's own options window (ui/options), bound to our settings. */
   private async openOptions() {
+    await this.optionsScreen().open();
+  }
+
+  private optionsScreen(): OptionsScreen {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    this.options ??= new OptionsScreen(this.gui, $<HTMLCanvasElement>("optionsCanvas"), this.options_, {
+    return this.options ??= new OptionsScreen(this.gui, $<HTMLCanvasElement>("optionsCanvas"), this.options_, {
       changed: () => { saveSettings(this.options_); this.applyOptions(); },
       saveReplaced: d => { this.save = d; },
       returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
@@ -957,8 +998,8 @@ class Viewer {
       closed: () => { this.paused = false; this.canvas.focus(); },
       playing: () => !!this.world,
       sound: f => this.uiSound(f),
+      sceneNames: () => this.sceneList.map(s => s.name),
     });
-    await this.options.open();
   }
 
   /** Plays a UI feedback sound once audio exists (it starts with the first play). */
@@ -969,7 +1010,7 @@ class Viewer {
   }
 
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
-  private async openShop(keeper: string) {
+  private async openShop(keeper: string, portrait: { ref: any; idle: any } | null = null) {
     this.paused = true;
     const eco = await this.economy();
     // in the Clockworks a terminal's keepers stock their tier (Basil sells its recipes, the
@@ -980,7 +1021,7 @@ class Viewer {
     const kp = eco.keeper(keeper, { tier, maxRarity });
     // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
     const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
-    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity);
+    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity, portrait);
   }
 
   /** The economy over the install's configs (prices, levels, variants, recipes). */
@@ -1295,7 +1336,7 @@ class Viewer {
     }
     const theme = genTheme(f.tileset);
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
-    const id = `gen:${theme}:${seed}`;
+    const id = f.kind === "boss" ? `gen:${theme}:${seed}:${s.boss}` : `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
     if (f.special) this.genStyles.set(id, f.special);
@@ -1303,23 +1344,30 @@ class Viewer {
   }
   private usedScenes = new Set<string>();
 
-  /** A boss floor: the boss's actors wait by the exit elevator, which stays shut until they fall. */
+  /** A boss floor: the boss's fight director runs its arena; the exit stays shut until it is won. */
   private spawnBoss(key: BossKey) {
-    const w = this.world, scene = this.scene;
-    if (!w || !scene) return;
-    const exit = scene.logic.find(l => /Elevator\/Next Floor/.test(l.name));
-    const [x, y] = exit ? [exit.x, exit.y] : [w.knight.x + 6, w.knight.y];
-    BOSSES[key].actors.forEach((name, i) => {
-      const spot = scene.collision.findSpawn(x + (i ? 4 : -2), y + 2, 1.5, 43) ?? [x, y];
-      w.spawnAt({ name }, spot[0], spot[1], Math.atan2(w.knight.y - spot[1], w.knight.x - spot[0]));
-    });
+    if (this.world) startBossFight(key, this.world);
   }
 
   /** The boss of this floor is still standing. */
   private bossAlive(): boolean {
     const w = this.world;
     if (!w || !this.bossFloor) return false;
-    return w.liveMonsters.some(m => /\/Boss\//.test(m.entity?.name ?? "")) || w.logic.actors.some(e => !e.destroyed && /\/Boss\//.test(e.name) && e.mobile);
+    return !(w.boss as BossFight | null)?.defeated;
+  }
+
+  /** Development: plays a boss's arena (window.__viewer.testBoss("snarbolax")). */
+  async testBoss(key: BossKey, depth = BOSSES[key].tier === 1 ? 7 : BOSSES[key].tier === 2 ? 17 : 28) {
+    this.stopPlaying();
+    this.arenaMode = false;
+    this.bossFloor = key;
+    this.run = { depth, health: null, floors: 0 };
+    const id = `gen:${genTheme(BOSSES[key].tileset)}:${(Math.random() * 1e9) >>> 0}:${key}`;
+    this.genNames.set(id, BOSSES[key].level);
+    await this.selectScene(id);
+    await this.startPlaying();
+    this.spawnBoss(key);
+    return this.world?.boss ?? null;
   }
 
   private runLevels(): { id: string; name: string }[] {

@@ -10,7 +10,7 @@ import { itemLabel } from "../game/items";
 import type { SaveData } from "../game/save";
 import type { Component } from "./gui";
 import { itemTip } from "./itemlist";
-import { buildUi, GuiScreen, row, uiRef, type ScreenHost } from "./screen";
+import { buildUi, GuiScreen, row, uiRef, type ScreenHost, type ViewModel } from "./screen";
 
 export interface ShopHost extends ScreenHost {
   save(): SaveData;
@@ -47,15 +47,18 @@ export class ShopScreen extends GuiScreen {
   private socketIcons = new Map<Component, any>();
   private vendorTable: Component | null = null;
   private message = "";
+  /** The shopkeeper's model and animation for the portrait, or null (a shop with no keeper). */
+  private portrait: ViewModel | null = null;
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly shop: ShopHost) {
     super(ctx, shop, "shopCanvas");
   }
 
   /** Opens a keeper's shop with its stock. */
-  async openFor(title: string, stock: StockItem[], maxRarity: number) {
+  async openFor(title: string, stock: StockItem[], maxRarity: number, portrait: ViewModel | null = null) {
     if (title !== this.keeper) { this.cart = []; this.page = 0; this.selling = false; }
     this.keeper = title;
+    this.portrait = portrait;
     this.maxRarity = maxRarity;
     this.stock = stock;
     this.message = "";
@@ -84,7 +87,11 @@ export class ShopScreen extends GuiScreen {
     if (handle) handle.text = "";
     const buyback = left.find("sort_buyback");
     if (buyback) buyback.text = "Sell";
+    // the keeper's portrait: its own model in the portrait's RenderableView
+    const view = left.find("portrait_vendor");
+    if (view) view.view = { ...(view.view ?? {}) };
     this.hooks = {
+      view: (c, g, x, y, w, h) => { if (this.portrait) this.host.view?.(c, g, x, y, w, h, this.portrait); },
       tagged: {
         slot_ring: (c, g, x, y, w, h) => {
           // the price tag's socket is the square at its left end

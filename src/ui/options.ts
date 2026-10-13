@@ -9,7 +9,8 @@
 
 import { CONFIG_REF } from "../config/params";
 import { loadSave, writeSave, type SaveData } from "../game/save";
-import { buildComponentConfig, buildInterface, dispatch, pack, render, resetInput, type Component, type GuiContext } from "./gui";
+import { checklist } from "../game/levels";
+import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, type GuiContext } from "./gui";
 import { findParent, KeyBindings } from "./keybinds";
 import { buildUi, uiRef } from "./screen";
 import type { Settings, Tab } from "./settings";
@@ -25,6 +26,8 @@ export interface OptionsActions {
   sound(file: string): void;
   /** The save was replaced (imported or reset). */
   saveReplaced?(d: SaveData): void;
+  /** Display names of the cached scenes (for the Levels tab). */
+  sceneNames(): string[];
 }
 
 /** Tags whose parts have nothing behind them in this port. */
@@ -95,11 +98,21 @@ export class OptionsScreen {
 
   get isOpen() { return !this.canvas.hidden; }
 
+  private building: Promise<Component | null> | null = null;
+  /** The Levels tab's page and a label of the window to take its text style from. */
+  private levels: { page: Component; proto: Component } | null = null;
+
+  /** Builds the window ahead of its first opening (in idle time). */
+  async prebuild() {
+    this.ui ??= await (this.building ??= this.build());
+  }
+
   async open(page?: Tab) {
     const wasOpen = this.isOpen;
     this.canvas.hidden = false;
     if (!wasOpen) this.actions.sound("sound/feedback/ui_open.ogg");
-    if (!this.ui) this.ui = await this.build();
+    if (!this.ui) this.ui = await (this.building ??= this.build());
+    if (this.ui) this.fillLevels();
     if (this.ui && !wasOpen) {
       this.overlays = [];
       this.showScheme();
@@ -159,7 +172,9 @@ export class OptionsScreen {
     hideParts(ui, HIDDEN);
     for (const t of ui.find("pane")?.tabs ?? []) hideParts(t, HIDDEN);
     // tabs with nothing behind them in single player; the Steam tab's page holds the save data
-    this.hideTabs(ui, ["Chat", "Prompts"]);
+    // and the Prompts tab's the Levels checklist
+    this.hideTabs(ui, ["Chat"]);
+    this.levelsTab(ui);
     const s = this.settings, act = this.actions;
     const on = (tag: string, fn: (c: Component, action: string) => void) => { const c = ui.find(tag); if (c) c.onAction = fn; };
     const slider = (tag: string, key: "musicVolume" | "effectsVolume" | "uiVolume") =>
@@ -332,6 +347,52 @@ export class OptionsScreen {
     if (!c) return;
     this.keys?.cancel();
     c.host.children = [c.scheme];
+  }
+
+  /**
+   * The Prompts tab (hidden: nothing behind it here) becomes the Levels tab: how many of the
+   * game's server-side levels the player has collected, by group (src/game/levels.ts).
+   */
+  private levelsTab(ui: Component) {
+    const pane = ui.find("pane"), buttons = pane?.parts.buttons;
+    if (!pane || !buttons) return;
+    const i = buttons.children.findIndex(b => b.text === "Prompts");
+    const proto = findTextLabel(pane.tabs[0] ?? pane);
+    if (i < 0 || !pane.tabs[i] || !proto) return;
+    buttons.children[i].text = "Levels";
+    buttons.children[i].visible = true;
+    const page = new Component("container", null);
+    page.layout = column("CENTER", 10);
+    page.constraints = pane.tabs[i].constraints;
+    pane.tabs[i] = page;
+    if (pane.selectedIndex === i) pane.children = [pane.parts.top!, page];
+    this.levels = { page, proto };
+  }
+
+  /** Collected / total per group, from the cached scenes' names. */
+  private fillLevels() {
+    if (!this.levels) return;
+    const { page, proto } = this.levels;
+    const list = checklist(this.actions.sceneNames());
+    const label = (text: string) => {
+      const c = new Component("label", null);
+      c.styles = proto.styles; c.local = proto.local; c.fontFamily = proto.fontFamily; c.states = proto.states;
+      c.text = text;
+      c.constraints = { fixed: true };
+      return c;
+    };
+    const names = new Component("container", null), counts = new Component("container", null);
+    names.layout = column("LEFT", 4);
+    counts.layout = column("RIGHT", 4);
+    names.children = [...list.groups.map(g => label(g.title)), label("All levels")];
+    counts.children = [...list.groups.map(g => label(`${g.have.length} / ${g.have.length + g.missing.length}`)), label(`${list.have} / ${list.total}`)];
+    const table = new Component("container", null);
+    table.layout = { $class: "LayoutConfig$HorizontalGroup", policy: { name: "NONE" }, justification: { name: "CENTER" },
+      offAxisPolicy: { name: "NONE" }, offAxisJustification: { name: "TOP" }, gap: 24 };
+    table.children = [names, counts];
+    for (const k of table.children) k.constraints = { fixed: true };
+    table.constraints = { fixed: true };
+    page.children = [label("Levels collected from the game's scene cache"), table, label("npm run levels lists where to find each one")];
   }
 
   /** Save Data (in the Steam tab's place): what the save holds, export, import and reset. */
@@ -552,4 +613,15 @@ function findLabelOf(root: Component, tag: string): Component | null {
   const c = root.find(tag), t = c && findParent(root, p => p.children.includes(c));
   const l = t?.children[t.children.indexOf(c!) - 1];
   return l?.kind === "label" ? l : null;
+}
+
+/** A vertical group with its children at their preferred sizes. */
+const column = (align: string, gap: number) => ({ $class: "LayoutConfig$VerticalGroup", policy: { name: "NONE" },
+  justification: { name: "CENTER" }, offAxisPolicy: { name: "NONE" }, offAxisJustification: { name: align }, gap });
+
+/** The first visible label with text: its style is the window's text style. */
+function findTextLabel(c: Component): Component | null {
+  if (c.kind === "label" && c.visible && c.text && c.styles[0]) return c;
+  for (const k of c.children) { const r = findTextLabel(k); if (r) return r; }
+  return null;
 }

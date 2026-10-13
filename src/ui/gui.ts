@@ -203,6 +203,7 @@ const MESSAGES: Record<string, string> = {
   add_more_bonuses: "Add More Bonuses", add_more_success: "Add More Success", apply_crystals: "Apply Crystals",
   intro_pref: "Preferences", intro_type: "Type", intro_arcade: "Arcade", intro_expansion: "Expansion",
   intro_prestige: "Prestige", intro_rank: "Rank", edit_advanced: "Advanced", edit_beta: "Beta",
+  characteroptions: "Character Options", feed_sprite: "Feed Sprite", pet_skillpoints: "Skill Points",
 };
 const ACRONYMS = new Set(["ui", "hud", "npc", "pvp", "pve", "eu", "us", "id", "fps", "fov", "xp", "hp", "aoe", "dps"]);
 const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to", "with"]);
@@ -1788,7 +1789,14 @@ function focusText(root: Component, st: Input, c: Component) {
     else if (e.key === "Escape") el.blur();
   };
   el.onkeyup = e => e.stopPropagation();
-  el.onblur = () => { if (st.focus === c) { st.focus = null; c.focused = false; } };
+  // the press that focused the field goes on to focus its canvas (mousedown's default): a blur
+  // straight after focusing gives the focus back instead of ending it
+  const since = performance.now();
+  el.onblur = () => {
+    if (st.focus !== c) return;
+    if (performance.now() - since < 250) { setTimeout(focus, 0); return; }
+    st.focus = null; c.focused = false;
+  };
   const focus = () => { if (st.focus === c) { el.focus({ preventScroll: true }); el.setSelectionRange(el.value.length, el.value.length); } };
   // the canvas's own pointer-down default may take the focus back, so focus again afterwards
   focus();
