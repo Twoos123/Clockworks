@@ -203,6 +203,8 @@ class Viewer {
   private floors: Floor[] = [];
   /** Spawn tables generated floors are re-themed with (by scene id). */
   private genTables = new Map<string, string[]>();
+  /** Generated floors that are safe towns (no monsters; an alchemy machine). */
+  private safeGen = new Set<string>();
   /** Names generated floors show (by scene id). */
   private genNames = new Map<string, string>();
   /** The boss of the floor being played, if any. */
@@ -458,6 +460,19 @@ class Viewer {
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
+    if (this.safeGen.has(id)) {
+      // a town floor: no spawners or encounters, and an alchemy machine near the start
+      root.entries = (root.entries as any[]).filter(e => !/Single Spawn/.test(e.placeable?.name ?? "") && e.area?.name !== "Player Enter/Spawn Activate");
+      const haven = this.sceneList.find(sc => /haven town square/i.test(sc.name));
+      const machine = haven ? ((await readRoot(haven.id)).entries as any[]).find(e => /^Shop\/Haven\/Alchemy$/.test(e.placeable?.name ?? "")) : null;
+      const start = (root.entries as any[]).find(e => /Elevator\/Start Platform/.test(e.placeable?.name ?? ""));
+      if (machine && start) {
+        const t = start.transform.translation;
+        root.entries.push({ ...JSON.parse(JSON.stringify(machine, (k, v) => (k === "$outer" ? undefined : v))), id: 999999,
+          transform: { ...start.transform, translation: { ...t, x: t.x + 4, y: t.y } } });
+      }
+      return root;
+    }
     // rooms seal while their waves are fought, as the game's own levels do (walkability from
     // the tiles the floor uses)
     const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
@@ -1104,7 +1119,14 @@ class Viewer {
     const cached = (re: RegExp) => this.sceneList.find(s => re.test(s.name));
     if (f.kind === "terminal") return cached(/^terminal 1$/i) ?? null;
     if (f.kind === "core") return cached(/^terminal core$/i) ?? cached(/^terminal 1$/i) ?? null;
-    if (f.kind === "subtown") return (f.depth === 18 ? cached(/^emberlight$/i) : cached(/^dark halls lobby$/i)) ?? cached(/^terminal 1$/i) ?? null;
+    if (f.kind === "subtown" && f.depth === 18) return cached(/^emberlight$/i) ?? cached(/^terminal 1$/i) ?? null;
+    if (f.kind === "subtown") {
+      // Moorcroft Manor is not in the cache: a generated town in the graveyard's tiles
+      const id = `gen:${genTheme("graveyard")}:${((this.gate?.seed ?? 1) + 8) >>> 0}`;
+      this.safeGen.add(id);
+      this.genNames.set(id, "Moorcroft Manor");
+      return { id, name: "Moorcroft Manor" };
+    }
     const s = f.stratum!;
     if (f.kind === "level" && s.style.cached) {
       const options = this.sceneList.filter(sc => s.style.cached!.test(sc.name) && !this.usedScenes.has(sc.id));
