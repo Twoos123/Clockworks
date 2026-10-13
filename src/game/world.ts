@@ -315,7 +315,9 @@ export class World implements LogicHost {
     knight.z = this.collision.groundZ(at[0], at[1]);
     this.knight = knight;
     await Promise.all([
-      this.preload("character/pc/idle.dat", "character/pc/run_forward.dat", "character/pc/hurt_soft.dat",
+      this.preload("character/pc/idle.dat", "character/pc/hurt_soft.dat",
+        ...["forward", "backward", "left", "right"].flatMap(d => [`character/pc/run_${d}.dat`, `character/pc/walk_${d}.dat`]),
+        ...["001", "002", "003", "004", "005"].map(n => `character/pc/idle/default/${n}.dat`),
         "character/pc/dead.dat", "character/pc/blend_shield.dat", "character/pc/shield_hit.dat", ...Object.values(CHARGE_ANIMS)),
       ...weapons.map(w => this.preloadAttacks([...w.attacks, w.chargedAttack, w.incompleteChargedAttack, w.cooldownAttack])),
       this.preloadAttacks([shield?.bash]),
@@ -926,10 +928,10 @@ export class World implements LogicHost {
       this.move(k, (mx / len) * KNIGHT_SPEED * factor * dt, (my / len) * KNIGHT_SPEED * factor * dt, KNIGHT_MASK);
       if (!facing) k.turnToward(Math.atan2(my, mx), 16, dt);
       else if (!k.attack) k.turnToward(aimAngle, 12, dt);
-      this.play(k, "character/pc/run_forward.dat", { speed: Math.max(0.5, factor) });
+      this.playMovement(k, Math.atan2(my, mx), KNIGHT_SPEED * factor);
     } else {
       if (k.shielding) k.turnToward(aimAngle, 12, dt);
-      if (k.hurtTime <= 0) this.play(k, "character/pc/idle.dat");
+      if (k.hurtTime <= 0) this.playIdle(k);
     }
 
     // upper body: shield pose when defending, nothing otherwise
@@ -937,6 +939,32 @@ export class World implements LogicHost {
       if (k.shielding) this.overlay(k, "character/pc/blend_shield.dat", true);
       else if (k.instance.overlay && k.hurtTime <= 0) k.instance.overlay = null;
     }
+  }
+
+  /**
+   * The knight's QuadMovement: forward, backward, left or right by the move direction
+   * relative to facing, walking (speed 1) or running (speed 6) by actual speed.
+   */
+  private playMovement(k: Knight, dir: number, speed: number) {
+    const rel = Math.atan2(Math.sin(dir - k.heading), Math.cos(dir - k.heading));
+    const side = Math.abs(rel) < Math.PI / 4 ? "forward" : Math.abs(rel) > (3 * Math.PI) / 4 ? "backward" : rel > 0 ? "left" : "right";
+    const run = speed > 3.5;
+    this.play(k, `character/pc/${run ? "run" : "walk"}_${side}.dat`, { speed: Math.max(0.4, speed / (run ? KNIGHT_SPEED : 2)) });
+  }
+
+  /** Weighted idle variations (Character/PC/Default idles): mostly 001, now and then another. */
+  private playIdle(k: Knight) {
+    const cur = k.instance.clip, path = cur?.path ?? "";
+    if (path.endsWith("idle/default/001.dat")) {
+      // after a while in the main idle, now and then play a variation (weights 2:1:1:2)
+      if (k.instance.time < 7 || Math.random() > 0.01) return;
+      const r = Math.random() * 0.75;
+      const pick = r < 0.25 ? "002" : r < 0.375 ? "003" : r < 0.5 ? "004" : "005";
+      this.play(k, `character/pc/idle/default/${pick}.dat`, { loop: false, blend: 0.2 });
+      return;
+    }
+    if (path.startsWith("character/pc/idle/default/") && !k.instance.finished) return;
+    this.play(k, "character/pc/idle/default/001.dat", { loop: true, blend: 0.2 });
   }
 
   /** Weapons with an attacking speed fire from the upper body while the knight walks. */
