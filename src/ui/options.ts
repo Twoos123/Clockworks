@@ -1,11 +1,14 @@
 // The options window: the game's own rsrc/ui/options/interface.dat (General, Video, Game,
 // Controls... tabs) drawn full screen over the game, its controls bound to our settings. The
-// parts the game drives from its servers or its desktop window (language, region, screen mode,
-// chat, Steam, bug reports) are hidden; the advanced pages open our detailed settings menu.
+// language picks the locale of the game's text (the locales the install has bundles for; it
+// applies on the next start). The parts the game drives from its servers or its desktop window
+// (region, screen mode, chat, Steam, bug reports) are hidden; the advanced pages open our
+// detailed settings menu.
 
 import { CONFIG_REF } from "../config/params";
 import { checklist } from "../game/levels";
-import { buildInterface, Component, dispatch, pack, render, resetInput, type GuiContext } from "./gui";
+import { messages } from "../i18n";
+import { buildInterface, Component, dispatch, pack, render, resetInput, setComboItems, type GuiContext } from "./gui";
 import type { Settings } from "./settings";
 
 export interface OptionsActions {
@@ -107,6 +110,7 @@ export class OptionsScreen {
     check("auto_target", "autoAim");
     check("show_damage_effects", "screenFlash");
     check("weapon_switcher", "controlsHint");
+    await this.languages(ui);
     on("edit_advanced", () => act.advanced("graphics"));
     on("edit_advanced_game", () => act.advanced("interface"));
     on("custom", () => act.advanced("controls"));
@@ -140,6 +144,26 @@ export class OptionsScreen {
     set("keyboard_mouse", true);
     this.setQualityLabel(ui);
     this.setScaleLabel(ui);
+  }
+
+  /** OptionsDialog's language box: the base text and each locale the install has, by its own name. */
+  private async languages(ui: Component) {
+    const combo = ui.find("language");
+    if (!combo) return;
+    const codes = ["", ...messages.available];
+    const own = (code: string) => {
+      const tag = code || "en";
+      try { const n = new Intl.DisplayNames([tag], { type: "language" }).of(tag) ?? tag; return n[0].toUpperCase() + n.slice(1); } catch { return tag; }
+    };
+    if (codes.length === 1) { const box = ui.find("language_container"); if (box) box.visible = false; return; }
+    await setComboItems(this.ctx, combo, codes.map(own), Math.max(0, codes.indexOf(this.settings.locale)));
+    combo.onAction = c => {
+      const code = codes[c.selectedIndex] ?? "";
+      if (code === this.settings.locale) return;
+      this.settings.locale = code;
+      this.actions.sound("sound/feedback/ui_confirm.ogg");
+      this.actions.changed();
+    };
   }
 
   private fraction(c: Component) {

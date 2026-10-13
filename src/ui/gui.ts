@@ -8,6 +8,7 @@ import { applyArguments, CONFIG_REF } from "../config/params";
 import { recolorPixels, type ColorPository } from "../colors";
 import type { ModelLoader } from "../model";
 import type { Vfs } from "../vfs";
+import { messages } from "../i18n";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(Math.max(c.lastIndexOf("."), c.lastIndexOf("$")) + 1); };
 const enumName = (e: any, dflt: string) => (e?.name as string | undefined) ?? dflt;
@@ -191,8 +192,9 @@ export class GuiContext {
 
 // ----------------------------------------------------------------------------- messages
 
-// The game's message bundles (rsrc/i18n) are not in the install, so translation keys are shown
-// as English made from the key itself: a few curated phrases and a humanizing fallback.
+// Translation keys are looked up in the game's message bundles (src/i18n.ts, read from the
+// install's config jar). A key the bundles lack (or every key, when the jar could not be read)
+// is shown as English made from the key itself: a few curated phrases and a humanizing fallback.
 const MESSAGES: Record<string, string> = {
   ok: "OK", disp_apply: "Apply", disp_cancel: "Cancel", logoff: "Log Off", guildhall: "Guild Hall",
   allowfriends: "Allow Friends", allowguild: "Allow Guild", inviteonly: "Invite Only", opentoall: "Open to All",
@@ -211,11 +213,22 @@ const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "by", "for", "in", "o
 export const isMessageKey = (text: string) => /^(%[\w./-]+:)?[mbtl]\.[\w.\-|]+$/.test(text);
 
 /**
- * English for a message key: "m.music_volume" is "Music Volume", "b.disp_apply" "Apply",
- * "%town:m.border_guildhall" "Guild Hall", "m.party_found.1" "Party Found". A tainted string
- * ("~text") is returned as written, as MessageBundle.xlate does.
+ * The text for a message key, translated in a bundle (the interface's own, or "global"). A
+ * tainted string ("~text") is returned as written, as MessageBundle.xlate does. Without a
+ * translation: "m.music_volume" is "Music Volume", "b.disp_apply" "Apply",
+ * "%town:m.border_guildhall" "Guild Hall", "m.party_found.1" "Party Found".
  */
-export function messageText(key: string): string {
+export function messageText(key: string, bundle = "global"): string {
+  if (key.startsWith("~")) return key.substring(1);
+  if (messages.loaded) {
+    const b = messages.getBundle(bundle);
+    if (b.exists(key)) return b.xlate(key);
+  }
+  return humanize(key);
+}
+
+/** English made from a message key, for keys the bundles do not have. */
+export function humanize(key: string): string {
   if (key.startsWith("~")) return key.substring(1);
   // a compound key carries its arguments after "|"; a qualified key names its bundle after "%"
   let k = key.split("|")[0].replace(/^%[^:]*:/, "").replace(/^[mbtlx]\./, "");
@@ -231,7 +244,8 @@ export function messageText(key: string): string {
 }
 
 /** ComponentConfig.getMessage: keys become readable text, anything else stays as written. */
-const message = (text: string | undefined | null) => !text ? "" : isMessageKey(text) ? messageText(text) : text;
+const message = (text: string | undefined | null, bundle?: string) => !text ? "" : text.startsWith("~") ? text.substring(1)
+  : isMessageKey(text) || messages.getBundle(bundle ?? "global").exists(text) ? messageText(text, bundle) : text;
 
 // ----------------------------------------------------------------------------- components
 
@@ -312,6 +326,8 @@ export class Component {
   hoverable = true;
   alpha = 1;
   tag = "";
+  /** The message bundle its interface translates text in. */
+  bundle = "global";
   fontFamily = "sans-serif";
   /** The RenderableView config, for portrait cameras. */
   view: any = null;
@@ -427,6 +443,8 @@ export class Component {
 export interface BuildOptions {
   /** Extra arguments merged into the reference of a nested interface, keyed by its tag. */
   overrides?: Map<string, Record<string, unknown>>;
+  /** The message bundle text is translated in: the interface's own, else its parent's, else "global". */
+  bundle?: string;
 }
 
 /** Builds a component tree from a UserInterfaceConfig reference. */
@@ -436,6 +454,7 @@ export async function buildInterface(ctx: GuiContext, ref: any, opts: BuildOptio
   try { cfg = applyArguments(await ctx.loader.importFile(ref.name), ref); } catch { return null; }
   const impl = cfg.implementation;
   if (kind(impl) === "Derived") return buildInterface(ctx, impl.userInterface, opts, depth + 1);
+  if (impl?.bundle) opts = { ...opts, bundle: impl.bundle };
   const local = new Map<string, any>();
   const scripts = new Map<string, any>();
   for (const g of cfg.configs?.groups ?? []) for (const c of g.configs ?? []) {
@@ -444,6 +463,7 @@ export async function buildInterface(ctx: GuiContext, ref: any, opts: BuildOptio
   }
   // a UserInterface component hosts its root in a BorderLayout's centre
   const host = new Component("ui", null);
+  host.bundle = opts.bundle ?? "global";
   host.local = local;
   host.scripts = scripts;
   host.addAction = impl?.addAction ?? null;
@@ -521,6 +541,7 @@ async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>
     c.local = local;
   }
   c.tag = cfg.tag ?? "";
+  if (ck !== "ui") c.bundle = opts.bundle ?? "global";
   c.visible = cfg.visible ?? true;
   c.enabled = cfg.enabled ?? true;
   c.hoverable = cfg.hoverable ?? true;
@@ -534,7 +555,7 @@ async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>
   await setStyle(ctx, c, cfg.style, local, dflt);
   if (cfg.preferredSize) c.preferredSize = { width: cfg.preferredSize.width ?? 0, height: cfg.preferredSize.height ?? 0 };
   if (ck === "label" || ck === "button") {
-    c.text = message(cfg.text);
+    c.text = message(cfg.text, c.bundle);
     c.iconTextGap = cfg.iconTextGap ?? 3;
     c.orientation = enumName(cfg.orientation, "HORIZONTAL");
     c.fit = enumName(cfg.fit, "WRAP");
@@ -584,7 +605,7 @@ async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>
     const tabs: any[] = cfg.tabs ?? [];
     buttons.children = await Promise.all(tabs.map(async (tab, i) => {
       const b = await part(ctx, "button", tab.styleOverride ?? cfg.tabStyle ?? null, local, c, 8, "Default/Tab");
-      b.text = message(tab.title);
+      b.text = message(tab.title, c.bundle);
       b.fit = "TRUNCATE";
       b.action = String(i);
       b.icon = b.styles[0]?.icon ?? null;
@@ -601,15 +622,15 @@ async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>
   if (ck === "combo") {
     c.fit = "TRUNCATE";
     c.items = await Promise.all(((cfg.items ?? []) as any[]).map(async it => kind(it) === "IconItem"
-      ? { text: "", icon: await ctx.icon(it.icon) } : { text: message(it.text), icon: null }));
+      ? { text: "", icon: await ctx.icon(it.icon) } : { text: message(it.text, c.bundle), icon: null }));
     c.rows = cfg.rows ?? 8;
     c.columns = cfg.columns ?? 1;
     c.popup = await buildPopup(ctx, c, local);
     selectItem(c, cfg.selected ?? 0);
   }
   if (ck === "text") {
-    c.text = message(cfg.text);
-    c.placeholder = message(cfg.placeholder);
+    c.text = message(cfg.text, c.bundle);
+    c.placeholder = message(cfg.placeholder, c.bundle);
     c.maxLength = cfg.maxLength ?? 0;
     c.password = k === "PasswordField";
   }
@@ -619,7 +640,7 @@ async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>
     const values: string[] = cfg.items ?? [];
     c.children = await Promise.all(values.map(async (v, i) => {
       const b = await part(ctx, "button", "Default/ListEntry", local, c, 8);
-      b.text = message(v);
+      b.text = message(v, c.bundle);
       b.action = String(i);
       return b;
     }));
@@ -707,6 +728,13 @@ async function buildPopup(ctx: GuiContext, combo: Component, local: Map<string, 
     menu.children = [pane];
   }
   return menu;
+}
+
+/** ComboBox.setItems: new text items, the popup rebuilt for them, one selected. */
+export async function setComboItems(ctx: GuiContext, combo: Component, texts: string[], selected: number) {
+  combo.items = texts.map(text => ({ text, icon: null }));
+  combo.popup = await buildPopup(ctx, combo, combo.local);
+  selectItem(combo, selected);
 }
 
 /** ComboBox.selectItem: the label shows the selected item's text and icon. */

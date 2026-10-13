@@ -25,7 +25,8 @@ import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, keyName, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { loadMessages, messages } from "./i18n";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
@@ -176,6 +177,8 @@ async function open(make: () => Promise<Vfs>) {
     const vfs = await make();
     const files = await vfs.list();
     if (!files.some(f => f.endsWith(".dat"))) throw new VfsError("No .dat files were found in that folder.");
+    // the game's text, from the install's message bundles (our own English where they are missing)
+    await loadMessages(vfs, loadSettings().locale).catch(() => 0);
     $("welcome").hidden = true;
     $("app").hidden = false;
     new Viewer(vfs, files);
@@ -267,6 +270,7 @@ class Viewer {
   constructor(private readonly vfs: Vfs, files: string[]) {
     this.loader = new ModelLoader(vfs);
     this.renderer = new Renderer(this.canvas, vfs);
+    messages.controls = command => commandKeys(this.options_, command);
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
     this.places = this.makePlaces();

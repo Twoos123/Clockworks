@@ -3,6 +3,7 @@
 // window is built from code we do not read, so this one is our own, in the HUD's colours.
 
 import { loadSave, writeSave, type SaveData } from "../game/save";
+import { hasMessage, message } from "../i18n";
 
 /** Rebindable actions and their default keys (KeyboardEvent.key, lower-cased). */
 export const ACTIONS = {
@@ -61,6 +62,8 @@ export interface Settings {
   /** Gamepad stick dead zone. */
   deadZone: number;
   keys: Record<Action, string>;
+  /** The game text's locale: "" for the base (English) bundles, or one the install has ("de"). */
+  locale: string;
 }
 
 const KEY = "clyde-web-settings";
@@ -70,7 +73,7 @@ export function defaultSettings(): Settings {
     masterVolume: 0.8, musicVolume: 0.45, effectsVolume: 1, uiVolume: 1, muted: false,
     renderScale: 1, fog: true, shadows: true, decals: true, particles: true, showFps: false,
     hudScale: 1, damageNumbers: true, healthBars: true, minimap: true, controlsHint: true,
-    autoAim: true, cameraSpeed: 1.8, zoom: 1, screenFlash: true, deadZone: 0.2,
+    autoAim: true, cameraSpeed: 1.8, zoom: 1, screenFlash: true, deadZone: 0.2, locale: "",
     keys: Object.fromEntries(Object.entries(ACTIONS).map(([k, v]) => [k, v.key])) as Record<Action, string>,
   };
 }
@@ -91,6 +94,34 @@ export function saveSettings(s: Settings) {
 
 /** Shown on key buttons. */
 export const keyName = (k: string) => k === " " ? "Space" : k.length === 1 ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1);
+
+/** Browser key names to the game's key descriptions ("k.space" in the projectx bundle). */
+const GAME_KEYS: Record<string, string> = {
+  " ": "space", tab: "tab", shift: "lshift", control: "lcontrol", alt: "lmenu", meta: "lmeta", enter: "return", escape: "escape",
+  arrowup: "up", arrowdown: "down", arrowleft: "left", arrowright: "right", delete: "delete", insert: "insert",
+  home: "home", end: "end", pageup: "prior", pagedown: "next", ",": "comma", ".": "period", "/": "slash", ";": "semicolon",
+  "'": "apostrophe", "[": "lbracket", "]": "rbracket", "\\": "backslash", "-": "minus", "=": "equals", "`": "grave",
+};
+
+/** A key's label in the game's words when the bundles have it, else ours. */
+export function gameKeyName(k: string): string {
+  const mouse = /^mouse(\d)$/.exec(k);
+  const desc = mouse ? "k.button" + mouse[1] : GAME_KEYS[k] ? "k." + GAME_KEYS[k] : null;
+  if (desc && hasMessage("projectx", desc)) return message("projectx", desc);
+  return mouse ? ["Left Mouse", "Right Mouse", "Middle Mouse"][Number(mouse[1]) - 1] ?? k : keyName(k);
+}
+
+/** The game's control commands (as its help text names them) to our actions and mouse buttons. */
+const COMMANDS: Record<string, (Action | "mouse1" | "mouse2")[]> = {
+  ACTION: ["mouse1"], DEFEND: ["mouse2"], DODGE: ["dash"],
+  MOVE_NORTH: ["up"], MOVE_SOUTH: ["down"], MOVE_WEST: ["left"], MOVE_EAST: ["right"],
+  NEXT_WEAPON: ["cycle"], TOGGLE_HELP: ["help"], SPRITE_ACTION_1: ["sprite1"], SPRITE_ACTION_2: ["sprite2"], SPRITE_ACTION_3: ["sprite3"],
+};
+
+/** Labels of the keys bound to one of the game's commands, for help text with "[[ACTION]]" in it. */
+export function commandKeys(s: Settings, command: string): string[] {
+  return (COMMANDS[command] ?? []).map(a => gameKeyName(a === "mouse1" || a === "mouse2" ? a : s.keys[a]));
+}
 
 export interface SettingsHooks {
   /** Settings changed (apply them). */

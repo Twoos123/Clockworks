@@ -217,6 +217,8 @@ export class MessageBundle {
 export class MessageManager {
   /** "", "de", "es", "fr" or "pt": the locale tried before the base bundle. */
   locale = "";
+  /** The locales the install has bundles for, besides the base English. */
+  available: string[] = [];
   controls: ControlNames | null = null;
   private readonly sources = new Map<string, Map<string, string>>();
   private readonly bundles = new Map<string, MessageBundle>();
@@ -339,7 +341,7 @@ export async function loadMessages(vfs: Pick<Vfs, "messageBundles" | "messageBun
   const read = await Promise.all(wanted.map(async n => {
     try { const b = await vfs.messageBundle(n); return b ? [n, parseProperties(decoder.decode(b))] as const : null; } catch { return null; }
   }));
-  messages.locale = locale;
+  messages.available = localesOf(names);
   let count = 0;
   for (const r of read) if (r) { messages.add(r[0], r[1]); count++; }
   messages.setLocale(locale);
