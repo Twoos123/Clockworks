@@ -20,7 +20,8 @@ import { TitleScreen } from "./ui/title";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, loadSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { OptionsScreen } from "./ui/options";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 import { decodeTiles } from "./gen/autotile";
@@ -179,10 +180,10 @@ class Viewer {
   private world: World | null = null;
   private hud: Hud | null = null;
   private gameHud: GameHud | null = null;
-  private readonly options: Settings = loadSettings();
+  private readonly options_: Settings = loadSettings();
   private settings: SettingsMenu | null = null;
   /** The key bound to an action (options menu). */
-  private bound(a: Action) { return this.options.keys[a] ?? ACTIONS[a].key; }
+  private bound(a: Action) { return this.options_.keys[a] ?? ACTIONS[a].key; }
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
   private save: SaveData = loadSave();
@@ -234,7 +235,7 @@ class Viewer {
     this.renderer = new Renderer(this.canvas, vfs);
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
-    this.settings = new SettingsMenu($("settings"), this.options, {
+    this.settings = new SettingsMenu($("settings"), this.options_, {
       changed: () => this.applyOptions(),
       playing: () => !!this.world,
       resume: () => { this.paused = false; this.canvas.focus(); },
@@ -303,10 +304,11 @@ class Viewer {
       if (e.key === "Escape") {
         if (this.arsenal?.isOpen) { this.arsenal.close(); return; }
         if (this.settings?.isOpen) this.settings.close();
-        else { this.paused = true; this.settings?.open(); }
+        else if (this.options?.isOpen) this.options.close();
+        else { this.paused = true; void this.openOptions(); }
         return;
       }
-      if (this.settings?.isOpen) return;
+      if (this.settings?.isOpen || this.options?.isOpen) return;
       const key = e.key.toLowerCase(), b = (a: Action) => key === this.bound(a);
       (["weapon1", "weapon2", "weapon3"] as const).forEach((a, i) => { if (b(a)) this.weaponSlot = i; });
       if (b("cycle") && !e.repeat) { e.preventDefault(); const n = Math.max(1, this.world.knight.weapons.length); this.weaponSlot = (this.world.knight.slot + 1) % n; }
@@ -392,7 +394,7 @@ class Viewer {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.title ??= new TitleScreen(this.gui, $<HTMLCanvasElement>("titleCanvas"), {
       play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide(); void this.startPlaying(); },
-      options: () => this.settings?.open(),
+      options: () => void this.openOptions(),
       viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
     });
     const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
@@ -584,7 +586,7 @@ class Viewer {
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
     this.az = -Math.PI / 2;
-    this.dist = (cam?.distance ?? 10) * 1.35 * this.options.zoom;
+    this.dist = (cam?.distance ?? 10) * 1.35 * this.options_.zoom;
     this.applyOptions();
     $("play").textContent = "Stop playing";
     $("playHint").hidden = true; // the ? button on the HUD (or H) shows the controls
@@ -661,7 +663,7 @@ class Viewer {
 
   /** Applies the options menu's settings to audio, rendering, the HUD and input. */
   private applyOptions() {
-    const o = this.options;
+    const o = this.options_;
     if (this.audio) {
       this.audio.volume = o.masterVolume; this.audio.musicVolume = o.musicVolume;
       this.audio.effectsVolume = o.effectsVolume; this.audio.uiVolume = o.uiVolume; this.audio.muted = o.muted;
@@ -715,7 +717,24 @@ class Viewer {
   }
 
   /** The settings menu (filled in by the settings module). */
-  private openSettings() { this.settings?.open(); }
+  private openSettings() { this.paused = !!this.world; void this.openOptions(); }
+
+  private options: OptionsScreen | null = null;
+
+  /** The game's own options window (ui/options), bound to our settings. */
+  private async openOptions() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    this.options ??= new OptionsScreen(this.gui, $<HTMLCanvasElement>("optionsCanvas"), this.options_, {
+      changed: () => { saveSettings(this.options_); this.applyOptions(); },
+      advanced: tab => this.settings?.open(tab),
+      returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
+      quit: () => { this.paused = false; this.stopPlaying(); if (GAME) void this.enterTitle(); },
+      closed: () => { if (!this.settings?.isOpen) { this.paused = false; this.canvas.focus(); } },
+      playing: () => !!this.world,
+      sound: f => this.uiSound(f),
+    });
+    await this.options.open();
+  }
 
   /** Plays a UI feedback sound once audio exists (it starts with the first play). */
   private uiSound(file: string) {
@@ -1204,7 +1223,7 @@ class Viewer {
     c.addEventListener("pointerdown", e => {
       // clicks on the HUD's menus go to the HUD, not the sword
       if (this.world && this.gameHud && e.button === 0) {
-        const r = c.getBoundingClientRect(), s = this.options.hudScale;
+        const r = c.getBoundingClientRect(), s = this.options_.hudScale;
         const x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s;
         if (this.gameHud.covers(x, y)) {
           const tag = this.gameHud.pointer(x, y, true);
@@ -1235,7 +1254,7 @@ class Viewer {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
       // hovering the HUD's buttons
-      const s = this.options.hudScale;
+      const s = this.options_.hudScale;
       if (this.gameHud) { this.gameHud.pointer(this.mouse[0] / s, this.mouse[1] / s, false); c.style.cursor = this.gameHud.covers(this.mouse[0] / s, this.mouse[1] / s) ? "pointer" : ""; }
     });
     c.addEventListener("pointerup", () => { drag = null; });
@@ -1260,7 +1279,7 @@ class Viewer {
   private frame = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
-    const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1) * this.options.renderScale;
+    const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1) * this.options_.renderScale;
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
     if (this.instance || this.sceneItems) {
@@ -1300,8 +1319,8 @@ class Viewer {
         }
         this.attackPressed = false;
         // Q and E turn the camera; it follows the knight smoothly
-        if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options.cameraSpeed;
-        if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options.cameraSpeed;
+        if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options_.cameraSpeed;
+        if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options_.cameraSpeed;
         const k = this.world.knight;
         const f = 1 - Math.exp(-dt * 10);
         this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
@@ -1331,15 +1350,15 @@ class Viewer {
         // Fog in the game is tuned for a camera about camera.distance from the player; shift it so
         // it is measured around the orbit target instead, and honour the fog toggle.
         let env = this.environment;
-        const fogOn = $<HTMLInputElement>("fog").checked && this.options.fog;
+        const fogOn = $<HTMLInputElement>("fog").checked && this.options_.fog;
         if (env.fog && (!fogOn || env.camera)) {
           const shift = Math.max(0, this.dist - (env.camera?.distance ?? this.dist));
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
         const items = this.world ? [...this.sceneItems, ...this.world.items()] : this.sceneItems;
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
-        if (this.scene && this.options.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
-        if (this.world && this.options.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
+        if (this.scene && this.options_.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
+        if (this.world && this.options_.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;
         this.lastView = view;
         if (this.world && this.hud) {
