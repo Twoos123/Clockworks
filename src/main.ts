@@ -15,6 +15,16 @@ import { Arsenal } from "./ui/arsenal";
 import { loadSave, writeSave, type SaveData } from "./game/save";
 import { GameData } from "./game/data";
 
+/** Towns and lobbies: no monsters, and the run starts or ends here. */
+const TOWN = /haven|bazaar|\(|lobby/i;
+/**
+ * The order a run takes through the cached levels, after the Clockworks: a stratum of
+ * Jigsaw Valley, the terminal rest stop, deeper levels, then the Core terminal whose
+ * elevator returns to Haven. Levels missing from the cache are skipped.
+ */
+const RUN_ORDER = ["jigsaw valley emerald axis", "jigsaw valley perimeter promenade", "jigsaw valley the jade tangle",
+  "terminal 1", "emberlight", "dark halls finale", "terminal core"];
+
 /** The name shown on the HUD name plate. */
 const KNIGHT_NAME = "Knight";
 import { invert } from "./math";
@@ -196,6 +206,7 @@ class Viewer {
       void this.startPlaying();
     };
     $("descend").onclick = () => void this.descend();
+    $("clockworks").onclick = () => { this.run = { depth: 0, health: null, floors: 0 }; void this.descend(); };
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
     $("revive").onclick = () => { this.world?.revive(); $("defeated").hidden = true; this.canvas.focus(); };
     $("spawnJelly").onclick = () => {
@@ -373,6 +384,8 @@ class Viewer {
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision, { audio: this.audio, depth: this.run.depth });
     this.arsenal?.close();
     world.onNextFloor = () => this.floorCleared();
+    const town = TOWN.test(this.scene.name);
+    $("clockworks").hidden = !town;
     await world.start(spawn, this.save.loadout);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the scene's music (a weighted pick from its mix) and ambient loops
@@ -413,6 +426,7 @@ class Viewer {
     this.hud?.clear();
     $("defeated").hidden = true;
     $("floorDone").hidden = true;
+    $("clockworks").hidden = true;
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
@@ -461,24 +475,44 @@ class Viewer {
     writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
-    $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
+    const last = this.nextLevel() === null;
+    $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
+    $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
     const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
     $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} other pickups.`;
     $("floorDone").hidden = false;
   }
 
+  /** The run's next level after the current scene, or null when the run is over. */
+  private nextLevel(): { id: string; name: string } | null {
+    const levels = RUN_ORDER.map(n => this.sceneList.find(s => s.name.toLowerCase().startsWith(n))).filter((s): s is { id: string; name: string } => !!s);
+    // levels in the cache that the order does not name come after it
+    for (const s of this.sceneList) if (!TOWN.test(s.name) && !levels.includes(s)) levels.splice(levels.length - 1, 0, s);
+    if (!this.scene || TOWN.test(this.scene.name)) return levels[0] ?? null;
+    const i = levels.findIndex(s => s.id === this.scene!.id);
+    return i >= 0 && i + 1 < levels.length ? levels[i + 1] : null;
+  }
+
   /**
-   * Takes the elevator: the next dungeon level in the cache, one depth deeper. The cache holds
-   * only levels this account has visited, so the run cycles through those.
+   * Takes the elevator: the run's next level, one depth deeper. The cache holds only levels
+   * this account has visited, so the run goes through those; after the last, back to Haven.
    */
   private async descend() {
     $("floorDone").hidden = true;
-    const dungeons = this.sceneList.filter(s => !/haven|bazaar|town|\(|lobby|arcade/i.test(s.name));
-    if (!dungeons.length || !this.scene) return;
-    const i = dungeons.findIndex(s => s.id === this.scene!.id);
-    const next = dungeons[(i + 1) % dungeons.length];
-    this.run.depth++;
+    const next = this.nextLevel();
     this.stopPlaying();
+    if (!next) {
+      // the run is over: back to town
+      this.save.runs++;
+      writeSave(this.save);
+      this.run = { depth: 0, health: null, floors: 0 };
+      const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+      if (!haven) return;
+      await this.selectScene(haven.id);
+      await this.startPlaying();
+      return;
+    }
+    this.run.depth++;
     await this.selectScene(next.id);
     await this.startPlaying();
   }
