@@ -157,9 +157,19 @@ export function stratumTables(theme: StratumTheme, rand: () => number): string[]
     const roles = ["Grunt", "Grunt", "Brute", "Support", "Turret", "Elite", "Mini"];
     return roles.map(r => `Monster/Class {stc}/Family/${theme}/${theme} - ${r}`);
   }
-  const fams = [...FAMILIES].sort(() => rand() - 0.5).slice(0, 2);
-  return fams.flatMap(f => [`Monster/Class {stc}/Family/${f}/${f} - Grunt`, `Monster/Class {stc}/Family/${f}/${f} - Brute`]);
+  // element strata field the element's variants of every family (Ash Tails, Hotrodes, Firo
+  // Knights for fire...), a handful per stratum
+  const pool = [...ELEMENT_MONSTERS[theme]].sort(() => rand() - 0.5).slice(0, 6);
+  return pool.map(m => `Monster/Class {stc}/Family/${m}`);
 }
+
+/** Each element's monster variants (spawn tables under Monster/Class {stc}/Family/). */
+const ELEMENT_MONSTERS: Record<string, string[]> = {
+  Fire: ["Beast/Wolver/Ash Tail", "Beast/Chromalisk/Salamander", "Beast/Dust Bunny/Toast Bunny", "Construct/Retrode/Hotrode", "Construct/Mecha Knight/Firo Knight", "Construct/Gun Puppy/Red Rover", "Construct/Lumber/Redward", "Construct/Scuttlebot/Cinderbot", "Fiend/Devilite/Firebrander", "Fiend/Gorgo/Firegut", "Gremlin/Mortafire/Blazing Mortafire", "Gremlin/Thwacker/Scorcher", "Gremlin/Knocker/Lighter", "Slime/Glop Drop/Spice Drop", "Slime/Jelly Cube/Toxilargo, Fire", "Undead/Bombie/Fire Bombie", "Undead/Deadnaught/Fire Deadnaught", "Undead/Grave Scarab/Sun Scarab", "Undead/Howlizter/Smoking Howlitzer", "Undead/Spookat/Pepper Kat"],
+  Freeze: ["Beast/Wolver/Frostifur", "Beast/Chromalisk/Tundralisk", "Beast/Dust Bunny/Snow Bunny", "Construct/Retrode/Sleetrode", "Construct/Mecha Knight/Cryo Knight", "Construct/Gun Puppy/Slush Puppy", "Construct/Lumber/Silversap", "Construct/Scuttlebot/Brumabot", "Gremlin/Mortafire/Icy Mortafire", "Gremlin/Knocker/Cooler", "Slime/Glop Drop/Snow Drop", "Slime/Jelly Cube/Ice Cube", "Slime/Polyp/Polar Polyp", "Undead/Bombie/Freeze Bombie", "Undead/Deadnaught/Freeze Deadnaught", "Undead/Grave Scarab/Pale Scarab", "Undead/Howlizter/Chilling Howlitzer", "Undead/Spookat/Bloogato"],
+  Shock: ["Beast/Wolver/Voltail", "Beast/Chromalisk/Electolisk", "Beast/Dust Bunny/Jolt Bunny", "Construct/Retrode/Voltrode", "Construct/Mecha Knight/Volt Knight", "Construct/Gun Puppy/Sparky", "Construct/Lumber/Electreant", "Gremlin/Mortafire/Static Mortafire", "Gremlin/Knocker/Jumper", "Slime/Glop Drop/Power Drop", "Slime/Jelly Cube/Quicksilver", "Slime/Polyp/Silver Polyp", "Undead/Bombie/Shock Bombie", "Undead/Deadnaught/Shock Deadnaught", "Undead/Grave Scarab/Silver Scarab", "Undead/Howlizter/Shocking Howlitzer", "Undead/Spookat/Statikat", "Fiend/Gorgo/Storm Belly"],
+  Poison: ["Beast/Wolver/Rabid Wolver", "Beast/Chromalisk/Virulisk", "Beast/Dust Bunny/Blech Bunny", "Construct/Retrode/Isotrode", "Construct/Mecha Knight/Blight Knight", "Construct/Gun Puppy/Sick Puppy", "Construct/Lumber/Vilewood", "Gremlin/Mortafire/Toxic Mortafire", "Gremlin/Knocker/Choker", "Slime/Glop Drop/Germ Drop", "Slime/Jelly Cube/Toxigel", "Slime/Polyp/Caustic Polyp", "Undead/Bombie/Poison Bombie", "Undead/Deadnaught/Poison Deadnaught", "Undead/Grave Scarab/Plague Scarab", "Undead/Howlizter/Vile Howlitzer", "Undead/Spookat/Hurkat", "Fiend/Gorgo/Waster"],
+};
 
 /** Star rating of a tier's gear (shops and drops): tier 1 one to two stars, tier 2 three, tier 3 four to five. */
 export const tierStars = (tier: number) => (tier === 1 ? 2 : tier === 2 ? 3 : 5);
