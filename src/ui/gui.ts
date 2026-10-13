@@ -541,10 +541,12 @@ async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>
     c.preferredWidth = cfg.preferredWidth ?? 0;
     c.selected = !!cfg.selected;
     c.action = cfg.action ?? "";
-    // a check box's icon is its state's style icon; a button whose style supplies an icon keeps it
+    // a check box shows its state's style icon; a button whose default style supplies an icon
+    // takes it; a plain label only its own (a status label's style icon is its alert, shown only
+    // when a status flashes)
     c.stateIcons = k === "CheckBox";
     c.icon = c.stateIcons ? null : (ck === "button" && c.styles[0]?.icon) ? c.styles[0].icon
-      : (await ctx.icon(cfg.icon)) ?? c.styles[0]?.icon ?? null;
+      : (await ctx.icon(cfg.icon)) ?? null;
   }
   if (ck === "view") c.view = cfg;
   if (ck === "container") {
