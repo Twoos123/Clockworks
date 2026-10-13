@@ -23,6 +23,7 @@ import { openWardrobe } from "./ui/wardrobe";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen } from "./ui/elevator";
 import { GateBoard } from "./ui/gates";
+import { RunSummaryScreen } from "./ui/runsummary";
 import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
@@ -207,7 +208,7 @@ class Viewer {
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
   /** Totals for the current gate run, for the summary when it ends. */
-  private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
+  private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "", notes: [] as string[] };
 
   /** The gate being descended and its floors by depth (null outside the Clockworks). */
   private gate: Gate | null = null;
@@ -285,36 +286,10 @@ class Viewer {
       this.run = { depth: 1, health: null, floors: 0 };
       void this.startPlaying();
     };
-    // the run's menu buttons click with the game's button sound
-    for (const id of ["descend", "deeper", "revive", "giveUp", "clockworks", "arenaBtn"]) {
-      $(id).addEventListener("click", () => this.uiSound(id === "giveUp" ? "sound/feedback/ui_dismiss.ogg" : "sound/feedback/button_press.ogg"));
-    }
-    $("descend").onclick = () => void this.descend();
-    $("deeper").onclick = () => {
-      if (this.arenaMode && this.world?.arena) { $("floorDone").hidden = true; this.paused = false; this.world.continueArena(); return; }
-      if (this.gate) { $("floorDone").hidden = true; this.paused = false; this.gate = null; void this.returnToHaven(); return; }
-      void this.descend(true);
-    };
+    for (const id of ["clockworks", "arenaBtn"]) $(id).addEventListener("click", () => this.uiSound("sound/feedback/button_press.ogg"));
     $("clockworks").onclick = () => this.openGates();
     $("arenaBtn").onclick = () => void this.enterArena();
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
-    // reviving costs crowns from the bank (the game spends energy); giving up returns to town
-    $("revive").onclick = () => {
-      const cost = this.reviveCost();
-      if (!this.world || this.save.crowns < cost) return;
-      this.save.crowns -= cost;
-      writeSave(this.save);
-      this.world.revive();
-      $("defeated").hidden = true;
-      this.canvas.focus();
-    };
-    $("giveUp").onclick = () => {
-      $("defeated").hidden = true;
-      this.reviveScreen?.close();
-      this.run = { depth: 29, health: null, floors: 0 };
-      // past the last level, descend() rides up to Haven; the floor's loot is lost
-      void this.returnToHaven();
-    };
     $("spawnJelly").onclick = () => {
       const k = this.world?.knight;
       if (!k) return;
@@ -436,7 +411,7 @@ class Viewer {
     const stage = this.canvas.parentElement!;
     this.loadingScreen ??= new LoadingScreen(this.gui, stage);
     if (!this.elevator) {
-      this.elevator = new ElevatorScreen(this.gui, stage, $("floorDone"), () => {
+      this.elevator = new ElevatorScreen(this.gui, stage, () => {
         const w = this.world;
         if (!w) return null;
         const v = new PortraitView(this.renderer, this.loader, w.portraitRef(), "character/pc/animation_pose_dash.dat");
@@ -718,8 +693,9 @@ class Viewer {
     this.audio?.stopMusic(1);
     this.audio?.stopAmbience();
     this.hud?.clear();
-    $("defeated").hidden = true;
-    $("floorDone").hidden = true;
+    this.knockedOut = false;
+    this.reviveScreen?.close();
+    this.elevator?.hide();
     $("clockworks").hidden = true;
     $("arenaBtn").hidden = true;
     $("spawnJelly").hidden = true;
@@ -1056,30 +1032,34 @@ class Viewer {
     writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
+    this.runTotals.notes.push(...notes);
+    const tally = `${l.crowns} crowns, ${l.heat} heat`;
+    const { elevator } = this.screens();
     if (this.gate) {
       // in a gate: on to the next depth, or ride back up to Haven with the loot banked
       const next = this.floors[this.run.depth + 1];
-      this.elevator?.setNext(next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" });
-      $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
-      $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
-      $("deeper").textContent = "Return to Haven";
-      $("deeper").hidden = !next;
+      void elevator.show({
+        title: `Depth ${this.run.depth} cleared`,
+        next: next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" },
+        tally,
+        advance: { label: next ? "Advance" : "Ride Up", run: () => void this.descend() },
+        quit: next ? { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } } : null,
+      });
       // an Arcade stratum cleared counts for prestige gate missions of its theme
       const here = this.floors[this.run.depth], s = here?.stratum;
       if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
-      const last = this.nextLevel() === null;
       const nl = this.nextLevel();
-      this.elevator?.setNext(nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" });
-      $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
-      $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
       // past the Core the Clockworks go on: cycle the levels again, deeper
-      $("deeper").hidden = !last || this.run.depth >= 29;
+      const deeper = !nl && this.run.depth < 29;
+      void elevator.show({
+        title: nl ? `Depth ${this.run.depth} cleared` : "Back to Haven",
+        next: nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : deeper ? { title: "Deeper", zone: "A new floor below the Core", depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" },
+        tally,
+        advance: { label: nl || deeper ? "Advance" : "Ride Up", run: () => void this.descend(deeper) },
+        quit: deeper ? { run: () => void this.descend() } : null,
+      });
     }
-    const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
-    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} materials.`
-      + (notes.length ? ` ${notes.join(". ")}.` : "");
-    $("floorDone").hidden = false;
   }
 
   /** The run's next level after the current scene, or null when the run is over. */
@@ -1103,13 +1083,14 @@ class Viewer {
     l.crowns = 0; l.heat = 0; l.materials.clear(); l.items.length = 0;
     writeSave(this.save);
     this.paused = true;
-    $("floorTitle").textContent = `Arena: wave ${wave} cleared`;
-    this.elevator?.setNext({ title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" });
-    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.` + (notes.length ? ` ${notes.join(". ")}.` : "");
-    $("descend").textContent = "Ride up to Haven";
-    $("deeper").textContent = "Fight on";
-    $("deeper").hidden = false;
-    $("floorDone").hidden = false;
+    this.runTotals.notes.push(...notes);
+    void this.screens().elevator.show({
+      title: `Arena: wave ${wave} cleared`,
+      next: { title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" },
+      tally: `Loot banked: ${this.save.crowns} crowns`,
+      advance: { label: "Fight On", run: () => { this.paused = false; this.world?.continueArena(); } },
+      quit: { run: () => void this.descend() },
+    });
   }
 
   /** Crowns a revive costs: more the deeper the knight is (towns are free). */
@@ -1129,7 +1110,7 @@ class Viewer {
         this.save.sparks = n - 1;
         writeSave(this.save);
         this.world.revive();
-        $("defeated").hidden = true;
+        this.knockedOut = false;
         this.uiSound("sound/feedback/ui_confirm.ogg");
         this.canvas.focus();
         return true;
@@ -1143,18 +1124,33 @@ class Viewer {
         return true;
       },
       sound: f => this.uiSound(f),
+      giveUp: () => this.giveUp(),
     }, { view: (c, g, x, y, w, h) => sparkView.draw(c, g, x, y, w, h) });
     await this.reviveScreen.open();
   }
 
+  /** The knight is down and the revive window is up. */
+  private knockedOut = false;
+
+  /** Gives up after a knockout: back to Haven, the floor's loot lost. */
+  private giveUp() {
+    this.knockedOut = false;
+    this.reviveScreen?.close();
+    this.missionBoard?.runAbandoned();
+    void this.returnToHaven();
+  }
+
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
+
+  /** The run summary on arrival in Haven (the game's mission-complete window). */
+  private summaryScreen: RunSummaryScreen | null = null;
 
   private async returnToHaven() {
     // the end of a gate run: a summary of what it brought home
     const t = this.runTotals;
     const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
     this.gate = null;
-    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "", notes: [] };
     this.stopPlaying();
     this.run = { depth: 0, health: null, floors: 0 };
     const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
@@ -1162,16 +1158,15 @@ class Viewer {
     await this.selectScene(haven.id);
     await this.startPlaying();
     if (summary && summary.deepest > 0) {
-      this.showPanel("Back in Haven", body => {
-        const rows: [string, string][] = [["Gate", summary.gate || "The Clockworks"], ["Deepest depth this run", String(summary.deepest)],
-          ["Deepest depth ever", String(summary.best)], ["Monsters defeated", String(summary.kills)],
-          ["Crowns banked", String(summary.crowns)], ["Heat earned", String(summary.heat)], ["Materials and items", String(summary.materials)]];
-        for (const [k, v] of rows) {
-          const r = document.createElement("div");
-          r.className = "settings-row";
-          r.innerHTML = `<span>${k}</span><b>${v}</b><span></span>`;
-          body.append(r);
-        }
+      this.paused = true;
+      this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+      this.summaryScreen ??= new RunSummaryScreen(this.gui, { sound: f => this.uiSound(f), closed: () => { this.paused = false; this.canvas.focus(); } });
+      void this.summaryScreen.show({
+        title: "Back in Haven",
+        name: summary.gate || "The Clockworks",
+        lines: [`Deepest depth this run: ${summary.deepest} (deepest ever: ${summary.best})`, `${summary.kills} monsters defeated`,
+          `${summary.materials} materials and items found`, ...summary.notes],
+        crowns: summary.crowns, heat: summary.heat,
       });
     }
   }
@@ -1206,7 +1201,7 @@ class Viewer {
   /** Starts a gate at depth 1. */
   private async enterGate(g: Gate, floors = gateFloors(g)) {
     this.gate = g;
-    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name };
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
     this.usedScenes.clear();
     this.floors = floors;
     this.arenaMode = false;
@@ -1300,7 +1295,7 @@ class Viewer {
    * this account has visited, so the run goes through those; after the last, back to Haven.
    */
   private async descend(deeper = false) {
-    $("floorDone").hidden = true;
+    this.elevator?.hide();
     this.paused = false;
     if (this.arenaMode) { this.arenaMode = false; await this.returnToHaven(); return; }
     if (this.gate) {
@@ -1616,11 +1611,11 @@ class Viewer {
         const f = 1 - Math.exp(-dt * 10);
         this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
           this.target[2] + (k.z + 1 - this.target[2]) * f];
-        if ($("defeated").hidden === this.world.defeated) {
-          $("defeated").hidden = !this.world.defeated;
+        if (this.knockedOut !== this.world.defeated) {
+          this.knockedOut = this.world.defeated;
           // the game's revive window (Sparks of Life); in town the knight simply gets up
           if (this.world.defeated) {
-            if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); $("defeated").hidden = true; }
+            if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); this.knockedOut = false; }
             else void this.openRevive();
           } else this.reviveScreen?.close();
         }

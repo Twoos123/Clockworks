@@ -686,7 +686,7 @@ export class World implements LogicHost {
   exitLocked: (() => boolean) | null = null;
   private lockNotice = -10;
 
-  private finishLevel() {
+  private finishLevel(elevator?: Prop) {
     if (this.finished) return;
     if (this.exitLocked?.()) {
       if (this.clock - this.lockNotice > 3) {
@@ -697,7 +697,57 @@ export class World implements LogicHost {
       return;
     }
     this.finished = true;
-    this.onNextFloor?.();
+    if (elevator?.instance) this.startRide(elevator);
+    else this.onNextFloor?.();
+  }
+
+  /**
+   * The exit elevator's ride: the platform plays its activate state, then its going-down state
+   * (Elevator sprite states 2 and 3), with the knight standing on it and sinking with it; the
+   * floor ends when the ride does.
+   */
+  private ride: { p: Prop; t: number; stage: 0 | 1 | 2; z0: number; base: number | null; at: number } | null = null;
+  /** True while the knight rides the exit elevator down. */
+  get riding() { return !!this.ride; }
+
+  private startRide(p: Prop) {
+    const st = p.states;
+    void this.preload(st[2], st[3]);
+    this.ride = { p, t: 0, stage: 0, z0: this.knight.z, base: null, at: 0 };
+    const k = this.knight;
+    k.shielding = false;
+    this.setShieldEffect(false);
+    this.play(k, "character/pc/idle.dat");
+  }
+
+  private updateRide(dt: number) {
+    const r = this.ride!, k = this.knight, p = r.p, inst = p.instance!;
+    r.t += dt;
+    k.instance.time += dt;
+    k.invulnerable = Math.max(k.invulnerable, 0.5);
+    // onto the middle of the platform
+    const f = 1 - Math.exp(-dt * 6);
+    k.x += (p.x - k.x) * f; k.y += (p.y - k.y) * f;
+    const st = p.states;
+    if (r.stage === 0) {
+      const clip = this.clip(st[2]);
+      if (clip || r.t > 2) { if (clip) inst.play(clip, { loop: false, blend: 0.05 }); r.stage = 1; r.at = r.t; }
+    } else if (r.stage === 1) {
+      if (inst.finished || r.t - r.at > 1.5) {
+        const clip = this.clip(st[3]);
+        if (clip || r.t - r.at > 3) { if (clip) inst.play(clip, { loop: false, blend: 0.05 }); r.stage = 2; r.at = r.t; }
+      }
+    } else {
+      // the knight goes down with the platform
+      inst.update();
+      const node = inst.world.has("mesh_platform") ? inst.nodeMatrix("mesh_platform")[14] : null;
+      if (node !== null) { r.base ??= node; k.z = r.z0 + (node - r.base); }
+      else k.z = r.z0 - 2 * (r.t - r.at);
+      if (inst.finished || r.t - r.at > 6) {
+        this.ride = null;
+        this.onNextFloor?.();
+      }
+    }
   }
 
   // ---------------------------------------------------------------- props
@@ -955,7 +1005,7 @@ export class World implements LogicHost {
         case "elevator":
           if (!k.dead && touching(p)) {
             p.standTime += dt;
-            if (p.standTime > 1.5 && !this.finished) this.finishLevel();
+            if (p.standTime > 1.5 && !this.finished) this.finishLevel(p);
           } else p.standTime = 0;
           break;
       }
@@ -1090,7 +1140,7 @@ export class World implements LogicHost {
 
   update(dt: number, input: KnightInput) {
     this.clock += dt;
-    this.updateKnight(dt, input);
+    if (this.ride) this.updateRide(dt); else this.updateKnight(dt, input);
     this.companion?.update(dt);
     for (const m of this.monsters) this.updateMonster(m, dt);
     this.updateProps(dt, !!input.interact && !this.knight.dead);

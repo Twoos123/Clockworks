@@ -1,6 +1,8 @@
 // The knockout window: the game's own rsrc/ui/continue/interface_revive.dat. A knocked-out
 // knight uses a Spark of Life to get up; with none left the window switches to its "Buy" mode
-// (the game sold sparks for energy, a server currency; here they cost crowns).
+// (the game sold sparks for energy, a server currency; here they cost crowns). Under it sits the
+// game's leave-party panel (ui/continue/interface_leaveparty.dat), whose red button gives up and
+// rides back to Haven without the floor's loot.
 
 import { CONFIG_REF } from "../config/params";
 import { buildInterface, dispatch, pack, render, resetInput, type Component, type GuiContext, type RenderHooks } from "./gui";
@@ -15,10 +17,14 @@ export interface ReviveActions {
   /** Buys a spark with crowns (returns false when the knight cannot afford it). */
   buy(): boolean;
   sound(file: string): void;
+  /** Gives up: back to Haven, the floor's loot lost. */
+  giveUp(): void;
 }
 
 export class ReviveScreen {
   private ui: Component | null = null;
+  /** The give-up panel under the revive window. */
+  private leave: Component | null = null;
   private mode: "Use" | "Buy" | null = null;
   private running = false;
   private building = false;
@@ -28,7 +34,9 @@ export class ReviveScreen {
     const ev = (type: "down" | "up" | "move") => (e: PointerEvent) => {
       if (!this.ui) return;
       const r = this.canvas.getBoundingClientRect();
-      dispatch(this.ui, { type, x: e.clientX - r.left, y: e.clientY - r.top, button: e.button });
+      const ev = { type, x: e.clientX - r.left, y: e.clientY - r.top, button: e.button };
+      dispatch(this.ui, ev);
+      if (this.leave) dispatch(this.leave, ev);
     };
     canvas.addEventListener("pointerdown", ev("down"));
     canvas.addEventListener("pointerup", ev("up"));
@@ -47,6 +55,16 @@ export class ReviveScreen {
 
   /** Rebuilds the window in the mode the knight's sparks call for. */
   private async refresh() {
+    if (!this.leave) {
+      const leave = await buildInterface(this.ctx, { $class: CONFIG_REF, name: "ui/continue/interface_leaveparty.dat" });
+      if (leave && !this.leave) {
+        const text = leave.find("town"), btn = leave.find("leaveparty");
+        if (text) text.text = "Or give up: ride back to Haven. The floor's loot is lost.";
+        if (btn) { btn.text = "Return to Haven"; btn.onAction = () => { this.actions.sound("sound/feedback/ui_dismiss.ogg"); this.close(); this.actions.giveUp(); }; }
+        resetInput(leave);
+        this.leave = leave;
+      }
+    }
     const mode = this.actions.sparks() > 0 ? "Use" : "Buy";
     if (mode !== this.mode && !this.building) {
       this.building = true;
@@ -98,7 +116,12 @@ export class ReviveScreen {
     if (this.ui) {
       this.bind();
       const s = pack(this.ui);
-      render(this.ui, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+      const bottom = Math.round((ch + s.height) / 2);
+      render(this.ui, g, Math.round((cw - s.width) / 2), bottom, this.hooks);
+      if (this.leave) {
+        const l = pack(this.leave);
+        render(this.leave, g, Math.round((cw - l.width) / 2), bottom + 24 + l.height, this.hooks);
+      }
     }
     requestAnimationFrame(this.frame);
   };
