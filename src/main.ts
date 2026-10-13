@@ -19,6 +19,7 @@ import { GameData } from "./game/data";
 import { ACTIONS, loadSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { decodeTiles } from "./gen/autotile";
 import { arcadeGates, BOSSES, gateFloors, stratumTables, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 
@@ -419,6 +420,9 @@ class Viewer {
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
+    // rooms seal while their waves are fought, as the game's own levels do
+    const walk = walkableCells(root, info);
+    arenaRooms(root, (x, y) => walk.has(x + "," + y));
     return root;
   }
 
@@ -1334,5 +1338,86 @@ function retheme(root: any, tables: string[], rand: () => number) {
     const table = { $class: "com.threerings.config.ConfigReference", name: byTag.get(tag)!,
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Depth Offset", 0], ["Loot", "Primary"], ["Wave Tag", wave]] } };
     if (i >= 0) args[i] = ["Spawn Table", table]; else args.push(["Spawn Table", table]);
+  }
+}
+
+/** Walkable cells of a generated root ("x,y"), from its tiles' configs. */
+function walkableCells(root: any, info: (ref: any) => TileInfo): Set<string> {
+  const { refs, cells } = decodeTiles(root);
+  const out = new Set<string>();
+  for (const [k, c] of cells) {
+    const t = info(refs[c.tile]);
+    if (!t.walkable) continue;
+    const [x, y] = k.split(",").map(Number);
+    const [w, h] = c.rot & 1 ? [t.height, t.width] : [t.width, t.height];
+    for (let dx = 0; dx < w; dx++) for (let dy = 0; dy < h; dy++) out.add((x + dx) + "," + (y + dy));
+  }
+  return out;
+}
+
+const SIGNAL = "com.threerings.tudey.config.ActionConfig$Signal";
+const TAGGED = "com.threerings.tudey.config.TargetConfig$Tagged";
+const REF = "com.threerings.config.ConfigReference";
+const signal = (name: string, tag: string) => ({ $class: SIGNAL, name, target: { $class: TAGGED, tag } });
+const argMap = (entries: [string, unknown][]) => ({ $map: "com.threerings.config.ArgumentMap", entries });
+const placeEntry = (id: number, name: string, args: [string, unknown][], x: number, y: number, rotZ = 0) => ({
+  $class: "com.threerings.tudey.data.TudeySceneModel$PlaceableEntry", id,
+  placeable: { $class: REF, name, arguments: argMap(args) },
+  transform: { $class: "com.threerings.math.Transform3D", translation: { $class: "com.threerings.math.Vector3f", x, y, z: 0 },
+    rotation: { $class: "com.threerings.math.Quaternion", x: 0, y: 0, z: Math.sin(rotZ / 2), w: Math.cos(rotZ / 2) }, scale: 1 },
+});
+
+/**
+ * The game's arena pattern for each encounter room of a generated floor: Iron Gates (Monster)
+ * stand open in every corridor mouth; entering closes them and wakes the first wave; when the
+ * first wave is gone ("Trigger/Actor Removed") the second wakes; when it is gone the gates open.
+ */
+function arenaRooms(root: any, walkable: (x: number, y: number) => boolean) {
+  const entries: any[] = root.entries ?? [];
+  let id = entries.reduce((m, e) => Math.max(m, e.id ?? 0), 0) + 1;
+  const tagOf = (e: any, key: string) => (e.placeable?.arguments?.entries as [string, any][] | undefined)?.find(([k]) => k === key)?.[1];
+  for (const area of entries.filter(e => e.area?.name === "Player Enter/Spawn Activate")) {
+    const trigger = (area.area.arguments?.entries as [string, any][]).find(([k]) => k === "Trigger Action");
+    const spawnTag: string | undefined = trigger?.[1]?.target?.tag;
+    if (!trigger || !spawnTag?.startsWith("gen spawn ")) continue;
+    const n = spawnTag.slice("gen spawn ".length), doorTag = `gen door ${n}`;
+    // the area is the room inset by a cell
+    const xs = area.vertices.map((v: any) => v.x), ys = area.vertices.map((v: any) => v.y);
+    const rx = Math.min(...xs) - 1, ry = Math.min(...ys) - 1, rw = Math.max(...xs) + 1 - rx, rh = Math.max(...ys) + 1 - ry;
+    // corridor mouths: runs of walkable cells just outside each side
+    const doors: { x: number; y: number; rot: number }[] = [];
+    const side = (cells: [number, number][], rot: number) => {
+      let run: [number, number][] = [];
+      const flush = () => {
+        if (run.length) { const m = run[Math.floor(run.length / 2)]; doors.push({ x: m[0] + 0.5, y: m[1] + 0.5, rot }); }
+        run = [];
+      };
+      for (const c of cells) { if (walkable(c[0], c[1])) run.push(c); else flush(); }
+      flush();
+    };
+    const range = (a: number, b: number) => Array.from({ length: b - a }, (_, i) => a + i);
+    side(range(rx, rx + rw).map(x => [x, ry + rh] as [number, number]), 0);
+    side(range(rx, rx + rw).map(x => [x, ry - 1] as [number, number]), 0);
+    side(range(ry, ry + rh).map(y => [rx - 1, y] as [number, number]), Math.PI / 2);
+    side(range(ry, ry + rh).map(y => [rx + rw, y] as [number, number]), Math.PI / 2);
+    if (!doors.length) continue;
+    for (const d of doors) entries.push(placeEntry(id++, "Dynamic/Door/Iron Gate/Monster 3", [["Open", true], ["Tag", doorTag]], d.x, d.y, d.rot));
+    // entering: close the gates, wake wave one
+    trigger[1] = { $class: "com.threerings.tudey.config.ActionConfig$Compound", actions: [signal("close", doorTag), signal("activate", spawnTag)] };
+    // half the spawners become a second wave
+    const spawners = entries.filter(e => /Single Spawn/.test(e.placeable?.name ?? "") && tagOf(e, "Spawn Tag") === spawnTag);
+    const wave1 = `gen wave ${n}`, wave2 = `gen wave ${n}b`, spawn2 = `${spawnTag}b`;
+    spawners.forEach((e, i) => {
+      if (i % 2 === 0 || spawners.length < 3) return;
+      const args: [string, any][] = e.placeable.arguments.entries;
+      args.forEach(a => { if (a[0] === "Spawn Tag") a[1] = spawn2; });
+      const table = args.find(a => a[0] === "Spawn Table")?.[1];
+      const targs: [string, any][] | undefined = table?.arguments?.entries;
+      targs?.forEach(a => { if (a[0] === "Wave Tag") a[1] = wave2; });
+    });
+    const hasSecond = spawners.length >= 3;
+    const cx = rx + rw / 2, cy = ry + rh / 2;
+    if (hasSecond) entries.push(placeEntry(id++, "Trigger/Actor Removed", [["Action", signal("activate", spawn2)], ["Actor Tag", wave1]], cx, cy));
+    entries.push(placeEntry(id++, "Trigger/Actor Removed", [["Action", signal("open", doorTag)], ["Actor Tag", hasSecond ? wave2 : wave1]], cx + 1, cy));
   }
 }

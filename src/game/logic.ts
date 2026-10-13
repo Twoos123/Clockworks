@@ -70,6 +70,9 @@ type Handler = {
 
 interface Timer { at: number; run: () => void; cancelled: boolean; owner: Entity }
 
+/** Areas and markers named for players (Player Enter, Player Exit...) fire for knights only. */
+const PLAYER_TRIGGER = /^Player /;
+
 export class Logic {
   /** Milliseconds of scene time. */
   ts = 0;
@@ -354,6 +357,9 @@ export class Logic {
         if (h.source === a) continue;
         const sensor = h.source.isActor ? (() => { const s = h.source.shape(); return s ? expand(s, h.cfg.shape?.expansion ?? 0) : null; })() : h.sensor;
         if (!sensor || ((h.cfg.mask ?? 0xffff) & a.collisionFlags) === 0 || !intersects(sensor, shape)) continue;
+        // "Player ..." triggers answer to players only: their condition (dropped from the
+        // export with its default) tests for a player, so monsters walking in do not fire them
+        if (PLAYER_TRIGGER.test(h.source.name) && (a.collisionFlags & 4) === 0) continue;
         this.trigger(h, a);
       }
     }
