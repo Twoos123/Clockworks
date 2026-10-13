@@ -13,7 +13,8 @@ import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
 import { Arsenal } from "./ui/arsenal";
-import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
+import { loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import { ECONOMY_FILES, Economy } from "./game/economy";
 import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
@@ -629,9 +630,14 @@ class Viewer {
     $("clockworks").hidden = !town;
     $("arenaBtn").hidden = !town;
     world.color = this.save.color;
-    for (const [n, h] of Object.entries(this.save.weaponHeat)) world.weaponLevels.set(n, weaponLevel(h));
+    world.gear = this.save.gear;
+    if (this.eco) world.economy = this.eco;
+    // treasure on a family stratum drops that family's materials
+    const theme = this.gate ? this.floors[this.run.depth]?.stratum?.theme : null;
+    world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
     world.pocket = this.save.pocket;
     await world.start(spawn, this.save.loadout);
+    this.eco ??= world.economy;
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the floor's music (src/game/music.ts: gate floors by kind, theme and style, else the scene's own) and ambient loops
     this.played = true;
@@ -898,35 +904,63 @@ class Viewer {
     this.arsenal ??= new Arsenal($("arsenal"), this.world?.data ?? new GameData(this.loader), this.gui,
       l => { this.save.loadout = l; writeSave(this.save); },
       () => ({ crowns: this.save.crowns, heat: this.save.heat }),
-      () => new Set(this.save.owned),
+      // owned gear, plus the recipe items whose recipes are learned
+      () => new Set([...this.save.owned, ...(this.eco?.recipes().filter(r => r.item && this.save.recipes.includes(r.name)).map(r => r.item!) ?? [])]),
       (name, cost) => {
-        if (this.save.crowns < cost || this.save.owned.includes(name)) return false;
-        this.save.crowns -= cost;
-        this.save.owned.push(name);
+        if (!this.eco?.buy(this.save, name, cost)) return false;
+        if (this.world) this.world.pocket = this.save.pocket;
         writeSave(this.save);
         return true;
       });
+    if (!this.eco) void this.economy().then(() => this.arsenal?.refresh());
     this.arsenal.onClose = () => { this.paused = false; this.canvas.focus(); };
     this.arsenal.sound = file => this.uiSound(file);
+    this.arsenal.describe = name => {
+      const g = this.save.gear[name], eco = this.eco;
+      if (!eco) return name.split("/").pop()!;
+      const lv = eco.info(name)?.heatable ? ` · lv ${g?.level ?? 1}` : "";
+      return eco.displayName(name, g) + lv;
+    };
+    // crafting: what each recipe needs and costs (src/game/economy.ts)
     this.arsenal.crafting = {
-      materials: () => this.save.materials,
-      level: name => this.save.owned.includes(name) ? (/^Weapon\//.test(name) ? weaponLevel(this.save.weaponHeat[name] ?? 0) : 10) : 0,
-      crowns: () => this.save.crowns,
-      craft: r => {
-        if (this.save.crowns < r.cost || r.materials.some(([n, k]) => (this.save.materials[n] ?? 0) < k)) return false;
-        this.save.crowns -= r.cost;
-        for (const [n, k] of r.materials) this.save.materials[n] -= k;
-        if (r.consumes) {
-          // the base item becomes the new one, wherever it was equipped
-          this.save.owned = this.save.owned.filter(o => o !== r.consumes);
-          const l = this.save.loadout;
-          l.weapons = l.weapons.map(w => (w === r.consumes ? r.output : w));
-          for (const slot of ["shield", "armor", "helmet"] as const) if (l[slot] === r.consumes) l[slot] = r.output;
-          if (this.save.weaponHeat[r.consumes] !== undefined) this.save.weaponHeat[r.output] = 0;
-        }
-        this.save.owned.push(r.output);
+      list: () => {
+        const eco = this.eco;
+        if (!eco) return [];
+        const w = this.save, owned = new Set(w.owned);
+        return eco.recipes().filter(r => eco.info(r.output)?.icon && !owned.has(r.output) && (!r.base || owned.has(r.base)))
+          .map(r => ({
+            output: r.output, rarity: r.rarity, ok: eco.canCraft(w, r),
+            lines: [
+              w.recipes.includes(r.name) ? "recipe known" : `recipe: buy for ${r.item ? eco.price(r.item) : "?"} cr`,
+              ...(r.base ? [`${r.base.split("/").pop()} lv ${eco.level(w, r.base)}/${r.baseLevel}`] : []),
+              ...r.materials.map(([n, k]) => `${n.split("/").pop()} ${w.materials[n] ?? 0}/${k}`),
+              `${r.crowns} cr`,
+            ],
+          }));
+      },
+      craftable: () => new Set(this.eco?.recipes().map(r => r.output) ?? []),
+      craft: output => {
+        const r = this.eco?.recipeFor(output);
+        const made = r ? this.eco!.craft(this.save, r) : null;
+        if (!made) return false;
         writeSave(this.save);
         return true;
+      },
+    };
+    this.arsenal.selling = {
+      list: () => {
+        const eco = this.eco;
+        if (!eco) return [];
+        const gear = this.save.owned.filter(n => eco.canSell(this.save, n))
+          .map(n => ({ name: n, price: eco.sellPrice(n), label: eco.displayName(n, this.save.gear[n]) }));
+        const mats = Object.entries(this.save.materials).filter(([n, c]) => c > 0 && eco.sellPrice(n) > 0)
+          .map(([n, c]) => ({ name: n, price: eco.sellPrice(n), label: `${n.split("/").pop()} ×${c}` }));
+        return [...gear, ...mats];
+      },
+      sell: name => {
+        const paid = this.eco?.sell(this.save, name) ?? 0;
+        if (paid > 0) writeSave(this.save);
+        return paid > 0;
       },
     };
     this.arsenal.color = this.save.color;
@@ -946,14 +980,55 @@ class Viewer {
 
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
   private async openShop(keeper: string) {
-    const k = keeper.toLowerCase();
-    const tabs: ShopMode["tabs"] = /sword|gun|bomb|weapon/.test(k) ? ["weapons"] : /armor|helm/.test(k) ? ["armor", "helmet"]
-      : /shield/.test(k) ? ["shield", "trinket"] : /trinket|jewel/.test(k) ? ["trinket"] : ["weapons", "shield", "armor", "helmet", "trinket", "vitapod"];
     this.paused = true;
-    // in the Clockworks a terminal's Supply Depot stocks gear for its tier
+    const eco = await this.economy();
+    // in the Clockworks a terminal's keepers stock their tier (Basil sells its recipes, the
+    // Supply Depot its supplies); Haven's bazaar shows what progress has unlocked
     const f = this.gate ? this.floors[this.run.depth] : null;
+    const tier = f && f.depth > 0 ? f.tier : 0;
     const maxRarity = f ? Math.max(shopTier(this.save), tierStars(f.tier)) : shopTier(this.save);
-    await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity });
+    const kp = eco.keeper(keeper, { tier, maxRarity });
+    // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
+    const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
+    const TAB: Record<string, ShopMode["tabs"][number]> = { sword: "weapons", handgun: "weapons", bomb: "weapons", shield: "shield", armor: "armor",
+      helm: "helmet", trinket: "trinket", vitapod: "vitapod", recipe: "recipe", pickup: "pickup" };
+    const tabs = [...new Set(kp.categories.map(c => TAB[c]).filter(Boolean))];
+    await this.ensureArsenal().open(this.save.loadout, { title: kp.title, tabs, maxRarity: kp.maxRarity, stock });
+  }
+
+  /** The economy over the install's configs (prices, levels, variants, recipes). */
+  private eco: Economy | null = null;
+  private async economy(): Promise<Economy> {
+    if (this.eco) return this.eco;
+    const data = this.world?.data ?? new GameData(this.loader);
+    await data.preload(...ECONOMY_FILES);
+    return this.eco ??= new Economy(f => data.library_(f));
+  }
+
+  /**
+   * Banks a floor's loot: crowns, materials and minerals; gear found joins the arsenal (a
+   * duplicate sells for its price); the heat goes into every equipped heatable item, which
+   * levels up. Returns lines describing found gear and level-ups.
+   */
+  private bankLoot(l: World["loot"]): string[] {
+    const notes: string[] = [];
+    const eco = this.eco ?? this.world?.economy ?? null;
+    this.save.crowns += l.crowns;
+    this.save.heat += l.heat;
+    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
+    for (const it of l.items) {
+      if (!eco) break;
+      if (this.save.owned.includes(it.name)) {
+        const paid = eco.sellPrice(it.name);
+        this.save.crowns += paid;
+        notes.push(`${eco.displayName(it.name, { heat: 0, level: 1, variants: it.variants })} (already owned: sold for ${paid} cr)`);
+      } else {
+        eco.grant(this.save, it.name, it.variants);
+        notes.push(`Found ${eco.displayName(it.name, this.save.gear[it.name])}`);
+      }
+    }
+    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${up.name.split("/").pop()} reached level ${up.level}`);
+    return notes;
   }
 
   /** The knight reached the exit elevator: offer the next floor. */
@@ -961,11 +1036,7 @@ class Viewer {
     if (!this.world) return;
     // bank what the floor gave
     const l = this.world.loot;
-    this.save.crowns += l.crowns;
-    this.save.heat += l.heat;
-    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
-    // equipped weapons absorb the floor's heat
-    for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
+    const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
     const t = this.runTotals;
     t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
@@ -995,7 +1066,8 @@ class Viewer {
       $("deeper").hidden = !last || this.run.depth >= 29;
     }
     const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
-    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} other pickups.`;
+    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} materials.`
+      + (notes.length ? ` ${notes.join(". ")}.` : "");
     $("floorDone").hidden = false;
   }
 
@@ -1016,16 +1088,13 @@ class Viewer {
   private arenaCheckpoint(wave: number) {
     if (!this.world) return;
     const l = this.world.loot;
-    this.save.crowns += l.crowns;
-    this.save.heat += l.heat;
-    for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
-    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
-    l.crowns = 0; l.heat = 0; l.materials.clear();
+    const notes = this.bankLoot(l);
+    l.crowns = 0; l.heat = 0; l.materials.clear(); l.items.length = 0;
     writeSave(this.save);
     this.paused = true;
     $("floorTitle").textContent = `Arena: wave ${wave} cleared`;
     this.elevator?.setNext({ title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" });
-    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.`;
+    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.` + (notes.length ? ` ${notes.join(". ")}.` : "");
     $("descend").textContent = "Ride up to Haven";
     $("deeper").textContent = "Fight on";
     $("deeper").hidden = false;

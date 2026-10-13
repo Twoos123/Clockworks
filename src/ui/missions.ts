@@ -9,7 +9,7 @@ import {
   canExchange, completeMission, crownReward, daysUntilActive, exchangeNeeds, freshProgress, isGear, missionRun, missionStatus,
   npcName, parseMissions, rankLabel, rankName, rewardItems, weeklyPrestige, type Ingredient, type Mission, type MissionProgress,
 } from "../game/missions";
-import { weaponLevel, type SaveData } from "../game/save";
+import type { SaveData } from "../game/save";
 import { SpawnTables } from "../game/spawntable";
 import type { GuiContext, GuiImage } from "./gui";
 
@@ -140,7 +140,7 @@ export class MissionBoard {
       if (busy) { notice(`Unequip ${label(busy.item)} before turning it in.`); return; }
       for (const g of needs) {
         if (g.level !== undefined) continue; // levelled gear is shown, not taken
-        if (isGear(g.item)) { save.owned = save.owned.filter(o => o !== g.item); delete save.weaponHeat[g.item]; }
+        if (isGear(g.item)) { save.owned = save.owned.filter(o => o !== g.item); delete save.gear[g.item]; }
         else save.materials[g.item] = (save.materials[g.item] ?? 0) - g.count;
       }
       this.finish(m);
@@ -161,7 +161,7 @@ export class MissionBoard {
       for (const r of tables.evaluate({ name: t }, ctx)) {
         const name = r.item?.name;
         if (!name) continue;
-        if (isGear(name)) { if (!save.owned.includes(name)) save.owned.push(name); }
+        if (isGear(name)) { if (!save.owned.includes(name)) { save.owned.push(name); save.gear[name] = { heat: 0, level: 1, variants: [] }; } }
         else save.materials[name] = (save.materials[name] ?? 0) + Math.max(1, r.count);
         got.set(name, (got.get(name) ?? 0) + Math.max(1, r.count));
       }
@@ -186,7 +186,7 @@ export class MissionBoard {
   private ownedLevel(name: string): number {
     const s = this.host.save();
     if (!s.owned.includes(name)) return 0;
-    return /^Weapon\//.test(name) ? weaponLevel(s.weaponHeat[name] ?? 0) : 10;
+    return s.gear[name]?.level ?? 1;
   }
 
   private render() {

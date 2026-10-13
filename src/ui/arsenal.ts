@@ -6,7 +6,7 @@ import type { GameData } from "../game/data";
 import { price, type Loadout } from "../game/save";
 import type { GuiContext } from "./gui";
 
-type Tab = "weapons" | "shield" | "armor" | "helmet" | "trinket" | "vitapod" | "craft";
+export type Tab = "weapons" | "shield" | "armor" | "helmet" | "trinket" | "vitapod" | "recipe" | "pickup" | "craft" | "sell";
 const TABS: { id: Tab; label: string; test: RegExp }[] = [
   { id: "weapons", label: "Weapons", test: /^Weapon\/(Sword|Handgun|Bomb)\// },
   { id: "shield", label: "Shields", test: /^Gear\/Shield\// },
@@ -14,24 +14,37 @@ const TABS: { id: Tab; label: string; test: RegExp }[] = [
   { id: "helmet", label: "Helmets", test: /^Gear\/Helm\// },
   { id: "trinket", label: "Trinkets", test: /^Gear\/Trinket\// },
   { id: "vitapod", label: "Vitapods", test: /^Gear\/Dungeon\/Vitapod\// },
+  { id: "recipe", label: "Recipes", test: /^Recipe\// },
+  { id: "pickup", label: "Supplies", test: /^Pickup\/(Capsule|Vial)\// },
   { id: "craft", label: "Craft", test: /^$/ },
+  { id: "sell", label: "Sell", test: /^$/ },
 ];
 
-/** What crafting needs from the player's save. */
+/** A recipe as the forge shows it (from the economy: src/game/economy.ts). */
+export interface CraftEntry { output: string; rarity: number; ok: boolean; lines: string[] }
+
+/** What crafting needs from the game (the economy decides costs and requirements). */
 export interface CraftHooks {
-  materials(): Record<string, number>;
-  /** An owned item's level (weapons level with heat), 0 when not owned. */
-  level(name: string): number;
-  crowns(): number;
-  /** Spends the inputs and adds the output; returns false if something was missing. */
-  craft(recipe: { output: string; materials: [string, number][]; consumes: string | null; cost: number }): boolean;
+  /** Recipes the knight can work toward, with what each needs. */
+  list(): CraftEntry[];
+  /** Every item some recipe makes. */
+  craftable(): Set<string>;
+  /** Crafts the item; false if something was missing. */
+  craft(output: string): boolean;
 }
+
+/** Selling back to a shop. */
+export interface SellHooks { list(): { name: string; price: number; label: string }[]; sell(name: string): boolean }
 const SKIP = /\/Parts\/|\/Dev\/|\(Dev\)|\bTEST\b|\/Test\/|PvP|\(Test\)|Tutorial|Promo/;
 
 interface Entry { name: string; label: string; kind: string; rarity: number; icon: any }
 
 /** What the window is showing: the knight's own gear, or a shop's stock. */
-export interface ShopMode { title: string; tabs: Tab[]; maxRarity: number }
+export interface ShopMode {
+  title: string; tabs: Tab[]; maxRarity: number;
+  /** The keeper's stock and prices; without it the shop sells every item of its tabs. */
+  stock?: { name: string; price: number; rarity?: number }[];
+}
 
 export class Arsenal {
   private tab: Tab = "weapons";
@@ -50,6 +63,10 @@ export class Arsenal {
 
   /** Set to enable the Craft tab. */
   crafting: CraftHooks | null = null;
+  /** Set to enable a shop's Sell tab. */
+  selling: SellHooks | null = null;
+  /** An owned item's name as shown (with its level and unique variants). */
+  describe: ((name: string) => string) | null = null;
 
   constructor(private readonly root: HTMLElement, private readonly data: GameData, private readonly gui: GuiContext,
     private readonly onChange: (l: Loadout) => void, private readonly bank: () => { crowns: number; heat: number },
@@ -61,6 +78,7 @@ export class Arsenal {
     this.shop = shop;
     if (tab) this.tab = tab;
     if (shop && !shop.tabs.includes(this.tab)) this.tab = shop.tabs[0];
+    if (!shop && ["sell", "recipe", "pickup"].includes(this.tab)) this.tab = "weapons";
     await this.data.preload("config/item.dat");
     this.root.hidden = false;
     this.fb("ui_open");
@@ -88,7 +106,7 @@ export class Arsenal {
     for (const name of lib.keys()) {
       if (!t.test.test(name) || SKIP.test(name)) continue;
       const impl = this.data.resolveSync("config/item.dat", { name }, "item");
-      if (!impl?.icon || (!impl.model && tab !== "trinket")) continue;
+      if (!impl?.icon || (!impl.model && tab !== "trinket" && tab !== "recipe" && tab !== "pickup")) continue;
       if (tab === "weapons" && !impl.attacks && !impl.chargedAttack) continue;
       const kind = String(impl.$class ?? "").split("$").pop() ?? "";
       list.push({ name, label: name.split("/").pop()!, kind: kind === "SwingingHandgun" ? "Handgun" : kind, rarity: impl.rarity ?? 0, icon: impl.icon });
@@ -100,8 +118,9 @@ export class Arsenal {
 
   private equipped(e: Entry): boolean {
     const l = this.loadout;
-    return this.tab === "weapons" ? l.weapons.includes(e.name) : this.tab === "trinket" ? l.trinkets.includes(e.name)
-      : this.tab !== "craft" && l[this.tab] === e.name;
+    const t = this.tab;
+    return t === "weapons" ? l.weapons.includes(e.name) : t === "trinket" ? l.trinkets.includes(e.name)
+      : (t === "shield" || t === "armor" || t === "helmet" || t === "vitapod") && l[t] === e.name;
   }
 
   private toggle(e: Entry) {
@@ -114,7 +133,7 @@ export class Arsenal {
       const i = l.trinkets.indexOf(e.name);
       if (i >= 0) l.trinkets.splice(i, 1);
       else { if (l.trinkets.length >= 2) l.trinkets.shift(); l.trinkets.push(e.name); }
-    } else if (this.tab !== "craft") {
+    } else if (this.tab === "shield" || this.tab === "armor" || this.tab === "helmet" || this.tab === "vitapod") {
       const slot = this.tab;
       l[slot] = l[slot] === e.name && slot !== "shield" ? "" : e.name;
     }
@@ -134,7 +153,8 @@ export class Arsenal {
     close.onclick = () => this.close();
     head.append(title, money, close);
     const tabs = el("div", "arsenal-tabs");
-    for (const t of TABS.filter(t => this.shop ? this.shop.tabs.includes(t.id) : t.id !== "craft" || !!this.crafting)) {
+    for (const t of TABS.filter(t => this.shop ? this.shop.tabs.includes(t.id) || (t.id === "sell" && !!this.selling)
+      : t.id === "craft" ? !!this.crafting : t.id !== "sell" && t.id !== "recipe" && t.id !== "pickup")) {
       const b = el("button", t.id === this.tab ? "active" : "", t.label);
       b.onclick = () => { this.tab = t.id; this.fb("ui_dropdown_select"); this.render(); };
       tabs.append(b);
@@ -172,99 +192,84 @@ export class Arsenal {
     this.fillGrid(grid);
   }
 
-  /** The recipe library (config/recipe.dat): ingredients and the item each makes. */
-  private async recipes(): Promise<Recipe[]> {
-    await this.data.preload("config/recipe.dat");
-    const lib = this.data.library_("config/recipe.dat");
-    const cached = RECIPE_CACHE.get(lib);
-    if (cached) return cached;
-    const out: Recipe[] = [];
-    for (const name of lib.keys()) {
-      const r = this.data.resolveSync("config/recipe.dat", { name }, "recipe");
-      const output = r?.item?.name;
-      if (!output || SKIP.test(output)) continue;
-      const item = this.data.resolveSync("config/item.dat", { name: output }, "item");
-      if (!item?.icon) continue;
-      const materials: [string, number][] = [];
-      let consumes: string | null = null, level = 0;
-      for (const ing of r.ingredients ?? []) {
-        const k = String(ing?.$class ?? "").split("$").pop();
-        if (k === "LevelItem" && ing.item?.name) { consumes = ing.item.name; level = ing.level ?? 0; }
-        else if (ing?.item?.name) materials.push([ing.item.name, ing.count ?? 1]);
-      }
-      out.push({ name, output, label: output.split("/").pop()!, rarity: item.rarity ?? 0, icon: item.icon, materials, consumes, level,
-        cost: Math.round(price(item.rarity ?? 0) / 2) });
-    }
-    out.sort((a, b) => a.rarity - b.rarity || a.label.localeCompare(b.label));
-    RECIPE_CACHE.set(lib, out);
-    return out;
+  /** A tile's icon, drawn into a small canvas. */
+  private iconCanvas(icon: any): HTMLCanvasElement {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 48;
+    if (icon) void this.gui.icon(icon).then(im => {
+      if (!im) return;
+      const g = cv.getContext("2d")!, s = Math.min(48 / im.width, 48 / im.height);
+      g.drawImage(im.source, (48 - im.width * s) / 2, (48 - im.height * s) / 2, im.width * s, im.height * s);
+    });
+    return cv;
   }
 
-  private async fillCraft(grid: HTMLElement) {
+  private itemIcon(name: string): any { return this.data.resolveSync("config/item.dat", { name }, "item")?.icon ?? null; }
+
+  private fillCraft(grid: HTMLElement) {
     const c = this.crafting;
     if (!c) return;
-    const owned = this.owned(), mats = c.materials(), q = this.filter.toLowerCase();
-    const list = (await this.recipes()).filter(r => !owned.has(r.output) && (!q || r.label.toLowerCase().includes(q))
-      // show recipes the knight could work toward: its base item owned, or no base item
-      && (!r.consumes || owned.has(r.consumes)));
+    const q = this.filter.toLowerCase();
+    const list = c.list().filter(r => !q || r.output.toLowerCase().includes(q));
     grid.replaceChildren();
     if (!list.length) { grid.append(el("p", "arsenal-summary", "Nothing to craft yet: recipes upgrade gear you own, using materials from the Clockworks.")); return; }
     for (const r of list.slice(0, 200)) {
-      const have = (n: string) => mats[n] ?? 0;
-      const ok = r.materials.every(([n, k]) => have(n) >= k) && (!r.consumes || c.level(r.consumes) >= r.level) && c.crowns() >= r.cost;
-      const tile = el("button", "arsenal-item craft" + (ok ? " equipped" : ""));
-      const cv = document.createElement("canvas");
-      cv.width = cv.height = 48;
-      void this.gui.icon(r.icon).then(im => {
-        if (!im) return;
-        const g = cv.getContext("2d")!, s = Math.min(48 / im.width, 48 / im.height);
-        g.drawImage(im.source, (48 - im.width * s) / 2, (48 - im.height * s) / 2, im.width * s, im.height * s);
-      });
-      const lines = [
-        ...(r.consumes ? [`${r.consumes.split("/").pop()} lv ${c.level(r.consumes)}/${r.level}`] : []),
-        ...r.materials.map(([n, k]) => `${n.split("/").pop()} ${have(n)}/${k}`),
-        `${r.cost} cr`,
-      ];
-      tile.append(cv, el("span", "arsenal-name", r.label), el("span", "arsenal-stars", "★".repeat(r.rarity)), el("span", "craft-needs", lines.join("\n")));
-      tile.onclick = () => { if (ok && c.craft({ output: r.output, materials: r.materials, consumes: r.consumes, cost: r.cost })) { this.fb("ui_merchant_trade_add"); this.render(); } };
+      const tile = el("button", "arsenal-item craft" + (r.ok ? " equipped" : ""));
+      tile.title = r.output;
+      tile.append(this.iconCanvas(this.itemIcon(r.output)), el("span", "arsenal-name", r.output.split("/").pop()!),
+        el("span", "arsenal-stars", "★".repeat(r.rarity)), el("span", "craft-needs", r.lines.join("\n")));
+      tile.onclick = () => { if (r.ok && c.craft(r.output)) { this.fb("ui_merchant_trade_add"); this.render(); } };
+      grid.append(tile);
+    }
+  }
+
+  private fillSell(grid: HTMLElement) {
+    const s = this.selling;
+    if (!s) return;
+    const q = this.filter.toLowerCase();
+    const list = s.list().filter(x => !q || x.label.toLowerCase().includes(q));
+    if (!list.length) { grid.append(el("p", "arsenal-summary", "Nothing to sell: equipped gear stays with you.")); return; }
+    for (const x of list.slice(0, 300)) {
+      const tile = el("button", "arsenal-item");
+      tile.title = x.name;
+      tile.append(this.iconCanvas(this.itemIcon(x.name)), el("span", "arsenal-name", x.label), el("span", "arsenal-price", `sell ${x.price} cr`));
+      tile.onclick = () => { if (s.sell(x.name)) { this.fb("ui_merchant_trade_remove"); this.render(); } };
       grid.append(tile);
     }
   }
 
   private summary(): string {
-    if (this.tab === "craft") return "Recipes from the game's recipe library. Crafting uses the materials and the base item (which must be levelled with heat).";
-    if (this.shop) return `Stock up to ${this.shop.maxRarity}★. Bought items go to your arsenal; owned items show a tick.`;
+    if (this.tab === "craft") return "Recipes from the game's recipe library. Crafting needs the recipe (bought from a recipe shop or Basil), its materials and crowns, and the base item at the level the recipe asks.";
+    if (this.tab === "sell") return "Sell unequipped gear and materials back for crowns.";
+    if (this.shop) return `Stock up to ${this.shop.maxRarity}★. Bought gear goes to your arsenal, recipes to the forge, supplies to your pocket.`;
     const l = this.loadout, last = (n: string) => n ? n.split("/").pop() : "default";
     return `Equipped: ${l.weapons.map(last).join(", ")} · ${last(l.shield)} · ${last(l.armor)} · ${last(l.helmet)}${l.trinkets.length ? " · " + l.trinkets.map(last).join(", ") : ""}. Changes apply on the next floor.`;
   }
 
   private fillGrid(grid: HTMLElement) {
     grid.replaceChildren();
-    if (this.showAll && !this.craftable) void this.recipes().then(list => { this.craftable = new Set(list.map(r => r.output)); this.fillGrid(grid); });
-    if (this.tab === "craft") { void this.fillCraft(grid); return; }
+    if (this.showAll && !this.craftable && this.crafting) this.craftable = this.crafting.craftable();
+    if (this.tab === "craft") { this.fillCraft(grid); return; }
+    if (this.tab === "sell") { this.fillSell(grid); return; }
     const q = this.filter.toLowerCase();
     const owned = this.owned();
+    const stock = this.shop?.stock ? new Map(this.shop.stock.map(s => [s.name, s.price])) : null;
+    const stars = new Map((this.shop?.stock ?? []).map(s => [s.name, s.rarity ?? 0]));
     let shown = 0;
     for (const e of this.entries(this.tab)) {
       if (q && !e.label.toLowerCase().includes(q)) continue;
-      // the arsenal holds what the knight owns; a shop sells what its tier allows
+      // the arsenal holds what the knight owns; a shop sells its keeper's stock
       const locked = !this.shop && !owned.has(e.name);
       if (locked && !this.showAll) continue;
-      if (this.shop && (e.rarity > this.shop.maxRarity || e.rarity < 1)) continue;
+      if (this.shop && (stock ? !stock.has(e.name) : e.rarity > this.shop.maxRarity || e.rarity < 1)) continue;
       if (++shown > 400) break;
       const tile = el("button", "arsenal-item" + (this.equipped(e) ? " equipped" : ""));
-      tile.title = `${e.name} (${e.rarity}★)`;
-      const c = document.createElement("canvas");
-      c.width = c.height = 48;
-      void this.gui.icon(e.icon).then(im => {
-        if (!im) return;
-        const g = c.getContext("2d")!;
-        const s = Math.min(48 / im.width, 48 / im.height);
-        g.drawImage(im.source, (48 - im.width * s) / 2, (48 - im.height * s) / 2, im.width * s, im.height * s);
-      });
-      tile.append(c, el("span", "arsenal-name", e.label), el("span", "arsenal-stars", "★".repeat(Math.max(0, e.rarity)) || "–"));
+      const label = !this.shop && this.describe && owned.has(e.name) ? this.describe(e.name) : e.label;
+      tile.title = `${label} (${e.rarity}★)`;
+      tile.append(this.iconCanvas(e.icon), el("span", "arsenal-name", label), el("span", "arsenal-stars", "★".repeat(Math.max(0, stars.get(e.name) ?? e.rarity)) || "–"));
       if (this.shop) {
-        const has = owned.has(e.name), cost = price(e.rarity);
+        // supplies stack in the pocket; everything else is bought once
+        const has = this.tab !== "pickup" && owned.has(e.name), cost = stock?.get(e.name) ?? price(e.rarity);
         tile.append(el("span", "arsenal-price", has ? "✓ owned" : `${cost} cr`));
         if (has) tile.classList.add("equipped");
         tile.onclick = () => { if (!has && this.buy(e.name, cost)) { this.fb("ui_merchant_trade_add"); this.render(); } };
@@ -280,10 +285,6 @@ export class Arsenal {
   }
 }
 
-interface Recipe { name: string; output: string; label: string; rarity: number; icon: any;
-  materials: [string, number][]; consumes: string | null; level: number; cost: number }
-
-const RECIPE_CACHE = new WeakMap<object, Recipe[]>();
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
