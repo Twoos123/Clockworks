@@ -12,19 +12,26 @@ import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
-import { Arsenal } from "./ui/arsenal";
-import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
-import type { ShopMode } from "./ui/arsenal";
+import { knightName, loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import { ECONOMY_FILES, Economy } from "./game/economy";
+import { Places } from "./ui/places";
+import { GameScreens } from "./ui/screens";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
+import { Outfit } from "./game/outfit";
+import { LoadingScreen, loadingInfo } from "./ui/loading";
+import { ElevatorScreen } from "./ui/elevator";
+import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, keyName, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { OptionsScreen } from "./ui/options";
+import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 import { bossArena, startBossFight, type BossFight } from "./game/bosses";
+import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
 import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
@@ -33,7 +40,7 @@ import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
-const TOWN = /haven|bazaar|\(|lobby/i;
+const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site/i;
 /**
  * The order a run takes through the cached levels, after the Clockworks: a stratum of
  * Jigsaw Valley, the terminal rest stop, deeper levels, then the Core terminal whose
@@ -51,8 +58,6 @@ const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
 /** Generated floor ids: "gen:<theme>:<seed>", or "gen:<theme>:<seed>:<boss>" for a boss arena. */
 const GEN = /^gen:([a-z-]+):(\d+)(?::([a-z]+))?$/;
 
-/** The name shown on the HUD name plate. */
-const KNIGHT_NAME = "Knight";
 import { invert } from "./math";
 import {
   canPickDirectory, DevServerVfs, FileListVfs, HandleVfs, recallHandle, rememberHandle, VfsError, type Vfs,
@@ -63,11 +68,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // ---------------------------------------------------------------- choosing the install
 
 async function start() {
-  if (GAME) {
-    document.title = "Spiral Knights";
-    document.querySelector("#welcome h1")!.textContent = "Spiral Knights";
-    document.querySelector("#welcome .card p")!.textContent =
-      "A single-player browser port of Spiral Knights that plays from your own game install. Nothing is uploaded or downloaded: the game's files stay on your computer.";
+  if (!GAME) {
+    document.title = "Clyde Web Viewer";
+    document.querySelector("#welcome h1")!.textContent = "Clyde Web Viewer";
+    $("welcomeIntro").textContent = "A browser viewer for models built with Three Rings' open-source Clyde engine. " +
+      "It reads models straight from your own game install. Files stay on your computer and are never uploaded.";
   }
   // Wire every control before any async work, so a folder picked immediately is not lost.
   $("pick").onclick = async () => {
@@ -108,7 +113,18 @@ async function start() {
       await open(() => new HandleVfs(saved).init());
     };
   }
-  if (location.hash.includes("dev=1") && !$("dev").hidden) await open(async () => new DevServerVfs());
+  if (location.hash.includes("dev=1") && !$("dev").hidden) return void await open(async () => new DevServerVfs());
+  if (GAME) {
+    // the game never asks for its install: the local server (npm start, or the dev server)
+    // finds it and serves it; without one the page explains how to start the game
+    if (!$("dev").hidden) return void await open(async () => new DevServerVfs());
+    $("welcome").querySelector(".actions")!.remove();
+    $("welcome").querySelectorAll(".hint").forEach(h => h.remove());
+    $("welcomeIntro").innerHTML = "Spiral Knights wasn't found on this computer.<br><br>Start the game with <code>npm start</code>: " +
+      "it finds your install (Steam or the standalone installer) by itself. If the game is somewhere unusual, " +
+      "set <code>SK_DIR</code> to its folder first.";
+  }
+  $("welcome").classList.add("ready");
 }
 
 function showWelcomeError(msg: string) {
@@ -191,7 +207,11 @@ class Viewer {
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
   private save: SaveData = loadSave();
-  private arsenal: Arsenal | null = null;
+  /** The guild hall and furniture, the Ready Room and knight creation (src/ui/places.ts). */
+  private readonly places: Places;
+  /** The battle sprite, accessories and costumes (game/outfit.ts); missions call outfit.setSprite. */
+  private outfit_: Outfit | null = null;
+  get outfit() { return this.outfit_ ??= new Outfit(this.loader, () => this.save, () => writeSave(this.save)); }
   /** Scenes in the install's cache, by name. */
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
@@ -208,6 +228,9 @@ class Viewer {
   private safeGen = new Set<string>();
   /** Names generated floors show (by scene id). */
   private genNames = new Map<string, string>();
+  /** Special floor styles (vault, danger, arena) by scene id, and the last floor's feature report. */
+  private genStyles = new Map<string, FloorStyle>();
+  genReport: FeatureReport | null = null;
   /** The boss of the floor being played, if any. */
   private bossFloor: BossKey | null = null;
   /** The mission board (src/ui/missions.ts), made on first use. */
@@ -246,6 +269,7 @@ class Viewer {
     this.renderer = new Renderer(this.canvas, vfs);
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
+    this.places = this.makePlaces();
     this.settings = new SettingsMenu($("settings"), this.options_, {
       changed: () => this.applyOptions(),
       playing: () => !!this.world,
@@ -272,7 +296,7 @@ class Viewer {
       void this.startPlaying();
     };
     // the run's menu buttons click with the game's button sound
-    for (const id of ["descend", "deeper", "revive", "giveUp", "clockworks", "arenaBtn"]) {
+    for (const id of ["descend", "deeper", "revive", "giveUp"]) {
       $(id).addEventListener("click", () => this.uiSound(id === "giveUp" ? "sound/feedback/ui_dismiss.ogg" : "sound/feedback/button_press.ogg"));
     }
     $("descend").onclick = () => void this.descend();
@@ -281,8 +305,6 @@ class Viewer {
       if (this.gate) { $("floorDone").hidden = true; this.paused = false; this.gate = null; void this.returnToHaven(); return; }
       void this.descend(true);
     };
-    $("clockworks").onclick = () => this.openGates();
-    $("arenaBtn").onclick = () => void this.enterArena();
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
     // reviving costs crowns from the bank (the game spends energy); giving up returns to town
     $("revive").onclick = () => {
@@ -296,6 +318,7 @@ class Viewer {
     };
     $("giveUp").onclick = () => {
       $("defeated").hidden = true;
+      this.reviveScreen?.close();
       this.run = { depth: 29, health: null, floors: 0 };
       // past the last level, descend() rides up to Haven; the floor's loot is lost
       void this.returnToHaven();
@@ -311,9 +334,10 @@ class Viewer {
     const typing = () => document.activeElement instanceof HTMLInputElement && document.activeElement.type !== "checkbox";
     addEventListener("keydown", e => {
       if (!this.world || typing()) return;
+      if (this.places.key(e)) { e.preventDefault(); return; }
       // Esc opens the options menu (and closes whatever window is open)
       if (e.key === "Escape") {
-        if (this.arsenal?.isOpen) { this.arsenal.close(); return; }
+        if (this.itemScreens?.escape()) return;
         if (this.settings?.isOpen) this.settings.close();
         else if (this.options?.isOpen) this.options.close();
         else { this.paused = true; void this.openOptions(); }
@@ -327,6 +351,7 @@ class Viewer {
       (["item1", "item2", "item3", "item4"] as const).forEach((a, i) => {
         if (b(a) && !e.repeat && !this.paused && this.world!.useItem(i)) writeSave(this.save);
       });
+      (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
       if (b("dash") && !e.repeat) this.dashPressed = true;
       if (b("help") && !e.repeat) $("playHint").hidden = !$("playHint").hidden;
@@ -336,6 +361,7 @@ class Viewer {
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       if (b("arsenal") && !e.repeat) void this.toggleArsenal();
+      if (b("backpack") && !e.repeat) void this.ensureScreens().toggleBackpack();
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
@@ -401,13 +427,56 @@ class Viewer {
   }
 
   private title: TitleScreen | null = null;
+  /** Music for each place and floor (src/game/music.ts), the loading and elevator screens. */
+  private readonly music = new MusicPlayer(() => this.ensureAudio());
+  private loadingScreen: LoadingScreen | null = null;
+  private elevator: ElevatorScreen | null = null;
+  private played = false;
+
+  private ensureAudio(): AudioSystem {
+    if (!this.audio) { this.audio = new AudioSystem(this.vfs, this.loader); this.audio.unlock(); this.applyOptions(); }
+    return this.audio;
+  }
+
+  /** The loading and elevator screens (game interfaces over the stage). */
+  private screens() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    const stage = this.canvas.parentElement!;
+    this.loadingScreen ??= new LoadingScreen(this.gui, stage);
+    if (!this.elevator) {
+      this.elevator = new ElevatorScreen(this.gui, stage, $("floorDone"), () => {
+        const w = this.world;
+        if (!w) return null;
+        const v = new PortraitView(this.renderer, this.loader, w.portraitRef(), "character/pc/animation_pose_dash.dat");
+        return (c, g, x, y, ww, h) => v.draw(c, g, x, y, ww, h);
+      });
+      this.elevator.onShow = () => this.music.stinger("elevator");
+    }
+    return { loading: this.loadingScreen, elevator: this.elevator };
+  }
+
+  /** Shows the loading screen for a scene about to load (in the game, not the asset viewer). */
+  private showLoading(id: string): LoadingScreen | null {
+    if (!GAME && !this.played) return null;
+    const { loading } = this.screens();
+    const f = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null;
+    const name = this.genNames.get(id) ?? this.sceneList.find(s => s.id === id)?.name ?? id;
+    void loading.show(loadingInfo(this.arenaMode ? "arena" : name, f, this.gate?.name));
+    loading.progress(0.05);
+    return loading;
+  }
 
   /** The title screen over Haven (the game app's start; the asset viewer lives behind #viewer). */
   private async enterTitle() {
     document.body.classList.add("game");
+    this.music.title();
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.title ??= new TitleScreen(this.gui, $<HTMLCanvasElement>("titleCanvas"), {
-      play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide(); void this.startPlaying(); },
+      play: () => {
+        this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide();
+        // a fresh save makes its knight first, then enters Haven
+        if (this.places.needsKnight()) void this.places.startCreation(); else void this.startPlaying();
+      },
       options: () => void this.openOptions(),
       viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
     });
@@ -459,8 +528,9 @@ class Viewer {
     // a boss's arena (src/game/bosses.ts): its own plan, props and gates
     if (boss) return bossArena(boss as BossKey, level.sources, Number(seed), this.genNames.get(id) ?? BOSSES[boss as BossKey].level, pool,
       { model: level.model, globals: level.globals });
+    const style = this.genStyles.get(id);
     const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
-      this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals });
+      this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals, layout: layoutFor(style) });
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
@@ -487,24 +557,31 @@ class Viewer {
     const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
     const walk = walkableCells(root, info);
     arenaRooms(root, (x, y) => walk.has(x + "," + y));
+    // puzzles, the floor style's special rooms and decoration (src/gen/features.ts)
+    this.genReport = addFeatures(root, { style, theme: key, tables, rand: rng(Number(seed) ^ 0x2545f491), walkable: (x, y) => walk.has(x + "," + y) });
     return root;
   }
 
   private async selectScene(id: string) {
     const token = ++this.loadToken;
     this.status("Loading scene " + id + "...");
+    const loading = this.showLoading(id);
     for (const li of $("scenes").children) li.classList.toggle("active", (li as HTMLElement).dataset.scene === id);
     for (const li of $("list").children) li.classList.remove("active");
     history.replaceState(null, "", "#scene=" + id);
     const t0 = performance.now();
     try {
       const progress = (done: number, total: number) => {
-        if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
+        if (token !== this.loadToken) return;
+        this.status("Loading scene: " + done + " of " + total + " objects");
+        loading?.progress(0.1 + 0.7 * done / Math.max(1, total));
       };
-      const scene = GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), (done, total) => {
-        if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
-      });
+      const special = GEN.test(id) ? null : await this.places.sceneRoot(id);
+      const scene = special ? await this.sceneLoader.loadRoot(id, special, progress)
+        : GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), progress);
+      loading?.progress(0.8);
       const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
+      loading?.progress(0.9);
       const env = await loadEnvironment(this.loader, scene.globals);
       for (const m of env.models) items.push({ instance: await this.instanceOf(m), matrix: identity() });
       const skyboxes = await Promise.all(env.skyboxes.map(m => this.instanceOf(m)));
@@ -526,8 +603,10 @@ class Viewer {
       const ms = Math.round(performance.now() - t0);
       this.status(scene.name + " · " + scene.objects.length.toLocaleString() + " objects · loaded in " + ms + " ms");
       this.showSceneInfo(scene);
+      loading?.done();
     } catch (e) {
       if (token !== this.loadToken) return;
+      loading?.done();
       this.status("Could not load scene " + id + ": " + (e as Error).message, true);
     }
   }
@@ -566,7 +645,7 @@ class Viewer {
     const { min, max } = this.scene.bounds;
     // knights arrive on the level's start platform, else near the middle
     const [sx, sy] = this.scene.start ?? [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2];
-    const spawn = this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
+    const spawn = this.places.spawn(this.scene.id) ?? this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
     // one-shot scene animations (the start elevator arriving) play from the top as the knight arrives
@@ -576,32 +655,35 @@ class Viewer {
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
       { audio: this.audio, depth: this.run.depth, arena: this.arenaMode && !TOWN.test(this.scene.name) });
     world.onArenaCheckpoint = wave => this.arenaCheckpoint(wave);
-    this.arsenal?.close();
+    this.itemScreens?.closeAll();
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
-    const town = TOWN.test(this.scene.name);
-    $("clockworks").hidden = !town;
-    $("arenaBtn").hidden = !town;
     world.color = this.save.color;
-    for (const [n, h] of Object.entries(this.save.weaponHeat)) world.weaponLevels.set(n, weaponLevel(h));
+    world.gear = this.save.gear;
+    if (this.eco) world.economy = this.eco;
+    // treasure on a family stratum drops that family's materials
+    const theme = this.gate ? this.floors[this.run.depth]?.stratum?.theme : null;
+    world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
     world.pocket = this.save.pocket;
+    await this.outfit.dress(world);
     await world.start(spawn, this.save.loadout);
+    this.eco ??= world.economy;
+    this.outfit.hotkeys = (["sprite1", "sprite2", "sprite3"] as const).map(a => keyName(this.bound(a)));
+    void this.outfit.accompany(world);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
-    // the scene's music (a weighted pick from its mix) and ambient loops
-    const music = this.environment.music;
-    if (music?.files.length) {
-      const total = music.files.reduce((t, f) => t + f.weight, 0);
-      let r = Math.random() * total;
-      const pick = music.files.find(f => (r -= f.weight) <= 0) ?? music.files[0];
-      void this.audio.playMusic(pick.file, music.gain);
-    }
+    // the floor's music (src/game/music.ts: gate floors by kind, theme and style, else the scene's own) and ambient loops
+    this.played = true;
+    this.screens();
+    this.music.enter({ scene: this.scene.name, sceneMusic: this.environment.music, world, arena: !!world.arena, boss: this.bossFloor,
+      floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null });
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
+    this.outfit.onRedress = () => portrait.setModelRef(world.portraitRef());
     // render views: the knight portrait, the heat meter's flame, the dash cooldown's ring and
     // the target panel's monster (a view per target)
     const heatView = new PortraitView(this.renderer, this.loader, undefined, null);
@@ -615,7 +697,7 @@ class Viewer {
         targetView.view.draw(c, g, x, y, w, h);
       } else (c.viewOwner === "cooldown" ? ringView : c.tag === "heat_view" ? heatView : portrait).draw(c, g, x, y, w, h);
     } });
-    void this.gameHud.init(hudState(world, KNIGHT_NAME)).catch(e => console.warn("HUD failed to load", e));
+    void this.gameHud.init(hudState(world, knightName(this.save))).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
@@ -628,19 +710,20 @@ class Viewer {
     document.body.classList.add("playing");
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
+    this.places.started(this.scene.id);
   }
 
   private stopPlaying() {
     if (!this.world) return;
+    this.outfit.leave(this.world);
     this.world = null;
     this.gameHud = null;
+    this.music.leave();
     this.audio?.stopMusic(1);
     this.audio?.stopAmbience();
     this.hud?.clear();
     $("defeated").hidden = true;
     $("floorDone").hidden = true;
-    $("clockworks").hidden = true;
-    $("arenaBtn").hidden = true;
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
@@ -650,7 +733,12 @@ class Viewer {
 
   /** Where the mouse points on the knight's ground plane, for aiming attacks. */
   private aimPoint(): [number, number] | null {
-    if (!this.mouse || !this.lastProj || !this.lastView || !this.world) return null;
+    return this.world ? this.rayPoint(this.world.knight.z + 0.5) : null;
+  }
+
+  /** Where the pointer's ray meets the horizontal plane at height gz. */
+  private rayPoint(gz: number): [number, number] | null {
+    if (!this.mouse || !this.lastProj || !this.lastView) return null;
     const c = this.canvas;
     const nx = (this.mouse[0] / c.clientWidth) * 2 - 1, ny = 1 - (this.mouse[1] / c.clientHeight) * 2;
     const inv = invert(multiplyMat(this.lastProj, this.lastView));
@@ -660,7 +748,6 @@ class Viewer {
         (inv[2] * x + inv[6] * y + inv[10] * z + inv[14]) / w];
     };
     const a = un(nx, ny, -1), b = un(nx, ny, 1);
-    const gz = this.world.knight.z + 0.5;
     const t = (gz - a[2]) / (b[2] - a[2]);
     if (!isFinite(t)) return null;
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
@@ -688,12 +775,34 @@ class Viewer {
     return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase()) : `Depth ${this.run.depth}`;
   }
 
-  /** Opens or closes the arsenal; the world pauses while it is open. */
-  private async toggleArsenal(tab?: "craft" | "weapons") {
-    const arsenal = this.ensureArsenal();
-    if (arsenal.isOpen) { arsenal.close(); this.paused = false; this.canvas.focus(); return; }
-    this.paused = !!this.world;
-    await arsenal.open(this.save.loadout, null, tab);
+  private itemScreens: GameScreens | null = null;
+  private previewView: { key: string; view: PortraitView } | null = null;
+
+  /** The game's item windows: arsenal, forge, shops, backpack (src/ui/screens.ts). */
+  private ensureScreens() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.itemScreens ??= new GameScreens({
+      gui: this.gui, colors: this.renderer.colors, eco: () => this.economy(),
+      data: () => this.world?.data ?? new GameData(this.loader),
+      save: () => this.save, sound: f => this.uiSound(f),
+      write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); },
+      paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
+      arsenalClosed: () => this.places.arsenalClosed(),
+      // the equipment window's knight preview
+      view: (c, g, x, y, w, h) => {
+        const ref = this.world?.portraitRef();
+        if (!ref) return;
+        const key = JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v));
+        if (this.previewView?.key !== key) this.previewView = { key, view: new PortraitView(this.renderer, this.loader, ref) };
+        this.previewView.view.draw(c, g, x, y, w, h);
+      },
+    });
+  }
+
+  /** Opens or closes the arsenal (or the forge); the world pauses while it is open. */
+  private async toggleArsenal(tab?: "craft") {
+    const screens = this.ensureScreens();
+    await (tab === "craft" ? screens.toggleForge() : screens.toggleArsenal());
   }
 
   /** Applies the options menu's settings to audio, rendering, the HUD and input. */
@@ -730,20 +839,56 @@ class Viewer {
   /** A HUD button was clicked (the corner menus and the activities panel). */
   private hudAction(tag: string) {
     this.uiSound("sound/feedback/ui_confirm.ogg");
+    if (this.places.hudAction(tag)) return;
     switch (tag) {
       case "button_menu": this.openSettings(); break;
       case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
       case "button_feed": this.openFeed(); break;
       case "button_mail": this.openMail(); break;
-      case "button_loadout": case "button_gear": case "button_arsenal": void this.toggleArsenal(); break;
+      case "button_loadout": case "button_gear": void this.toggleArsenal(); break;
+      case "button_arsenal": void this.ensureScreens().toggleBackpack(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
       case "button_missions": void this.missions().toggle(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
-      case "button_guildhall": case "button_social": void this.goToGuildHall(); break;
       default: break;
     }
+  }
+
+  /** The guild, Ready Room and knight creation module's view of the viewer. */
+  private makePlaces(): Places {
+    let data: GameData | null = null;
+    const places = new Places({
+      vfs: this.vfs,
+      sceneLoader: this.sceneLoader,
+      gui: () => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)),
+      data: () => this.world?.data ?? (data ??= new GameData(this.loader)),
+      instanceOf: m => this.instanceOf(m),
+      save: () => this.save,
+      write: () => writeSave(this.save),
+      scene: () => this.scene,
+      pick: z => this.rayPoint(z),
+      knightZ: () => this.world?.knight.z ?? 0,
+      sound: f => this.uiSound(f),
+      sceneList: () => this.sceneList,
+      go: async id => { this.stopPlaying(); await this.selectScene(id); await this.startPlaying(); },
+      restart: async () => { this.stopPlaying(); await this.startPlaying(); },
+      world: () => this.world,
+      camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; },
+      openArsenal: async () => { if (!this.itemScreens?.arsenal.isOpen) await this.toggleArsenal(); },
+      arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
+      colors: () => this.renderer.colors,
+      returnToHaven: () => void this.returnToHaven(),
+      pause: on => { this.paused = on && !!this.world; },
+      focus: () => this.canvas.focus(),
+    });
+    places.onCreated = () => {
+      this.run = { depth: 1, health: null, floors: 0 };
+      const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+      if (haven) void (async () => { this.stopPlaying(); await this.selectScene(haven.id); await this.startPlaying(); })();
+    };
+    return places;
   }
 
   private missions(): MissionBoard {
@@ -754,6 +899,14 @@ class Viewer {
       pause: on => { this.paused = on && !!this.world; },
       startRun: (g, floors) => void this.enterGate(g, floors),
       openGates: () => this.openGates(),
+      // the sprite missions (Drakon, Maskeraith, Seraphynx) give the knight that battle sprite
+      completed: m => {
+        const sprite = /(Drakon|Maskeraith|Seraphynx)/.exec(m.title)?.[1];
+        if (sprite) void this.outfit.spriteNames().then(names => {
+          const name = names.find(n => n.toLowerCase().includes(sprite.toLowerCase()));
+          if (name) this.outfit.setSprite(name);
+        });
+      },
     });
   }
 
@@ -814,15 +967,6 @@ class Viewer {
     writeSave(this.save);
   }
 
-  /** Your guild hall: the cached hall scene. */
-  private async goToGuildHall() {
-    const hall = this.sceneList.find(s => /^hall\b/i.test(s.name));
-    if (!hall) { this.status("No guild hall in the scenes cache yet.", true); return; }
-    this.stopPlaying();
-    await this.selectScene(hall.id);
-    await this.startPlaying();
-  }
-
   /** The settings menu (filled in by the settings module). */
   private openSettings() { this.paused = !!this.world; void this.openOptions(); }
 
@@ -850,67 +994,54 @@ class Viewer {
     this.audio.ui(file);
   }
 
-  private ensureArsenal() {
-    if (!this.gui) this.gui = new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    this.arsenal ??= new Arsenal($("arsenal"), this.world?.data ?? new GameData(this.loader), this.gui,
-      l => { this.save.loadout = l; writeSave(this.save); },
-      () => ({ crowns: this.save.crowns, heat: this.save.heat }),
-      () => new Set(this.save.owned),
-      (name, cost) => {
-        if (this.save.crowns < cost || this.save.owned.includes(name)) return false;
-        this.save.crowns -= cost;
-        this.save.owned.push(name);
-        writeSave(this.save);
-        return true;
-      });
-    this.arsenal.onClose = () => { this.paused = false; this.canvas.focus(); };
-    this.arsenal.sound = file => this.uiSound(file);
-    this.arsenal.crafting = {
-      materials: () => this.save.materials,
-      level: name => this.save.owned.includes(name) ? (/^Weapon\//.test(name) ? weaponLevel(this.save.weaponHeat[name] ?? 0) : 10) : 0,
-      crowns: () => this.save.crowns,
-      craft: r => {
-        if (this.save.crowns < r.cost || r.materials.some(([n, k]) => (this.save.materials[n] ?? 0) < k)) return false;
-        this.save.crowns -= r.cost;
-        for (const [n, k] of r.materials) this.save.materials[n] -= k;
-        if (r.consumes) {
-          // the base item becomes the new one, wherever it was equipped
-          this.save.owned = this.save.owned.filter(o => o !== r.consumes);
-          const l = this.save.loadout;
-          l.weapons = l.weapons.map(w => (w === r.consumes ? r.output : w));
-          for (const slot of ["shield", "armor", "helmet"] as const) if (l[slot] === r.consumes) l[slot] = r.output;
-          if (this.save.weaponHeat[r.consumes] !== undefined) this.save.weaponHeat[r.output] = 0;
-        }
-        this.save.owned.push(r.output);
-        writeSave(this.save);
-        return true;
-      },
-    };
-    this.arsenal.color = this.save.color;
-    this.arsenal.onColor = print => { this.save.color = print; writeSave(this.save); };
-    // the personal colour class (the default print's class) and its named colours
-    void this.renderer.colors.then(pos => {
-      const cls = pos?.classes.get(this.save.color >> 8);
-      if (!pos || !cls || !this.arsenal) return;
-      this.arsenal.colors = [...cls.colors.values()].map(c => {
-        const z = pos.byPrint((cls.classId << 8) | c.colorId);
-        return { print: (cls.classId << 8) | c.colorId, name: c.name, rgb: z ? z.colorizedRoot() : [128, 128, 128] as [number, number, number] };
-      });
-      this.arsenal.refresh();
-    });
-    return this.arsenal;
-  }
-
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
   private async openShop(keeper: string) {
-    const k = keeper.toLowerCase();
-    const tabs: ShopMode["tabs"] = /sword|gun|bomb|weapon/.test(k) ? ["weapons"] : /armor|helm/.test(k) ? ["armor", "helmet"]
-      : /shield/.test(k) ? ["shield", "trinket"] : /trinket|jewel/.test(k) ? ["trinket"] : ["weapons", "shield", "armor", "helmet", "trinket", "vitapod"];
     this.paused = true;
-    // in the Clockworks a terminal's Supply Depot stocks gear for its tier
+    const eco = await this.economy();
+    // in the Clockworks a terminal's keepers stock their tier (Basil sells its recipes, the
+    // Supply Depot its supplies); Haven's bazaar shows what progress has unlocked
     const f = this.gate ? this.floors[this.run.depth] : null;
+    const tier = f && f.depth > 0 ? f.tier : 0;
     const maxRarity = f ? Math.max(shopTier(this.save), tierStars(f.tier)) : shopTier(this.save);
-    await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity });
+    const kp = eco.keeper(keeper, { tier, maxRarity });
+    // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
+    const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
+    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity);
+  }
+
+  /** The economy over the install's configs (prices, levels, variants, recipes). */
+  private eco: Economy | null = null;
+  private async economy(): Promise<Economy> {
+    if (this.eco) return this.eco;
+    const data = this.world?.data ?? new GameData(this.loader);
+    await data.preload(...ECONOMY_FILES);
+    return this.eco ??= new Economy(f => data.library_(f));
+  }
+
+  /**
+   * Banks a floor's loot: crowns, materials and minerals; gear found joins the arsenal (a
+   * duplicate sells for its price); the heat goes into every equipped heatable item, which
+   * levels up. Returns lines describing found gear and level-ups.
+   */
+  private bankLoot(l: World["loot"]): string[] {
+    const notes: string[] = [];
+    const eco = this.eco ?? this.world?.economy ?? null;
+    this.save.crowns += l.crowns;
+    this.save.heat += l.heat;
+    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
+    for (const it of l.items) {
+      if (!eco) break;
+      if (this.save.owned.includes(it.name)) {
+        const paid = eco.sellPrice(it.name);
+        this.save.crowns += paid;
+        notes.push(`${eco.displayName(it.name, { heat: 0, level: 1, variants: it.variants })} (already owned: sold for ${paid} cr)`);
+      } else {
+        eco.grant(this.save, it.name, it.variants);
+        notes.push(`Found ${eco.displayName(it.name, this.save.gear[it.name])}`);
+      }
+    }
+    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${up.name.split("/").pop()} reached level ${up.level}`);
+    return notes;
   }
 
   /** The knight reached the exit elevator: offer the next floor. */
@@ -918,11 +1049,7 @@ class Viewer {
     if (!this.world) return;
     // bank what the floor gave
     const l = this.world.loot;
-    this.save.crowns += l.crowns;
-    this.save.heat += l.heat;
-    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
-    // equipped weapons absorb the floor's heat
-    for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
+    const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
     const t = this.runTotals;
     t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
@@ -934,6 +1061,7 @@ class Viewer {
     if (this.gate) {
       // in a gate: on to the next depth, or ride back up to Haven with the loot banked
       const next = this.floors[this.run.depth + 1];
+      this.elevator?.setNext(next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" });
       $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
       $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
       $("deeper").textContent = "Return to Haven";
@@ -943,13 +1071,16 @@ class Viewer {
       if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
       const last = this.nextLevel() === null;
+      const nl = this.nextLevel();
+      this.elevator?.setNext(nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" });
       $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
       $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
       // past the Core the Clockworks go on: cycle the levels again, deeper
       $("deeper").hidden = !last || this.run.depth >= 29;
     }
     const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
-    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} other pickups.`;
+    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} materials.`
+      + (notes.length ? ` ${notes.join(". ")}.` : "");
     $("floorDone").hidden = false;
   }
 
@@ -970,15 +1101,13 @@ class Viewer {
   private arenaCheckpoint(wave: number) {
     if (!this.world) return;
     const l = this.world.loot;
-    this.save.crowns += l.crowns;
-    this.save.heat += l.heat;
-    for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
-    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
-    l.crowns = 0; l.heat = 0; l.materials.clear();
+    const notes = this.bankLoot(l);
+    l.crowns = 0; l.heat = 0; l.materials.clear(); l.items.length = 0;
     writeSave(this.save);
     this.paused = true;
     $("floorTitle").textContent = `Arena: wave ${wave} cleared`;
-    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.`;
+    this.elevator?.setNext({ title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" });
+    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.` + (notes.length ? ` ${notes.join(". ")}.` : "");
     $("descend").textContent = "Ride up to Haven";
     $("deeper").textContent = "Fight on";
     $("deeper").hidden = false;
@@ -986,6 +1115,40 @@ class Viewer {
   }
 
   /** Crowns a revive costs: more the deeper the knight is (towns are free). */
+  private reviveScreen: ReviveScreen | null = null;
+
+  /** The knockout window: use a Spark of Life, or buy one with crowns. */
+  private async openRevive() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    const sparkView = new PortraitView(this.renderer, this.loader, undefined, null);
+    this.reviveScreen ??= new ReviveScreen(this.gui, $<HTMLCanvasElement>("reviveCanvas"), {
+      sparks: () => this.save.sparks ?? 3,
+      price: () => this.reviveCost(),
+      crowns: () => this.save.crowns,
+      use: () => {
+        const n = this.save.sparks ?? 3;
+        if (n <= 0 || !this.world) return false;
+        this.save.sparks = n - 1;
+        writeSave(this.save);
+        this.world.revive();
+        $("defeated").hidden = true;
+        this.uiSound("sound/feedback/ui_confirm.ogg");
+        this.canvas.focus();
+        return true;
+      },
+      buy: () => {
+        const cost = this.reviveCost();
+        if (this.save.crowns < cost) return false;
+        this.save.crowns -= cost;
+        this.save.sparks = (this.save.sparks ?? 3) + 1;
+        writeSave(this.save);
+        return true;
+      },
+      sound: f => this.uiSound(f),
+    }, { view: (c, g, x, y, w, h) => sparkView.draw(c, g, x, y, w, h) });
+    await this.reviveScreen.open();
+  }
+
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
   private async returnToHaven() {
@@ -1159,7 +1322,7 @@ class Viewer {
       return { id, name: "Moorcroft Manor" };
     }
     const s = f.stratum!;
-    if (f.kind === "level" && s.style.cached) {
+    if (f.kind === "level" && s.style.cached && !f.special) {
       const options = this.sceneList.filter(sc => s.style.cached!.test(sc.name) && !this.usedScenes.has(sc.id));
       if (options.length && Math.random() < 0.5) { this.usedScenes.add(options[0].id); return options[0]; }
     }
@@ -1168,6 +1331,7 @@ class Viewer {
     const id = f.kind === "boss" ? `gen:${theme}:${seed}:${s.boss}` : `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
+    if (f.special) this.genStyles.set(id, f.special);
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   private usedScenes = new Set<string>();
@@ -1452,6 +1616,8 @@ class Viewer {
           return;
         }
       }
+      // furniture mode: clicks place, pick up and drop furniture instead of attacking
+      if (this.world && this.places.pointerDown(e.button)) return;
       if (this.world && (e.button === 0 || e.button === 2)) {
         // play mode: left attacks (hold to charge), right raises the shield
         // Shift + right click dashes (the game's default binding); right click alone shields
@@ -1547,11 +1713,11 @@ class Viewer {
           this.target[2] + (k.z + 1 - this.target[2]) * f];
         if ($("defeated").hidden === this.world.defeated) {
           $("defeated").hidden = !this.world.defeated;
+          // the game's revive window (Sparks of Life); in town the knight simply gets up
           if (this.world.defeated) {
-            const cost = this.reviveCost();
-            $("reviveInfo").textContent = TOWN.test(this.scene?.name ?? "") ? "" : `Reviving costs ${cost} crowns (you have ${this.save.crowns}).`;
-            ($("revive") as HTMLButtonElement).disabled = this.save.crowns < cost;
-          }
+            if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); $("defeated").hidden = true; }
+            else void this.openRevive();
+          } else this.reviveScreen?.close();
         }
       }
       const eye: Vec3 = [
@@ -1575,16 +1741,17 @@ class Viewer {
           const shift = Math.max(0, this.dist - (env.camera?.distance ?? this.dist));
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
-        const items = this.world ? [...this.sceneItems, ...this.world.items()] : this.sceneItems;
+        const items = this.world ? [...this.sceneItems, ...this.world.items(), ...this.places.items()] : this.sceneItems;
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
         if (this.scene && this.options_.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
+        this.places.drawMarks(this.renderer, proj, view);
         if (this.world && this.options_.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;
         this.lastView = view;
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
+          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
           this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }

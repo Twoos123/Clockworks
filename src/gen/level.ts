@@ -6,7 +6,8 @@
 // and the source's lighting, fog, music and camera globals.
 
 import { learn, paint, type TileModel } from "./autotile";
-import { generateLayout, rng, type Layout, type Room } from "./layout";
+import { generateLayout, rng, type Layout, type LayoutOptions, type Room } from "./layout";
+import { State } from "./autotile";
 
 const clone = <T>(o: T): T => JSON.parse(JSON.stringify(o, (k, v) => (k === "$outer" ? undefined : v)));
 const CLS = "com.threerings.tudey.data.TudeySceneModel$";
@@ -34,8 +35,10 @@ export interface TileInfo { width: number; height: number; walkable: boolean }
 export interface LevelOptions {
   model?: TileModel;
   globals?: any[];
+  /** Options for the generated layout. */
+  layout?: LayoutOptions;
   /** A fixed floor plan instead of a generated one (`deep`: the theme's edges run two cells deep). */
-  layout?: (deep: boolean) => Layout;
+  plan?: (deep: boolean) => Layout;
   /** Encounter rooms with spawners and treasure (default true). */
   encounters?: boolean;
 }
@@ -48,7 +51,9 @@ const models = new Map<string, TileModel>();
  * tile reference's footprint and whether it is walkable floor (resolved from config/tile.dat).
  * `opts.model` is a ready tiling (a theme's: see src/gen/themes.ts) used instead of learning
  * from the sources, and `opts.globals` the GlobalEntry records used instead of the first
- * source's; `sources` may then be empty, the wiring coming from `pool`.
+ * source's; `sources` may then be empty, the wiring coming from `pool`. `opts.layout` shapes the
+ * floor plan (an arena floor's big hall). The root carries the plan as `gen` (rooms, start,
+ * exit, floor cells) for the post-processing in src/gen/features.ts.
  */
 export function generateLevel(sources: { id: string; root: any }[], tileInfo: (ref: any) => TileInfo, seed: number, title: string,
   pool: any[] = [], opts: LevelOptions = {}): any {
@@ -59,7 +64,7 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
     model = learn(sources.map(s => s.root), r => { const t = tileInfo(r); return [t.width, t.height]; }, r => tileInfo(r).walkable);
     models.set(key, model);
   }
-  const layout = opts.layout ? opts.layout(model.deepEdges > 0.25) : generateLayout(rand, { deepEdges: model.deepEdges > 0.25 });
+  const layout = opts.plan ? opts.plan(model.deepEdges > 0.25) : generateLayout(rand, { ...opts.layout, deepEdges: model.deepEdges > 0.25 });
   const painted = paint(model, layout.cells, rand);
 
   // --- the tile grid: CoordIntMap cells of 8x8, values (config << 16 | elevation << 2 | rotation)
@@ -127,5 +132,7 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
     if (treasure.length && rand() < 0.45) place(treasure[0], r.x + 1.5 + (rand() < 0.5 ? 0 : r.w - 3), r.y + 1.5 + (rand() < 0.5 ? 0 : r.h - 3));
   });
 
-  return { $class: "com.threerings.tudey.data.TudeySceneModel", name: title, sceneId: 0, version: 0, tiles, tileConfigs, entries };
+  const gen = { rooms: layout.rooms, start: layout.start, exit: layout.exit,
+    floor: [...layout.cells].filter(([, s]) => s === State.Floor).map(([k]) => k) };
+  return { $class: "com.threerings.tudey.data.TudeySceneModel", name: title, sceneId: 0, version: 0, tiles, tileConfigs, entries, gen };
 }

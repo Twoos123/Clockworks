@@ -9,7 +9,7 @@ import { compose, type Mat4 } from "../math";
 import type { ModelInstance } from "../render/renderer";
 import type { Entity } from "./logic";
 
-export type PropKind = "door" | "switch" | "block" | "lift" | "pickup" | "elevator" | "generic";
+export type PropKind = "door" | "switch" | "block" | "lift" | "pickup" | "elevator" | "trap" | "generic";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 
@@ -22,8 +22,22 @@ export function propKind(cfg: any): PropKind {
     case "DungeonLift": case "PickupLift": return "lift";
     case "Pickup": return "pickup";
     case "Elevator": case "ShadowLairElevator": return "elevator";
+    case "Trap": return "trap";
     default: return "generic";
   }
+}
+
+/**
+ * Floor traps (DungeonActorConfig$Trap, the spike plates): the closed code cycles them through
+ * their three sprite states, retracted, warning and extended, and their intersection handler
+ * strikes whatever stands on them while extended. Cycle A and cycle B run half a period apart
+ * so neighbouring plates alternate. The timings are ours (seconds).
+ */
+export const TRAP_CYCLE = { period: 3.2, warning: 1.7, extend: 2.3 };
+export type TrapState = 0 | 1 | 2;
+export function trapState(clock: number, cycleB: boolean): TrapState {
+  const t = ((clock + (cycleB ? TRAP_CYCLE.period / 2 : 0)) % TRAP_CYCLE.period + TRAP_CYCLE.period) % TRAP_CYCLE.period;
+  return t >= TRAP_CYCLE.extend ? 2 : t >= TRAP_CYCLE.warning ? 1 : 0;
 }
 
 export class Prop {
@@ -50,6 +64,11 @@ export class Prop {
    */
   strikable = false;
   cooldownUntil = 0;
+  /** Traps: the cycle state shown, the half-size of the struck square, the cycle. */
+  trapState: TrapState = 0;
+  trapHalf = 0.5;
+  trapB = false;
+  trapDamage: any = null;
   constructor(readonly kind: PropKind, readonly entity: Entity, readonly cfg: any) {}
 
   get x() { return this.entity.x; }

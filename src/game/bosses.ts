@@ -104,7 +104,7 @@ export function bossArena(key: BossKey, sources: { id: string; root: any }[], se
   theme: Pick<LevelOptions, "model" | "globals"> = {}): any {
   const plan = arenaPlan(key);
   const root = generateLevel(sources, () => ({ width: 1, height: 1, walkable: false }), seed, title, pool,
-    { ...theme, layout: deep => planLayout(plan, deep), encounters: false });
+    { ...theme, plan: deep => planLayout(plan, deep), encounters: false });
   const entries: any[] = root.entries;
   let id = entries.reduce((m, e) => Math.max(m, e.id ?? 0), 0) + 1;
   for (const [x, y] of plan.gates) entries.push(place(id++, GATE, [["Open", true], ["Tag", GATE_TAG]], x, y, 0));
