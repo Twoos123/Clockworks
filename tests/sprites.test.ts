@@ -79,7 +79,7 @@ test("the roster chooses, feeds from the materials and saves", () => {
   let writes = 0, changes = 0;
   const roster = new SpriteRoster(() => save, () => { writes++; }, () => new Map([["Drakon", DRAKON], ["Seraphynx", DRAKON]]));
   roster.onChange = () => { changes++; };
-  assert.equal(roster.active()?.name, "Drakon", "the default sprite");
+  assert.equal(roster.active(), null, "no sprite until one is chosen");
   assert.equal(roster.setSprite("Nope"), false);
   assert.equal(roster.setSprite("Seraphynx"), true);
   assert.equal(save.sprites.active, "Seraphynx");

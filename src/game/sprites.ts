@@ -203,7 +203,8 @@ export const DEFAULT_SPRITE = "Drakon";
 export const STARTER_SPRITES = ["Drakon", "Maskeraith", "Seraphynx"];
 
 export function normalizeSpriteSave(s: Partial<SpriteSave> | undefined | null): SpriteSave {
-  const out: SpriteSave = { active: typeof s?.active === "string" ? s.active : DEFAULT_SPRITE, chosen: !!s?.chosen, sprites: {} };
+  // a knight has no sprite until one is chosen (the "Choose Your Sprite" missions, rank 2)
+  const out: SpriteSave = { active: typeof s?.active === "string" ? s.active : "", chosen: !!s?.chosen, sprites: {} };
   for (const [k, v] of Object.entries(s?.sprites ?? {})) out.sprites[k] = normalizeProgress(v, k);
   if (out.active && !out.sprites[out.active]) out.sprites[out.active] = newProgress(out.active);
   return out;
