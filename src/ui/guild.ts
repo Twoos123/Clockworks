@@ -5,6 +5,7 @@
 
 import type { SaveData } from "../game/save";
 import { EMBLEM_COLORS, EMBLEM_SYMBOLS, guildOf, transfer, type Emblem } from "../game/guild";
+import { itemName } from "../game/text";
 import { el, injectStyle } from "./panel";
 
 export interface GuildHooks {
@@ -182,7 +183,7 @@ export class GuildWindow {
         const one = el("button", "", toVault ? "1 →" : "← 1"), all = el("button", "", toVault ? "All →" : "← All");
         one.onclick = () => move(n, 1, toVault);
         all.onclick = () => move(n, items[n], toVault);
-        row.append(el("span", "", n.split("/").pop() ?? n), el("span", "", String(items[n])), one, all);
+        row.append(el("span", "", itemName(n)), el("span", "", String(items[n])), one, all);
         row.title = n;
         list.append(row);
       }

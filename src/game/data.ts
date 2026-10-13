@@ -9,6 +9,7 @@ import { applyArguments, getArg } from "../config/params";
 import type { ModelLoader } from "../model";
 import { DepthScales } from "./depth";
 import { resolveRef } from "./logic";
+import { setItemResolver } from "./text";
 
 const kind = (o: any) => (o?.$class ?? "").substring((o?.$class ?? "").lastIndexOf("$") + 1);
 
@@ -75,6 +76,8 @@ export interface AttackDef {
 
 export interface MonsterDef {
   name: string;
+  /** The monster's name key in the monster bundle (its description config's dname, "n.blast_cube"). */
+  nameKey: string | null;
   model: any;
   scale: number;
   radius: number;
@@ -218,7 +221,29 @@ export class GameData {
 
   /** Loads config libraries so the synchronous lookups below can use them. */
   async preload(...files: string[]) {
-    for (const f of files) this.loaded.set(f, await this.library(f));
+    for (const f of files) {
+      const lib = await this.library(f);
+      this.loaded.set(f, lib);
+      if (f === "config/item.dat") setItemResolver(name => resolveRef(lib, { name }, "item"));
+    }
+  }
+
+  /**
+   * A DescriptionConfig (config/description.dat) through its derivations, arguments applied:
+   * dname is its name key, title and description its other text, in the bundle its kind names.
+   */
+  async description(ref: any): Promise<{ dname: string; title: string; description: string } | null> {
+    if (!ref?.name) return null;
+    const lib = await this.library("config/description.dat");
+    let cfg: any = null, r = ref;
+    for (let i = 0; i < 10 && r?.name; i++) {
+      const base = lib.get(r.name);
+      if (!base) return null;
+      cfg = applyArguments(base, r);
+      if (!String(cfg.$class ?? "").endsWith("DerivedConfig")) break;
+      r = cfg.base;
+    }
+    return cfg ? { dname: cfg.dname ?? "", title: cfg.title ?? "", description: cfg.description ?? "" } : null;
   }
 
   /** resolve() for a preloaded library, synchronously (game logic spawns immediately). */
@@ -341,8 +366,10 @@ export class GameData {
     const chase = m.targetedSpeed ?? m.speed ?? 2;
     const movement = ((sprite.targetedMovements ?? sprite.movements ?? []) as any[]).filter(Boolean)
       .reduce((best: any, x: any) => !best || Math.abs((x.speed ?? 2) - chase) < Math.abs((best.speed ?? 2) - chase) ? x : best, null);
+    const desc = await this.description(m.property).catch(() => null);
     return {
       name: ref?.name ?? "",
+      nameKey: desc?.dname || null,
       model: sprite.model,
       scale: sprite.scale ?? 1,
       radius: m.shape?.radius ?? 0.5,

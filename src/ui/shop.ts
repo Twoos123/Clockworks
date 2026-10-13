@@ -148,7 +148,7 @@ export class ShopScreen extends GuiScreen {
 
   private tip(e: StockItem, flavor: string) {
     const it = this.eco!.info(e.name);
-    return itemTip({ label: itemLabel(e.name), type: TYPES[it?.category ?? ""] ?? "Item", rarity: e.rarity, flavor, lines: [`${fmt(e.price)} crowns`] });
+    return itemTip({ label: itemLabel(e.name), type: TYPES[it?.category ?? ""] ?? "Item", rarity: e.rarity, flavor, item: e.name, kind: it?.category ?? "item", lines: [`${fmt(e.price)} crowns`] });
   }
 
   protected async refresh() {

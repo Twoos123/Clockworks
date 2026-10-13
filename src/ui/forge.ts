@@ -122,6 +122,7 @@ export class ForgeScreen extends GuiScreen {
         return { key: r.name, label: itemLabel(r.output), rarity: r.rarity, icon: this.iconOf(r.output),
           look: ok ? "False - Green" as const : known ? "False" as const : "False - Red" as const,
           tip: itemTip({ label: itemLabel(r.output), type: this.catOf(r)?.label.replace(/s$/, "") ?? "Item", rarity: r.rarity,
+            item: r.output, kind: this.catOf(r)?.eco ?? "item",
             flavor: ok ? "Everything is at hand: forge it." : known ? "Gather what is missing." : "Buy the recipe from a shop first.",
             lines: this.needs(save, r) }) };
       }),

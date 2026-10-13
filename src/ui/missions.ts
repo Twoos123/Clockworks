@@ -11,6 +11,7 @@ import {
 } from "../game/missions";
 import type { SaveData } from "../game/save";
 import { SpawnTables } from "../game/spawntable";
+import { itemName } from "../game/text";
 import type { GuiContext, GuiImage } from "./gui";
 
 /** What the board needs from the game. */
@@ -39,7 +40,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = "") 
   if (text) e.textContent = text;
   return e;
 };
-const label = (name: string) => name.split("/").pop() ?? name;
+const label = (name: string) => itemName(name);
 const KIND_LABEL: Record<Mission["kind"], string> = {
   dungeon: "Mission", conversation: "Briefing", exchange: "Exchange", gate: "Arcade gate", "gate-conversation": "Briefing",
 };

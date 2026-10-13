@@ -5,6 +5,7 @@
 
 import type { Component, GuiContext } from "./gui";
 import { buildUi, uiRef, type TipSpec } from "./screen";
+import { itemFlavor, itemType } from "../game/text";
 
 export interface ListEntry {
   /** Unique within the list (an item config name). */
@@ -156,14 +157,17 @@ const TIP = "ui/window/tooltip_level.dat";
 
 /**
  * An item tooltip (ui/window/tooltip_level.dat): name, type, star rating, a description and,
- * for weapons, the heat level and the heat bar toward the next level.
+ * for weapons, the heat level and the heat bar toward the next level. With the item's config
+ * name, the description is the game's own flavor text; with its kind, the type is the game's
+ * word for it (our own text stands in for either when the bundles lack it).
  */
 export function itemTip(o: { label: string; type: string; rarity: number; flavor: string; level?: number; progress?: number; equipped?: boolean;
-  lines?: string[] }): TipSpec {
+  lines?: string[]; item?: string; kind?: string }): TipSpec {
   const levelled = o.level !== undefined;
+  const flavor = (o.item && itemFlavor(o.item)) || o.flavor, type = o.kind ? itemType(o.kind, o.type) : o.type;
   const look = (o.equipped ? "True" : "False") + (levelled ? "" : " No Level");
   return { lines: o.lines, ref: uiRef(TIP, {
-    Name: o.label.toUpperCase(), Type: o.type.toUpperCase(), Flavor: o.flavor, Rarity: String(Math.max(0, Math.min(5, o.rarity))),
+    Name: o.label.toUpperCase(), Type: type.toUpperCase(), Flavor: flavor, Rarity: String(Math.max(0, Math.min(5, o.rarity))),
     Equipped: look, Level: String(o.level ?? 0).padStart(2, "0"), Heat: Math.round(120 * (o.progress ?? 0)),
     "Max Level": (o.level ?? 0) >= 10 ? "True" : "False",
   }) };

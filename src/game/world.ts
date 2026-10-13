@@ -22,6 +22,7 @@ import { SpawnTables } from "./spawntable";
 import { DEFAULT_LOADOUT, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
 import { ECONOMY_FILES, Economy, type GearState, type VariantEffect } from "./economy";
 import { StatusConditions, type ActiveStatus } from "./status";
+import { itemName, monsterName } from "./text";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 
@@ -1053,7 +1054,7 @@ export class World implements LogicHost {
   private awardItem(item: any, x: number, y: number) {
     const name = String(item.name);
     const z = this.collision.groundZ(x, y) + 1;
-    const label = name.split("/").pop() ?? name;
+    const label = itemName(name);
     if (this.pocketItem(name)) {
       if (this.pocketAdd(name)) this.floaters.push({ x, y, z, text: label, color: "#9ff0c0", age: 0 });
       return;
@@ -1065,7 +1066,7 @@ export class World implements LogicHost {
     const dep = info?.category === "deposit" ? eco!.deposit(name) : null;
     if (dep) {
       this.loot.materials.set(dep.mineral, (this.loot.materials.get(dep.mineral) ?? 0) + dep.count);
-      this.floaters.push({ x, y, z, text: `+${dep.count} ${dep.mineral.split("/").pop()}`, color: "#e0a8ff", age: 0 });
+      this.floaters.push({ x, y, z, text: `+${dep.count} ${itemName(dep.mineral)}`, color: "#e0a8ff", age: 0 });
       return;
     }
     if (eco && info && (info.heatable || info.category === "trinket")) {
@@ -2107,7 +2108,7 @@ export class World implements LogicHost {
   hudTarget(): import("../ui/hud").HudTarget | null {
     const t = this.lastStruck;
     if (!t || this.clock - t.at > 6 || (t.m.state === "dying" && this.clock - t.at > 1.5)) return null;
-    const name = (t.m.entity?.name ?? "").split("/").pop()!.replace(/\s+\d+(\.\d+)?$/, "");
+    const name = monsterName(t.m.def, (t.m.entity?.name ?? "").split("/").pop()!.replace(/\s+\d+(\.\d+)?$/, ""));
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(t.m.entity?.name ?? "")?.[1]?.toLowerCase() ?? "";
     const key = ((t.m as any).hudKey ??= ++this.hudKeys);
     return { key: key + name, name, health: t.m.health, maxHealth: t.m.maxHealth, family: fam, model: t.m.def.model, idle: t.m.def.idle ?? null };

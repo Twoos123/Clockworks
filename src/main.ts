@@ -27,6 +27,7 @@ import { MusicPlayer } from "./game/musicplayer";
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { loadMessages, messages } from "./i18n";
+import { itemName } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
@@ -1053,7 +1054,7 @@ class Viewer {
         notes.push(`Found ${eco.displayName(it.name, this.save.gear[it.name])}`);
       }
     }
-    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${up.name.split("/").pop()} reached level ${up.level}`);
+    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${itemName(up.name)} reached level ${up.level}`);
     return notes;
   }
 
