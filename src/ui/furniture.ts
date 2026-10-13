@@ -17,8 +17,9 @@ import {
   buyFurniture, cellsOf, furniPrice, furnitureCatalogue, guildOf, nextRotation, place, snap, unplace,
   type FurniEntry, type Placement,
 } from "../game/guild";
-import type { GuiContext } from "./gui";
-import { el, injectStyle, drawIcon } from "./panel";
+import type { Component, GuiContext } from "./gui";
+import { FloatScreen, type Placement as At } from "./floating";
+import { ItemList, itemTip, type ListGroup } from "./itemlist";
 
 export interface FurnitureHost {
   sceneLoader: SceneLoader;
@@ -287,109 +288,121 @@ export class FurnitureLayer {
 
 type View = "owned" | "shop";
 
-export class FurnitureWindow {
-  private readonly root: HTMLElement;
+const FURNI_ICON = "ui/icon/inventory/categories/icon_furni.png";
+const HELP = "Pick an item, then click the floor to place it. Click a placed item to move it. R rotates, Delete stores, right click or Esc lets go.";
+
+/**
+ * The furniture window: the game's arsenal window (ui/arsenal/interface.dat, as the forge and
+ * shops use it) at the right of the hall, listing the guild's stored furniture or the
+ * furniture it can buy by category, with the search field, the help in the infobox, the
+ * crowns line and the status in the notice line; the preview toggle switches between storage
+ * and buying. It floats over the hall without covering it: clicks beside it reach the floor.
+ */
+export class FurnitureWindow extends FloatScreen {
   private view: View = "owned";
-  private filter = "";
-  private category = "";
   private catalogue: FurniEntry[] | null = null;
-  status = "";
+  private list: ItemList | null = null;
+  private status_ = "";
+  private shopFolded = false;
   onClose: (() => void) | null = null;
 
   constructor(private readonly host: FurnitureHost, readonly layer: FurnitureLayer) {
-    injectStyle();
-    this.root = el("div", "furni-window sk-card");
-    this.root.hidden = true;
-    document.body.append(this.root);
-    // keep clicks and wheel in the window away from the game canvas
-    this.root.addEventListener("pointerdown", e => e.stopPropagation());
+    super(host.gui(), "furnitureCanvas");
   }
 
-  get isOpen() { return !this.root.hidden; }
+  /** The status line (the notice under the list). */
+  get status() { return this.status_; }
+  set status(s: string) { this.status_ = s; this.refresh(); }
+
+  protected place(cw: number, _ch: number, w: number): At { return { x: cw - w - 12, y: 160 }; } // under the minimap
 
   async open() {
     await this.host.data().preload("config/item.dat");
     const d = this.host.data();
     this.catalogue ??= furnitureCatalogue(d.library_("config/item.dat").keys(), n => d.resolveSync("config/item.dat", { name: n }, "item"));
     if (!this.isOpen) this.host.sound("sound/feedback/ui_open.ogg");
-    this.root.hidden = false;
-    document.body.classList.add("furni-mode");
-    this.render();
+    const game = document.getElementById("canvas");
+    if (game) game.style.cursor = "crosshair";
+    await this.show();
   }
 
   close() {
     if (!this.isOpen) return;
     this.layer.cancel();
-    this.root.hidden = true;
-    document.body.classList.remove("furni-mode");
+    this.hide();
+    const game = document.getElementById("canvas");
+    if (game) game.style.cursor = "";
     this.host.sound("sound/feedback/ui_dismiss.ogg");
     this.onClose?.();
   }
 
-  /** Redraws the window (after a placement changes the counts). */
-  refresh() { if (this.isOpen) this.render(); }
-
-  private render() {
-    const save = this.host.save(), g = guildOf(save), list = this.catalogue ?? [];
-    this.root.replaceChildren();
-    const head = el("div", "furni-head");
-    const close = el("button", "", "Done");
-    close.onclick = () => this.close();
-    head.append(el("h2", "", "Furniture"), el("span", "furni-bank", `${save.crowns} cr`), close);
-    const tabs = el("div", "furni-tabs");
-    for (const [v, label] of [["owned", `Storage (${Object.values(g.furni).reduce((a, b) => a + b, 0)})`], ["shop", "Buy"]] as [View, string][]) {
-      const b = el("button", v === this.view ? "active" : "", label);
-      b.onclick = () => { this.view = v; this.host.sound("sound/feedback/ui_dropdown_select.ogg"); this.render(); };
-      tabs.append(b);
+  protected async build(): Promise<Component | null> {
+    const ui = await this.ui("ui/arsenal/interface.dat", { Mode: "Contained" });
+    if (!ui) return null;
+    // the search field's text in the config is the hint shown while it is empty
+    const search = ui.find("searchfield");
+    if (search && !search.placeholder) { search.placeholder = search.text; search.text = ""; }
+    this.list = new ItemList(this.ctx, ui, this.tips, f => this.host.sound(f));
+    this.list.onPick = e => this.pick(e.key);
+    this.on(ui, "dismiss", () => this.close());
+    // the preview toggle switches between the guild's storage and the furniture it can buy
+    const toggle = ui.find("preview");
+    if (toggle) {
+      toggle.visible = true;
+      toggle.onAction = () => {
+        this.view = this.view === "owned" ? "shop" : "owned";
+        this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+        this.refresh();
+      };
     }
-    const search = document.createElement("input");
-    search.type = "search"; search.placeholder = "Search"; search.value = this.filter;
-    search.oninput = () => { this.filter = search.value; this.fill(grid); };
-    const cat = document.createElement("select");
-    cat.append(new Option("All kinds", ""));
-    for (const c of [...new Set(list.map(e => e.category))]) cat.append(new Option(c, c));
-    cat.value = this.category;
-    cat.onchange = () => { this.category = cat.value; this.fill(grid); };
-    const tools = el("div", "furni-tools");
-    tools.append(search, cat);
-    const help = el("p", "furni-help", "Pick an item, then click the floor to place it. Click a placed item to move it. R rotates, Delete stores, right click or Esc lets go.");
-    const status = el("p", "furni-status", this.status || `${this.layer.count} items placed in the hall.`);
-    const grid = el("div", "furni-grid");
-    this.root.append(head, tabs, tools, help, status, grid);
-    this.fill(grid);
+    return ui;
   }
 
-  private fill(grid: HTMLElement) {
-    const save = this.host.save(), g = guildOf(save);
-    const q = this.filter.toLowerCase();
-    grid.replaceChildren();
-    let shown = 0;
-    for (const e of this.catalogue ?? []) {
-      if (this.category && e.category !== this.category) continue;
-      if (q && !e.name.toLowerCase().includes(q)) continue;
-      const have = g.furni[e.name] ?? 0;
-      if (this.view === "owned" && !have) continue;
-      if (++shown > 300) break;
-      const held = this.layer.held?.item === e.name;
-      const tile = el("button", "furni-item" + (held ? " held" : ""));
-      tile.title = `${e.name}\n${e.width}x${e.height} tiles · ${e.rarity < 0 ? "event prize" : e.rarity + "★"}`;
-      const c = document.createElement("canvas");
-      c.width = c.height = 40;
-      if (e.icon) void this.host.gui().icon(e.icon).then(im => drawIcon(c, im));
-      tile.append(c, el("span", "furni-name", e.label), el("span", "furni-meta", this.view === "owned" ? `×${have}` : `${furniPrice(e.rarity)} cr${have ? ` · own ${have}` : ""}`));
-      tile.onclick = () => {
-        if (this.view === "shop") {
-          if (buyFurniture(save, e.name, e.rarity)) { this.host.write(); this.host.sound("sound/feedback/ui_merchant_trade_add.ogg"); this.status = `Bought ${e.label}. It is in storage.`; }
-          else { this.host.sound("sound/feedback/ui_dismiss.ogg"); this.status = `${e.label} costs ${furniPrice(e.rarity)} crowns.`; }
-        } else {
-          this.layer.hold(e.name);
-          this.host.sound("sound/feedback/ui_confirm.ogg");
-          this.status = `Placing ${e.label}: click the floor.`;
-        }
-        this.render();
-      };
-      grid.append(tile);
+  private pick(name: string) {
+    const e = this.catalogue?.find(x => x.name === name);
+    if (!e) return;
+    const save = this.host.save();
+    if (this.view === "shop") {
+      if (buyFurniture(save, e.name, e.rarity)) { this.host.write(); this.host.sound("sound/feedback/ui_merchant_trade_add.ogg"); this.status_ = `Bought ${e.label}. It is in storage.`; }
+      else { this.host.sound("sound/feedback/ui_dismiss.ogg"); this.status_ = `${e.label} costs ${furniPrice(e.rarity)} crowns.`; }
+    } else {
+      this.layer.hold(e.name);
+      this.host.sound("sound/feedback/ui_confirm.ogg");
+      this.status_ = `Placing ${e.label}: click the floor.`;
     }
-    if (!shown) grid.append(el("p", "furni-help", this.view === "owned" ? "Storage is empty. Buy furniture with crowns, or pick up placed items." : "Nothing matches."));
+    this.refresh();
+  }
+
+  /** Redraws the window (after a placement changes the counts). */
+  refresh() {
+    const ui = this.root, list = this.list;
+    if (!this.isOpen || !ui || !list) return;
+    const save = this.host.save(), g = guildOf(save), shop = this.view === "shop";
+    const stored = Object.values(g.furni).reduce((a, b) => a + b, 0);
+    list.setInfo("FURNITURE", shop ? "Buy Furniture" : `Storage (${stored})`, HELP, save.crowns);
+    list.setNotice(this.status_ || `${this.layer.count} items placed in the hall.`);
+    const toggle = ui.find("preview");
+    if (toggle) { toggle.text = shop ? "Show Storage" : "Buy Furniture"; toggle.selected = shop; }
+    const groups = new Map<string, ListGroup>();
+    for (const e of this.catalogue ?? []) {
+      const have = g.furni[e.name] ?? 0;
+      if (!shop && !have) continue;
+      const price = furniPrice(e.rarity);
+      let grp = groups.get(e.category);
+      if (!grp) groups.set(e.category, grp = { id: e.category, label: e.category, icon: FURNI_ICON, entries: [] });
+      grp.entries.push({
+        key: e.name, label: e.label, rarity: e.rarity < 0 ? -1 : e.rarity, icon: e.icon,
+        look: shop && save.crowns < price ? "False - Red" : "False",
+        count: have ? String(have) : "",
+        tip: itemTip({ label: e.label, type: e.category, rarity: Math.max(0, e.rarity), flavor: `${e.width}x${e.height} tiles${e.rarity < 0 ? ", an event prize" : ""}.`,
+          lines: shop ? [`${price.toLocaleString("en-US")} crowns`, ...(have ? [`${have} in storage`] : [])] : [`${have} in storage`] }),
+      });
+    }
+    // the shop lists every item: its categories start folded
+    if (shop && !this.shopFolded) { this.shopFolded = true; for (const id of groups.keys()) list.collapsed.add(id); }
+    list.selected = this.layer.held?.item ?? null;
+    const all = [...groups.values()];
+    if (!all.length && !shop) all.push({ id: "empty", label: "Storage is empty: buy furniture", icon: FURNI_ICON, entries: [] });
+    void list.setGroups(all);
   }
 }
