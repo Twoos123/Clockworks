@@ -248,3 +248,7 @@ body.game #clockworks, body.game #arenaBtn { display: none; }
 #defeated { background: none; z-index: 7; pointer-events: none; place-items: end center; padding-bottom: 120px; }
 #defeated .defeated-card { pointer-events: auto; background: rgba(18,32,46,0.9); padding: 8px 14px; }
 #defeated h2, #defeated #reviveInfo, #defeated #revive { display: none; }
+
+/* the elevator screen (src/ui/elevator.ts) fronts the floor dialog: its card stays as the fallback */
+.gui-elevator { background: none; pointer-events: none; }
+.gui-elevator > .defeated-card { display: none; }

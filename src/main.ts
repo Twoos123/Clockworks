@@ -19,6 +19,9 @@ import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
 import { openWardrobe } from "./ui/wardrobe";
+import { LoadingScreen, loadingInfo } from "./ui/loading";
+import { ElevatorScreen } from "./ui/elevator";
+import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
@@ -408,10 +411,49 @@ class Viewer {
   }
 
   private title: TitleScreen | null = null;
+  /** Music for each place and floor (src/game/music.ts), the loading and elevator screens. */
+  private readonly music = new MusicPlayer(() => this.ensureAudio());
+  private loadingScreen: LoadingScreen | null = null;
+  private elevator: ElevatorScreen | null = null;
+  private played = false;
+
+  private ensureAudio(): AudioSystem {
+    if (!this.audio) { this.audio = new AudioSystem(this.vfs, this.loader); this.audio.unlock(); this.applyOptions(); }
+    return this.audio;
+  }
+
+  /** The loading and elevator screens (game interfaces over the stage). */
+  private screens() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    const stage = this.canvas.parentElement!;
+    this.loadingScreen ??= new LoadingScreen(this.gui, stage);
+    if (!this.elevator) {
+      this.elevator = new ElevatorScreen(this.gui, stage, $("floorDone"), () => {
+        const w = this.world;
+        if (!w) return null;
+        const v = new PortraitView(this.renderer, this.loader, w.portraitRef(), "character/pc/animation_pose_dash.dat");
+        return (c, g, x, y, ww, h) => v.draw(c, g, x, y, ww, h);
+      });
+      this.elevator.onShow = () => this.music.stinger("elevator");
+    }
+    return { loading: this.loadingScreen, elevator: this.elevator };
+  }
+
+  /** Shows the loading screen for a scene about to load (in the game, not the asset viewer). */
+  private showLoading(id: string): LoadingScreen | null {
+    if (!GAME && !this.played) return null;
+    const { loading } = this.screens();
+    const f = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null;
+    const name = this.genNames.get(id) ?? this.sceneList.find(s => s.id === id)?.name ?? id;
+    void loading.show(loadingInfo(this.arenaMode ? "arena" : name, f, this.gate?.name));
+    loading.progress(0.05);
+    return loading;
+  }
 
   /** The title screen over Haven (the game app's start; the asset viewer lives behind #viewer). */
   private async enterTitle() {
     document.body.classList.add("game");
+    this.music.title();
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.title ??= new TitleScreen(this.gui, $<HTMLCanvasElement>("titleCanvas"), {
       play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide(); void this.startPlaying(); },
@@ -497,18 +539,21 @@ class Viewer {
   private async selectScene(id: string) {
     const token = ++this.loadToken;
     this.status("Loading scene " + id + "...");
+    const loading = this.showLoading(id);
     for (const li of $("scenes").children) li.classList.toggle("active", (li as HTMLElement).dataset.scene === id);
     for (const li of $("list").children) li.classList.remove("active");
     history.replaceState(null, "", "#scene=" + id);
     const t0 = performance.now();
     try {
       const progress = (done: number, total: number) => {
-        if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
+        if (token !== this.loadToken) return;
+        this.status("Loading scene: " + done + " of " + total + " objects");
+        loading?.progress(0.1 + 0.7 * done / Math.max(1, total));
       };
-      const scene = GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), (done, total) => {
-        if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
-      });
+      const scene = GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), progress);
+      loading?.progress(0.8);
       const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
+      loading?.progress(0.9);
       const env = await loadEnvironment(this.loader, scene.globals);
       for (const m of env.models) items.push({ instance: await this.instanceOf(m), matrix: identity() });
       const skyboxes = await Promise.all(env.skyboxes.map(m => this.instanceOf(m)));
@@ -530,8 +575,10 @@ class Viewer {
       const ms = Math.round(performance.now() - t0);
       this.status(scene.name + " · " + scene.objects.length.toLocaleString() + " objects · loaded in " + ms + " ms");
       this.showSceneInfo(scene);
+      loading?.done();
     } catch (e) {
       if (token !== this.loadToken) return;
+      loading?.done();
       this.status("Could not load scene " + id + ": " + (e as Error).message, true);
     }
   }
@@ -595,14 +642,11 @@ class Viewer {
     this.outfit.hotkeys = (["sprite1", "sprite2", "sprite3"] as const).map(a => keyName(this.bound(a)));
     void this.outfit.accompany(world);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
-    // the scene's music (a weighted pick from its mix) and ambient loops
-    const music = this.environment.music;
-    if (music?.files.length) {
-      const total = music.files.reduce((t, f) => t + f.weight, 0);
-      let r = Math.random() * total;
-      const pick = music.files.find(f => (r -= f.weight) <= 0) ?? music.files[0];
-      void this.audio.playMusic(pick.file, music.gain);
-    }
+    // the floor's music (src/game/music.ts: gate floors by kind, theme and style, else the scene's own) and ambient loops
+    this.played = true;
+    this.screens();
+    this.music.enter({ scene: this.scene.name, sceneMusic: this.environment.music, world, arena: !!world.arena, boss: this.bossFloor,
+      floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null });
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
@@ -644,6 +688,7 @@ class Viewer {
     this.outfit.leave(this.world);
     this.world = null;
     this.gameHud = null;
+    this.music.leave();
     this.audio?.stopMusic(1);
     this.audio?.stopAmbience();
     this.hud?.clear();
@@ -944,6 +989,7 @@ class Viewer {
     if (this.gate) {
       // in a gate: on to the next depth, or ride back up to Haven with the loot banked
       const next = this.floors[this.run.depth + 1];
+      this.elevator?.setNext(next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" });
       $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
       $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
       $("deeper").textContent = "Return to Haven";
@@ -953,6 +999,8 @@ class Viewer {
       if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
       const last = this.nextLevel() === null;
+      const nl = this.nextLevel();
+      this.elevator?.setNext(nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" });
       $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
       $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
       // past the Core the Clockworks go on: cycle the levels again, deeper
@@ -988,6 +1036,7 @@ class Viewer {
     writeSave(this.save);
     this.paused = true;
     $("floorTitle").textContent = `Arena: wave ${wave} cleared`;
+    this.elevator?.setNext({ title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" });
     $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.`;
     $("descend").textContent = "Ride up to Haven";
     $("deeper").textContent = "Fight on";

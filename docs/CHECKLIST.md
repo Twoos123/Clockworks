@@ -7,7 +7,7 @@ be done fully, with the reason.
 - [x] Game app by default (title screen from `ui/logon`, no asset viewer); viewer behind `#viewer` / `#dev=1`
 - [x] Haven → Arcade → gate selection (gate board drawn from the game's gate, map and theme icons)
 - [x] Clockworks gates: six strata, depth 0 to 29, tiers 1 to 3, terminals at 4/13/23, Moorcroft Manor (8), Emberlight (18), the Core's terminal (29), boss floors
-- [ ] Elevator screen between floors (`ui/elevator`), loading screen with tips (`ui/loading`)
+- [x] Elevator screen between floors (`ui/elevator/nextlevel`), loading screen with tips and progress (`ui/loading`); FLAG: tips beyond the two in the install's interfaces are written here (the game's are in message bundles)
 - [x] Arena rooms on generated floors (Iron Gates close, two waves, reopen) — [ ] keys, switches, traps, vaults, danger rooms (agent: level features)
 - [x] Terminals: heal on arrival, tiered Supply Depot, elevator onward
 - [ ] Depth record, run summary
@@ -15,7 +15,7 @@ be done fully, with the reason.
 
 ## Content
 - [x] Generated floors for 21 tilesets (learned, mirrored, rule-based); FLAG: Water Temple models missing from the install, prism_track is not a tileset
-- [ ] Every theme's music (agent: music/loading/elevator) (`full-music-bundle.jar`) mapped to its levels
+- [x] Every theme's music (`full-music-bundle.jar`, `sound/music`) mapped to its levels, bosses, towns and stingers (`docs/research/music.md`)
 - [ ] Boss arenas (agent: bosses): Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
 - [ ] Danger rooms, treasure vaults, arenas inside gates
 - [x] Missions: all 272 configs read (238 shown: rank 1-10, prestige by schedule, operations), mission board, rewards, rank progression, tier locks (`src/game/missions.ts`, `src/ui/missions.ts`)
