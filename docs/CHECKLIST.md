@@ -38,6 +38,9 @@ be done fully, with the reason.
 - [x] Real options screen (`ui/options`) bound to the settings
 - [x] Real arsenal / loadout / forge / shop / backpack screens (the game's own interfaces)
 - [x] Message keys shown as readable English
+- [x] Status window tabs through the game's interfaces (`src/ui/equipment.ts`): Costume (helmet, armour and shield costume sockets; costumes and accessories by location in the arsenal list), Battle Sprite (the sprite's preview and skill sockets, feeding with `interface_battlesprite-hunger.dat`, augment points with confirm and cancel in `panel_battlesprite-skill.dat`, ultimates in `interface_battlesprite-ultimate.dat`), Save Loadout (named loadouts in the save, `ui/loadout` pills and tooltips; up to 10), Character Options (rename with `ui/rename`, personal colour); the dev HTML wardrobe is gone. FLAG: achievements (only the icons ship; the achievements are server code), sprite harnesses and perks, appetite; costumes and accessories are all wearable (their sources are server-side)
+- [x] Shopkeeper portraits: the keeper's own NPC model and shop animation in `vendor_withportrait.dat`'s RenderableView
+- [x] Arsenal, backpack, forge and options windows built in idle time after reaching town (first open under a second)
 
 ## Also done or in progress
 - [x] Economy: item levels for all gear, level tables, unique variants, loot by depth, shop catalogues, recipes to buy, selling; FLAG: daily catalogues and energy are server-side
