@@ -62,6 +62,9 @@ A single-player loop runs in the browser, built from the install's own data:
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
 | HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
+| Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
+| Ready Room | `rsrc/world/readyroom/scene.dat` with the arsenal open; the knight changes into a new loadout when it closes |
+| Knight creation | On a fresh save: `rsrc/world/createknight/scene.dat`, a name (shown on the HUD name plate), personal colour, and the zero-star Spiral helmets and armours in their seven trims |
 
 ## What is still missing
 

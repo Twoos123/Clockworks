@@ -2,6 +2,8 @@
 // and materials banked between runs, and the deepest floor reached. Nothing leaves the
 // machine.
 
+import type { GuildSave } from "./guild";
+
 export interface Loadout {
   /** Item config names, e.g. "Weapon/Sword/Proto Sword"; up to three weapons. */
   weapons: string[];
@@ -31,7 +33,22 @@ export interface SaveData {
   weaponHeat: Record<string, number>;
   /** Consumables carried in the pocket slots (capsules and vials): item name and count. */
   pocket: [string, number][];
+  /** The knight made at character creation; absent until then (a fresh save). */
+  knight?: KnightProfile;
+  /** The player's guild: name, emblem, vault and hall furniture (src/game/guild.ts). */
+  guild?: GuildSave;
 }
+
+export interface KnightProfile {
+  /** Shown on the HUD name plate. */
+  name: string;
+  /** The look picked at creation (starting helmet and armour; the colour is SaveData.color). */
+  helmet: string;
+  armor: string;
+}
+
+/** The name plate's text: the created knight's name, else "Knight". */
+export const knightName = (d: SaveData) => d.knight?.name || "Knight";
 
 const KEY = "clyde-web-save";
 

@@ -19,8 +19,9 @@ be done fully, with the reason.
 - [ ] Boss arenas: Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
 - [ ] Danger rooms, treasure vaults, arenas inside gates
 - [ ] Missions: all 272 configs (rank missions 1-9 with prestige, exchange and gate missions), mission board, rewards, rescue camps
-- [ ] Guilds: guild hall, furniture placement, guild storage
-- [ ] Ready room (`rsrc/world/readyroom/scene.dat`), character creation (`rsrc/world/createknight/scene.dat`)
+- [x] Guilds: guild hall, furniture placement, guild storage (vault), guild name and emblem
+- [ ] FLAG: guild hall layouts (expansions, rooms, themes) are server-side; every guild gets the one cached hall
+- [x] Ready room (`rsrc/world/readyroom/scene.dat`), character creation (`rsrc/world/createknight/scene.dat`)
 - [ ] FLAG: game text (message bundles are in the code jars); labels written here
 - [ ] FLAG: PvP, parties, trading, mail (multiplayer)
 
