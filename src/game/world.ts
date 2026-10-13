@@ -1271,7 +1271,7 @@ export class World implements LogicHost {
     if (a !== this.knight) return this.ctx(0);
     const w = this.knight.weapon;
     return { ...this.ctx(w?.rarity ?? 0), multiplier: levelMultiplier(this.weaponLevels.get(w?.name ?? "") ?? 1) * this.buffDamage(this.knight)
-      * (1 + forWeapon(this.knight.bonuses.damage, w?.kind)) };
+      * (1 + forWeapon(this.knight.bonuses.damage, w?.kind)), tagged: this.knight.bonuses.tagged };
   }
 
   /** Applies an attack's damage shape in front of the attacker. */
@@ -1312,6 +1312,7 @@ export class World implements LogicHost {
     };
     walk(damage);
     if (statuses.length) { a.statuses = statuses; a.ctx = ctx; }
+    if (ctx.tagged && Object.keys(ctx.tagged).length) (a as any).tagged = ctx.tagged;
     return a;
   }
 
@@ -1543,7 +1544,10 @@ export class World implements LogicHost {
 
   private damageMonster(m: Monster, amounts: Amounts, knockback: number, fx: number, fy: number) {
     if (m.passive) return;
-    const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m)) * (0.95 + Math.random() * 0.1)));
+    // gear bonuses against the monster's family (the family is its folder: Monster/Slime/...)
+    const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(m.entity?.name ?? "")?.[1]?.toLowerCase();
+    const bonus = fam ? (amounts as any).tagged?.[`fam_${fam}`] ?? 0 : 0;
+    const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m)) * (1 + bonus) * (0.95 + Math.random() * 0.1)));
     this.hitStatuses(m, amounts);
     // a big enough hit interrupts the monster (minReactPercent of its health)
     if (dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning") {

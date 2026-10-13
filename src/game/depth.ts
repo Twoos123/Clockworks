@@ -18,6 +18,8 @@ export interface DepthContext {
   difficulty: Difficulty;
   /** Extra damage factor for an attacker (a levelled weapon). */
   multiplier?: number;
+  /** Family damage bonuses of the attacking knight's gear, by family tag (fam_slime). */
+  tagged?: Record<string, number>;
 }
 
 export const DAMAGE_TYPES = ["NORMAL", "PIERCING", "ELEMENTAL", "SHADOW"] as const;
