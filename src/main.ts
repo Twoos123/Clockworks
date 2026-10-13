@@ -7,28 +7,39 @@ import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environ
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { GuiContext } from "./ui/gui";
+import { buildInterface, GuiContext, pack, render as renderGui } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
-import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
+import { knightName, loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import { ECONOMY_FILES, Economy } from "./game/economy";
+import { Places } from "./ui/places";
+import { GameScreens } from "./ui/screens";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
+import { Outfit } from "./game/outfit";
+import { openWardrobe } from "./ui/wardrobe";
+import { LoadingScreen, loadingInfo } from "./ui/loading";
+import { ElevatorScreen } from "./ui/elevator";
+import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, keyName, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { OptionsScreen } from "./ui/options";
-import { GameScreens } from "./ui/screens";
+import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
+import { rankLabel, tierLock } from "./game/missions";
+import { MissionBoard, notice, progressOf } from "./ui/missions";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
-const TOWN = /haven|bazaar|\(|lobby/i;
+const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site/i;
 /**
  * The order a run takes through the cached levels, after the Clockworks: a stratum of
  * Jigsaw Valley, the terminal rest stop, deeper levels, then the Core terminal whose
@@ -44,10 +55,8 @@ const THEMES: { key: string; test: RegExp; label: string }[] = [
 ];
 const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
 /** Generated floor ids: "gen:<theme>:<seed>". */
-const GEN = /^gen:([a-z]+):(\d+)$/;
+const GEN = /^gen:([a-z-]+):(\d+)$/;
 
-/** The name shown on the HUD name plate. */
-const KNIGHT_NAME = "Knight";
 import { invert } from "./math";
 import {
   canPickDirectory, DevServerVfs, FileListVfs, HandleVfs, recallHandle, rememberHandle, VfsError, type Vfs,
@@ -186,19 +195,31 @@ class Viewer {
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
   private save: SaveData = loadSave();
+  /** The guild hall and furniture, the Ready Room and knight creation (src/ui/places.ts). */
+  private readonly places: Places;
+  /** The battle sprite, accessories and costumes (game/outfit.ts); missions call outfit.setSprite. */
+  private outfit_: Outfit | null = null;
+  get outfit() { return this.outfit_ ??= new Outfit(this.loader, () => this.save, () => writeSave(this.save)); }
   /** Scenes in the install's cache, by name. */
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
+  /** Totals for the current gate run, for the summary when it ends. */
+  private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
+
   /** The gate being descended and its floors by depth (null outside the Clockworks). */
   private gate: Gate | null = null;
   private floors: Floor[] = [];
   /** Spawn tables generated floors are re-themed with (by scene id). */
   private genTables = new Map<string, string[]>();
+  /** Generated floors that are safe towns (no monsters; an alchemy machine). */
+  private safeGen = new Set<string>();
   /** Names generated floors show (by scene id). */
   private genNames = new Map<string, string>();
   /** The boss of the floor being played, if any. */
   private bossFloor: BossKey | null = null;
+  /** The mission board (src/ui/missions.ts), made on first use. */
+  private missionBoard: MissionBoard | null = null;
   /** Arena mode: waves on a cached level instead of its own wiring. */
   private arenaMode = false;
   private attackPressed = false;
@@ -233,6 +254,7 @@ class Viewer {
     this.renderer = new Renderer(this.canvas, vfs);
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
+    this.places = this.makePlaces();
     this.settings = new SettingsMenu($("settings"), this.options_, {
       changed: () => this.applyOptions(),
       playing: () => !!this.world,
@@ -283,6 +305,7 @@ class Viewer {
     };
     $("giveUp").onclick = () => {
       $("defeated").hidden = true;
+      this.reviveScreen?.close();
       this.run = { depth: 29, health: null, floors: 0 };
       // past the last level, descend() rides up to Haven; the floor's loot is lost
       void this.returnToHaven();
@@ -298,9 +321,10 @@ class Viewer {
     const typing = () => document.activeElement instanceof HTMLInputElement && document.activeElement.type !== "checkbox";
     addEventListener("keydown", e => {
       if (!this.world || typing()) return;
+      if (this.places.key(e)) { e.preventDefault(); return; }
       // Esc opens the options menu (and closes whatever window is open)
       if (e.key === "Escape") {
-        if (this.screens?.escape()) return;
+        if (this.itemScreens?.escape()) return;
         if (this.settings?.isOpen) this.settings.close();
         else if (this.options?.isOpen) this.options.close();
         else { this.paused = true; void this.openOptions(); }
@@ -314,10 +338,13 @@ class Viewer {
       (["item1", "item2", "item3", "item4"] as const).forEach((a, i) => {
         if (b(a) && !e.repeat && !this.paused && this.world!.useItem(i)) writeSave(this.save);
       });
+      (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
       if (b("dash") && !e.repeat) this.dashPressed = true;
       if (b("help") && !e.repeat) $("playHint").hidden = !$("playHint").hidden;
       if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
+      if (key === "n" && !e.repeat) this.openFeed();
+      if (key === "m" && !e.repeat) this.openMail();
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       if (b("arsenal") && !e.repeat) void this.toggleArsenal();
@@ -382,17 +409,61 @@ class Viewer {
       return li;
     }));
     $("scenesBox").hidden = false;
+    genScenes = this.sceneList;
     if (GAME) void this.enterTitle();
   }
 
   private title: TitleScreen | null = null;
+  /** Music for each place and floor (src/game/music.ts), the loading and elevator screens. */
+  private readonly music = new MusicPlayer(() => this.ensureAudio());
+  private loadingScreen: LoadingScreen | null = null;
+  private elevator: ElevatorScreen | null = null;
+  private played = false;
+
+  private ensureAudio(): AudioSystem {
+    if (!this.audio) { this.audio = new AudioSystem(this.vfs, this.loader); this.audio.unlock(); this.applyOptions(); }
+    return this.audio;
+  }
+
+  /** The loading and elevator screens (game interfaces over the stage). */
+  private screens() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    const stage = this.canvas.parentElement!;
+    this.loadingScreen ??= new LoadingScreen(this.gui, stage);
+    if (!this.elevator) {
+      this.elevator = new ElevatorScreen(this.gui, stage, $("floorDone"), () => {
+        const w = this.world;
+        if (!w) return null;
+        const v = new PortraitView(this.renderer, this.loader, w.portraitRef(), "character/pc/animation_pose_dash.dat");
+        return (c, g, x, y, ww, h) => v.draw(c, g, x, y, ww, h);
+      });
+      this.elevator.onShow = () => this.music.stinger("elevator");
+    }
+    return { loading: this.loadingScreen, elevator: this.elevator };
+  }
+
+  /** Shows the loading screen for a scene about to load (in the game, not the asset viewer). */
+  private showLoading(id: string): LoadingScreen | null {
+    if (!GAME && !this.played) return null;
+    const { loading } = this.screens();
+    const f = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null;
+    const name = this.genNames.get(id) ?? this.sceneList.find(s => s.id === id)?.name ?? id;
+    void loading.show(loadingInfo(this.arenaMode ? "arena" : name, f, this.gate?.name));
+    loading.progress(0.05);
+    return loading;
+  }
 
   /** The title screen over Haven (the game app's start; the asset viewer lives behind #viewer). */
   private async enterTitle() {
     document.body.classList.add("game");
+    this.music.title();
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.title ??= new TitleScreen(this.gui, $<HTMLCanvasElement>("titleCanvas"), {
-      play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide(); void this.startPlaying(); },
+      play: () => {
+        this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide();
+        // a fresh save makes its knight first, then enters Haven
+        if (this.places.needsKnight()) void this.places.startCreation(); else void this.startPlaying();
+      },
       options: () => void this.openOptions(),
       viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
     });
@@ -428,27 +499,45 @@ class Viewer {
    */
   private async generatedRoot(id: string): Promise<any> {
     const [, key, seed] = GEN.exec(id)!;
-    const theme = THEMES.find(t => t.key === key)!;
-    const ids = this.sceneList.filter(s => theme.test.test(s.name)).map(s => s.id);
-    const sources = await Promise.all(ids.map(async sid => ({ id: sid, root: await this.sceneLoader.parse(await this.vfs.readScene(sid)) })));
-    // resolve every tile the sources use first; the generator asks synchronously
-    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
-    for (const s of sources) {
-      for (const m of (s.root.tileConfigs?.items ?? s.root.tileConfigs ?? []) as any[]) {
-        const k = refKey(m?.tile);
-        if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
-      }
-    }
-    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
+    // the theme's tiling: learned from its cached levels, mirrored from a related theme, or
+    // rule-based (src/gen/themes.ts)
+    const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
+    const level = await themeLevel(key, {
+      scenes: this.sceneList, readRoot,
+      tileNames: () => this.sceneLoader.configNames("config/tile.dat"),
+      tileInfo: ref => this.sceneLoader.tileInfo(ref),
+    });
+    const ids = level.sources.map(s => s.id);
     // spawners and treasure from every cached combat level, for themes whose levels spawn
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
-    const pool = (await Promise.all(others.map(async sid => (await this.sceneLoader.parse(await this.vfs.readScene(sid))).entries ?? []))).flat();
-    const root = generateLevel(sources, info, Number(seed), this.genNames.get(id) ?? `${theme.label} · new floor`, pool);
+    const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
+    const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
+      this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals });
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
-    // rooms seal while their waves are fought, as the game's own levels do
+    if (this.safeGen.has(id)) {
+      // a town floor: no spawners or encounters, and an alchemy machine near the start
+      root.entries = (root.entries as any[]).filter(e => !/Single Spawn/.test(e.placeable?.name ?? "") && e.area?.name !== "Player Enter/Spawn Activate");
+      const haven = this.sceneList.find(sc => /haven town square/i.test(sc.name));
+      const machine = haven ? ((await readRoot(haven.id)).entries as any[]).find(e => /^Shop\/Haven\/Alchemy$/.test(e.placeable?.name ?? "")) : null;
+      const start = (root.entries as any[]).find(e => /Elevator\/Start Platform/.test(e.placeable?.name ?? ""));
+      if (machine && start) {
+        const t = start.transform.translation;
+        root.entries.push({ ...JSON.parse(JSON.stringify(machine, (k, v) => (k === "$outer" ? undefined : v))), id: 999999,
+          transform: { ...start.transform, translation: { ...t, x: t.x + 4, y: t.y } } });
+      }
+      return root;
+    }
+    // rooms seal while their waves are fought, as the game's own levels do (walkability from
+    // the tiles the floor uses)
+    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
+    for (const m of (root.tileConfigs ?? []) as any[]) {
+      const k = refKey(m?.tile);
+      if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
+    }
+    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
     const walk = walkableCells(root, info);
     arenaRooms(root, (x, y) => walk.has(x + "," + y));
     return root;
@@ -457,18 +546,23 @@ class Viewer {
   private async selectScene(id: string) {
     const token = ++this.loadToken;
     this.status("Loading scene " + id + "...");
+    const loading = this.showLoading(id);
     for (const li of $("scenes").children) li.classList.toggle("active", (li as HTMLElement).dataset.scene === id);
     for (const li of $("list").children) li.classList.remove("active");
     history.replaceState(null, "", "#scene=" + id);
     const t0 = performance.now();
     try {
       const progress = (done: number, total: number) => {
-        if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
+        if (token !== this.loadToken) return;
+        this.status("Loading scene: " + done + " of " + total + " objects");
+        loading?.progress(0.1 + 0.7 * done / Math.max(1, total));
       };
-      const scene = GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), (done, total) => {
-        if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
-      });
+      const special = GEN.test(id) ? null : await this.places.sceneRoot(id);
+      const scene = special ? await this.sceneLoader.loadRoot(id, special, progress)
+        : GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), progress);
+      loading?.progress(0.8);
       const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
+      loading?.progress(0.9);
       const env = await loadEnvironment(this.loader, scene.globals);
       for (const m of env.models) items.push({ instance: await this.instanceOf(m), matrix: identity() });
       const skyboxes = await Promise.all(env.skyboxes.map(m => this.instanceOf(m)));
@@ -490,8 +584,10 @@ class Viewer {
       const ms = Math.round(performance.now() - t0);
       this.status(scene.name + " · " + scene.objects.length.toLocaleString() + " objects · loaded in " + ms + " ms");
       this.showSceneInfo(scene);
+      loading?.done();
     } catch (e) {
       if (token !== this.loadToken) return;
+      loading?.done();
       this.status("Could not load scene " + id + ": " + (e as Error).message, true);
     }
   }
@@ -530,7 +626,7 @@ class Viewer {
     const { min, max } = this.scene.bounds;
     // knights arrive on the level's start platform, else near the middle
     const [sx, sy] = this.scene.start ?? [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2];
-    const spawn = this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
+    const spawn = this.places.spawn(this.scene.id) ?? this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
     // one-shot scene animations (the start elevator arriving) play from the top as the knight arrives
@@ -540,7 +636,7 @@ class Viewer {
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
       { audio: this.audio, depth: this.run.depth, arena: this.arenaMode && !TOWN.test(this.scene.name) });
     world.onArenaCheckpoint = wave => this.arenaCheckpoint(wave);
-    this.screens?.closeAll();
+    this.itemScreens?.closeAll();
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
@@ -548,24 +644,30 @@ class Viewer {
     $("clockworks").hidden = !town;
     $("arenaBtn").hidden = !town;
     world.color = this.save.color;
-    for (const [n, h] of Object.entries(this.save.weaponHeat)) world.weaponLevels.set(n, weaponLevel(h));
+    world.gear = this.save.gear;
+    if (this.eco) world.economy = this.eco;
+    // treasure on a family stratum drops that family's materials
+    const theme = this.gate ? this.floors[this.run.depth]?.stratum?.theme : null;
+    world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
     world.pocket = this.save.pocket;
+    await this.outfit.dress(world);
     await world.start(spawn, this.save.loadout);
+    this.eco ??= world.economy;
+    this.outfit.hotkeys = (["sprite1", "sprite2", "sprite3"] as const).map(a => keyName(this.bound(a)));
+    void this.outfit.accompany(world);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
-    // the scene's music (a weighted pick from its mix) and ambient loops
-    const music = this.environment.music;
-    if (music?.files.length) {
-      const total = music.files.reduce((t, f) => t + f.weight, 0);
-      let r = Math.random() * total;
-      const pick = music.files.find(f => (r -= f.weight) <= 0) ?? music.files[0];
-      void this.audio.playMusic(pick.file, music.gain);
-    }
+    // the floor's music (src/game/music.ts: gate floors by kind, theme and style, else the scene's own) and ambient loops
+    this.played = true;
+    this.screens();
+    this.music.enter({ scene: this.scene.name, sceneMusic: this.environment.music, world, arena: !!world.arena, boss: this.bossFloor,
+      floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null });
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
+    this.outfit.onRedress = () => portrait.setModelRef(world.portraitRef());
     // render views: the knight portrait, the heat meter's flame, the dash cooldown's ring and
     // the target panel's monster (a view per target)
     const heatView = new PortraitView(this.renderer, this.loader, undefined, null);
@@ -579,8 +681,9 @@ class Viewer {
         targetView.view.draw(c, g, x, y, w, h);
       } else (c.viewOwner === "cooldown" ? ringView : c.tag === "heat_view" ? heatView : portrait).draw(c, g, x, y, w, h);
     } });
-    void this.gameHud.init(hudState(world, KNIGHT_NAME)).catch(e => console.warn("HUD failed to load", e));
+    void this.gameHud.init(hudState(world, knightName(this.save))).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
+    if (import.meta.env.DEV) openWardrobe(this.outfit, () => this.world, () => this.save, () => writeSave(this.save));
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
@@ -592,12 +695,15 @@ class Viewer {
     document.body.classList.add("playing");
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
+    this.places.started(this.scene.id);
   }
 
   private stopPlaying() {
     if (!this.world) return;
+    this.outfit.leave(this.world);
     this.world = null;
     this.gameHud = null;
+    this.music.leave();
     this.audio?.stopMusic(1);
     this.audio?.stopAmbience();
     this.hud?.clear();
@@ -614,7 +720,12 @@ class Viewer {
 
   /** Where the mouse points on the knight's ground plane, for aiming attacks. */
   private aimPoint(): [number, number] | null {
-    if (!this.mouse || !this.lastProj || !this.lastView || !this.world) return null;
+    return this.world ? this.rayPoint(this.world.knight.z + 0.5) : null;
+  }
+
+  /** Where the pointer's ray meets the horizontal plane at height gz. */
+  private rayPoint(gz: number): [number, number] | null {
+    if (!this.mouse || !this.lastProj || !this.lastView) return null;
     const c = this.canvas;
     const nx = (this.mouse[0] / c.clientWidth) * 2 - 1, ny = 1 - (this.mouse[1] / c.clientHeight) * 2;
     const inv = invert(multiplyMat(this.lastProj, this.lastView));
@@ -624,7 +735,6 @@ class Viewer {
         (inv[2] * x + inv[6] * y + inv[10] * z + inv[14]) / w];
     };
     const a = un(nx, ny, -1), b = un(nx, ny, 1);
-    const gz = this.world.knight.z + 0.5;
     const t = (gz - a[2]) / (b[2] - a[2]);
     if (!isFinite(t)) return null;
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
@@ -652,18 +762,20 @@ class Viewer {
     return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase()) : `Depth ${this.run.depth}`;
   }
 
-  private screens: GameScreens | null = null;
+  private itemScreens: GameScreens | null = null;
   private previewView: { key: string; view: PortraitView } | null = null;
-  private fallbackData: GameData | null = null;
 
-  /** The game's item windows (arsenal, forge, shops, backpack). */
+  /** The game's item windows: arsenal, forge, shops, backpack (src/ui/screens.ts). */
   private ensureScreens() {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    return this.screens ??= new GameScreens({
-      gui: this.gui, colors: this.renderer.colors,
-      data: () => this.world?.data ?? (this.fallbackData ??= new GameData(this.loader)),
-      save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
+    return this.itemScreens ??= new GameScreens({
+      gui: this.gui, colors: this.renderer.colors, eco: () => this.economy(),
+      data: () => this.world?.data ?? new GameData(this.loader),
+      save: () => this.save, sound: f => this.uiSound(f),
+      write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); },
       paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
+      arsenalClosed: () => this.places.arsenalClosed(),
+      // the equipment window's knight preview
       view: (c, g, x, y, w, h) => {
         const ref = this.world?.portraitRef();
         if (!ref) return;
@@ -674,7 +786,7 @@ class Viewer {
     });
   }
 
-  /** Opens or closes the arsenal; the world pauses while it is open. */
+  /** Opens or closes the arsenal (or the forge); the world pauses while it is open. */
   private async toggleArsenal(tab?: "craft") {
     const screens = this.ensureScreens();
     await (tab === "craft" ? screens.toggleForge() : screens.toggleArsenal());
@@ -714,26 +826,132 @@ class Viewer {
   /** A HUD button was clicked (the corner menus and the activities panel). */
   private hudAction(tag: string) {
     this.uiSound("sound/feedback/ui_confirm.ogg");
+    if (this.places.hudAction(tag)) return;
     switch (tag) {
       case "button_menu": this.openSettings(); break;
       case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
+      case "button_feed": this.openFeed(); break;
+      case "button_mail": this.openMail(); break;
       case "button_loadout": case "button_gear": void this.toggleArsenal(); break;
       case "button_arsenal": void this.ensureScreens().toggleBackpack(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
-      case "button_haven": void this.returnToHaven(); break;
+      // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
+      case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
+      case "button_missions": void this.missions().toggle(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
-      case "button_guildhall": case "button_social": void this.goToGuildHall(); break;
       default: break;
     }
   }
 
-  /** Your guild hall: the cached hall scene. */
-  private async goToGuildHall() {
-    const hall = this.sceneList.find(s => /^hall\b/i.test(s.name));
-    if (!hall) { this.status("No guild hall in the scenes cache yet.", true); return; }
-    this.stopPlaying();
-    await this.selectScene(hall.id);
-    await this.startPlaying();
+  /** The guild, Ready Room and knight creation module's view of the viewer. */
+  private makePlaces(): Places {
+    let data: GameData | null = null;
+    const places = new Places({
+      vfs: this.vfs,
+      sceneLoader: this.sceneLoader,
+      gui: () => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)),
+      data: () => this.world?.data ?? (data ??= new GameData(this.loader)),
+      instanceOf: m => this.instanceOf(m),
+      save: () => this.save,
+      write: () => writeSave(this.save),
+      scene: () => this.scene,
+      pick: z => this.rayPoint(z),
+      knightZ: () => this.world?.knight.z ?? 0,
+      sound: f => this.uiSound(f),
+      sceneList: () => this.sceneList,
+      go: async id => { this.stopPlaying(); await this.selectScene(id); await this.startPlaying(); },
+      restart: async () => { this.stopPlaying(); await this.startPlaying(); },
+      world: () => this.world,
+      camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; },
+      openArsenal: async () => { if (!this.itemScreens?.arsenal.isOpen) await this.toggleArsenal(); },
+      arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
+      colors: () => this.renderer.colors,
+      returnToHaven: () => void this.returnToHaven(),
+      pause: on => { this.paused = on && !!this.world; },
+      focus: () => this.canvas.focus(),
+    });
+    places.onCreated = () => {
+      this.run = { depth: 1, health: null, floors: 0 };
+      const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+      if (haven) void (async () => { this.stopPlaying(); await this.selectScene(haven.id); await this.startPlaying(); })();
+    };
+    return places;
+  }
+
+  private missions(): MissionBoard {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.missionBoard ??= new MissionBoard({
+      data: this.world?.data ?? new GameData(this.loader), gui: this.gui,
+      save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
+      pause: on => { this.paused = on && !!this.world; },
+      startRun: (g, floors) => void this.enterGate(g, floors),
+      openGates: () => this.openGates(),
+      // the sprite missions (Drakon, Maskeraith, Seraphynx) give the knight that battle sprite
+      completed: m => {
+        const sprite = /(Drakon|Maskeraith|Seraphynx)/.exec(m.title)?.[1];
+        if (sprite) void this.outfit.spriteNames().then(names => {
+          const name = names.find(n => n.toLowerCase().includes(sprite.toLowerCase()));
+          if (name) this.outfit.setSprite(name);
+        });
+      },
+    });
+  }
+
+  /** A simple window in the options' style (news and mail). */
+  private showPanel(title: string, fill: (body: HTMLElement) => void) {
+    const root = $("gates");
+    root.replaceChildren();
+    const card = document.createElement("div");
+    card.className = "settings-card";
+    const head = document.createElement("div");
+    head.className = "settings-head";
+    const h = document.createElement("h2");
+    h.textContent = title;
+    const close = document.createElement("button");
+    close.textContent = "Close";
+    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
+    head.append(h, close);
+    const body = document.createElement("div");
+    body.className = "settings-body";
+    fill(body);
+    card.append(head, body);
+    root.append(card);
+    root.hidden = false;
+    this.paused = !!this.world;
+  }
+
+  /** The news feed: what this port has and lacks (the game's feed came from its servers). */
+  private openFeed() {
+    this.showPanel("News", body => {
+      const items: [string, string][] = [
+        ["The Clockworks are open", "Four gates a day in the Arcade, six strata from depth 1 to 28, terminals, Moorcroft Manor, Emberlight and the Core."],
+        ["Generated floors", "Floors are built from the game's own tiles, spawners, gates and treasure; the real layouts of levels you have not visited are not in the install."],
+        ["Single player", "Parties, trading, PvP and guild chat are online features and are not part of this port."],
+      ];
+      for (const [t, d] of items) {
+        const p = document.createElement("p");
+        p.innerHTML = `<b style="color:#f3d36b">${t}</b><br>${d}`;
+        body.append(p);
+      }
+    });
+  }
+
+  /** The mailbox: letters kept in the save (a welcome note; missions add their rewards here). */
+  private openMail() {
+    const mail = this.save.mail ??= [];
+    if (!mail.length) mail.push({ from: "Spiral HQ", subject: "Welcome to Haven", at: Date.now(), read: false,
+      body: "Welcome, knight. Visit the Bazaar for gear, then take a gate in the Arcade into the Clockworks. Good luck below!" });
+    this.showPanel("Mail", body => {
+      for (const m of [...mail].reverse()) {
+        const d = document.createElement("details");
+        d.className = "settings-row";
+        d.style.display = "block";
+        d.innerHTML = `<summary><b>${m.read ? "" : "● "}${m.subject}</b> <span class="settings-note">from ${m.from}</span></summary><p>${m.body}</p>`;
+        d.ontoggle = () => { if (d.open && !m.read) { m.read = true; writeSave(this.save); } };
+        body.append(d);
+      }
+    });
+    writeSave(this.save);
   }
 
   /** The settings menu (filled in by the settings module). */
@@ -765,10 +983,52 @@ class Viewer {
 
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
   private async openShop(keeper: string) {
-    // in the Clockworks a terminal's Supply Depot stocks gear for its tier
+    this.paused = true;
+    const eco = await this.economy();
+    // in the Clockworks a terminal's keepers stock their tier (Basil sells its recipes, the
+    // Supply Depot its supplies); Haven's bazaar shows what progress has unlocked
     const f = this.gate ? this.floors[this.run.depth] : null;
+    const tier = f && f.depth > 0 ? f.tier : 0;
     const maxRarity = f ? Math.max(shopTier(this.save), tierStars(f.tier)) : shopTier(this.save);
-    await this.ensureScreens().openShop(keeper, maxRarity);
+    const kp = eco.keeper(keeper, { tier, maxRarity });
+    // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
+    const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
+    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity);
+  }
+
+  /** The economy over the install's configs (prices, levels, variants, recipes). */
+  private eco: Economy | null = null;
+  private async economy(): Promise<Economy> {
+    if (this.eco) return this.eco;
+    const data = this.world?.data ?? new GameData(this.loader);
+    await data.preload(...ECONOMY_FILES);
+    return this.eco ??= new Economy(f => data.library_(f));
+  }
+
+  /**
+   * Banks a floor's loot: crowns, materials and minerals; gear found joins the arsenal (a
+   * duplicate sells for its price); the heat goes into every equipped heatable item, which
+   * levels up. Returns lines describing found gear and level-ups.
+   */
+  private bankLoot(l: World["loot"]): string[] {
+    const notes: string[] = [];
+    const eco = this.eco ?? this.world?.economy ?? null;
+    this.save.crowns += l.crowns;
+    this.save.heat += l.heat;
+    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
+    for (const it of l.items) {
+      if (!eco) break;
+      if (this.save.owned.includes(it.name)) {
+        const paid = eco.sellPrice(it.name);
+        this.save.crowns += paid;
+        notes.push(`${eco.displayName(it.name, { heat: 0, level: 1, variants: it.variants })} (already owned: sold for ${paid} cr)`);
+      } else {
+        eco.grant(this.save, it.name, it.variants);
+        notes.push(`Found ${eco.displayName(it.name, this.save.gear[it.name])}`);
+      }
+    }
+    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${up.name.split("/").pop()} reached level ${up.level}`);
+    return notes;
   }
 
   /** The knight reached the exit elevator: offer the next floor. */
@@ -776,31 +1036,38 @@ class Viewer {
     if (!this.world) return;
     // bank what the floor gave
     const l = this.world.loot;
-    this.save.crowns += l.crowns;
-    this.save.heat += l.heat;
-    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
-    // equipped weapons absorb the floor's heat
-    for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
+    const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
+    const t = this.runTotals;
+    t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
+    t.materials += [...l.materials.values()].reduce((a, b) => a + b, 0);
+    t.deepest = Math.max(t.deepest, this.run.depth);
     writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
     if (this.gate) {
       // in a gate: on to the next depth, or ride back up to Haven with the loot banked
       const next = this.floors[this.run.depth + 1];
+      this.elevator?.setNext(next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" });
       $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
       $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
       $("deeper").textContent = "Return to Haven";
       $("deeper").hidden = !next;
+      // an Arcade stratum cleared counts for prestige gate missions of its theme
+      const here = this.floors[this.run.depth], s = here?.stratum;
+      if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
       const last = this.nextLevel() === null;
+      const nl = this.nextLevel();
+      this.elevator?.setNext(nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" });
       $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
       $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
       // past the Core the Clockworks go on: cycle the levels again, deeper
       $("deeper").hidden = !last || this.run.depth >= 29;
     }
     const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
-    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} other pickups.`;
+    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} materials.`
+      + (notes.length ? ` ${notes.join(". ")}.` : "");
     $("floorDone").hidden = false;
   }
 
@@ -821,15 +1088,13 @@ class Viewer {
   private arenaCheckpoint(wave: number) {
     if (!this.world) return;
     const l = this.world.loot;
-    this.save.crowns += l.crowns;
-    this.save.heat += l.heat;
-    for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
-    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
-    l.crowns = 0; l.heat = 0; l.materials.clear();
+    const notes = this.bankLoot(l);
+    l.crowns = 0; l.heat = 0; l.materials.clear(); l.items.length = 0;
     writeSave(this.save);
     this.paused = true;
     $("floorTitle").textContent = `Arena: wave ${wave} cleared`;
-    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.`;
+    this.elevator?.setNext({ title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" });
+    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.` + (notes.length ? ` ${notes.join(". ")}.` : "");
     $("descend").textContent = "Ride up to Haven";
     $("deeper").textContent = "Fight on";
     $("deeper").hidden = false;
@@ -837,21 +1102,117 @@ class Viewer {
   }
 
   /** Crowns a revive costs: more the deeper the knight is (towns are free). */
+  private reviveScreen: ReviveScreen | null = null;
+
+  /** The knockout window: use a Spark of Life, or buy one with crowns. */
+  private async openRevive() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    const sparkView = new PortraitView(this.renderer, this.loader, undefined, null);
+    this.reviveScreen ??= new ReviveScreen(this.gui, $<HTMLCanvasElement>("reviveCanvas"), {
+      sparks: () => this.save.sparks ?? 3,
+      price: () => this.reviveCost(),
+      crowns: () => this.save.crowns,
+      use: () => {
+        const n = this.save.sparks ?? 3;
+        if (n <= 0 || !this.world) return false;
+        this.save.sparks = n - 1;
+        writeSave(this.save);
+        this.world.revive();
+        $("defeated").hidden = true;
+        this.uiSound("sound/feedback/ui_confirm.ogg");
+        this.canvas.focus();
+        return true;
+      },
+      buy: () => {
+        const cost = this.reviveCost();
+        if (this.save.crowns < cost) return false;
+        this.save.crowns -= cost;
+        this.save.sparks = (this.save.sparks ?? 3) + 1;
+        writeSave(this.save);
+        return true;
+      },
+      sound: f => this.uiSound(f),
+    }, { view: (c, g, x, y, w, h) => sparkView.draw(c, g, x, y, w, h) });
+    await this.reviveScreen.open();
+  }
+
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
   private async returnToHaven() {
+    // the end of a gate run: a summary of what it brought home
+    const t = this.runTotals;
+    const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
+    this.gate = null;
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
     this.stopPlaying();
     this.run = { depth: 0, health: null, floors: 0 };
     const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
     if (!haven) return;
     await this.selectScene(haven.id);
     await this.startPlaying();
+    if (summary && summary.deepest > 0) {
+      this.showPanel("Back in Haven", body => {
+        const rows: [string, string][] = [["Gate", summary.gate || "The Clockworks"], ["Deepest depth this run", String(summary.deepest)],
+          ["Deepest depth ever", String(summary.best)], ["Monsters defeated", String(summary.kills)],
+          ["Crowns banked", String(summary.crowns)], ["Heat earned", String(summary.heat)], ["Materials and items", String(summary.materials)]];
+        for (const [k, v] of rows) {
+          const r = document.createElement("div");
+          r.className = "settings-row";
+          r.innerHTML = `<span>${k}</span><b>${v}</b><span></span>`;
+          body.append(r);
+        }
+      });
+    }
   }
 
   /** The cached levels in run order. */
   // ------------------------------------------------------------------ the Arcade and its gates
 
-  /** The Arcade's gate board: today's four gates and their strata. */
+  private iconUrls = new Map<string, Promise<string>>();
+  /** An install image as a URL for HTML panels (cached). */
+  private iconUrl(path: string): Promise<string> {
+    let p = this.iconUrls.get(path);
+    if (!p) this.iconUrls.set(path, p = this.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => ""));
+    return p;
+  }
+  private levelIcons = new Map<string, Promise<string>>();
+  /**
+   * A gate lineup icon drawn through the game's own ui/adventureboard/parts/map_levelicon.dat
+   * (its colourisation turns the mask images purple and light blue), as an image URL.
+   */
+  private levelIcon(path: string, locked = false): Promise<string> {
+    const key = path + (locked ? "|locked" : "");
+    let p = this.levelIcons.get(key);
+    if (!p) {
+      p = (async () => {
+        this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+        const ui = await buildInterface(this.gui, { $class: "com.threerings.config.ConfigReference", name: "ui/adventureboard/parts/map_levelicon.dat",
+          arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Icon", path], ["Locked", !locked], ["You are Here", false], ["Friend Here", false]] } });
+        if (!ui) return "";
+        const size = pack(ui);
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, size.width); c.height = Math.max(1, size.height);
+        renderGui(ui, c.getContext("2d")!, 0, size.height, {});
+        return c.toDataURL();
+      })().catch(() => "");
+      this.levelIcons.set(key, p);
+    }
+    return p;
+  }
+
+  private img(path: string, cls: string, title = "") {
+    const im = document.createElement("img");
+    im.className = cls;
+    if (title) im.title = title;
+    void this.iconUrl(path).then(u => { if (u) im.src = u; });
+    return im;
+  }
+
+  /**
+   * The Arcade's gate board: today's four gates, each with its emblem and the lineup of its
+   * floors as the game draws it, with the level icons (rsrc/ui/icon/map) under each stratum's
+   * theme icon (rsrc/ui/icon/theme).
+   */
   private openGates() {
     const root = $("gates");
     root.replaceChildren();
@@ -863,35 +1224,54 @@ class Viewer {
     h.textContent = "The Arcade";
     const close = document.createElement("button");
     close.textContent = "Close";
-    close.onclick = () => { root.hidden = true; this.paused = false; };
+    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
     head.append(h, close);
     card.append(head);
     const note = document.createElement("p");
     note.className = "settings-note";
-    note.textContent = "Choose a gate. Each runs from depth 1 to the Core at depth 29 through three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
+    note.textContent = "Today's gates. Each runs from the Arcade to the Core in three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
     card.append(note);
-    const grid = document.createElement("div");
-    grid.className = "gates-grid";
     for (const g of arcadeGates()) {
-      const col = document.createElement("div");
-      col.className = "gate";
-      const t = document.createElement("h3");
-      t.textContent = g.name;
-      col.append(t);
-      for (const s of g.strata) {
-        const row = document.createElement("div");
-        row.className = "gate-stratum tier" + s.tier;
-        row.textContent = `${s.first}-${s.last} · ${s.theme} · ${s.style.name}${s.boss ? " · " + BOSSES[s.boss].name : ""}`;
-        col.append(row);
+      const row = document.createElement("div");
+      row.className = "gate-row";
+      const name = document.createElement("div");
+      name.className = "gate-name";
+      const emblem = this.img(`ui/icon/gate/${g.emblem}.png`, "gate-emblem");
+      emblem.style.filter = "hue-rotate(-100deg) saturate(0.9)";
+      name.append(emblem, document.createTextNode(g.name));
+      const lineup = document.createElement("div");
+      lineup.className = "gate-lineup";
+      const floors = gateFloors(g);
+      for (const f of floors.slice(1)) {
+        const cell = document.createElement("div");
+        cell.className = `gate-cell tier${f.tier}` + (f.stratum && f.depth === f.stratum.first ? " first" : "");
+        const theme = f.stratum && f.kind !== "terminal" && f.kind !== "subtown" ? f.stratum.theme.toLowerCase() : "";
+        if (f.stratum && f.depth === f.stratum.first) cell.append(this.img(`ui/icon/theme/${theme || "unk"}.png`, "gate-theme", f.stratum.theme));
+        else cell.append(document.createElement("span"));
+        const icon = document.createElement("img");
+        icon.className = "gate-level";
+        icon.title = `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`;
+        // tiers above the knight's rank show the lock, as the game's map does
+        const locked = tierLock(f.tier, progressOf(this.save)) !== null;
+        void this.levelIcon(`ui/icon/map/${floorIcon(f)}.png`, locked).then(u => { if (u) icon.src = u; });
+        cell.append(icon);
+        const d = document.createElement("small");
+        d.textContent = String(f.depth);
+        cell.append(d);
+        lineup.append(cell);
       }
       const go = document.createElement("button");
       go.className = "primary";
       go.textContent = "Enter";
       go.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_confirm.ogg"); void this.enterGate(g); };
-      col.append(go);
-      grid.append(col);
+      row.append(name, lineup, go);
+      card.append(row);
     }
-    card.append(grid);
+    // the arena: endless waves on a cached level, a checkpoint every fifth wave
+    const arena = document.createElement("button");
+    arena.textContent = "Arena: endless waves (bank every fifth wave)";
+    arena.onclick = () => { root.hidden = true; this.paused = false; void this.enterArena(); };
+    card.append(arena);
     root.append(card);
     root.hidden = false;
     this.paused = !!this.world;
@@ -899,12 +1279,14 @@ class Viewer {
   }
 
   /** Starts a gate at depth 1. */
-  private async enterGate(g: Gate) {
+  private async enterGate(g: Gate, floors = gateFloors(g)) {
     this.gate = g;
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name };
     this.usedScenes.clear();
-    this.floors = gateFloors(g);
+    this.floors = floors;
     this.arenaMode = false;
-    this.run = { depth: 0, health: null, floors: 0 };
+    // the descent starts above the first floor (a mission's floors start deeper)
+    this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
     await this.descend();
   }
 
@@ -918,7 +1300,14 @@ class Viewer {
     const cached = (re: RegExp) => this.sceneList.find(s => re.test(s.name));
     if (f.kind === "terminal") return cached(/^terminal 1$/i) ?? null;
     if (f.kind === "core") return cached(/^terminal core$/i) ?? cached(/^terminal 1$/i) ?? null;
-    if (f.kind === "subtown") return (f.depth === 18 ? cached(/^emberlight$/i) : cached(/^dark halls lobby$/i)) ?? cached(/^terminal 1$/i) ?? null;
+    if (f.kind === "subtown" && f.depth === 18) return cached(/^emberlight$/i) ?? cached(/^terminal 1$/i) ?? null;
+    if (f.kind === "subtown") {
+      // Moorcroft Manor is not in the cache: a generated town in the graveyard's tiles
+      const id = `gen:${genTheme("graveyard")}:${((this.gate?.seed ?? 1) + 8) >>> 0}`;
+      this.safeGen.add(id);
+      this.genNames.set(id, "Moorcroft Manor");
+      return { id, name: "Moorcroft Manor" };
+    }
     const s = f.stratum!;
     if (f.kind === "level" && s.style.cached) {
       const options = this.sceneList.filter(sc => s.style.cached!.test(sc.name) && !this.usedScenes.has(sc.id));
@@ -928,7 +1317,7 @@ class Viewer {
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
     const id = `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
-    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} (${s.theme})`);
+    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   private usedScenes = new Set<string>();
@@ -992,7 +1381,15 @@ class Viewer {
       // the gate's next floor (after the Core's terminal, back to Haven)
       const f = this.floors[this.run.depth + 1];
       this.stopPlaying();
-      if (!f) { this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven(); return; }
+      if (!f) {
+        const id = this.gate.id;
+        this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven();
+        this.missionBoard?.runFinished(id);
+        return;
+      }
+      // deeper tiers need rank (missions take the knight to their own depth)
+      const lock = this.gate.id.startsWith("mission:") ? null : tierLock(f.tier, progressOf(this.save));
+      if (lock) { this.gate = null; await this.returnToHaven(); notice(lock); return; }
       const sc = this.floorScene(f);
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
@@ -1010,7 +1407,8 @@ class Viewer {
     let next = this.nextLevel();
     // past the end of the run, deeper floors are generated
     if (deeper && !next) {
-      const usable = THEMES.filter(t => this.sceneList.some(s => t.test.test(s.name)));
+      // any tileset theme whose source levels are cached (src/gen/themes.ts)
+      const usable = GEN_THEMES.filter(t => themeAvailable(t.key, this.sceneList));
       const t = usable[Math.floor(Math.random() * usable.length)];
       next = t ? { id: `gen:${t.key}:${Math.floor(Math.random() * 1e9)}`, name: `${t.label} · new floor` } : this.runLevels()[0] ?? null;
     }
@@ -1197,6 +1595,8 @@ class Viewer {
           return;
         }
       }
+      // furniture mode: clicks place, pick up and drop furniture instead of attacking
+      if (this.world && this.places.pointerDown(e.button)) return;
       if (this.world && (e.button === 0 || e.button === 2)) {
         // play mode: left attacks (hold to charge), right raises the shield
         // Shift + right click dashes (the game's default binding); right click alone shields
@@ -1292,11 +1692,11 @@ class Viewer {
           this.target[2] + (k.z + 1 - this.target[2]) * f];
         if ($("defeated").hidden === this.world.defeated) {
           $("defeated").hidden = !this.world.defeated;
+          // the game's revive window (Sparks of Life); in town the knight simply gets up
           if (this.world.defeated) {
-            const cost = this.reviveCost();
-            $("reviveInfo").textContent = TOWN.test(this.scene?.name ?? "") ? "" : `Reviving costs ${cost} crowns (you have ${this.save.crowns}).`;
-            ($("revive") as HTMLButtonElement).disabled = this.save.crowns < cost;
-          }
+            if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); $("defeated").hidden = true; }
+            else void this.openRevive();
+          } else this.reviveScreen?.close();
         }
       }
       const eye: Vec3 = [
@@ -1320,16 +1720,17 @@ class Viewer {
           const shift = Math.max(0, this.dist - (env.camera?.distance ?? this.dist));
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
-        const items = this.world ? [...this.sceneItems, ...this.world.items()] : this.sceneItems;
+        const items = this.world ? [...this.sceneItems, ...this.world.items(), ...this.places.items()] : this.sceneItems;
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
         if (this.scene && this.options_.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
+        this.places.drawMarks(this.renderer, proj, view);
         if (this.world && this.options_.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;
         this.lastView = view;
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext() }, dt);
+          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
           this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }
@@ -1341,10 +1742,13 @@ class Viewer {
 
 start();
 
+/** The scenes cache, for genTheme's availability check (set once scenes are listed). */
+let genScenes: { id: string; name: string }[] | null = null;
+
 /** Generator themes for a floor's tileset (src/gen); unknown tilesets fall back by family. */
 function genTheme(tileset: string): string {
-  const known = THEMES.map(t => t.key);
-  if (known.includes(tileset)) return tileset;
+  const known = GEN_THEMES.map(t => t.key);
+  if (known.includes(tileset) && (!genScenes || themeAvailable(tileset, genScenes))) return tileset;
   if (/^valley/.test(tileset) && known.includes("valley")) return "valley";
   return known.includes("clockworks") ? "clockworks" : known[0];
 }

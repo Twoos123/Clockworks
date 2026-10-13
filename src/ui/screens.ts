@@ -5,10 +5,11 @@
 
 import type { ColorPository } from "../colors";
 import type { GameData } from "../game/data";
+import type { Economy } from "../game/economy";
 import type { Loadout, SaveData } from "../game/save";
 import { ArsenalScreen } from "./equipment";
 import { ForgeScreen } from "./forge";
-import { ShopScreen } from "./shop";
+import { ShopScreen, type StockItem } from "./shop";
 import { BackpackScreen } from "./backpack";
 import type { Component, GuiContext } from "./gui";
 import type { GuiScreen } from "./screen";
@@ -16,6 +17,8 @@ import type { GuiScreen } from "./screen";
 export interface ScreensHost {
   gui: GuiContext;
   data(): GameData;
+  /** The economy (prices, levels, recipes, buying and selling). */
+  eco(): Promise<Economy>;
   save(): SaveData;
   /** Writes the save after a change. */
   write(): void;
@@ -25,6 +28,8 @@ export interface ScreensHost {
   colors: Promise<ColorPository | null>;
   /** Draws the knight preview into a RenderableView. */
   view?(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void;
+  /** The arsenal closed (the Ready Room dresses the knight). */
+  arsenalClosed?(): void;
 }
 
 export class GameScreens {
@@ -62,13 +67,14 @@ export class GameScreens {
 
   private base() {
     const h = this.host;
-    return { sound: h.sound, closed: this.closed, view: h.view, data: h.data, save: h.save };
+    return { sound: h.sound, closed: this.closed, view: h.view, data: h.data, save: h.save, eco: h.eco };
   }
 
   get arsenal() {
     const h = this.host;
     return this.arsenal_ ??= new ArsenalScreen(h.gui, {
       ...this.base(),
+      closed: () => { this.closed(); h.arsenalClosed?.(); },
       equipped: (l: Loadout) => { h.save().loadout = l; h.write(); },
       colors: () => this.colorList,
       setColor: print => { h.save().color = print; h.write(); },
@@ -87,11 +93,11 @@ export class GameScreens {
     return this.shop_ ??= new ShopScreen(this.host.gui, { ...this.base(), changed: () => this.host.write() });
   }
 
-  /** Opens a shopkeeper's shop selling up to `maxRarity` stars. */
-  async openShop(keeper: string, maxRarity: number) {
+  /** Opens a shopkeeper's shop with its stock. */
+  async openShop(title: string, stock: StockItem[], maxRarity: number) {
     for (const o of this.all()) if (o !== this.shop) o.close();
     this.host.paused(true);
-    await this.shop.openFor(keeper, maxRarity);
+    await this.shop.openFor(title, stock, maxRarity);
   }
 
   /** Opens a window (closing any other), or closes it when it is open. */

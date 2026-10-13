@@ -4,23 +4,25 @@ Each item is ticked when it works in the browser and is committed. Items marked 
 be done fully, with the reason.
 
 ## Structure and loop
-- [ ] Game app by default (title screen from `ui/logon`, no asset viewer); viewer behind `#viewer` / `#dev=1`
-- [ ] Haven → Arcade → gate selection (`ui/mission/interface_gate.dat`, adventure board)
-- [ ] Clockworks gates: 4 strata, depth 0 to 28, tiers 1 to 3 (depths 1-7, 8-17, 18-28), terminals between strata, Core at the bottom
-- [ ] Elevator screen between floors (`ui/elevator`), loading screen with tips (`ui/loading`)
-- [ ] In-level gates and puzzles on generated floors (Iron Gates: gold key, monster, trigger, energy)
-- [ ] Terminals: shop, heal, elevator onward
+- [x] Game app by default (title screen from `ui/logon`, no asset viewer); viewer behind `#viewer` / `#dev=1`
+- [x] Haven → Arcade → gate selection (gate board drawn from the game's gate, map and theme icons)
+- [x] Clockworks gates: six strata, depth 0 to 29, tiers 1 to 3, terminals at 4/13/23, Moorcroft Manor (8), Emberlight (18), the Core's terminal (29), boss floors
+- [x] Elevator screen between floors (`ui/elevator/nextlevel`), loading screen with tips and progress (`ui/loading`); FLAG: tips beyond the two in the install's interfaces are written here (the game's are in message bundles)
+- [x] Arena rooms on generated floors (Iron Gates close, two waves, reopen) — [ ] keys, switches, traps, vaults, danger rooms (agent: level features)
+- [x] Terminals: heal on arrival, tiered Supply Depot, elevator onward
 - [ ] Depth record, run summary
 - [ ] FLAG: exact layouts of levels not in the scenes cache (server-streamed); generated instead
 
 ## Content
-- [ ] Generated floors for all 22 tilesets
-- [ ] Every theme's music (`full-music-bundle.jar`) mapped to its levels
-- [ ] Boss arenas: Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
+- [x] Generated floors for 21 tilesets (learned, mirrored, rule-based); FLAG: Water Temple models missing from the install, prism_track is not a tileset
+- [x] Every theme's music (`full-music-bundle.jar`, `sound/music`) mapped to its levels, bosses, towns and stingers (`docs/research/music.md`)
+- [ ] Boss arenas (agent: bosses): Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
 - [ ] Danger rooms, treasure vaults, arenas inside gates
-- [ ] Missions: all 272 configs (rank missions 1-9 with prestige, exchange and gate missions), mission board, rewards, rescue camps
-- [ ] Guilds: guild hall, furniture placement, guild storage
-- [ ] Ready room (`rsrc/world/readyroom/scene.dat`), character creation (`rsrc/world/createknight/scene.dat`)
+- [x] Missions: all 272 configs read (238 shown: rank 1-10, prestige by schedule, operations), mission board, rewards, rank progression, tier locks (`src/game/missions.ts`, `src/ui/missions.ts`)
+- [ ] FLAG Mission levels, dialogue and rescue camps (server data and message bundles), event missions
+- [x] Guilds: guild hall, furniture placement, guild storage (vault), guild name and emblem
+- [ ] FLAG: guild hall layouts (expansions, rooms, themes) are server-side; every guild gets the one cached hall
+- [x] Ready room (`rsrc/world/readyroom/scene.dat`), character creation (`rsrc/world/createknight/scene.dat`)
 - [ ] FLAG: game text (message bundles are in the code jars); labels written here
 - [ ] FLAG: PvP, parties, trading, mail (multiplayer)
 
@@ -32,11 +34,15 @@ be done fully, with the reason.
 
 ## UI
 - [x] HUD from the full-screen mockup (menus, objective, activities, target, dash cooldown)
-- [ ] GUI widgets: Slider, ComboBox, ScrollPane, TabbedPane, TextField, interaction
-- [ ] Real options screen (`ui/options`) bound to the settings
-- [x] Real arsenal / loadout / forge / shop / backpack screens
-- [ ] Real mission screens
-- [ ] Message keys shown as readable English
+- [x] GUI widgets: Slider, ComboBox, ScrollPane, TabbedPane, TextField, List, interaction
+- [x] Real options screen (`ui/options`) bound to the settings
+- [x] Real arsenal / loadout / forge / shop / backpack screens (the game's own interfaces)
+- [x] Message keys shown as readable English
+
+## Also in progress (agents)
+- [ ] Economy: item levels for all gear, level tables, unique variants, loot by depth, shop catalogues, recipes to buy, selling
+- [ ] Battle sprites (Drakon, Maskeraith, Seraphynx) and accessories/costumes
+- [ ] Audit and fixes: every monster and weapon animation; lichen fusion
 
 ## Done earlier (see STATUS.md)
 Engine, scenes cache, Tudey logic, HUD, arsenal, crafting, shops, arena, pocket items, trinkets, vitapods, dash, heat.

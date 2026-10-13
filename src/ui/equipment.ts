@@ -6,8 +6,9 @@
 // rating and, for weapons, the heat level.
 
 import type { GameData } from "../game/data";
-import { CATEGORIES, catalogue, isEquipped, itemLabel, itemLevel, levelProgress, toggleEquip, unequip, type ItemEntry, type Slot } from "../game/items";
-import { LEVEL_HEAT, levelMultiplier, type Loadout, type SaveData } from "../game/save";
+import { MAX_LEVEL, type Economy } from "../game/economy";
+import { CATEGORIES, catalogue, isEquipped, itemLabel, toggleEquip, unequip, type ItemEntry, type Slot } from "../game/items";
+import type { Loadout, SaveData } from "../game/save";
 import type { Component } from "./gui";
 import { itemTip, ItemList, type ListEntry, type ListGroup } from "./itemlist";
 import { GuiScreen, row, type ScreenHost } from "./screen";
@@ -15,6 +16,8 @@ import { GuiScreen, row, type ScreenHost } from "./screen";
 export interface ArsenalHost extends ScreenHost {
   save(): SaveData;
   data(): GameData;
+  /** The economy: levels, heat and unique variants. */
+  eco(): Promise<Economy>;
   /** The loadout changed (written to the save; worn from the next floor). */
   equipped(l: Loadout): void;
   /** Personal colour swatches and the chosen one's setter. */
@@ -40,13 +43,14 @@ const COLOR_ICON = "ui/icon/inventory/categories/icon_recolor.png";
 export class ArsenalScreen extends GuiScreen {
   private list: ItemList | null = null;
   private status: Component | null = null;
+  private eco: Economy | null = null;
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly arsenal: ArsenalHost) {
     super(ctx, arsenal, "arsenalCanvas");
   }
 
   protected async build(): Promise<Component | null> {
-    await this.arsenal.data().preload("config/item.dat");
+    this.eco = await this.arsenal.eco();
     const [left, right] = await Promise.all([
       this.ui("ui/arsenal/interface.dat", { Mode: "Contained" }),
       this.ui("ui/status/interface_v2.dat"),
@@ -131,16 +135,25 @@ export class ArsenalScreen extends GuiScreen {
   }
 
   /** The tooltip for an owned item. */
+  /** The tooltip for an owned item: its level and heat, what the level gives, its variants. */
   private tip(e: ItemEntry, worn: boolean) {
-    const save = this.arsenal.save(), weapon = e.category.slot === "weapon";
-    const heat = save.weaponHeat[e.name] ?? 0, lv = itemLevel(save, e.name);
-    const flavor = weapon
-      ? `${heat} heat absorbed.${lv < 10 ? " Weapons level up with the heat they gather in the Clockworks." : " Fully heated."}`
-      : `${e.category.label.replace(/s$/, "")} gear.`;
-    const lines = weapon ? [`Level ${lv}: +${Math.round((levelMultiplier(lv) - 1) * 100)}% damage`,
-      ...(lv < 10 ? [`Level ${lv + 1} at ${LEVEL_HEAT[lv]} heat`] : [])] : [];
-    return itemTip({ label: e.label, type: e.category.label.replace(/s$/, ""), rarity: e.rarity, flavor: flavor + (worn ? " Equipped." : " Click to equip."),
-      level: weapon ? lv : undefined, progress: levelProgress(save, e.name), equipped: worn, lines });
+    const save = this.arsenal.save(), eco = this.eco!, heatable = !!eco.info(e.name)?.heatable;
+    const g = save.gear[e.name], lv = eco.level(save, e.name);
+    const lines: string[] = [];
+    if (heatable) {
+      const st = eco.levelStats(e.name, lv, Math.max(1, save.bestDepth));
+      if (st.damage) lines.push(`Damage +${Math.round(st.damage * 100)}%`);
+      if (st.charge) lines.push(`Charge time -${Math.round(st.charge * 100)}%`);
+      if (st.defense) lines.push(`Defense +${Math.round(st.defense)}`);
+      if (st.health) lines.push(`Health +${Math.round(st.health / 40 * 10) / 10} pips`);
+    }
+    for (const v of g?.variants ?? []) lines.push(eco.variantLabel(v));
+    const flavor = heatable
+      ? `${g?.heat ?? 0} heat absorbed.${lv < MAX_LEVEL ? " Gear levels up with the heat it gathers in the Clockworks." : " Fully heated."}`
+      : `${e.category.label.replace(/s$/, "")}.`;
+    return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity,
+      flavor: flavor + (worn ? " Equipped." : " Click to equip."), level: heatable ? lv : undefined,
+      progress: eco.heatProgress(save, e.name), equipped: worn, lines });
   }
 
   protected async refresh() {
@@ -150,8 +163,8 @@ export class ArsenalScreen extends GuiScreen {
       id: cat.id, label: cat.label, icon: cat.icon,
       entries: catalogue(this.arsenal.data()).filter(e => e.category === cat && owned.has(e.name)).map(e => {
         const worn = isEquipped(l, e);
-        const lv = e.category.slot === "weapon" ? itemLevel(save, e.name) : 0;
-        return { key: e.name, label: e.label, rarity: e.rarity, icon: e.icon, look: worn ? "True" : "False", count: lv ? String(lv) : "",
+        const lv = this.eco?.info(e.name)?.heatable ? this.eco.level(save, e.name) : 0;
+        return { key: e.name, label: e.label, variants: save.gear[e.name]?.variants.length ?? 0, rarity: e.rarity, icon: e.icon, look: worn ? "True" : "False", count: lv ? String(lv) : "",
           tip: this.tip(e, worn) } satisfies ListEntry;
       }),
     })).filter(g => g.entries.length);

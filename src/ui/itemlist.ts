@@ -16,6 +16,8 @@ export interface ListEntry {
   icon: any;
   /** The pill's backing: worn (gold), red (cannot), green (ready). */
   look?: "False" | "True" | "False - Red" | "False - Green";
+  /** Unique variants (0 to 3 pips). */
+  variants?: number;
   /** A count drawn over the icon. */
   count?: string;
   /** The tooltip shown while the pill is hovered. */
@@ -87,7 +89,7 @@ export class ItemList {
   private pill(e: ListEntry): Promise<Component | null> {
     const args: Record<string, unknown> = {
       Name: e.label, Rarity: String(Math.max(-1, Math.min(5, e.rarity))), Equipped: e.look ?? "False", Hoverable: true,
-      Icon: e.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: e.icon?.colorizations ?? [], Variants: "0", Accessory: false,
+      Icon: e.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: e.icon?.colorizations ?? [], Variants: String(Math.min(3, e.variants ?? 0)), Accessory: false,
     };
     const key = e.key + "|" + JSON.stringify(args, (k, v) => (k === "$outer" ? undefined : v));
     let p = this.cache.get(key);

@@ -3,8 +3,8 @@
 // the pocket's capsules and vials first, then the crafting materials, each with its icon and
 // count and the game's item tooltip.
 
-import type { GameData } from "../game/data";
-import { itemInfo, itemLabel } from "../game/items";
+import type { Economy } from "../game/economy";
+import { itemLabel } from "../game/items";
 import type { SaveData } from "../game/save";
 import type { Component } from "./gui";
 import { itemTip } from "./itemlist";
@@ -12,7 +12,7 @@ import { GuiScreen, type ScreenHost } from "./screen";
 
 export interface BackpackHost extends ScreenHost {
   save(): SaveData;
-  data(): GameData;
+  eco(): Promise<Economy>;
 }
 
 const SLOTS = 16;
@@ -20,13 +20,14 @@ const SLOTS = 16;
 export class BackpackScreen extends GuiScreen {
   private bag = 0;
   private icons_ = new Map<Component, any>();
+  private eco: Economy | null = null;
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly pack: BackpackHost) {
     super(ctx, pack, "backpackCanvas");
   }
 
   protected async build(): Promise<Component | null> {
-    await this.pack.data().preload("config/item.dat");
+    this.eco = await this.pack.eco();
     const ui = await this.ui("ui/inventory/interface.dat");
     if (!ui) return null;
     this.on(ui, "dismiss", () => this.close());
@@ -55,7 +56,7 @@ export class BackpackScreen extends GuiScreen {
   protected async refresh() {
     const ui = this.root;
     if (!ui) return;
-    const save = this.pack.save(), all = this.contents(), data = this.pack.data();
+    const save = this.pack.save(), all = this.contents(), eco = this.eco!;
     const crowns = ui.find("crowns");
     if (crowns) crowns.text = save.crowns.toLocaleString("en-US");
     ["tab_bag1", "tab_bag2"].forEach((t, i) => { const c = ui.find(t); if (c) c.selected = i === this.bag; });
@@ -68,12 +69,12 @@ export class BackpackScreen extends GuiScreen {
       if (count) count.text = item && item[1] > 1 ? String(item[1]) : "";
       if (!ring) continue;
       if (!item) { this.icons_.delete(ring); this.tips.delete(slot); continue; }
-      const info = itemInfo(data, item[0]);
+      const info = eco.info(item[0]);
       this.icons_.set(ring, info?.icon ?? null);
-      const kind = pocket.has(item[0]) ? (/Vial/.test(info?.kind ?? "") ? "Vial" : "Capsule") : "Material";
+      const kind = pocket.has(item[0]) ? (/Vial/.test(item[0]) ? "Vial" : "Capsule") : info?.category === "mineral" ? "Mineral" : "Material";
       this.tips.set(slot, itemTip({ label: itemLabel(item[0]), type: kind, rarity: info?.rarity ?? 0,
-        flavor: kind === "Material" ? "A crafting material: the forge's recipes call for it." : "Carried in the pocket: use it from the quickbar.",
-        lines: [`${item[1]} carried`] }));
+        flavor: pocket.has(item[0]) ? "Carried in the pocket: use it from the quickbar." : "A crafting material: the forge's recipes call for it.",
+        lines: [`${item[1]} carried`, ...(eco.sellPrice(item[0]) ? [`Sells for ${eco.sellPrice(item[0]).toLocaleString("en-US")} crowns`] : [])] }));
     }
   }
 }

@@ -20,6 +20,7 @@ const ACTIVITIES = "ui/hud_v2/interface_activities.dat";
 const OBJECTIVE = "ui/hud_v2/interface_objective.dat";
 const TARGET = "ui/hud_v2/interface_status-mini.dat";
 const COOLDOWN = "ui/hud_v2/parts/interface_cooldown.dat";
+const SPRITE_SLOT = "ui/hud_v2/parts/interface_spriteslot.dat";
 
 /**
  * Text for the HUD's message keys. The game's message bundles are in its code jars, which
@@ -31,11 +32,11 @@ const LABELS: Record<string, string> = {
 };
 /** Menu buttons and the keys shown on their badges. */
 const MENU_KEYS: Record<string, string> = {
-  button_menu: "esc", button_help: "H", button_social: "G", button_gear: "C", button_loadout: "I", button_forge: "K", button_arsenal: "B",
+  button_menu: "esc", button_help: "H", button_social: "G", button_feed: "N", button_mail: "M", button_gear: "C", button_loadout: "I", button_forge: "K", button_arsenal: "B",
 };
 /** Parts with nothing behind them in single player (PvP, parties, trades, mail, news). */
 const HIDDEN = ["button_spare", "button_visithalls", "container_pvp", "button_pvp_spectate", "container_partyfinder",
-  "button_traderequest", "button_partyinvite", "button_partyfound", "button_feed", "button_mail", "panel_div", "notes_div"];
+  "button_traderequest", "button_partyinvite", "button_partyfound", "panel_div", "notes_div"];
 
 /** The monster the knight is fighting, for the target panel. */
 export interface HudTarget { key: string; name: string; health: number; maxHealth: number; family: string; model: any; idle: any }
@@ -74,6 +75,10 @@ export interface HudState {
   objectives: string[];
   /** In a town (the activities panel opens; in dungeons it starts folded). */
   town: boolean;
+  /** The battle sprite's skills (the sprite slots beside the quickbar), or absent. */
+  sprite?: { icon: any; seconds: number; ready: boolean; locked: boolean; hotkey: string }[];
+  /** The portrait's rank label ("RANK 1-1"). */
+  rank?: string;
 }
 
 export function hudState(world: World, name: string, floor = ""): HudState {
@@ -89,6 +94,7 @@ export function hudState(world: World, name: string, floor = ""): HudState {
     dashCooldown: Math.max(0, k.dashCooldown),
     target: world.hudTarget(),
     objectives: [], town: false,
+    sprite: world.companion?.hud(),
   };
 }
 
@@ -161,6 +167,8 @@ export class GameHud {
   private target: Component | null = null;
   private targetKey = "";
   private folded = new Map<Component, boolean>();
+  /** Panels the player folded or unfolded by hand (left alone by the automatic folding). */
+  private manual = new Set<Component>();
   private townBuilt: boolean | null = null;
   private hovered: Component | null = null;
   /** Display options: the minimap and the red flash when hit. */
@@ -230,7 +238,7 @@ export class GameHud {
       this.hovered = hit;
     }
     if (!click || !hit || !owner) return null;
-    if (hit.tag === "handle") { this.fold(owner, !this.folded.get(owner)); return "handle"; }
+    if (hit.tag === "handle") { this.manual.add(owner); this.fold(owner, !this.folded.get(owner)); return "handle"; }
     // a menu item's tag sits on its interface host; the clickable part is the inner button
     if (hit.tag === "button") return findHost(owner, hit)?.tag ?? null;
     return hit.tag || null;
@@ -247,14 +255,44 @@ export class GameHud {
     return r;
   }
 
+  /** The sprite slots (ui/hud_v2/parts/interface_spriteslot.dat), one per skill. */
+  private spriteSlots: Component[] = [];
+  private spriteBuilding = false;
+
+  private bindSprite(skills: NonNullable<HudState["sprite"]>) {
+    if (this.spriteSlots.length !== skills.length && !this.spriteBuilding) {
+      this.spriteBuilding = true;
+      void Promise.all(skills.map(s => buildInterface(this.ctx, ref(SPRITE_SLOT, { Cooldown: "", Hotkey: s.hotkey }))))
+        .then(uis => { this.spriteSlots = uis.filter((u): u is Component => !!u); }).finally(() => { this.spriteBuilding = false; });
+    }
+    skills.forEach((s, i) => {
+      const ui = this.spriteSlots[i];
+      if (!ui) return;
+      // the slot's root is dimmed (alpha 1/3) in the file: lit when the skill is ready
+      ui.setAlpha(s.locked ? 0.25 : s.ready ? 1 : 0.6);
+      const icon = ui.find("icon");
+      if (icon) icon.icon = s.icon && !s.locked ? this.icon(s.icon, 40) : null;
+      const cd = ui.find("cooldown");
+      if (cd) cd.text = !s.locked && s.seconds > 0 ? String(s.seconds) : "";
+      const hk = ui.find("slot_label");
+      if (hk) hk.text = s.hotkey;
+    });
+  }
+
   update(state: HudState, dt: number) {
+    if (state.sprite) this.bindSprite(state.sprite); else this.spriteSlots = [];
     if (this.built !== (state.shielding ? "Blocking" : "Idle") + "|" + state.heatLevel) void this.rebuildStatus(state);
     if (this.status) this.bindStatus(this.status, state);
     if (this.quickbar) this.bindQuickbar(this.quickbar, state);
     const label = this.minimapUi?.find("floorlabel");
     if (label) label.text = state.floor;
     // the activities panel is open in towns and folded in the Clockworks
-    if (this.activities && this.townBuilt !== state.town) { this.townBuilt = state.town; this.fold(this.activities, !state.town); }
+    if (this.activities && this.townBuilt !== state.town) {
+      this.townBuilt = state.town;
+      this.fold(this.activities, !state.town);
+      const b = this.activities.find("button_haven");
+      if (b) b.text = state.town ? "The Arcade" : "Return to Haven";
+    }
     if (this.objective) {
       const list = this.objective.find("objectives");
       if (list) {
@@ -308,6 +346,8 @@ export class GameHud {
     const px = (v: number) => Math.round(Math.max(0, v) / HEALTH_PER_PIP * PIP_WIDTH);
     bar(ui.find("health_ui"), px(s.maxHealth), px(s.health), px(s.recentDamage));
     bar(ui.find("shield_ui"), px(s.shieldMax), s.shieldBroken ? 0 : px(s.shield), 0);
+    const rank = s.rank ? ui.find("rank_label") : null;
+    if (rank) rank.text = s.rank!;
     // the heat meter shows the equipped weapon's level in the Clockworks
     const heat = ui.find("heat");
     if (heat) heat.visible = s.heatLevel > 0;
@@ -405,11 +445,23 @@ export class GameHud {
     if (this.quickbar) {
       const size = pack(this.quickbar);
       render(this.quickbar, g, Math.round((cw - size.width) / 2), ch - 8, this.hooks);
+      // the sprite slots sit above the quickbar's right end (the corner menu takes its sides)
+      const sizes = this.spriteSlots.map(slot => pack(slot));
+      let sx = Math.round((cw + size.width) / 2) - sizes.reduce((t, ss) => t + ss.width + 2, 0);
+      this.spriteSlots.forEach((slot, i) => { render(slot, g, sx, ch - 8 - size.height - 2, this.hooks); sx += sizes[i].width + 2; });
       // the dash cooldown sits 60 pixels above the quickbar (the HUD mockup's anchor)
       if (this.cooldown?.visible) {
         const cs = pack(this.cooldown);
         render(this.cooldown, g, Math.round((cw - cs.width) / 2), ch - 8 - size.height - 60 + cs.height, this.hooks);
       }
+    }
+    // corner menus fold to their handles when the window is too narrow for them beside the
+    // quickbar (unless the player has opened or folded them by hand)
+    if (this.quickbar && this.menuLeft && this.menuRight) {
+      const qb = this.quickbar.width, wide = (m: Component) => { const was = this.folded.get(m); this.fold(m, false); const w = pack(m).width; this.fold(m, !!was); return w; };
+      const needed = qb + 2 * Math.max(wide(this.menuLeft), wide(this.menuRight)) + 16;
+      const auto = cw < needed;
+      for (const m of [this.menuLeft, this.menuRight]) if (!this.manual.has(m) && !!this.folded.get(m) !== auto) this.fold(m, auto);
     }
     // corner menus: the left one in the lower-left corner, the right one in the lower-right
     if (this.menuLeft) { pack(this.menuLeft); render(this.menuLeft, g, 0, ch, this.hooks); }
