@@ -130,6 +130,16 @@ export class SceneLoader {
     return null;
   }
 
+  /**
+   * A furniture item as a Furni Placer shows it: the item's FurniConfig (footprint, shape,
+   * collision) and its loaded model, resolved the way scene furniture is.
+   */
+  async furniture(item: any): Promise<{ impl: any; model: LoadedModel | null }> {
+    const impl = await this.resolveImpl("config/item.dat", item, "item");
+    const ref = await this.furnitureModel(impl);
+    return { impl, model: ref ? await this.loader.loadRef(ref) : null };
+  }
+
   async load(id: string, data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<LoadedScene> {
     return this.loadRoot(id, (await importBinary(data, inflate)).root, onProgress);
   }
