@@ -110,8 +110,9 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 .hint-bar { bottom: auto; top: 56px; left: 50%; transform: translateX(-50%); }
 /* while playing, the game's HUD owns the screen: viewer controls move to the lower right */
 .playing .info, .playing #anim, .playing #pause, .playing #reset, .playing #status { display: none; }
-.playing .toolbar { top: auto; left: auto; bottom: 12px; right: 12px; }
-.playing .hint-bar { top: auto; left: auto; bottom: 52px; right: 12px; transform: none; max-width: 330px; }
+/* above the quickbar (its slots run to the vitapod on the right) */
+.playing .toolbar { top: auto; left: auto; bottom: 78px; right: 12px; }
+.playing .hint-bar { top: auto; left: auto; bottom: 118px; right: 12px; transform: none; max-width: 330px; }
 .info {
   position: absolute;
   top: 56px;

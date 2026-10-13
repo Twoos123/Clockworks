@@ -11,6 +11,8 @@ export interface Loadout {
   helmet: string;
   /** Up to two trinkets. */
   trinkets: string[];
+  /** The vitapod (Gear/Dungeon/Vitapod): extra health capsules, or empty. */
+  vitapod: string;
 }
 
 export interface SaveData {
@@ -42,6 +44,7 @@ export const DEFAULT_LOADOUT: Loadout = {
   armor: "",
   helmet: "",
   trinkets: [],
+  vitapod: "",
 };
 
 export function loadSave(): SaveData {
@@ -58,7 +61,7 @@ export function loadSave(): SaveData {
       materials: { ...(d.materials ?? {}) },
       weaponHeat: { ...(d.weaponHeat ?? {}) },
       pocket: (d.pocket ?? []).filter(p => Array.isArray(p) && p[1] > 0).slice(0, POCKET_SLOTS),
-      owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? [])]
+      owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? []), d.loadout?.vitapod]
         .filter((x): x is string => !!x))],
     };
   } catch { return fresh; }

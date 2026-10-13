@@ -38,6 +38,8 @@ export interface HudState {
   /** Active conditions: HUD icon name and whole seconds left. */
   statuses: { icon: string; ui: string; seconds: number }[];
   pocket: { icon: any; count: number }[];
+  /** The equipped vitapod's icon and capsule count. */
+  vitapod: { icon: any; count: number } | null;
   /** The equipped weapon's level (the heat meter), or 0 outside the Clockworks. */
   heatLevel: number;
 }
@@ -50,6 +52,7 @@ export function hudState(world: World, name: string, floor = ""): HudState {
     weapons: k.weapons.map((w, i) => ({ icon: w.def.icon, selected: i === k.slot })),
     statuses: k.statuses.map(s => ({ icon: s.def.icon, ui: s.def.iconUi, seconds: Math.ceil(s.remaining) })),
     pocket: world.pocket.map(([n, c]) => ({ icon: world.pocketItem(n)?.icon ?? null, count: c })),
+    vitapod: world.vitapod,
     heatLevel: world.depth > 0 ? world.weaponLevels.get(k.weapon?.name ?? "") ?? 1 : 0,
   };
 }
@@ -202,7 +205,7 @@ export class GameHud {
     for (const [i, tag] of ["slot0", "slot1", "slot2", "slot3", "vitaslot", "eventslot"].entries()) {
       const slot = ui.find(tag);
       if (!slot) continue;
-      const it = i < 4 ? s.pocket[i] : undefined;
+      const it = i < 4 ? s.pocket[i] : tag === "vitaslot" ? s.vitapod ?? undefined : undefined;
       const inner = slot.find("slot");
       if (inner) inner.visible = !!it;
       const icon = slot.find("icon");

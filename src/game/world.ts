@@ -218,6 +218,8 @@ export class World implements LogicHost {
    * array is the save's own, so what is picked up or used stays with the knight.
    */
   pocket: [string, number][] = [];
+  /** The equipped vitapod for the HUD: its icon and capsule count. */
+  vitapod: { icon: any; count: number } | null = null;
   /** Actions waiting on an item's action delay. */
   private delayed: { t: number; run: () => void }[] = [];
   readonly effects: Effect[] = [];
@@ -330,9 +332,11 @@ export class World implements LogicHost {
     knight.armor = armor;
     // gear bonuses (global modifiers and status resists) from everything worn
     await this.data.preload("config/item.dat");
-    for (const n of [gear.armor, gear.helmet, gear.shield, ...(gear.trinkets ?? [])]) {
+    for (const n of [gear.armor, gear.helmet, gear.shield, ...(gear.trinkets ?? []), gear.vitapod]) {
       if (n) addItemBonuses(knight.bonuses, this.data.resolveSync("config/item.dat", { name: n }, "item"));
     }
+    const vita = gear.vitapod ? this.data.resolveSync("config/item.dat", { name: gear.vitapod }, "item") : null;
+    this.vitapod = vita ? { icon: vita.icon ?? null, count: Number(vita.count ?? 1) } : null;
     this.updateKnightStats(knight);
     knight.health = knight.maxHealth;
     // the upper body: spine and everything above it (arms, head, weapon and shield bones)

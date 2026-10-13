@@ -6,13 +6,14 @@ import type { GameData } from "../game/data";
 import { price, type Loadout } from "../game/save";
 import type { GuiContext } from "./gui";
 
-type Tab = "weapons" | "shield" | "armor" | "helmet" | "trinket" | "craft";
+type Tab = "weapons" | "shield" | "armor" | "helmet" | "trinket" | "vitapod" | "craft";
 const TABS: { id: Tab; label: string; test: RegExp }[] = [
   { id: "weapons", label: "Weapons", test: /^Weapon\/(Sword|Handgun|Bomb)\// },
   { id: "shield", label: "Shields", test: /^Gear\/Shield\// },
   { id: "armor", label: "Armour", test: /^Gear\/Armor\// },
   { id: "helmet", label: "Helmets", test: /^Gear\/Helm\// },
   { id: "trinket", label: "Trinkets", test: /^Gear\/Trinket\// },
+  { id: "vitapod", label: "Vitapods", test: /^Gear\/Dungeon\/Vitapod\// },
   { id: "craft", label: "Craft", test: /^$/ },
 ];
 
