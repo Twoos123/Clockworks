@@ -26,12 +26,15 @@ export interface LevelStyle { key: string; name: string; tileset: string; famili
 export const STYLES: LevelStyle[] = [
   { key: "tunnels", name: "Clockwork Tunnels", tileset: "clockworks", families: ["Construct", "Gremlin", "Slime", "Beast", "Fiend", "Undead"] },
   { key: "valley", name: "Jigsaw Valley", tileset: "valley", families: ["Construct", "Gremlin", "Slime", "Beast"], cached: /^jigsaw valley/i },
-  { key: "den", name: "Wolver Den", tileset: "valley-night", families: ["Beast", "Undead"] },
-  { key: "grove", name: "Lichenous Lumberyard", tileset: "valley-autumn", families: ["Slime", "Construct", "Beast"] },
-  { key: "keep", name: "Candlestick Keep", tileset: "castle", families: ["Fiend", "Undead", "Gremlin"], cached: /^dark halls/i },
+  { key: "den", name: "Wolver Den", tileset: "sky-night", families: ["Beast", "Undead"] },
+  { key: "grove", name: "Lichenous Lumberyard", tileset: "sky-autumn", families: ["Slime", "Construct", "Beast"] },
+  { key: "keep", name: "Candlestick Keep", tileset: "castle", families: ["Fiend", "Undead", "Gremlin"] },
   { key: "graveyard", name: "Graveyard", tileset: "graveyard", families: ["Undead", "Fiend"] },
   { key: "compound", name: "Gremlin Compound", tileset: "city", families: ["Gremlin", "Construct"] },
   { key: "deconstruction", name: "Deconstruction Zone", tileset: "clockworks-white", families: ["Construct", "Gremlin"] },
+  { key: "frostwood", name: "Frosty Islands", tileset: "sky-winter", families: ["Beast", "Slime", "Construct"] },
+  { key: "halls", name: "Dark Halls", tileset: "castle-light", families: ["Undead", "Fiend", "Beast"] },
+  { key: "pools", name: "Frozen Pools", tileset: "ice", families: ["Slime", "Beast", "Undead"] },
 ];
 
 /** Element strata paint their floors with the element's Clockworks tileset. */
@@ -41,7 +44,7 @@ export type BossKey = "jelly" | "snarbolax" | "twins" | "vanaduke";
 /** The four bosses: their levels, tiers, and the actors their arenas start (all in config/actor.dat). */
 export const BOSSES: Record<BossKey, { name: string; level: string; tier: number; actors: string[]; tileset: string }> = {
   jelly: { name: "Royal Jelly", level: "Royal Jelly Palace", tier: 1, actors: ["Character/NPC/Monster/Boss/Royal Jelly/Royal Jelly 1"], tileset: "castle" },
-  snarbolax: { name: "Snarbolax", level: "Gloaming Wildwoods", tier: 1, actors: ["Character/NPC/Monster/Boss/Snarbolax/Snarbolax"], tileset: "valley-night" },
+  snarbolax: { name: "Snarbolax", level: "Gloaming Wildwoods", tier: 1, actors: ["Character/NPC/Monster/Boss/Snarbolax/Snarbolax"], tileset: "sky-night" },
   twins: { name: "Roarmulus Twins", level: "Ironclaw Munitions Factory", tier: 2,
     actors: ["Character/NPC/Monster/Boss/Roarmulus Twins/East", "Character/NPC/Monster/Boss/Roarmulus Twins/West"], tileset: "clockworks" },
   vanaduke: { name: "Lord Vanaduke", level: "Firestorm Citadel", tier: 3, actors: ["Character/NPC/Monster/Boss/Vanaduke/Stage 1"], tileset: "castle-fire" },
@@ -59,6 +62,24 @@ export interface Stratum {
   last: number;
 }
 
+/** The gate lineup's level icon (rsrc/ui/icon/map/<icon>.png) for a level style. */
+export const STYLE_ICONS: Record<string, string> = {
+  tunnels: "clockwork", valley: "island", den: "woods", grove: "island", keep: "castle", graveyard: "graveyard",
+  compound: "city", deconstruction: "decon", frostwood: "island", halls: "castle", pools: "island",
+};
+
+/** A floor's lineup icon. */
+export function floorIcon(f: { kind: string; stratum: Stratum | null }): string {
+  switch (f.kind) {
+    case "lobby": return "lobby";
+    case "terminal": return "terminal";
+    case "subtown": return "town";
+    case "core": return "core";
+    case "boss": return "boss";
+    default: return STYLE_ICONS[f.stratum?.style.key ?? ""] ?? "monsters";
+  }
+}
+
 export type FloorKind = "lobby" | "level" | "terminal" | "subtown" | "boss" | "core";
 export interface Floor {
   depth: number;
@@ -70,14 +91,14 @@ export interface Floor {
   tileset: string;
 }
 
-export interface Gate { id: string; name: string; seed: number; strata: Stratum[] }
+export interface Gate { id: string; name: string; seed: number; strata: Stratum[]; emblem: string }
 
 const STRATA: [number, number, number][] = [[1, 1, 3], [1, 5, 7], [2, 9, 12], [2, 14, 17], [3, 19, 22], [3, 24, 28]];
-/** Gate names (the Arcade's gates are named for gems in the game; these are ours). */
-const GATE_NAMES = ["Amber Gate", "Topaz Gate", "Emerald Gate", "Sapphire Gate", "Ruby Gate", "Amethyst Gate", "Pearl Gate", "Onyx Gate"];
+/** The Arcade's gate emblems (rsrc/ui/icon/gate/<emblem>.png); a gate is named for its emblem. */
+const EMBLEMS = ["pawn", "rook", "knight", "bishop", "queen", "king", "lion", "falcon", "serpent", "sparrow", "sun", "titan", "clover", "dragonfly", "phantom", "skull"];
 
 /** A gate from a seed: six strata with themes, styles and (sometimes) a boss. */
-export function makeGate(seed: number, index = 0): Gate {
+export function makeGate(seed: number, index = 0, emblemIndex?: number): Gate {
   const rand = rng(seed);
   const pick = <T>(a: readonly T[]) => a[Math.floor(rand() * a.length)];
   const strata: Stratum[] = [];
@@ -95,12 +116,15 @@ export function makeGate(seed: number, index = 0): Gate {
     const boss = i % 2 === 1 && rand() < 0.5 ? pick(bosses) : null;
     strata.push({ index: i + 1, tier, theme, style, boss, first, last });
   }
-  return { id: `gate${index}-${seed}`, name: GATE_NAMES[(seed + index) % GATE_NAMES.length], seed, strata };
+  const emblem = EMBLEMS[(emblemIndex ?? seed + index * 7) % EMBLEMS.length];
+  return { id: `gate${index}-${seed}`, name: emblem[0].toUpperCase() + emblem.slice(1) + " Gate", seed, strata, emblem };
 }
 
 /** The Arcade's four gates for a day (gates rotate daily). */
 export function arcadeGates(day = Math.floor(Date.now() / 86400000)): Gate[] {
-  return [0, 1, 2, 3].map(i => makeGate((day * 4 + i) * 2654435761 >>> 0, i));
+  // four different emblems a day
+  const first = (day * 5) % EMBLEMS.length;
+  return [0, 1, 2, 3].map(i => makeGate((day * 4 + i) * 2654435761 >>> 0, i, first + i * 3));
 }
 
 /** Every floor of a gate, indexed by depth (0 to 29). */
@@ -133,9 +157,19 @@ export function stratumTables(theme: StratumTheme, rand: () => number): string[]
     const roles = ["Grunt", "Grunt", "Brute", "Support", "Turret", "Elite", "Mini"];
     return roles.map(r => `Monster/Class {stc}/Family/${theme}/${theme} - ${r}`);
   }
-  const fams = [...FAMILIES].sort(() => rand() - 0.5).slice(0, 2);
-  return fams.flatMap(f => [`Monster/Class {stc}/Family/${f}/${f} - Grunt`, `Monster/Class {stc}/Family/${f}/${f} - Brute`]);
+  // element strata field the element's variants of every family (Ash Tails, Hotrodes, Firo
+  // Knights for fire...), a handful per stratum
+  const pool = [...ELEMENT_MONSTERS[theme]].sort(() => rand() - 0.5).slice(0, 6);
+  return pool.map(m => `Monster/Class {stc}/Family/${m}`);
 }
+
+/** Each element's monster variants (spawn tables under Monster/Class {stc}/Family/). */
+const ELEMENT_MONSTERS: Record<string, string[]> = {
+  Fire: ["Beast/Wolver/Ash Tail", "Beast/Chromalisk/Salamander", "Beast/Dust Bunny/Toast Bunny", "Construct/Retrode/Hotrode", "Construct/Mecha Knight/Firo Knight", "Construct/Gun Puppy/Red Rover", "Construct/Lumber/Redward", "Construct/Scuttlebot/Cinderbot", "Fiend/Devilite/Firebrander", "Fiend/Gorgo/Firegut", "Gremlin/Mortafire/Blazing Mortafire", "Gremlin/Thwacker/Scorcher", "Gremlin/Knocker/Lighter", "Slime/Glop Drop/Spice Drop", "Slime/Jelly Cube/Toxilargo, Fire", "Undead/Bombie/Fire Bombie", "Undead/Deadnaught/Fire Deadnaught", "Undead/Grave Scarab/Sun Scarab", "Undead/Howlizter/Smoking Howlitzer", "Undead/Spookat/Pepper Kat"],
+  Freeze: ["Beast/Wolver/Frostifur", "Beast/Chromalisk/Tundralisk", "Beast/Dust Bunny/Snow Bunny", "Construct/Retrode/Sleetrode", "Construct/Mecha Knight/Cryo Knight", "Construct/Gun Puppy/Slush Puppy", "Construct/Lumber/Silversap", "Construct/Scuttlebot/Brumabot", "Gremlin/Mortafire/Icy Mortafire", "Gremlin/Knocker/Cooler", "Slime/Glop Drop/Snow Drop", "Slime/Jelly Cube/Ice Cube", "Slime/Polyp/Polar Polyp", "Undead/Bombie/Freeze Bombie", "Undead/Deadnaught/Freeze Deadnaught", "Undead/Grave Scarab/Pale Scarab", "Undead/Howlizter/Chilling Howlitzer", "Undead/Spookat/Bloogato"],
+  Shock: ["Beast/Wolver/Voltail", "Beast/Chromalisk/Electolisk", "Beast/Dust Bunny/Jolt Bunny", "Construct/Retrode/Voltrode", "Construct/Mecha Knight/Volt Knight", "Construct/Gun Puppy/Sparky", "Construct/Lumber/Electreant", "Gremlin/Mortafire/Static Mortafire", "Gremlin/Knocker/Jumper", "Slime/Glop Drop/Power Drop", "Slime/Jelly Cube/Quicksilver", "Slime/Polyp/Silver Polyp", "Undead/Bombie/Shock Bombie", "Undead/Deadnaught/Shock Deadnaught", "Undead/Grave Scarab/Silver Scarab", "Undead/Howlizter/Shocking Howlitzer", "Undead/Spookat/Statikat", "Fiend/Gorgo/Storm Belly"],
+  Poison: ["Beast/Wolver/Rabid Wolver", "Beast/Chromalisk/Virulisk", "Beast/Dust Bunny/Blech Bunny", "Construct/Retrode/Isotrode", "Construct/Mecha Knight/Blight Knight", "Construct/Gun Puppy/Sick Puppy", "Construct/Lumber/Vilewood", "Gremlin/Mortafire/Toxic Mortafire", "Gremlin/Knocker/Choker", "Slime/Glop Drop/Germ Drop", "Slime/Jelly Cube/Toxigel", "Slime/Polyp/Caustic Polyp", "Undead/Bombie/Poison Bombie", "Undead/Deadnaught/Poison Deadnaught", "Undead/Grave Scarab/Plague Scarab", "Undead/Howlizter/Vile Howlitzer", "Undead/Spookat/Hurkat", "Fiend/Gorgo/Waster"],
+};
 
 /** Star rating of a tier's gear (shops and drops): tier 1 one to two stars, tier 2 three, tier 3 four to five. */
 export const tierStars = (tier: number) => (tier === 1 ? 2 : tier === 2 ? 3 : 5);

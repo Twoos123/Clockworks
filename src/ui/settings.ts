@@ -101,7 +101,7 @@ export interface SettingsHooks {
   sound(file: string): void;
 }
 
-type Tab = "game" | "audio" | "graphics" | "interface" | "controls" | "save";
+export type Tab = "game" | "audio" | "graphics" | "interface" | "controls" | "save";
 const TABS: [Tab, string][] = [["game", "Game"], ["audio", "Audio"], ["graphics", "Graphics"], ["interface", "Interface"], ["controls", "Controls"], ["save", "Save data"]];
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = "") => {
@@ -136,7 +136,8 @@ export class SettingsMenu {
 
   get isOpen() { return !this.root.hidden; }
 
-  open() {
+  open(tab?: Tab) {
+    if (tab) this.tab = tab;
     if (!this.isOpen) this.hooks.sound("sound/feedback/ui_open.ogg");
     this.root.hidden = false;
     this.render();

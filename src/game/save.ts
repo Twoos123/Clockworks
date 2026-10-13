@@ -31,6 +31,8 @@ export interface SaveData {
   weaponHeat: Record<string, number>;
   /** Consumables carried in the pocket slots (capsules and vials): item name and count. */
   pocket: [string, number][];
+  /** Letters in the knight's mailbox (welcome notes, mission rewards). */
+  mail?: { from: string; subject: string; body: string; read: boolean; at: number }[];
 }
 
 const KEY = "clyde-web-save";
