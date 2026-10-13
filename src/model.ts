@@ -274,7 +274,8 @@ export class ModelLoader {
     }
 
     // Compound models place several component models
-    if (impl.$class.endsWith("CompoundConfig")) {
+    // (merged static models, such as the unbreakable crystal, list their components the same way)
+    if (impl.$class.endsWith("CompoundConfig") || impl.$class.endsWith("MergedStaticConfig")) {
       for (const c of impl.models ?? []) {
         const m = await this.loadRef(c.model, depth, chain);
         if (m) model.attachments.push({ node: c.node ?? "", transform: readTransform(c.transform), model: m });
