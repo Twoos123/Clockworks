@@ -9,16 +9,57 @@ import type { Difficulty } from "./depth";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 
-export interface SpawnContext { depth: number; tier: number; difficulty: Difficulty }
+export interface SpawnContext {
+  depth: number; tier: number; difficulty: Difficulty;
+  /** Tags of the source (the dropping monster's family, fam_slime): tag-gated drops and materials. */
+  tags?: string[];
+}
 export interface SpawnResult { actor?: any; item?: any; count: number }
 
+/** Item lookups for item drops (AutoItem tables and rarity lists), from the economy. */
+export interface ItemHooks {
+  /** An item of an AutoSpawnType picked by depth weight, or null for the failsafe. */
+  autoItem(type: string, depthWeight: string, ctx: SpawnContext): string | null;
+  rarity(item: string): number;
+  depthWeight(table: string, rarity: number, depth: number): number;
+}
+
 export class SpawnTables {
-  constructor(private readonly lib: Map<string, any>) {}
+  /** Coin and ember actors and the value each is worth (from the valued tables). */
+  private coins: Map<string, number> | null = null;
+
+  constructor(private readonly lib: Map<string, any>, private readonly items: ItemHooks | null = null) {}
 
   /** Evaluates a spawn table reference. */
   evaluate(ref: any, ctx: SpawnContext, depth = 0): SpawnResult[] {
     const cfg = this.resolve(ref, depth);
-    return cfg ? this.entry(cfg.root, ctx, depth + 1) : [];
+    if (!cfg) return [];
+    if (kind(cfg) === "AutoItem") return this.autoItem(cfg, ctx, depth);
+    return this.entry(cfg.root, ctx, depth + 1);
+  }
+
+  /**
+   * The crowns or heat a coin or ember actor is worth (Copper Crown 1 ... Gold Crown 50,
+   * Ember 1 ... Ember 5 at 50), read off the valued tables' denominations; 0 otherwise.
+   */
+  coinValue(actor: string): number {
+    if (!this.coins) {
+      this.coins = new Map();
+      for (const cfg of this.lib.values()) {
+        const root = cfg?.root;
+        if (kind(root) !== "ValueDepthListEntry") continue;
+        for (const a of root.actorEntries ?? []) if (a?.entry?.actor?.name) this.coins.set(a.entry.actor.name, a.value ?? 1);
+      }
+    }
+    return this.coins.get(actor) ?? 0;
+  }
+
+  /** SpawnTableConfig$AutoItem: an item of its type by depth weight, else its failsafe table. */
+  private autoItem(cfg: any, ctx: SpawnContext, depth: number): SpawnResult[] {
+    const type = String(cfg.type?.name ?? cfg.type ?? "MATERIAL").split(".").pop()!;
+    const name = this.items?.autoItem(type, cfg.depthWeight?.name ?? "Materials", ctx) ?? null;
+    if (name) return [{ item: { name }, count: 1 }];
+    return cfg.failsafeTable ? this.evaluate(cfg.failsafeTable, ctx, depth + 1) : [];
   }
 
   private resolve(ref: any, depth: number): any | null {
@@ -76,9 +117,18 @@ export class SpawnTables {
         return e.item?.name ? [{ item: e.item, count: 1 }] : [];
       case "MultiItemEntry": return e.item?.name ? [{ item: e.item, count: e.count ?? 1 }] : [];
       case "ItemRarityListEntry": {
-        const items: any[] = e.items ?? [];
-        const it = items[Math.floor(Math.random() * items.length)]?.ref;
-        return it?.name ? [{ item: it, count: 1 }] : [];
+        // items weighted by their star rating's depth weight (mineral deposits: bigger ones deeper)
+        const items: any[] = (e.items ?? []).filter((x: any) => x?.ref?.name);
+        const dw = e.depthWeight?.name;
+        const ws = items.map(x => (dw && this.items ? this.items.depthWeight(dw, this.items.rarity(x.ref.name), ctx.depth) : 1));
+        const total = ws.reduce((a, b) => a + b, 0);
+        let r = Math.random() * (total || items.length);
+        for (let i = 0; i < items.length; i++) { r -= total ? ws[i] : 1; if (r < 0) return [{ item: items[i].ref, count: 1 }]; }
+        return items.length ? [{ item: items[items.length - 1].ref, count: 1 }] : [];
+      }
+      case "TagsRequiredEntry": {
+        const need: string[] = ((e.tags?.tags ?? []) as any[]).filter(t => typeof t === "string");
+        return need.every(t => ctx.tags?.includes(t)) ? sub(e.entry) : [];
       }
       case "ValueDepthListEntry": return this.valued(e, ctx);
       // events, tag-gated drops and automatic gear are not modelled
@@ -89,13 +139,16 @@ export class SpawnTables {
   /**
    * A valued drop: a value is rolled from the depth table (the "Depth Entries" argument) and
    * paid out in the actor entries' denominations, largest first (copper to gold crowns).
+   * The entries are points on a curve: the range is interpolated between the entries around
+   * the depth, and starts over at each tier (a new entry the depth after a tier's last), so
+   * crowns and heat grow through a tier and drop back as gear stars step up. Floor entries
+   * multiply the value (treasure boxes pay double or triple).
    */
   private valued(e: any, ctx: SpawnContext): SpawnResult[] {
-    const depthEntries: any[] = e.entries ?? [];
-    let pick: any = null;
-    for (const d of depthEntries) if ((d?.depth ?? 0) <= ctx.depth && (!pick || (d.depth ?? 0) >= (pick.depth ?? 0))) pick = d;
-    const lo = pick?.minValue ?? 1, hi = Math.max(lo, pick?.maxValue ?? lo);
-    let value = Math.round(lo + Math.random() * (hi - lo)) + (e.valueOffset ?? 0);
+    const [lo, hi] = valueRange(e.entries ?? [], ctx.depth + (e.offset ?? 0));
+    const floor: any = (e.floorEntries ?? [])[0];
+    const mult = floor ? (floor.minValue ?? 1) + Math.random() * Math.max(0, (floor.maxValue ?? floor.minValue ?? 1) - (floor.minValue ?? 1)) : 1;
+    let value = Math.round((lo + Math.random() * (hi - lo)) * mult) + (e.valueOffset ?? 0);
     const coins = ((e.actorEntries ?? []) as any[]).filter(a => a?.entry?.actor?.name).sort((a, b) => (b.value ?? 1) - (a.value ?? 1));
     const out: SpawnResult[] = [];
     for (const c of coins) {
@@ -104,4 +157,18 @@ export class SpawnTables {
     }
     return out;
   }
+}
+
+/** The [min, max] value of a ValueDepthEntry curve at a depth (linear between entries). */
+export function valueRange(entries: any[], depth: number): [number, number] {
+  const pts = entries.map(d => ({ depth: d?.depth ?? 0, min: d?.minValue ?? 0, max: d?.maxValue ?? d?.minValue ?? 0 }))
+    .sort((a, b) => a.depth - b.depth);
+  if (!pts.length) return [1, 1];
+  let i = 0;
+  while (i + 1 < pts.length && pts[i + 1].depth <= depth) i++;
+  const a = pts[i], b = pts[i + 1];
+  if (!b || depth <= a.depth) return [a.min, Math.max(a.min, a.max)];
+  const t = (depth - a.depth) / (b.depth - a.depth);
+  const min = a.min + (b.min - a.min) * t, max = a.max + (b.max - a.max) * t;
+  return [min, Math.max(min, max)];
 }
