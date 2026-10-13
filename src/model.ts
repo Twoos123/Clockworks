@@ -55,6 +55,12 @@ export interface LoadedModel {
   attachments: Attachment[];
   /** Imported animations that start automatically, by path. */
   autoAnimations: string[];
+  /**
+   * The model's named animations (ArticulatedConfig animation mappings), as references with
+   * their arguments: a monster's "reacting" and "dying", a weapon's "ks_attack". Compound
+   * models list their components' too.
+   */
+  animations: Record<string, any>;
   /** Nodes that turn to face the camera (ArticulatedConfig node transforms). */
   billboards: Map<string, "Billboard" | "Upright">;
   /** Procedural animations that start automatically: node local transforms from expressions. */
@@ -198,7 +204,7 @@ export class ModelLoader {
     const lib = await this.configs();
     const dir = path.substring(0, path.lastIndexOf("/") + 1);
     const model: LoadedModel = {
-      path, kind: short(impl?.$class ?? "none"), parts: [], attachments: [], autoAnimations: [], procedurals: [], billboards: new Map(), skipped: [],
+      path, kind: short(impl?.$class ?? "none"), parts: [], attachments: [], autoAnimations: [], animations: {}, procedurals: [], billboards: new Map(), skipped: [],
     };
     if (!impl) return model;
 
@@ -217,6 +223,7 @@ export class ModelLoader {
         const m = await this.loadRef(c.model, depth, chain);
         if (m) model.attachments.push({ node: c.node ?? "", transform: readTransform(c.transform), model: m });
       }
+      for (const a of model.attachments) for (const [k, v] of Object.entries(a.model.animations)) model.animations[k] ??= v;
       return model;
     }
 
@@ -235,11 +242,12 @@ export class ModelLoader {
       const m = await this.loadRef(impl.defaultModel, depth, chain);
       if (m) {
         model.attachments.push({ node: "", transform: readTransform(impl.defaultTransform), model: m });
+        model.animations = { ...m.animations };
         return model;
       }
       for (const c of impl.cases ?? []) {
         const cm = await this.loadRef(c.model, depth, chain);
-        if (cm) { model.attachments.push({ node: "", transform: readTransform(c.transform), model: cm }); return model; }
+        if (cm) { model.attachments.push({ node: "", transform: readTransform(c.transform), model: cm }); model.animations = { ...cm.animations }; return model; }
       }
       model.skipped.push("Conditional (no file-backed case)");
       return model;
@@ -282,6 +290,9 @@ export class ModelLoader {
 
     const ctx: Ctx = { lib, local, impl, dir };
     if (impl.root) model.root = readNode(ctx, impl.root, model.parts);
+    for (const am of impl.animationMappings ?? []) {
+      if (typeof am?.name === "string" && am.animation?.name) model.animations[am.name] ??= am.animation;
+    }
     for (const m of impl.skin?.visible ?? []) {
       const p = meshPart(ctx, m);
       if (p) model.parts.push(p);
@@ -356,6 +367,7 @@ export async function loadAnimation(loader: ModelLoader, pathOrRef: string | any
   if (impl.$class.endsWith("$Derived")) {
     return impl.animation?.name && depth < 6 ? loadAnimation(loader, impl.animation, depth + 1) : null;
   }
+  if (impl.$class.endsWith("$Sequential")) return sequential(loader, impl, hasArguments(ref) ? path + "|" + argKey(ref) : path, depth);
   if (!impl.transforms || !impl.targets) return null;
   return {
     path: hasArguments(ref) ? path + "|" + argKey(ref) : path,
@@ -365,6 +377,51 @@ export async function loadAnimation(loader: ModelLoader, pathOrRef: string | any
     frames: (impl.transforms as any[]).map(f => (f as any[]).map(readTransform)),
     actions: ((impl.actions ?? []) as any[]).filter(a => a?.action).map(a => ({ frame: a.frame ?? 0, action: a.action })),
   };
+}
+
+/**
+ * AnimationConfig$Sequential: component animations played one after another (a gun's fire
+ * then cool-down, a charged shot's release). Joined into one clip at the first component's
+ * rate; a node a component does not animate holds its pose from the components around it,
+ * and each component's frame actions move to where it starts.
+ */
+async function sequential(loader: ModelLoader, impl: any, path: string, depth: number): Promise<AnimationClip | null> {
+  if (depth > 6) return null;
+  const parts: { clip: AnimationClip; speed: number }[] = [];
+  for (const c of impl.animations ?? []) {
+    const clip = c?.animation?.name ? await loadAnimation(loader, c.animation, depth + 1).catch(() => null) : null;
+    if (clip && clip.frames.length) parts.push({ clip, speed: Math.max(0.01, c.speed ?? 1) });
+  }
+  if (!parts.length) return null;
+  const rate = parts[0].clip.rate;
+  const targets = [...new Set(parts.flatMap(p => p.clip.targets))];
+  const index = new Map(targets.map((t, i) => [t, i]));
+  const frames: (Transform | undefined)[][] = [];
+  const actions: AnimationClip["actions"] = [];
+  const row = (clip: AnimationClip, f: number) => {
+    const out: (Transform | undefined)[] = new Array(targets.length);
+    clip.targets.forEach((t, ti) => { out[index.get(t)!] = clip.frames[f][ti]; });
+    return out;
+  };
+  for (const { clip, speed } of parts) {
+    // the component's length at its speed, resampled to the joined rate
+    const seconds = (clip.frames.length - 1) / clip.rate / speed;
+    const n = Math.max(1, Math.round(seconds * rate));
+    const start = frames.length;
+    for (const a of clip.actions) actions.push({ frame: start + (a.frame / clip.rate / speed) * rate, action: a.action });
+    for (let f = 0; f < n; f++) frames.push(row(clip, Math.min(clip.frames.length - 1, Math.round((f / rate) * speed * clip.rate))));
+  }
+  // the last component's final frame, so its end pose is held exactly
+  const last = parts[parts.length - 1].clip;
+  frames.push(row(last, last.frames.length - 1));
+  // gaps hold the previous known transform, else take the next one
+  for (let t = 0; t < targets.length; t++) {
+    let prev: Transform | undefined;
+    for (const r of frames) { if (r[t]) prev = r[t]; else if (prev) r[t] = prev; }
+    let next: Transform | undefined;
+    for (let f = frames.length - 1; f >= 0; f--) { if (frames[f][t]) next = frames[f][t]; else frames[f][t] = next; }
+  }
+  return { path, rate, loop: !!impl.loop, targets, frames: frames as Transform[][], actions };
 }
 
 /** A stable key for a reference's arguments (nested references included). */

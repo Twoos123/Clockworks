@@ -90,3 +90,25 @@ test("spawn tables pick tiers, weights and valued coin payouts", () => {
   assert.deepEqual(t.evaluate({ name: "Tiers" }, { depth: 9, tier: 2, difficulty: "medium" }).map(r => r.actor.name), ["two"]);
   assert.deepEqual(t.evaluate({ name: "Coins" }, { depth: 1, tier: 1, difficulty: "medium" }).map(r => r.actor.name), ["silver", "copper", "copper"]);
 });
+
+test("a monster's unnamed signal handler ignores the triggers' activate; vanish skips shutdown", () => {
+  const created: Entity[] = [];
+  const logic = new Logic(host(created));
+  logic.startEntries();
+  let shutdowns = 0;
+  const lichen = new Entity(true, "lichen");
+  lichen.mobile = true;
+  lichen.handlerConfigs = [
+    { $class: T + "HandlerConfig$SignalStart", action: { $class: T + "ActionConfig$SpawnActor", actor: { name: "tag:colony" } } },
+    { $class: T + "HandlerConfig$Shutdown", action: { $class: T + "ActionConfig$SpawnActor", actor: { name: "tag:loot" } } },
+  ];
+  logic.startActor(lichen);
+  logic.signal(lichen, lichen, "activate");
+  assert.equal(logic.tagged("colony").length, 0, "activate does not merge a lichen");
+  logic.signal(lichen, lichen, "");
+  assert.equal(logic.tagged("colony").length, 1, "the game's own (unnamed) signal does");
+  logic.vanish(lichen);
+  logic.tick(50);
+  shutdowns = logic.tagged("loot").length;
+  assert.equal(shutdowns, 0, "a merged lichen drops no loot");
+});

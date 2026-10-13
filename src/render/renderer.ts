@@ -267,6 +267,21 @@ export class ModelInstance {
     this.speed = opts.speed ?? 1;
     this.time = 0;
     this.blendDuration = opts.blend ?? 0.15;
+    // a model without a skeleton of its own (a compound monster: body, head and arms as
+    // separate articulated parts) passes the clip to its parts, each taking the nodes it has
+    if (!this.model.root) for (const c of this.children) c.instance.play(clip, opts);
+  }
+
+  /** Advances this instance's clock and its attachments' (a weapon's own animations). */
+  advance(dt: number) {
+    this.time += dt;
+    for (const c of this.children) c.instance.advance(dt);
+  }
+
+  /** Every instance in this one's attachment tree, itself first. */
+  *descendants(): Generator<ModelInstance> {
+    yield this;
+    for (const c of this.children) yield* c.instance.descendants();
   }
 
   /** Length of the current clip in seconds at its speed. */
