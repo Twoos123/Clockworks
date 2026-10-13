@@ -3,15 +3,29 @@
 // (interface_mainwindow.dat: next level's name and theme, its depth, the knight in the dash
 // pose, Advance and Quit buttons), with their appear scripts' slides and fades.
 //
-// It fronts the page's #floorDone dialog rather than replacing it: whenever main.ts shows that
-// dialog the screen appears with the dialog's texts, and its two buttons click the dialog's
-// buttons, so every flow (descend, return to Haven, the arena's checkpoint) keeps its logic.
+// main.ts shows it with a choice once the knight's elevator ride ends: Advance (on down, up to
+// Haven past the last floor, or "Fight On" at an arena checkpoint) and, where the run can be
+// left, Quit (back to Haven with the loot banked).
 
 import { CONFIG_REF } from "../config/params";
 import { buildInterface, pack, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { OverlayScreen } from "./overlay";
 
 export interface NextLevel { title: string; zone: string; depth: string }
+
+/** What the screen offers when a floor is done. */
+export interface ElevatorChoice {
+  /** The stripe's title ("Depth 3 cleared"). */
+  title: string;
+  /** The next floor's labels, or null when there is none. */
+  next: NextLevel | null;
+  /** A short tally of the floor (crowns and heat). */
+  tally: string;
+  /** The Advance button: its caption and what it does. */
+  advance: { label: string; run(): void };
+  /** The Quit button (Return to Haven), when the run can be left here. */
+  quit?: { run(): void } | null;
+}
 
 type ViewHook = NonNullable<RenderHooks["view"]>;
 
@@ -23,25 +37,38 @@ export class ElevatorScreen extends OverlayScreen {
   private stripe: Component | null = null;
   private main: Component | null = null;
   private building: Promise<void> | null = null;
-  private next: NextLevel | null = null;
+  private choice: ElevatorChoice | null = null;
   private view: ViewHook | null = null;
-  /** The dialog buttons the screen's Advance and Quit stand for. */
-  private advanceBtn: HTMLButtonElement | null = null;
-  private quitBtn: HTMLButtonElement | null = null;
   /** Called when the screen comes up (the floor-clear stinger). */
   onShow: (() => void) | null = null;
 
-  constructor(private readonly ctx: GuiContext, parent: HTMLElement, private readonly dialog: HTMLElement,
+  constructor(private readonly ctx: GuiContext, parent: HTMLElement,
     /** A drawer for the knight's view in the window (null for none). */
     private readonly makeView: () => ViewHook | null = () => null) {
     super(parent, 6, "elevator-canvas");
     this.fadeTime = 0.2;
-    new MutationObserver(() => this.sync()).observe(dialog, { attributes: true, attributeFilter: ["hidden"] });
     void this.build();
   }
 
-  /** What the next floor is, for the window's labels (set before the dialog shows). */
-  setNext(n: NextLevel | null) { this.next = n; }
+  /** The choice on screen (null when hidden). */
+  get current(): ElevatorChoice | null { return this.choice; }
+
+  /** Shows the screen with a choice. */
+  async show(c: ElevatorChoice) {
+    this.choice = c;
+    await this.build();
+    if (this.choice !== c || !this.stripe || !this.main) return;
+    this.fill(c);
+    this.view = this.makeView();
+    this.open();
+    this.onShow?.();
+  }
+
+  /** Fades the screen out. */
+  hide() {
+    this.choice = null;
+    this.close();
+  }
 
   private build() {
     this.building ??= (async () => {
@@ -55,59 +82,34 @@ export class ElevatorScreen extends OverlayScreen {
     return this.building;
   }
 
-  private async sync() {
-    if (this.dialog.hidden) {
-      this.dialog.classList.remove("gui-elevator");
-      this.close();
-      return;
-    }
-    await this.build();
-    if (!this.stripe || !this.main || this.dialog.hidden) return;
-    this.fill();
-    this.dialog.classList.add("gui-elevator");
-    this.view = this.makeView();
-    this.open();
-    this.onShow?.();
-  }
-
-  /** The dialog's texts into the interfaces. */
-  private fill() {
-    const d = this.dialog, q = (id: string) => d.querySelector<HTMLElement>("#" + id);
-    const buttons = [q("descend"), q("deeper")].filter((b): b is HTMLButtonElement => !!b && !b.hidden) as HTMLButtonElement[];
-    // the button that leaves for Haven is Quit; the other goes on (in the arena that is "Fight on")
-    const home = buttons.find(b => /haven/i.test(b.textContent ?? "") && buttons.length > 1) ?? null;
-    this.advanceBtn = buttons.find(b => b !== home) ?? null;
-    this.quitBtn = home;
+  /** The choice's texts into the interfaces. */
+  private fill(ch: ElevatorChoice) {
     const set = (ui: Component, tag: string, text: string, visible = true) => {
       const c = ui.find(tag);
       if (c) { c.text = text; c.visible = visible; }
     };
-    const m = this.main!, s = this.stripe!;
-    set(s, "labelTitle", q("floorTitle")?.textContent || "Level Complete!");
-    const n = this.next;
-    const adv = this.advanceBtn?.textContent ?? "";
+    const m = this.main!, s = this.stripe!, n = ch.next;
+    set(s, "labelTitle", ch.title || "Level Complete!");
     set(m, "labelNextUp", n ? "Next up:" : "");
-    set(m, "labelLevelType", n?.title ?? adv);
+    set(m, "labelLevelType", n?.title ?? "");
     set(m, "labelLevelSubtype", n?.zone ?? "");
     set(m, "labelDepth", n?.depth ?? "", !!n?.depth);
-    // the floor's tally, kept short for the countdown's slot
-    const info = q("floorInfo")?.textContent ?? "";
-    const tally = /(\d+) monsters defeated, (\d+) crowns, (\d+) heat/.exec(info);
-    set(m, "labelAutoAdvance", tally ? `${tally[2]} crowns, ${tally[3]} heat` : info.length > 40 ? "" : info);
-    const toHaven = /haven/i.test(adv);
-    set(m, "buttonAdvance", toHaven ? "Ride Up" : /fight/i.test(adv) ? "Fight On" : "Advance");
-    set(m, "buttonQuit", "Return to Haven", !!this.quitBtn);
-    set(m, "labelQuit", this.quitBtn ? "Bank your loot and ride the elevator up to Haven." : "", !!this.quitBtn);
+    set(m, "labelAutoAdvance", ch.tally);
+    set(m, "buttonAdvance", ch.advance.label);
+    set(m, "buttonQuit", "Return to Haven", !!ch.quit);
+    set(m, "labelQuit", ch.quit ? "Bank your loot and ride the elevator up to Haven." : "", !!ch.quit);
     set(m, "labelWaiting", "", false);
     const quit = m.find("containerQuit");
-    if (quit) quit.visible = !!this.quitBtn;
+    if (quit) quit.visible = !!ch.quit;
     for (const t of ["player2Model", "player3Model", "player4Model"]) { const c = m.find(t); if (c) c.visible = false; }
     for (const t of ["buttonAdvance", "buttonQuit"]) { const c = m.find(t); if (c) c.enabled = true; }
   }
 
   protected clicked(c: Component) {
-    if (c.tag === "buttonAdvance") this.advanceBtn?.click();
-    else if (c.tag === "buttonQuit") this.quitBtn?.click();
+    const ch = this.choice;
+    if (!ch) return;
+    if (c.tag === "buttonAdvance") { this.hide(); ch.advance.run(); }
+    else if (c.tag === "buttonQuit" && ch.quit) { this.hide(); ch.quit.run(); }
   }
 
   protected hooks(): RenderHooks {

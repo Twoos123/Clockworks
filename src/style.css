@@ -103,10 +103,6 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
   max-width: calc(100% - 24px);
 }
 .hud-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.defeated { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(40, 0, 0, 0.45); }
-.defeated-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 28px; text-align: center; }
-.defeated-card h2 { margin: 0 0 14px; font-size: 18px; }
-.cleared { background: rgba(0, 30, 50, 0.45); }
 /* while playing, the game's HUD owns the screen: viewer controls move to the lower right */
 .playing .info, .playing #anim, .playing #pause, .playing #reset, .playing #status { display: none; }
 /* above the quickbar (its slots run to the vitapod on the right) */
@@ -134,9 +130,6 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
   main { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; }
   .sidebar { border-right: 0; border-bottom: 1px solid var(--border); }
   .hud-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.defeated { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(40, 0, 0, 0.45); }
-.defeated-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 28px; text-align: center; }
-.defeated-card h2 { margin: 0 0 14px; font-size: 18px; }
 .info { display: none; }
 }
 
@@ -181,12 +174,6 @@ button.danger { background: #7a1f1f; color: #fff; border-color: #a33; }
 /* the controls card (the HUD's ? button): solid, in the HUD's colours, above the game */
 .arsenal-all { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
 .arsenal-item.locked { opacity: 0.45; filter: grayscale(0.7); cursor: default; }
-.gates-card { width: min(980px, calc(100% - 32px)); }
-.gates-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
-.gate { background: #0d1824; border: 1px solid #2d5574; border-radius: 8px; padding: 8px 10px; display: grid; gap: 5px; }
-.gate h3 { margin: 0 0 4px; color: #f3d36b; font-style: italic; }
-.gate-stratum { font-size: 12px; padding: 3px 6px; border-radius: 4px; background: #16283a; }
-.gate-stratum.tier2 { background: #1d2e1d; } .gate-stratum.tier3 { background: #33201a; }
 
 /* the game app: no asset browser, the stage fills the window */
 .title-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; }
@@ -194,16 +181,6 @@ body.game main { grid-template-columns: 1fr; }
 body.game .sidebar, body.game .info, body.game #status, body.game #anim, body.game #pause, body.game #reset,
 body.game #play, body.game #arsenalBtn, body.game #spawnJelly, body.game .toolbar label.button { display: none; }
 .options-canvas { z-index: 8; }
-.gate-row { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 10px; background: #0d1824; border: 1px solid #2d5574; border-radius: 8px; padding: 6px 8px; margin: 6px 0; }
-.gate-name { display: flex; align-items: center; gap: 6px; color: #f3d36b; font-style: italic; font-weight: 700; }
-.gate-emblem { width: 40px; height: 40px; }
-.gate-lineup { display: grid; grid-template-columns: repeat(29, 1fr); gap: 1px; }
-.gate-cell { display: grid; justify-items: center; gap: 1px; padding: 2px 0; border-radius: 3px; background: #16283a; }
-.gate-cell.tier2 { background: #1d2e1d; } .gate-cell.tier3 { background: #33201a; }
-.gate-cell.first { box-shadow: inset 2px 0 0 #f3d36b; }
-.gate-theme { width: 16px; height: 16px; } .gate-cell > span { height: 16px; }
-.gate-level { width: 22px; height: 22px; }
-.gate-cell small { font-size: 9px; color: #9fb4c8; }
 
 /* the mission board */
 .missions-card { width: min(1040px, calc(100% - 32px)); }
@@ -234,15 +211,8 @@ body.game #play, body.game #arsenalBtn, body.game #spawnJelly, body.game .toolba
 .mission-brief { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
 .mission-brief h3 { margin: 0; color: #f3d36b; }
 .mission-rankup { color: #f3d36b; font-weight: 700; font-size: 16px; }
-/* the knockout: the game's revive window on a canvas; the HTML card keeps only "Return to Haven" */
+/* the knockout: the game's revive window and leave panel on a canvas */
 .revive-canvas { z-index: 6; }
-#defeated { background: none; z-index: 7; pointer-events: none; place-items: end center; padding-bottom: 120px; }
-#defeated .defeated-card { pointer-events: auto; background: rgba(18,32,46,0.9); padding: 8px 14px; }
-#defeated h2, #defeated #reviveInfo, #defeated #revive { display: none; }
-
-/* the elevator screen (src/ui/elevator.ts) fronts the floor dialog: its card stays as the fallback */
-.gui-elevator { background: none; pointer-events: none; }
-.gui-elevator > .defeated-card { display: none; }
 
 /* the game's install picker: dark, in the game's colours, shown only when the install is unknown */
 html.game, html.game body { background: #0b141d; color: #dfe8f0; }

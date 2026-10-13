@@ -7,7 +7,7 @@ import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environ
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { buildInterface, GuiContext, pack, render as renderGui } from "./ui/gui";
+import { GuiContext } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -21,6 +21,8 @@ import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen } from "./ui/elevator";
+import { GateBoard } from "./ui/gates";
+import { RunSummaryScreen } from "./ui/runsummary";
 import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
@@ -34,14 +36,13 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
 import { initNotices } from "./ui/notice";
 import { UplinkScreen } from "./ui/uplink";
 import { HelpScreen } from "./ui/help";
-import { SummaryScreen } from "./ui/summary";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site/i;
@@ -220,7 +221,7 @@ class Viewer {
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
   /** Totals for the current gate run, for the summary when it ends. */
-  private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
+  private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "", notes: [] as string[] };
 
   /** The gate being descended and its floors by depth (null outside the Clockworks). */
   private gate: Gate | null = null;
@@ -289,34 +290,7 @@ class Viewer {
       this.run = { depth: 1, health: null, floors: 0 };
       void this.startPlaying();
     };
-    // the run's menu buttons click with the game's button sound
-    for (const id of ["descend", "deeper", "revive", "giveUp"]) {
-      $(id).addEventListener("click", () => this.uiSound(id === "giveUp" ? "sound/feedback/ui_dismiss.ogg" : "sound/feedback/button_press.ogg"));
-    }
-    $("descend").onclick = () => void this.descend();
-    $("deeper").onclick = () => {
-      if (this.arenaMode && this.world?.arena) { $("floorDone").hidden = true; this.paused = false; this.world.continueArena(); return; }
-      if (this.gate) { $("floorDone").hidden = true; this.paused = false; this.gate = null; void this.returnToHaven(); return; }
-      void this.descend(true);
-    };
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
-    // reviving costs crowns from the bank (the game spends energy); giving up returns to town
-    $("revive").onclick = () => {
-      const cost = this.reviveCost();
-      if (!this.world || this.save.crowns < cost) return;
-      this.save.crowns -= cost;
-      writeSave(this.save);
-      this.world.revive();
-      $("defeated").hidden = true;
-      this.canvas.focus();
-    };
-    $("giveUp").onclick = () => {
-      $("defeated").hidden = true;
-      this.reviveScreen?.close();
-      this.run = { depth: 29, health: null, floors: 0 };
-      // past the last level, descend() rides up to Haven; the floor's loot is lost
-      void this.returnToHaven();
-    };
     $("spawnJelly").onclick = () => {
       const k = this.world?.knight;
       if (!k) return;
@@ -439,7 +413,7 @@ class Viewer {
     const stage = this.canvas.parentElement!;
     this.loadingScreen ??= new LoadingScreen(this.gui, stage);
     if (!this.elevator) {
-      this.elevator = new ElevatorScreen(this.gui, stage, $("floorDone"), () => {
+      this.elevator = new ElevatorScreen(this.gui, stage, () => {
         const w = this.world;
         if (!w) return null;
         const v = new PortraitView(this.renderer, this.loader, w.portraitRef(), "character/pc/animation_pose_dash.dat");
@@ -654,6 +628,20 @@ class Viewer {
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = (keeper, portrait) => void this.openShop(keeper, portrait);
+    // the exit elevator animates the scene's elevator model where it stands
+    world.rideModel = (x, y) => {
+      let best: ModelInstance | null = null, bestD = 3;
+      for (const it of this.sceneItems ?? []) {
+        const path = it.instance.model.path;
+        if (!/world\/dynamic\/elevator\//.test(path) || /start/.test(path)) continue;
+        const d = Math.hypot(it.matrix[12] - x, it.matrix[13] - y);
+        if (d < bestD) { best = it.instance; bestD = d; }
+      }
+      return best;
+    };
+    // Haven's north exit leads to the Arcade, which the scenes cache lacks: walking into it
+    // brings up the Arcade's gate board
+    world.onPortal = tags => { if (tags.some(t => /arcade/i.test(t)) && !this.gate) this.openGates(); };
     // energy uses (energy gates, crates) are paid in crowns: the floor's first, then the bank's
     world.spendCrowns = n => {
       const l = world.loot, fromFloor = Math.min(l.crowns, n);
@@ -728,8 +716,9 @@ class Viewer {
     this.audio?.stopMusic(1);
     this.audio?.stopAmbience();
     this.hud?.clear();
-    $("defeated").hidden = true;
-    $("floorDone").hidden = true;
+    this.knockedOut = false;
+    this.reviveScreen?.close();
+    this.elevator?.hide();
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
@@ -939,9 +928,8 @@ class Viewer {
 
   private uplink: UplinkScreen | null = null;
   private help: HelpScreen | null = null;
-  private summary: SummaryScreen | null = null;
 
-  /** The game's news and mail, help and run summary windows (src/ui/uplink.ts, help.ts, summary.ts). */
+  /** The game's news and mail and help windows (src/ui/uplink.ts, help.ts). */
   private windows() {
     const gui = this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(gui);
@@ -952,16 +940,15 @@ class Viewer {
     this.uplink ??= new UplinkScreen(gui, { ...host, save: () => this.save, write: () => writeSave(this.save) });
     this.help ??= new HelpScreen(gui, { ...host,
       keys: () => (Object.keys(ACTIONS) as Action[]).map(a => [ACTIONS[a].label, keyName(this.bound(a))] as [string, string]) });
-    this.summary ??= new SummaryScreen(gui, host);
-    return { uplink: this.uplink, help: this.help, summary: this.summary };
+    return { uplink: this.uplink, help: this.help };
   }
 
   /** True while one of the windows above is open. */
-  private anyWindowOpen() { return !!(this.uplink?.isOpen || this.help?.isOpen || this.summary?.isOpen); }
+  private anyWindowOpen() { return !!(this.uplink?.isOpen || this.help?.isOpen || this.summaryScreen?.isOpen); }
 
   /** Escape: closes the topmost of the windows above; false when none is open. */
   private escapeWindow(): boolean {
-    for (const w of [this.summary, this.help, this.uplink]) if (w?.isOpen) { w.escape(); return true; }
+    for (const w of [this.summaryScreen, this.help, this.uplink]) if (w?.isOpen) { w.escape(); return true; }
     return false;
   }
 
@@ -1073,30 +1060,34 @@ class Viewer {
     writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
+    this.runTotals.notes.push(...notes);
+    const tally = `${l.crowns} crowns, ${l.heat} heat`;
+    const { elevator } = this.screens();
     if (this.gate) {
       // in a gate: on to the next depth, or ride back up to Haven with the loot banked
       const next = this.floors[this.run.depth + 1];
-      this.elevator?.setNext(next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" });
-      $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
-      $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
-      $("deeper").textContent = "Return to Haven";
-      $("deeper").hidden = !next;
+      void elevator.show({
+        title: `Depth ${this.run.depth} cleared`,
+        next: next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" },
+        tally,
+        advance: { label: next ? "Advance" : "Ride Up", run: () => void this.descend() },
+        quit: next ? { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } } : null,
+      });
       // an Arcade stratum cleared counts for prestige gate missions of its theme
       const here = this.floors[this.run.depth], s = here?.stratum;
       if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
-      const last = this.nextLevel() === null;
       const nl = this.nextLevel();
-      this.elevator?.setNext(nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" });
-      $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
-      $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
       // past the Core the Clockworks go on: cycle the levels again, deeper
-      $("deeper").hidden = !last || this.run.depth >= 29;
+      const deeper = !nl && this.run.depth < 29;
+      void elevator.show({
+        title: nl ? `Depth ${this.run.depth} cleared` : "Back to Haven",
+        next: nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : deeper ? { title: "Deeper", zone: "A new floor below the Core", depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" },
+        tally,
+        advance: { label: nl || deeper ? "Advance" : "Ride Up", run: () => void this.descend(deeper) },
+        quit: deeper ? { run: () => void this.descend() } : null,
+      });
     }
-    const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
-    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} materials.`
-      + (notes.length ? ` ${notes.join(". ")}.` : "");
-    $("floorDone").hidden = false;
   }
 
   /** The run's next level after the current scene, or null when the run is over. */
@@ -1120,13 +1111,14 @@ class Viewer {
     l.crowns = 0; l.heat = 0; l.materials.clear(); l.items.length = 0;
     writeSave(this.save);
     this.paused = true;
-    $("floorTitle").textContent = `Arena: wave ${wave} cleared`;
-    this.elevator?.setNext({ title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" });
-    $("floorInfo").textContent = `Loot banked. You have ${this.save.crowns} crowns.` + (notes.length ? ` ${notes.join(". ")}.` : "");
-    $("descend").textContent = "Ride up to Haven";
-    $("deeper").textContent = "Fight on";
-    $("deeper").hidden = false;
-    $("floorDone").hidden = false;
+    this.runTotals.notes.push(...notes);
+    void this.screens().elevator.show({
+      title: `Arena: wave ${wave} cleared`,
+      next: { title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" },
+      tally: `Loot banked: ${this.save.crowns} crowns`,
+      advance: { label: "Fight On", run: () => { this.paused = false; this.world?.continueArena(); } },
+      quit: { run: () => void this.descend() },
+    });
   }
 
   /** Crowns a revive costs: more the deeper the knight is (towns are free). */
@@ -1146,7 +1138,7 @@ class Viewer {
         this.save.sparks = n - 1;
         writeSave(this.save);
         this.world.revive();
-        $("defeated").hidden = true;
+        this.knockedOut = false;
         this.uiSound("sound/feedback/ui_confirm.ogg");
         this.canvas.focus();
         return true;
@@ -1160,18 +1152,33 @@ class Viewer {
         return true;
       },
       sound: f => this.uiSound(f),
+      giveUp: () => this.giveUp(),
     }, { view: (c, g, x, y, w, h) => sparkView.draw(c, g, x, y, w, h) });
     await this.reviveScreen.open();
   }
 
+  /** The knight is down and the revive window is up. */
+  private knockedOut = false;
+
+  /** Gives up after a knockout: back to Haven, the floor's loot lost. */
+  private giveUp() {
+    this.knockedOut = false;
+    this.reviveScreen?.close();
+    this.missionBoard?.runAbandoned();
+    void this.returnToHaven();
+  }
+
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
+
+  /** The run summary on arrival in Haven (the game's mission-complete window). */
+  private summaryScreen: RunSummaryScreen | null = null;
 
   private async returnToHaven() {
     // the end of a gate run: a summary of what it brought home
     const t = this.runTotals;
     const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
     this.gate = null;
-    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "", notes: [] };
     this.stopPlaying();
     this.run = { depth: 0, health: null, floors: 0 };
     const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
@@ -1179,130 +1186,50 @@ class Viewer {
     await this.selectScene(haven.id);
     await this.startPlaying();
     if (summary && summary.deepest > 0) {
-      this.paused = !!this.world;
-      void this.windows().summary.show("Back in Haven", summary.gate || "The Clockworks", [
-        `Deepest depth this run: ${summary.deepest}`, `Deepest depth ever: ${summary.best}`, `Monsters defeated: ${summary.kills}`,
-        `Crowns banked: ${summary.crowns}`, `Heat earned: ${summary.heat}`, `Materials and items: ${summary.materials}`]);
+      this.paused = true;
+      this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+      this.summaryScreen ??= new RunSummaryScreen(this.gui, { sound: f => this.uiSound(f), closed: () => { this.paused = false; this.canvas.focus(); } });
+      void this.summaryScreen.show({
+        title: "Back in Haven",
+        name: summary.gate || "The Clockworks",
+        lines: [`Deepest depth this run: ${summary.deepest} (deepest ever: ${summary.best})`, `${summary.kills} monsters defeated`,
+          `${summary.materials} materials and items found`, ...summary.notes],
+        crowns: summary.crowns, heat: summary.heat,
+      });
     }
   }
 
   /** The cached levels in run order. */
   // ------------------------------------------------------------------ the Arcade and its gates
 
-  private iconUrls = new Map<string, Promise<string>>();
-  /** An install image as a URL for HTML panels (cached). */
-  private iconUrl(path: string): Promise<string> {
-    let p = this.iconUrls.get(path);
-    if (!p) this.iconUrls.set(path, p = this.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => ""));
-    return p;
-  }
-  private levelIcons = new Map<string, Promise<string>>();
-  /**
-   * A gate lineup icon drawn through the game's own ui/adventureboard/parts/map_levelicon.dat
-   * (its colourisation turns the mask images purple and light blue), as an image URL.
-   */
-  private levelIcon(path: string, locked = false): Promise<string> {
-    const key = path + (locked ? "|locked" : "");
-    let p = this.levelIcons.get(key);
-    if (!p) {
-      p = (async () => {
-        this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-        const ui = await buildInterface(this.gui, { $class: "com.threerings.config.ConfigReference", name: "ui/adventureboard/parts/map_levelicon.dat",
-          arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Icon", path], ["Locked", !locked], ["You are Here", false], ["Friend Here", false]] } });
-        if (!ui) return "";
-        const size = pack(ui);
-        const c = document.createElement("canvas");
-        c.width = Math.max(1, size.width); c.height = Math.max(1, size.height);
-        renderGui(ui, c.getContext("2d")!, 0, size.height, {});
-        return c.toDataURL();
-      })().catch(() => "");
-      this.levelIcons.set(key, p);
-    }
-    return p;
-  }
-
-  private img(path: string, cls: string, title = "") {
-    const im = document.createElement("img");
-    im.className = cls;
-    if (title) im.title = title;
-    void this.iconUrl(path).then(u => { if (u) im.src = u; });
-    return im;
+  private gateBoard_: GateBoard | null = null;
+  /** The Arcade's gate board (the game's adventure board, src/ui/gates.ts). */
+  get gateBoard(): GateBoard {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.gateBoard_ ??= new GateBoard(this.gui, {
+      sound: f => this.uiSound(f),
+      closed: () => { this.paused = false; this.canvas.focus(); },
+      gates: () => arcadeGates(),
+      progress: () => progressOf(this.save),
+      enter: g => void this.enterGate(g),
+      arena: () => void this.enterArena(),
+      missions: () => void this.missions().open(),
+    });
   }
 
   /**
-   * The Arcade's gate board: today's four gates, each with its emblem and the lineup of its
-   * floors as the game draws it, with the level icons (rsrc/ui/icon/map) under each stratum's
-   * theme icon (rsrc/ui/icon/theme).
+   * The Arcade's gate board: today's four gates and the Arena, each gate's lineup on the
+   * map with its level and theme icons, as the game's adventure board draws them.
    */
   private openGates() {
-    const root = $("gates");
-    root.replaceChildren();
-    const card = document.createElement("div");
-    card.className = "settings-card gates-card";
-    const head = document.createElement("div");
-    head.className = "settings-head";
-    const h = document.createElement("h2");
-    h.textContent = "The Arcade";
-    const close = document.createElement("button");
-    close.textContent = "Close";
-    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
-    head.append(h, close);
-    card.append(head);
-    const note = document.createElement("p");
-    note.className = "settings-note";
-    note.textContent = "Today's gates. Each runs from the Arcade to the Core in three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
-    card.append(note);
-    for (const g of arcadeGates()) {
-      const row = document.createElement("div");
-      row.className = "gate-row";
-      const name = document.createElement("div");
-      name.className = "gate-name";
-      const emblem = this.img(`ui/icon/gate/${g.emblem}.png`, "gate-emblem");
-      emblem.style.filter = "hue-rotate(-100deg) saturate(0.9)";
-      name.append(emblem, document.createTextNode(g.name));
-      const lineup = document.createElement("div");
-      lineup.className = "gate-lineup";
-      const floors = gateFloors(g);
-      for (const f of floors.slice(1)) {
-        const cell = document.createElement("div");
-        cell.className = `gate-cell tier${f.tier}` + (f.stratum && f.depth === f.stratum.first ? " first" : "");
-        const theme = f.stratum && f.kind !== "terminal" && f.kind !== "subtown" ? f.stratum.theme.toLowerCase() : "";
-        if (f.stratum && f.depth === f.stratum.first) cell.append(this.img(`ui/icon/theme/${theme || "unk"}.png`, "gate-theme", f.stratum.theme));
-        else cell.append(document.createElement("span"));
-        const icon = document.createElement("img");
-        icon.className = "gate-level";
-        icon.title = `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`;
-        // tiers above the knight's rank show the lock, as the game's map does
-        const locked = tierLock(f.tier, progressOf(this.save)) !== null;
-        void this.levelIcon(`ui/icon/map/${floorIcon(f)}.png`, locked).then(u => { if (u) icon.src = u; });
-        cell.append(icon);
-        const d = document.createElement("small");
-        d.textContent = String(f.depth);
-        cell.append(d);
-        lineup.append(cell);
-      }
-      const go = document.createElement("button");
-      go.className = "primary";
-      go.textContent = "Enter";
-      go.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_confirm.ogg"); void this.enterGate(g); };
-      row.append(name, lineup, go);
-      card.append(row);
-    }
-    // the arena: endless waves on a cached level, a checkpoint every fifth wave
-    const arena = document.createElement("button");
-    arena.textContent = "Arena: endless waves (bank every fifth wave)";
-    arena.onclick = () => { root.hidden = true; this.paused = false; void this.enterArena(); };
-    card.append(arena);
-    root.append(card);
-    root.hidden = false;
     this.paused = !!this.world;
-    this.uiSound("sound/feedback/ui_open.ogg");
+    void this.gateBoard.open();
   }
 
   /** Starts a gate at depth 1. */
   private async enterGate(g: Gate, floors = gateFloors(g)) {
     this.gate = g;
-    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name };
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
     this.usedScenes.clear();
     this.floors = floors;
     this.arenaMode = false;
@@ -1403,7 +1330,7 @@ class Viewer {
    * this account has visited, so the run goes through those; after the last, back to Haven.
    */
   private async descend(deeper = false) {
-    $("floorDone").hidden = true;
+    this.elevator?.hide();
     this.paused = false;
     if (this.arenaMode) { this.arenaMode = false; await this.returnToHaven(); return; }
     if (this.gate) {
@@ -1719,11 +1646,11 @@ class Viewer {
         const f = 1 - Math.exp(-dt * 10);
         this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
           this.target[2] + (k.z + 1 - this.target[2]) * f];
-        if ($("defeated").hidden === this.world.defeated) {
-          $("defeated").hidden = !this.world.defeated;
+        if (this.knockedOut !== this.world.defeated) {
+          this.knockedOut = this.world.defeated;
           // the game's revive window (Sparks of Life); in town the knight simply gets up
           if (this.world.defeated) {
-            if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); $("defeated").hidden = true; }
+            if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); this.knockedOut = false; }
             else void this.openRevive();
           } else this.reviveScreen?.close();
         }
