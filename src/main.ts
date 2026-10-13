@@ -14,23 +14,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // ---------------------------------------------------------------- choosing the install
 
 async function start() {
-  if (!canPickDirectory()) {
-    $("pick").hidden = true;
-    $("fallback").hidden = false;
-  }
-  if (await DevServerVfs.available()) $("dev").hidden = false;
-  const saved = await recallHandle();
-  if (saved) {
-    const btn = $("reopen");
-    btn.textContent = `Reopen "${saved.name}"`;
-    btn.hidden = false;
-    btn.onclick = async () => {
-      // permission must be re-granted from a user gesture each session
-      const perm = await (saved as any).requestPermission?.({ mode: "read" });
-      if (perm && perm !== "granted") return showWelcomeError("Permission to read the folder was not granted.");
-      await open(() => new HandleVfs(saved).init());
-    };
-  }
+  // Wire every control before any async work, so a folder picked immediately is not lost.
   $("pick").onclick = async () => {
     let handle: FileSystemDirectoryHandle;
     try {
@@ -51,6 +35,24 @@ async function start() {
   };
   setupDrop();
   $("change").onclick = () => location.reload();
+  if (!canPickDirectory()) {
+    $("pick").hidden = true;
+    $("fallback").hidden = false;
+  }
+
+  if (await DevServerVfs.available()) $("dev").hidden = false;
+  const saved = await recallHandle();
+  if (saved) {
+    const btn = $("reopen");
+    btn.textContent = `Reopen "${saved.name}"`;
+    btn.hidden = false;
+    btn.onclick = async () => {
+      // permission must be re-granted from a user gesture each session
+      const perm = await (saved as any).requestPermission?.({ mode: "read" });
+      if (perm && perm !== "granted") return showWelcomeError("Permission to read the folder was not granted.");
+      await open(() => new HandleVfs(saved).init());
+    };
+  }
   if (location.hash.includes("dev=1") && !$("dev").hidden) await open(async () => new DevServerVfs());
 }
 
