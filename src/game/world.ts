@@ -15,7 +15,7 @@ import { GameData, type ArmorDef, type AttackDef, type MonsterDef, type Projecti
 import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
 import { addItemBonuses, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
-import { Prop, propKind } from "./props";
+import { Prop, propKind, trapState } from "./props";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
 import { DEFAULT_LOADOUT, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
@@ -710,6 +710,18 @@ export class World implements LogicHost {
       p.hits = cfg.health === undefined;
       p.breakable = !/Unbreakable|Hedgehog|Echo/i.test(e.name) && cls !== "GhostlinkBlock" && cls !== "DamageMirrorBlock";
     }
+    if (kind === "trap") {
+      // the intersection handler fires "Traps and Hazards/Trap, floor" with the plate's size;
+      // its damage is the first tier's (the tiers are picked by closed conditions)
+      const fire = (cfg.handlers ?? []).map((h: any) => h?.action?.action?.fireAction ?? h?.action?.fireAction).find(Boolean);
+      const size = String((fire?.arguments?.entries as [string, any][] | undefined)?.find(([k]) => k === "Damage Size")?.[1] ?? "1x1");
+      const [w, h] = size.split("x").map(Number);
+      p.trapHalf = Math.max(w || 1, h || 1) / 2;
+      p.trapB = cfg.cycle?.name === "B" || /"B"/.test(JSON.stringify(cfg.cycle ?? ""));
+      const fa = fire ? this.data.resolveSync("config/fire_action.dat", fire, "action") : null;
+      const first = (fa?.action ?? fa)?.actions?.[0]?.action?.actions?.[0];
+      p.trapDamage = first?.damage ?? null;
+    }
     (e.game as any).onSignal = (name: string) => this.propSignal(p, name);
     this.props.push(p);
     this.updatePropCollision(p);
@@ -746,7 +758,10 @@ export class World implements LogicHost {
       anim = changed ? st[p.open ? 2 : 0] : st[p.open ? 3 : 1];
       loop = !changed;
     } else if (p.kind === "switch") anim = st[p.pressed ? 1 : 0];
-    else {
+    else if (p.kind === "trap") {
+      anim = st[p.trapState] ?? null;
+      loop = false;
+    } else {
       // townsfolk and other animated actors stand in their (weighted) idle animation
       const idles: any[] = p.cfg.sprite?.idles ?? [];
       anim = idles.length ? idles.reduce((a, b) => ((b.weight ?? 1) > (a.weight ?? 1) ? b : a)).animation : null;
@@ -893,8 +908,10 @@ export class World implements LogicHost {
       if (p.instance) p.instance.time += dt;
       switch (p.kind) {
         case "switch": {
-          const on = touching(p) || this.monsters.some(m => m.state !== "dying" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + 0.4);
-          const oneTime = /One-Time/i.test(p.entity.name);
+          // party platforms answer to the party (knights) only, and stay down once pressed
+          const party = /Party Platform/i.test(p.entity.name);
+          const on = touching(p) || (!party && this.monsters.some(m => m.state !== "dying" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + 0.4));
+          const oneTime = party || /One-Time/i.test(p.entity.name);
           if (on !== p.pressed && (!oneTime || on)) {
             p.pressed = on;
             this.showPropState(p);
@@ -920,6 +937,15 @@ export class World implements LogicHost {
             interacted = true;
           }
           break;
+        case "trap": {
+          const st = trapState(this.clock, p.trapB);
+          if (st !== p.trapState) { p.trapState = st; this.showPropState(p); }
+          // extended spikes strike a knight standing on the plate
+          if (st === 2 && !k.dead && Math.abs(k.x - p.x) < p.trapHalf + KNIGHT_RADIUS * 0.5 && Math.abs(k.y - p.y) < p.trapHalf + KNIGHT_RADIUS * 0.5) {
+            this.damageKnight(this.amounts(p.trapDamage, this.ctx(0)), 0.5, p.x, p.y);
+          }
+          break;
+        }
         case "elevator":
           if (!k.dead && touching(p)) {
             p.standTime += dt;

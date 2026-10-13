@@ -32,6 +32,7 @@ import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
 import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
@@ -218,6 +219,9 @@ class Viewer {
   private safeGen = new Set<string>();
   /** Names generated floors show (by scene id). */
   private genNames = new Map<string, string>();
+  /** Special floor styles (vault, danger, arena) by scene id, and the last floor's feature report. */
+  private genStyles = new Map<string, FloorStyle>();
+  genReport: FeatureReport | null = null;
   /** The boss of the floor being played, if any. */
   private bossFloor: BossKey | null = null;
   /** The mission board (src/ui/missions.ts), made on first use. */
@@ -513,8 +517,9 @@ class Viewer {
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
     const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
+    const style = this.genStyles.get(id);
     const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
-      this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals });
+      this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals, layout: layoutFor(style) });
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
@@ -541,6 +546,8 @@ class Viewer {
     const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
     const walk = walkableCells(root, info);
     arenaRooms(root, (x, y) => walk.has(x + "," + y));
+    // puzzles, the floor style's special rooms and decoration (src/gen/features.ts)
+    this.genReport = addFeatures(root, { style, theme: key, tables, rand: rng(Number(seed) ^ 0x2545f491), walkable: (x, y) => walk.has(x + "," + y) });
     return root;
   }
 
@@ -1369,7 +1376,7 @@ class Viewer {
       return { id, name: "Moorcroft Manor" };
     }
     const s = f.stratum!;
-    if (f.kind === "level" && s.style.cached) {
+    if (f.kind === "level" && s.style.cached && !f.special) {
       const options = this.sceneList.filter(sc => s.style.cached!.test(sc.name) && !this.usedScenes.has(sc.id));
       if (options.length && Math.random() < 0.5) { this.usedScenes.add(options[0].id); return options[0]; }
     }
@@ -1378,6 +1385,7 @@ class Viewer {
     const id = `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
+    if (f.special) this.genStyles.set(id, f.special);
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   private usedScenes = new Set<string>();

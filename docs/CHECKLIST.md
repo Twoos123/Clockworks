@@ -8,7 +8,7 @@ be done fully, with the reason.
 - [x] Haven → Arcade → gate selection (gate board drawn from the game's gate, map and theme icons)
 - [x] Clockworks gates: six strata, depth 0 to 29, tiers 1 to 3, terminals at 4/13/23, Moorcroft Manor (8), Emberlight (18), the Core's terminal (29), boss floors
 - [x] Elevator screen between floors (`ui/elevator/nextlevel`), loading screen with tips and progress (`ui/loading`); FLAG: tips beyond the two in the install's interfaces are written here (the game's are in message bundles)
-- [x] Arena rooms on generated floors (Iron Gates close, two waves, reopen) — [ ] keys, switches, traps, vaults, danger rooms (agent: level features)
+- [x] Arena rooms on generated floors (Iron Gates close, two waves, reopen); gold keys and gold gates, party-platform and hidden-button gates, secret treasure rooms, block and crystal walls, spike runs, Gun Puppy turrets, mineral nodes, themed decoration (`src/gen/features.ts`, docs/research/generated-features.md); FLAG: point/spot lights emitted but not rendered (directional lights only), ghost/prism/timed-explosive blocks and healing totems not used (closed behaviour)
 - [x] Terminals: heal on arrival, tiered Supply Depot, elevator onward
 - [ ] Depth record, run summary
 - [ ] FLAG: exact layouts of levels not in the scenes cache (server-streamed); generated instead
@@ -17,7 +17,7 @@ be done fully, with the reason.
 - [x] Generated floors for 21 tilesets (learned, mirrored, rule-based); FLAG: Water Temple models missing from the install, prism_track is not a tileset
 - [x] Every theme's music (`full-music-bundle.jar`, `sound/music`) mapped to its levels, bosses, towns and stingers (`docs/research/music.md`)
 - [ ] Boss arenas (agent: bosses): Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
-- [ ] Danger rooms, treasure vaults, arenas inside gates
+- [x] Danger rooms, treasure vaults, arenas inside gates (one special floor in 60% of strata, `gateFloors`); FLAG: rescue camps (prisoner cage release and companion AI are closed code)
 - [x] Missions: all 272 configs read (238 shown: rank 1-10, prestige by schedule, operations), mission board, rewards, rank progression, tier locks (`src/game/missions.ts`, `src/ui/missions.ts`)
 - [ ] FLAG Mission levels, dialogue and rescue camps (server data and message bundles), event missions
 - [x] Guilds: guild hall, furniture placement, guild storage (vault), guild name and emblem
