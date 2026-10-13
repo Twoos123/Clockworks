@@ -17,7 +17,7 @@ be done fully, with the reason.
 - [x] Generated floors for 21 tilesets (learned, mirrored, rule-based); FLAG: Water Temple models missing from the install, prism_track is not a tileset
 - [x] Every theme's music (`full-music-bundle.jar`, `sound/music`) mapped to its levels, bosses, towns and stingers (`docs/research/music.md`)
 - [ ] Boss arenas (agent: bosses): Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
-- [x] Danger rooms, treasure vaults, arenas inside gates (one special floor in 60% of strata, `gateFloors`); FLAG: rescue camps (prisoner cage release and companion AI are closed code)
+- [x] Danger rooms, treasure vaults, arenas inside gates (one special floor in 60% of strata, `gateFloors`); prisoner cages free companion knights (clean-room ally AI); FLAG: rescue camps themselves (townsfolk, missions) are server and bundle data
 - [x] Missions: all 272 configs read (238 shown: rank 1-10, prestige by schedule, operations), mission board, rewards, rank progression, tier locks (`src/game/missions.ts`, `src/ui/missions.ts`)
 - [ ] FLAG Mission levels, dialogue and rescue camps (server data and message bundles), event missions
 - [x] Guilds: guild hall, furniture placement, guild storage (vault), guild name and emblem

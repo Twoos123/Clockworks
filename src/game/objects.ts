@@ -444,3 +444,20 @@ export class DungeonObjects {
 export const isAlly = (name: string) => /^Character\/NPC\/Companions\/|Energy-Consuming Objects\/|Player Allied/.test(name);
 /** Allies waiting in a cage: they stand still until released. */
 export const isCaptive = (name: string) => /Prisoner/.test(name);
+
+const cref = (name: string, args?: [string, unknown][]) => ({ $class: "com.threerings.config.ConfigReference", name,
+  ...(args ? { arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } } : {}) });
+
+/**
+ * Models standing in for ones the install lacks: the prism puzzle's (world/dynamic/
+ * prism_puzzle) are missing, so emitters show as gun blocks, prisms as echo (mirror) blocks,
+ * receivers as unbreakable starlink crystals, and beams use the Roarmulus twins' beam model.
+ */
+export function standInModel(p: Prop): any | null {
+  const name = p.cfg?.sprite?.model?.name ?? "";
+  if (!/prism_puzzle/.test(name)) return null;
+  if (p.obj?.kind === "emitter") return cref("world/dynamic/gun_block/model.dat");
+  if (/receiver/.test(name)) return cref("world/dynamic/block/unbreakablestarlink/model.dat", [["Color", "blue"]]);
+  return cref("world/dynamic/block/echo/model.dat");
+}
+export const BEAM_MODELS = ["world/dynamic/prism_puzzle/laser/model_beam.dat", "character/npc/monster/twingun/parts/model_beam.dat"];

@@ -16,7 +16,7 @@ import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from ".
 import { addItemBonuses, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind, trapState } from "./props";
-import { DungeonObjects, ENERGY_CROWNS, isAlly, isCaptive, type BeamResult } from "./objects";
+import { BEAM_MODELS, DungeonObjects, ENERGY_CROWNS, isAlly, isCaptive, standInModel, type BeamResult } from "./objects";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
 import { DEFAULT_LOADOUT, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
@@ -315,16 +315,22 @@ export class World implements LogicHost {
   private async showBeams(segs: BeamResult["segments"] | null) {
     const gen = ++this.beamGen;
     const items: { instance: ModelInstance; matrix: Mat4 }[] = [];
+    // the beam model is a one-unit beam along its -y (its Length is a procedural bone
+    // offset); one piece per unit of the segment
+    let model: LoadedModel | null = null;
+    for (const name of BEAM_MODELS) {
+      model ??= await this.loader.loadRef({ $class: "com.threerings.config.ConfigReference", name,
+        arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Length", 1], ["Variant", "Shock"]] } }).catch(() => null);
+    }
+    if (!model || gen !== this.beamGen) return;
     for (const s of segs ?? []) {
       const len = Math.hypot(s.x1 - s.x0, s.y1 - s.y0);
-      if (len < 0.05) continue;
-      const ref = { $class: "com.threerings.config.ConfigReference", name: "world/dynamic/prism_puzzle/laser/model_beam.dat",
-        arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Length", len], ["Variant", "Shock"]] } };
-      const model = await this.loader.loadRef(ref).catch(() => null);
-      if (!model || gen !== this.beamGen) return;
-      const a = Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
-      const z = this.collision.groundZ(s.x0, s.y0) + 0.5;
-      items.push({ instance: await this.renderer.instantiate(model), matrix: compose([s.x0, s.y0, z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], 1) });
+      const a = Math.atan2(s.y1 - s.y0, s.x1 - s.x0), r = a + Math.PI / 2;
+      for (let d = 0; d < len - 0.05; d += 1) {
+        const x = s.x0 + Math.cos(a) * d, y = s.y0 + Math.sin(a) * d;
+        const z = this.collision.groundZ(x, y) + 0.5;
+        items.push({ instance: await this.renderer.instantiate(model), matrix: compose([x, y, z], [0, 0, Math.sin(r / 2), Math.cos(r / 2)], 1) });
+      }
     }
     if (gen === this.beamGen) this.beamItems = items;
   }
@@ -838,7 +844,10 @@ export class World implements LogicHost {
     this.props.push(p);
     this.updatePropCollision(p);
     const model = cfg.sprite?.model ?? cfg.model;
-    if (model) void this.loader.loadRef(model).then(async m => {
+    if (model) void this.loader.loadRef(model).catch(() => null).then(async m => {
+      // models the install lacks (the prism puzzle's) get stand-ins
+      const alt = m ? null : standInModel(p);
+      if (alt) m = await this.loader.loadRef(alt).catch(() => null);
       if (!m || !this.props.includes(p)) return;
       p.instance = await this.renderer.instantiate(m);
       this.showPropState(p);
@@ -898,7 +907,8 @@ export class World implements LogicHost {
     }
     const clip = anim ? this.clip(anim) : null;
     if (clip) p.instance.play(clip, { loop, blend: 0.05 });
-    else if (anim) void this.preload(anim).then(() => this.showPropState(p, changed));
+    // (a clip the install lacks is not asked for again)
+    else if (anim) void this.preload(anim).then(() => { if (this.clip(anim)) this.showPropState(p, changed); });
   }
 
   /** Doors open and close on signals; anything else listens through its handlers only. */

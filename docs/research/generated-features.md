@@ -60,11 +60,41 @@ gate, so a gate's lineup is stable. The game's gate lineups are server-side, so 
 - A condition left implicit by the export with only `probability` set (a vault box's
   "Mimic Chance") is a Random condition; before, every vault box released a Baby Mimic.
 
+## Dungeon objects (src/game/objects.ts)
+
+Their behaviour is closed code; it is written from the configs and the wiki's Exploration page:
+
+| Object | Config | Behaviour here |
+|---|---|---|
+| Crystal blocks | `StarlinkBlock`, `UnbreakableStarlinkBlock` | a hit breaks a crystal and every crystal of its colour touching it (four ways, chained), unbreakable ones included; unbreakable ones ignore hits |
+| Ghost blocks | `GhostlinkBlock` | breakable; the chain of blocks touching it (unbreakable, stone, treasure; not prisms or explosives) fades with it, as scene 370 walls its buttons |
+| Explosive blocks | `TimedBlock` (`fuse` 100 ms, Timed 4 s with its countdown state) | a hit lights the fuse; the detonationAction (`Block/Explosive Block - Explosion`, a DamageRegion) strikes the knight, monsters and blocks within 1.5 cells (ours); explosives in the blast light in turn |
+| Prism puzzles | emitter `Switch`, `PrismBlock`, `PrismLaser` length 10 | hits (or signals for the Door/Signal emitters) switch emitters; beams run on the grid; a prism takes a beam at a receptor face facing back along it and sends it out of its other face (L bend) or straight on (passthrough); hits run the damageAction (a quarter turn); receivers (face-less receptor) run their On/Off Actions |
+| Gun blocks | `Switch` with a Damage mask (3; "Self" 1) | struck while ready, fire a Gun Block Bullet along their facing, then reload for their Cooldown; hazard bullets strike knight, monsters and blocks, so "Self" blocks chain |
+| Rocket and fire blocks | `Trap` with a TrapState handler | the trap cycle (three Intervals) runs the handler as it fires: rockets or flames; "off"/"on" signals switch them |
+| Floor traps | `Trap` | fire, freeze, poison and shock plates strike with the floor's tier of `Traps and Hazards/Trap, floor` (its status infliction included) |
+| Healing totems | `Block`, WarnTimer → effect `Healing, pulse` | three hits break one; each pulse heals monsters within 6 cells (DepthScaleHeal, at most a tenth of their health) |
+| Heal pads | Timer with a lost Heal action | heal a knight standing on them by their Health (40/80/120 of the game's 400) every Interval |
+| Mortar shells, barricades, shrubs | actors with a Damage handler and a destruction transient | a hit runs the handler and destroys them (a shell becomes its stage 3, which blows up after 1.5 s: effect `Mortar shell explosion`; a barricade becomes its weakened stage) |
+| Prisoner cages | `DumbSwitch`, three states | three hits; the prisoner (spawned by the cage placeable's table) is destroyed and its own Shutdown handler spawns the freed Immortal Sword Knight |
+| Companions, energy turrets | `Character/NPC/Companions/...`, `Energy-Consuming Objects/...` | allies: they fight the nearest monster, else follow the knight; immortal (the game's rest and recover) |
+| Energy gates, crates | `UseEnergy`, `ActionDesc$Energy` | energy is not modelled: 50 crowns a point (floor crowns first, then the bank) |
+
+Generated floors use crystal gates, explosive walls, status trap runs, prism gates, rescue cages,
+healing totems (danger rooms, arena halls), gun blocks and explosive blocks against room walls.
+
 ## Not done
 
-- Rescue camps: the prisoner cage (`Dynamic/Rescue/Prisoner Cage/Knight (armed)`) is a
-  DumbSwitch whose release and the companion knights' AI are closed code.
+- FLAG: the prism puzzle's models (`world/dynamic/prism_puzzle`) are missing from the install:
+  emitters show as gun blocks, prisms as echo blocks, receivers as unbreakable crystals, beams
+  as the Roarmulus twins' beam in one-unit pieces. A stand-in prism does not show its facing.
+  Pushing prisms is not in the data and not done.
+- FLAG: the rescue camp itself (`Character/NPC/Rescue Camp/...` townsfolk, mission dialogue) is
+  mission content from message bundles and server data; only the cages are used.
+- FLAG: lockboxes are items (`ItemConfig$Lockbox` with a spawn table) opened with keys bought
+  for money; they are not opened here.
+- FLAG: numbers the data lacks are ours: blast radius, totem heal cap, gun block bullet offset,
+  energy price, the fuse actor delay, ally immortality.
+- Ghost blocks fade their chain; the task's "phase in and out" is not what the data or the wiki
+  describe.
 - Point and spot lights: the entries are emitted, but the renderer has directional lights only.
-- Ghost/Starlink blocks, prism puzzles, explosive timed blocks and healing totems are not used:
-  their behaviour (link toggling, beam tracing, fuses, monster healing) is closed code not yet
-  modelled in `world.ts`.

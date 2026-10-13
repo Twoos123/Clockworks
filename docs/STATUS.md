@@ -62,6 +62,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | UI sounds | The game's style feedback sounds on the arsenal, shops, crafting and run menus |
 | Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
+| Dungeon objects (`src/game/objects.ts`) | Crystal and ghost block chains, timed explosives, prism puzzles, gun, rocket and fire blocks, status floor traps, healing totems, heal pads, mortar shells, barricades, prisoner cages with freed companion knights, energy gates and crates (paid in crowns) |
 | Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions (themed floors at their rank's depth, ending in their boss), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
 | HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
@@ -77,7 +78,9 @@ A single-player loop runs in the browser, built from the install's own data:
    the Clockwork tunnels). More cached levels would add themes and improve the learned
    tiling. Generated floors have the cached levels' puzzles (gold keys, switch gates,
    block walls, spike runs, secret treasure rooms) and special floors (treasure vaults,
-   danger rooms, arenas): see docs/research/generated-features.md. Rescue camps are missing.
+   danger rooms, arenas) and dungeon objects (crystal gates, explosives, prism gates, trap runs,
+   rescue cages, healing totems, gun blocks): see docs/research/generated-features.md. Rescue
+   camps themselves (their townsfolk and missions) are missing.
 2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
    code jars, which this project does not read. Names come from config paths instead.
 3. **Shop catalogues** are server-side (`config/catalog.dat` ships empty). Prices are the

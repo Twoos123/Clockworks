@@ -11,9 +11,21 @@
 //   secret room   what such a gate hides: treasure boxes and a crown cache ("Trigger/One Time
 //                 Action" with a "Treasure/Crowns/Scaled Crown" table spawn, scene 376)
 //   block wall    a corridor filled with the tileset's breakable blocks or crystal blocks
-//   spike run     "Dynamic/Traps and Hazards/Floor/Spikes" plates down a corridor, alternating
-//                 cycles A and B (the game's trap tiles spawn the same actor at start-up)
-//   turrets       Gun Puppy spawners in a room's corners (Construct turrets are monsters)
+//   crystal gate  a corridor wall of "Dynamic/Block/Crystal/Unbreakable/<colour>" with one
+//                 breakable crystal of that colour touching it on the near side: striking it
+//                 shatters the whole wall (src/game/objects.ts, starlink links)
+//   explosive wall  a block wall with "Dynamic/Block/Explosive" down its middle (blasts chain)
+//   trap run      floor trap plates down a corridor, alternating cycles A and B: spikes, fire,
+//                 freeze, poison or shock (the arguments of tile.dat's "Traps and Hazards/
+//                 Floor/<kind>/3x3", whose Startup handlers spawn the same actors)
+//   prism gate    a switch gate opened by a prism puzzle in the room in front: a
+//                 "Dynamic/Block/Prism/Emitter" (struck to switch on), an "L Bend" prism turned
+//                 wrong (strikes turn it) and a "Receiver" whose On Action opens the gate
+//   rescue cage   a "Dynamic/Rescue/Prisoner Cage/Knights/Sword Knight, companion" in a secret
+//                 room: three hits free a knight who fights alongside
+//   turrets       Gun Puppy spawners in a room's corners (Construct turrets are monsters); a
+//                 "Dynamic/Misc/Gun Block/Gun Block" against a wall, facing in
+//   totems        "Dynamic/Monster Objects/Healing Totem"s in danger rooms and arena halls
 //   minerals      "Dynamic/Block/Mineral/Class {tb}/Generic Mineral" against room walls
 //   danger room   a side room sealed by its own platform: escalating waves chained by
 //                 "Trigger/Actor Removed", battle music, then a reward of rare treasure boxes
@@ -81,6 +93,8 @@ const color = (r: number, g: number, b: number) => ({ $class: "com.threerings.op
 const music = (tag: string, file = "sound/music/battle_1.ogg") => spawnActor(ref("Environment/Music", [
   ["Destruction Transient", ref("model/scripted/play_sound_clip.dat", [["File", "sound/music/fanfare_victory_1.ogg"], ["Gain", 1]])],
   ["Fade In", 0], ["Fade Out", 3], ["File", file], ["Override", true], ["Stack", "default"], ["Tag", tag]]));
+/** The entry rotation that gives an actor a facing: scene entries turn a quarter more (EntryLogic). */
+const actorFacing = (a: number) => a + Math.PI / 2;
 const table = (name: string, wave: string, depthOffset = 0) =>
   ref(name, [["Alternate Loot", null], ["Depth Offset", depthOffset], ["Loot", "Primary"], ["Wave Tag", wave]]);
 
@@ -483,6 +497,62 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
     for (let j = 0; j < 4; j++) place("Trigger/One Time Action", [["Action", tableSpawn("Treasure/Crowns/Scaled Crown")], ["Tag", reward]], cx - 1.5 + j, cy - 1.5);
     mark("reward", cx + 0.5, cy + 2.5);
   };
+  /** Healing totems in two corners of a wave room: they mend the monsters until broken. */
+  const totems = (i: number) => {
+    const r = plan.rooms[i];
+    let n = 0;
+    for (const [x, y] of [[r.x + 1, r.y + 1], [r.x + r.w - 2, r.y + r.h - 2], [r.x + r.w - 2, r.y + 1], [r.x + 1, r.y + r.h - 2]] as [number, number][]) {
+      if (n >= 2 || plan.used.has(key(x, y)) || !plan.floor.has(key(x, y)) || nearMouth.has(key(x, y))) continue;
+      plan.used.add(key(x, y));
+      place("Dynamic/Monster Objects/Healing Totem", null, x + 0.5, y + 0.5);
+      mark("totem", x + 0.5, y + 0.5);
+      n++;
+    }
+    if (n) report.features.push("healing totems");
+  };
+  /**
+   * A prism puzzle in room `i` whose receiver signals "open" to `tag`: an emitter, an L bend
+   * prism a few cells along its beam, turned one to three quarters wrong, and the receiver a
+   * few cells off to the side of the prism. False when the room has no room for it.
+   */
+  const prismPuzzle = (i: number, tag: string): boolean => {
+    const r = plan.rooms[i];
+    const DX: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+    const free = (x: number, y: number) => x >= r.x + 1 && x < r.x + r.w - 1 && y >= r.y + 1 && y < r.y + r.h - 1
+      && plan.floor.has(key(x, y)) && !plan.used.has(key(x, y)) && !nearMouth.has(key(x, y));
+    for (let tries = 0; tries < 60; tries++) {
+      const ex = r.x + 1 + Math.floor(rand() * Math.max(1, r.w - 2)), ey = r.y + 1 + Math.floor(rand() * Math.max(1, r.h - 2));
+      const d1 = Math.floor(rand() * 4), d2 = (d1 + (rand() < 0.5 ? 1 : 3)) % 4;
+      const a = 2 + Math.floor(rand() * 3), b = 2 + Math.floor(rand() * 3);
+      const cells: [number, number][] = [[ex, ey]];
+      for (let s = 1; s <= a; s++) cells.push([ex + DX[d1][0] * s, ey + DX[d1][1] * s]);
+      const [px, py] = cells[cells.length - 1];
+      for (let s = 1; s <= b; s++) cells.push([px + DX[d2][0] * s, py + DX[d2][1] * s]);
+      if (!cells.every(([x, y]) => free(x, y))) continue;
+      const [rx, ry] = cells[cells.length - 1];
+      // the L bend's faces sit at its +x and -y: solved, they face back along the beam and
+      // toward the receiver
+      const q = (n: number) => ((n % 4) + 4) % 4;
+      let solved = -1;
+      for (let t = 0; t < 4; t++) {
+        const faces = [t, q(t - 1)], want = [q(d1 + 2), d2];
+        if (faces.includes(want[0]) && faces.includes(want[1])) { solved = t; break; }
+      }
+      if (solved < 0) continue;
+      const turn = q(solved - 1 - Math.floor(rand() * 3));
+      for (const [x, y] of cells) plan.used.add(key(x, y));
+      for (const [x, y] of [[ex, ey], [px, py], [rx, ry]]) plan.blocked.add(key(x, y));
+      place("Dynamic/Block/Prism/Emitter", [["Color", "Blue"]], ex + 0.5, ey + 0.5, actorFacing(d1 * Math.PI / 2));
+      place("Dynamic/Block/Prism/L Bend", null, px + 0.5, py + 0.5, actorFacing(turn * Math.PI / 2));
+      place("Dynamic/Block/Prism/Receiver", [["Color", "None"], ["Off Action", { $class: ACT + "None" }], ["On Action", signal("open", tag)]],
+        rx + 0.5, ry + 0.5, actorFacing(0));
+      mark("prism emitter", ex + 0.5, ey + 0.5);
+      mark("prism", px + 0.5, py + 0.5);
+      mark("prism receiver", rx + 0.5, ry + 0.5);
+      return true;
+    }
+    return false;
+  };
   const ESCALATE: [string, number][][] = [[["Grunt", 3]], [["Grunt", 2], ["Brute", 2]], [["Support", 2], ["Brute", 2], ["Grunt", 1]],
     [["Elite", 2], ["Brute", 2]], [["Mini", 1], ["Elite", 2]]];
 
@@ -551,6 +621,7 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
       waveChain(hall, "A", ESCALATE, doorTag, "feat arena reward", musicTag);
       const [cx, cy] = plan.centre(hall);
       for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) plan.used.add(key(cx + dx, cy + dy));
+      totems(hall);
       report.features.push("arena hall");
     }
   }
@@ -571,6 +642,7 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
       mark("danger platform", cx + 0.5, cy + 0.5);
       waveChain(room, "D", ESCALATE.slice(0, 4), doorTag, "feat danger reward", musicTag);
       for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) plan.used.add(key(cx + dx, cy + dy));
+      totems(room);
       report.features.push("danger room");
     }
   }
@@ -616,20 +688,25 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
       // the opener first (a gate is only shut when something opens it): a party platform in
       // the room in front, or a one-time button dropped at start-up on one of several markers
       // around it (scene 370)
-      const platform = rand() < 0.5 ? platformCell(nb) : null;
+      const opener = rand();
+      const platform = opener < 0.35 ? platformCell(nb) : null;
       const near = [nb, ...plan.graph[nb]].filter(r => r !== i && (r === nb || !taken.has(r)));
       const spots: [number, number][] = [];
-      if (!platform) for (let j = 0; j < 4; j++) {
+      // a prism puzzle in the room in front opens it now and then
+      const tag = `feat secret ${secrets + 1}`;
+      const prism = !platform && opener >= 0.65 && !taken.has(nb) && nb !== plan.start && prismPuzzle(nb, tag);
+      if (!platform && !prism) for (let j = 0; j < 4; j++) {
         const c = plan.freeCell(pick(near), rand, { margin: 1, avoidCentre: 2 });
         if (c && !spots.some(s => s[0] === c[0] && s[1] === c[1])) spots.push(c);
       }
-      if (!platform && !spots.length) continue;
-      const tag = `feat secret ${++secrets}`;
+      if (!platform && !prism && !spots.length) continue;
+      secrets++;
       clearRoom(i, true);
       taken.add(i);
       place("Dynamic/Door/Iron Gate/Trigger 3", [["Open", false], ["Tag", tag]], m.x, m.y, m.rot);
-      gate(m, "switch gate");
-      if (platform) {
+      gate(m, prism ? "prism gate" : "switch gate");
+      if (prism) report.features.push("prism gate");
+      else if (platform) {
         plan.used.add(key(...platform));
         place("Dynamic/Switch/Party Platform/Base", [["Action", compound(signal("open", tag))]], platform[0] + 0.5, platform[1] + 0.5);
         mark("platform", platform[0] + 0.5, platform[1] + 0.5);
@@ -655,6 +732,18 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
       }
       const [cx, cy] = plan.centre(i);
       for (let j = 0; j < 3; j++) place("Trigger/Start Up Trigger (Generic)", [["Action", tableSpawn("Treasure/Crowns/Scaled Crown")]], cx + 0.5 + j - 1, cy + 0.5);
+      // a knight held prisoner (the cage's 2x2 bars stand beside the crowns)
+      if (rand() < 0.4) {
+        const r = plan.rooms[i];
+        const cell = [[cx, cy - 2], [cx - 2, cy], [cx + 2, cy], [cx, cy + 2]].find(([x, y]) => x - 1 >= r.x && x + 1 < r.x + r.w && y - 1 >= r.y && y + 1 < r.y + r.h
+          && [[0, 0], [-1, 0], [0, -1], [-1, -1]].every(([dx, dy]) => plan.floor.has(key(x + dx, y + dy)) && !plan.used.has(key(x + dx, y + dy))));
+        if (cell) {
+          for (const [dx, dy] of [[0, 0], [-1, 0], [0, -1], [-1, -1]]) plan.used.add(key(cell[0] + dx, cell[1] + dy));
+          place("Dynamic/Rescue/Prisoner Cage/Knights/Sword Knight, companion", null, cell[0], cell[1]);
+          mark("rescue cage", cell[0], cell[1]);
+          report.features.push("rescue cage");
+        }
+      }
       report.features.push("secret room");
     }
 
@@ -682,19 +771,41 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
       const secs = sections(ci);
       if (secs.length) {
         const s = secs[Math.floor(secs.length / 2)];
-        const crystal = rand() < 0.35;
-        const block = crystal ? pick(["Dynamic/Block/Crystal/Random/Green", "Dynamic/Block/Crystal/Random/Blue", "Dynamic/Block/Crystal/Random/Purple"]) : pal.block;
+        const kind = pick(["block", "block", "crystal", "gate", "gate", "explosive"]);
+        const colour = pick(["Blue", "Green", "Purple", "Pink", "Gold", "Gray"]);
+        const block = kind === "crystal" ? pick(["Dynamic/Block/Crystal/Random/Green", "Dynamic/Block/Crystal/Random/Blue", "Dynamic/Block/Crystal/Random/Purple"])
+          : kind === "gate" ? `Dynamic/Block/Crystal/Unbreakable/${colour}` : pal.block;
         const cells: string[] = [];
+        const wall: [number, number, boolean][] = [];
         for (const step of [0, 1]) for (const [x, y] of s.cross) {
           const cx = x + s.along[0] * step, cy = y + s.along[1] * step;
           if (!plan.floor.has(key(cx, cy)) || plan.compAt.get(key(cx, cy)) !== ci) continue;
-          place(block, null, cx + 0.5, cy + 0.5);
+          wall.push([cx, cy, x === s.x && y === s.y]);
+        }
+        // a crystal gate's key: a breakable crystal of its colour against the wall's middle, on
+        // the side the start reaches
+        let keyCell: [number, number] | null = null;
+        if (kind === "gate") {
+          const seen = plan.flood(...plan.centre(plan.start), new Set(wall.map(([x, y]) => key(x, y))));
+          keyCell = ([[s.x - s.along[0], s.y - s.along[1]], [s.x + s.along[0] * 2, s.y + s.along[1] * 2]] as [number, number][])
+            .find(([x, y]) => seen.has(key(x, y)) && !plan.used.has(key(x, y))) ?? null;
+        }
+        for (const [cx, cy, middle] of wall) {
+          const name = kind === "gate" && !keyCell ? pal.block
+            : kind === "explosive" && middle ? "Dynamic/Block/Explosive" : block;
+          place(name, null, cx + 0.5, cy + 0.5);
           cells.push(key(cx, cy));
           plan.used.add(key(cx, cy));
         }
+        if (keyCell) {
+          place(`Dynamic/Block/Crystal/${colour}`, null, keyCell[0] + 0.5, keyCell[1] + 0.5);
+          cells.push(key(...keyCell));
+          plan.used.add(key(...keyCell));
+          mark("crystal key", keyCell[0] + 0.5, keyCell[1] + 0.5);
+        }
         plan.gates.push({ kind: "block wall", cells });
         mark("block wall", s.x + 0.5, s.y + 0.5);
-        report.features.push(crystal ? "crystal wall" : "block wall");
+        report.features.push(kind === "crystal" ? "crystal wall" : kind === "gate" && keyCell ? "crystal gate" : kind === "explosive" ? "explosive wall" : "block wall");
       }
       ci = pathComps.shift();
     }
@@ -703,17 +814,24 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
       // plates three cells apart along the corridor, cycles alternating
       const chosen: typeof secs = [];
       for (const s of secs) if (chosen.every(o => Math.abs(o.x - s.x) + Math.abs(o.y - s.y) >= 3)) chosen.push(s);
+      // spikes, or a status trap (tile.dat's Fire, Freeze, Poison and Shock 3x3 plates)
+      const trap = pick(["Spikes", "Spikes", "Fire", "Freeze", "Poison", "Shock"]);
+      const PLATES: Record<string, string> = { Spikes: "spikes/tile_3x3.dat", Fire: "flame_grates/tile_3x3.dat", Freeze: "freeze_tiles/freeze_3x3.dat",
+        Poison: "poison_panels/gastank_3x3.dat", Shock: "shock_trenches/shocktrench_3x3.dat" };
       chosen.slice(0, 4).forEach((s, j) => {
-        place("Trigger/Start Up Trigger (Generic)", [["Action", spawnActor(ref("Dynamic/Traps and Hazards/Floor/Spikes", [
-          ["Cycle", { $enum: "com.threerings.projectx.dungeon.config.DungeonActorConfig$Trap$Cycle", name: j % 2 ? "B" : "A" }],
-          ["Model", ref("world/dynamic/traps_n_hazards/floor/spikes/spikes/spikes_3x3.dat")], ["Tag", "(Signal Tag)"], ["Warning and Damage Size", "3x3"]]))]],
-          s.x + 0.5, s.y + 0.5);
+        const cycle = { $enum: "com.threerings.projectx.dungeon.config.DungeonActorConfig$Trap$Cycle", name: j % 2 ? "B" : "A" };
+        const actor = trap === "Spikes"
+          ? ref("Dynamic/Traps and Hazards/Floor/Spikes", [["Cycle", cycle],
+            ["Model", ref("world/dynamic/traps_n_hazards/floor/spikes/spikes/spikes_3x3.dat")], ["Tag", "(Signal Tag)"], ["Warning and Damage Size", "3x3"]])
+          : ref(`Dynamic/Traps and Hazards/Floor/${trap}`, [["Cycle", cycle], ["Tag", "(Signal Tag)"],
+            ["UP Animation", ref(`world/dynamic/traps_n_hazards/floor/${trap.toLowerCase()}/animations/start_3x3.dat`)], ["Warning and Damage Size", "3x3"]]);
+        place("Trigger/Start Up Trigger (Generic)", [["Action", spawnActor(actor)]], s.x + 0.5, s.y + 0.5);
         // the plate itself (the trap tile's model; its origin is its corner)
-        place("Model Tester", [["Model", ref("world/dynamic/traps_n_hazards/floor/spikes/tile_3x3.dat")]], s.x - 1, s.y - 1, 0, 0.01);
+        place("Model Tester", [["Model", ref(`world/dynamic/traps_n_hazards/${trap === "Spikes" ? "floor/" : ""}${PLATES[trap]}`)]], s.x - 1, s.y - 1, 0, 0.01);
         for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) plan.used.add(key(s.x + dx, s.y + dy));
-        mark("spikes", s.x + 0.5, s.y + 0.5);
+        mark(trap.toLowerCase(), s.x + 0.5, s.y + 0.5);
       });
-      if (chosen.length) report.features.push("spike run");
+      if (chosen.length) report.features.push(trap === "Spikes" ? "spike run" : "trap run");
     }
 
     // turrets: Gun Puppies in two corners of an encounter room on the path
@@ -732,6 +850,22 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
           mark("turret", x + 0.5, y + 0.5);
         }
         report.features.push("turrets");
+      }
+    }
+    // gun blocks: one against a wall of a path room, facing in (struck, it fires down the room)
+    const gunRoom = plan.path.find(i => i !== plan.start && i !== plan.exit && !taken.has(i) && rand() < 0.35);
+    if (gunRoom !== undefined) {
+      const r = plan.rooms[gunRoom];
+      const sides: [number, number, number][] = [];
+      for (let x = r.x + 2; x < r.x + r.w - 2; x++) { sides.push([x, r.y, Math.PI / 2]); sides.push([x, r.y + r.h - 1, -Math.PI / 2]); }
+      for (let y = r.y + 2; y < r.y + r.h - 2; y++) { sides.push([r.x, y, 0]); sides.push([r.x + r.w - 1, y, Math.PI]); }
+      const ok = sides.filter(([x, y]) => plan.floor.has(key(x, y)) && !plan.used.has(key(x, y)) && !nearMouth.has(key(x, y)));
+      if (ok.length) {
+        const [x, y, rot] = pick(ok);
+        plan.used.add(key(x, y)); plan.blocked.add(key(x, y));
+        place("Dynamic/Misc/Gun Block/Gun Block", null, x + 0.5, y + 0.5, actorFacing(rot));
+        mark("gun block", x + 0.5, y + 0.5);
+        report.features.push("gun block");
       }
     }
   }
@@ -790,6 +924,13 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
     if (pal.breakable.length) take(1 + Math.floor(rand() * 3), c => {
       place(pick(pal.breakable), null, c.x + 0.5, c.y + 0.5, rand() * Math.PI * 2);
       plan.used.add(key(c.x, c.y));
+      return true;
+    });
+    // explosive blocks against the walls of a fighting room now and then (lure monsters in)
+    if (style !== "vault" && i !== plan.start && i !== plan.exit && rand() < 0.25) take(2, c => {
+      place("Dynamic/Block/Explosive", null, c.x + 0.5, c.y + 0.5);
+      plan.used.add(key(c.x, c.y));
+      mark("explosive", c.x + 0.5, c.y + 0.5);
       return true;
     });
     // floor litter: the tileset's and the family's
