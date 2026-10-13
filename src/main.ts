@@ -30,6 +30,7 @@ import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
@@ -54,8 +55,8 @@ const THEMES: { key: string; test: RegExp; label: string }[] = [
   { key: "clockworks", test: /^(terminal 1|emberlight|terminal core)/i, label: "Clockwork Tunnels" },
 ];
 const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
-/** Generated floor ids: "gen:<theme>:<seed>". */
-const GEN = /^gen:([a-z-]+):(\d+)$/;
+/** Generated floor ids: "gen:<theme>:<seed>", or "gen:<theme>:<seed>:<boss>" for a boss arena. */
+const GEN = /^gen:([a-z-]+):(\d+)(?::([a-z]+))?$/;
 
 import { invert } from "./math";
 import {
@@ -510,7 +511,7 @@ class Viewer {
    * new layout with their spawners, treasure and elevators (src/gen).
    */
   private async generatedRoot(id: string): Promise<any> {
-    const [, key, seed] = GEN.exec(id)!;
+    const [, key, seed, boss] = GEN.exec(id)!;
     // the theme's tiling: learned from its cached levels, mirrored from a related theme, or
     // rule-based (src/gen/themes.ts)
     const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
@@ -524,6 +525,9 @@ class Viewer {
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
     const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
+    // a boss's arena (src/game/bosses.ts): its own plan, props and gates
+    if (boss) return bossArena(boss as BossKey, level.sources, Number(seed), this.genNames.get(id) ?? BOSSES[boss as BossKey].level, pool,
+      { model: level.model, globals: level.globals });
     const style = this.genStyles.get(id);
     const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
       this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals, layout: layoutFor(style) });
@@ -1325,7 +1329,7 @@ class Viewer {
     }
     const theme = genTheme(f.tileset);
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
-    const id = `gen:${theme}:${seed}`;
+    const id = f.kind === "boss" ? `gen:${theme}:${seed}:${s.boss}` : `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
     if (f.special) this.genStyles.set(id, f.special);
@@ -1333,23 +1337,30 @@ class Viewer {
   }
   private usedScenes = new Set<string>();
 
-  /** A boss floor: the boss's actors wait by the exit elevator, which stays shut until they fall. */
+  /** A boss floor: the boss's fight director runs its arena; the exit stays shut until it is won. */
   private spawnBoss(key: BossKey) {
-    const w = this.world, scene = this.scene;
-    if (!w || !scene) return;
-    const exit = scene.logic.find(l => /Elevator\/Next Floor/.test(l.name));
-    const [x, y] = exit ? [exit.x, exit.y] : [w.knight.x + 6, w.knight.y];
-    BOSSES[key].actors.forEach((name, i) => {
-      const spot = scene.collision.findSpawn(x + (i ? 4 : -2), y + 2, 1.5, 43) ?? [x, y];
-      w.spawnAt({ name }, spot[0], spot[1], Math.atan2(w.knight.y - spot[1], w.knight.x - spot[0]));
-    });
+    if (this.world) startBossFight(key, this.world);
   }
 
   /** The boss of this floor is still standing. */
   private bossAlive(): boolean {
     const w = this.world;
     if (!w || !this.bossFloor) return false;
-    return w.liveMonsters.some(m => /\/Boss\//.test(m.entity?.name ?? "")) || w.logic.actors.some(e => !e.destroyed && /\/Boss\//.test(e.name) && e.mobile);
+    return !(w.boss as BossFight | null)?.defeated;
+  }
+
+  /** Development: plays a boss's arena (window.__viewer.testBoss("snarbolax")). */
+  async testBoss(key: BossKey, depth = BOSSES[key].tier === 1 ? 7 : BOSSES[key].tier === 2 ? 17 : 28) {
+    this.stopPlaying();
+    this.arenaMode = false;
+    this.bossFloor = key;
+    this.run = { depth, health: null, floors: 0 };
+    const id = `gen:${genTheme(BOSSES[key].tileset)}:${(Math.random() * 1e9) >>> 0}:${key}`;
+    this.genNames.set(id, BOSSES[key].level);
+    await this.selectScene(id);
+    await this.startPlaying();
+    this.spawnBoss(key);
+    return this.world?.boss ?? null;
   }
 
   private runLevels(): { id: string; name: string }[] {
