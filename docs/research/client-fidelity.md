@@ -51,7 +51,29 @@ Still ours: the real game stops an item's progress at a full bar until it is for
 crystals (`item/config/ForgePropertyConfig`); here heat carries over and the item levels up by
 itself.
 
-## 4. Config defaults the export leaves out (src/game/data.ts)
+## 4. Status conditions (src/game/status.ts, src/game/world.ts)
+
+| What | Old guess | Client behaviour | From |
+|---|---|---|---|
+| Chance levels | LOW 0.1, MEDIUM 0.2, HIGH 0.35, VERY_HIGH 0.5, ULTRA 0.7, MAXIMUM 1 | LOW 0.05, MEDIUM 0.1, HIGH 0.25, VERY_HIGH 0.5, ULTRA 0.65, MAXIMUM 0.9; CUSTOM is the config's `chance` | `dungeon/data/StatusCodes$StatusChance` |
+| Power levels | 0.2 to 1, unknown power 0.3 | MINOR 20, MODERATE 40, STRONG 60, DEADLY 80, ULTIMATE 100 (out of 100); CUSTOM is the config's `power` (default 0) | `StatusCodes$StatusPower` |
+| Where chance and power come from | the reference's arguments only | the condition's own `statusChance`/`chance` and `statusPower`/`power` fields (arguments are applied to them first) | `dungeon/config/StatusConditionConfig$Default` |
+| Difficulty | none | easy and hard map a chance onto their own level tables (easy one level down, hard one up, by interpolation between levels) and shift power by -20 / +20 (easy at least 10) | `dungeon/data/DungeonCodes$Difficulty` (`getModifiedStatusChance`, constructor arguments) |
+| Durations | 4 to 8 s when left out | `minDuration` 1000, `maxDuration` 10000 ms by default; monsters x `monsterDurationMultiplier` | `StatusConditionConfig$Default` |
+| Fire ticks | `signalInterval`, 1 s default | `damageInterval`, 2000 ms by default | `StatusConditionConfig$Fire` |
+| Poison | defence -5% to -25%, attack untouched | attack and defence -15% to -65%, healing -10% to -50% | `StatusConditionConfig$Poison` |
+| Stun | speed -(minSpeedReduction or 0.3) - 0.3 x power, at most -80% | a Slow: speed -40% to -60% (`minSpeedReduction`, `maxSpeedReduction`); Slow itself modelled too | `StatusConditionConfig$Slow`, `$Stun` |
+| Shock | a spasm every tick (0.35 to 0.6 s), 5 damage arcs within 2 units | a spasm every 1 to 4 s lasting 0.5 to 2 s; defence -15% to -45%; arcs within the arc shape (circle) times `arcExpand`, dealing `arcDamage` | `StatusConditionConfig$Shock` |
+| Freeze | each hit took 0.6 s off | the victim is behind ice with health (`healthStart` to `healthEnd` depth scales); hits wear it down and break it | `StatusConditionConfig$Freeze` (fields; breaking is server code) |
+| Sleep | held until hit | held until hit; after `healthRegenDelay` (4 s) regenerates every `healthRegenInterval` (2 s): monsters 10 to 30, knights 30 to 90 | `StatusConditionConfig$Sleep` |
+| Curse damage | `damage.amount` or 20 | the damage scales, capped at `maxCurseDamage` 120 | `StatusConditionConfig$Curse` |
+
+Still ours (server code): rolling the chance, how power picks a duration and strength
+between each min and max (here: linearly, power / 100), how resistances cut chance and
+duration (`resistFactor`, 2% a point), whether a hit wakes a sleeper, stacking and the
+`cooloff` immunity.
+
+## 5. Config defaults the export leaves out (src/game/data.ts)
 
 The export drops fields left at their class default, so the defaults have to match the
 client's classes. Wrong ones were:

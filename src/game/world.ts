@@ -820,11 +820,8 @@ export class World implements LogicHost {
   private healKnight(amount: number) {
     const k = this.knight;
     if (k.dead) return;
-    const poison = k.statuses.find(s => s.def.kind === "Poison");
-    if (poison) {
-      const c = poison.def.cfg;
-      amount *= 1 + ((c.minHealModifier ?? -0.1) + ((c.maxHealModifier ?? -0.5) - (c.minHealModifier ?? -0.1)) * poison.def.power);
-    }
+    // poison's heal modifier
+    for (const s of k.statuses) amount *= s.def.heal;
     k.health = Math.min(k.maxHealth, k.health + amount);
     this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: `+${Math.round(amount)}`, color: "#7bd88f", age: 0 });
   }
@@ -1874,7 +1871,7 @@ export class World implements LogicHost {
     // monsters stay frozen longer (monsterDurationMultiplier)
     const duration = def.duration * (target.team === "monster" ? (def.cfg.monsterDurationMultiplier ?? 1) : 1);
     if (same) { same.remaining = Math.max(same.remaining, duration); same.def = def; return; }
-    const st: ActiveStatus = { def, remaining: duration, tick: def.interval, fx: null };
+    const st: ActiveStatus = { def, remaining: duration, tick: def.interval, fx: null, ice: def.ice, nextSpasm: def.spasmInterval, asleep: 0 };
     target.statuses.push(st);
     const sprite = def.cfg.sprite;
     if (sprite?.applicationTransient) this.spawnEffect(sprite.applicationTransient, target.matrix(), 2, target);
@@ -1906,22 +1903,40 @@ export class World implements LogicHost {
     for (const st of [...a.statuses]) {
       st.remaining -= dt;
       if (st.remaining <= 0 || a.dead) { this.endStatus(a, st); continue; }
-      st.tick -= dt;
       const d = st.def;
-      if (st.tick <= 0) {
-        st.tick += d.interval;
-        if ((d.kind === "Fire" || d.kind === "Curse") && d.tickDamage > 0) this.statusDamage(a, d.tickDamage, d.kind === "Fire" ? "#ff8a3d" : "#b07bff");
-        if (d.kind === "Shock") {
-          // a spasm interrupts, and an arc jumps to the victim's neighbours
-          (st as any).spasm = 0.35 + 0.25 * d.power;
-          a.attack = null;
-          const arc = d.tickDamage || 5;
-          const others = a.team === "monster" ? this.monsters.filter(m => m !== a && m.state !== "dying" && Math.hypot(m.x - a.x, m.y - a.y) < 2) : [];
-          for (const o of others) this.statusDamage(o, arc, "#9fe8ff");
+      if (d.kind === "Fire" || d.kind === "Curse") {
+        st.tick -= dt;
+        if (st.tick <= 0) {
+          st.tick += d.interval;
+          if (d.tickDamage > 0) this.statusDamage(a, d.tickDamage, d.kind === "Fire" ? "#ff8a3d" : "#b07bff");
         }
-      }
-      if (d.kind === "Freeze" || d.kind === "Sleep") held = true;
-      if (d.kind === "Shock" && ((st as any).spasm ?? 0) > 0) { (st as any).spasm -= dt; held = true; }
+      } else if (d.kind === "Shock") {
+        // a spasm every spasm interval: the victim cannot act, and an arc jumps to the
+        // neighbours inside the arc shape (a circle, radius 1 by default, times arcExpand)
+        st.nextSpasm = (st.nextSpasm ?? d.spasmInterval) - dt;
+        if (st.nextSpasm <= 0) {
+          st.nextSpasm += d.spasmInterval;
+          st.spasm = d.spasmDuration;
+          a.attack = null;
+          const reach = (d.cfg.arcShape?.radius ?? 1) * (d.cfg.arcExpand ?? 1) + a.radius;
+          const others = a.team === "monster" ? this.monsters.filter(m => m !== a && m.state !== "dying" && Math.hypot(m.x - a.x, m.y - a.y) < reach) : [];
+          if (d.tickDamage > 0) for (const o of others) this.statusDamage(o, d.tickDamage, "#9fe8ff");
+        }
+        if ((st.spasm ?? 0) > 0) { st.spasm! -= dt; held = true; }
+      } else if (d.kind === "Sleep") {
+        // asleep: regeneration every interval once the delay has passed
+        held = true;
+        st.asleep = (st.asleep ?? 0) + dt;
+        if (st.asleep >= d.regenDelay) {
+          st.tick -= dt;
+          if (st.tick <= 0) {
+            st.tick += d.interval;
+            const amount = a instanceof Knight ? d.playerRegen : d.regen;
+            if (a instanceof Knight) this.healKnight(amount);
+            else if (a instanceof Monster) this.healMonster(a, amount);
+          }
+        }
+      } else if (d.kind === "Freeze") held = true;
     }
     return held;
   }
@@ -1943,43 +1958,41 @@ export class World implements LogicHost {
     this.floaters.push({ x: a.x, y: a.y, z: a.z + 1.3, text: String(dmg), color, age: 0 });
   }
 
-  /** Movement factor from conditions (stun slows). */
+  /** Movement factor from conditions (stun and slow, speed buffs). */
   private statusSpeed(a: Actor): number {
     let f = 1;
-    for (const st of a.statuses) {
-      if (st.def.kind === "Stun") f *= 1 - Math.min(0.8, (st.def.cfg.minSpeedReduction ?? 0.3) + 0.3 * st.def.power);
-      else if (st.def.kind === "Buff") f *= 1 + (st.def.cfg.speedModifier ?? 0);
-    }
+    for (const st of a.statuses) f *= st.def.speed;
     return f;
   }
 
-  /** Damage factor from buffs (Damage Modifier and Relative Damage Modifier). */
+  /** Damage factor from buffs (Damage Modifier and Relative Damage Modifier) and poison. */
   private buffDamage(a: Actor): number {
     let f = 1;
-    for (const st of a.statuses) if (st.def.kind === "Buff") f *= 1 + (st.def.cfg.damageModifier ?? 0) + (st.def.cfg.relativeDamageModifier ?? 0);
+    for (const st of a.statuses) {
+      if (st.def.kind === "Buff") f *= 1 + (st.def.cfg.damageModifier ?? 0) + (st.def.cfg.relativeDamageModifier ?? 0);
+      f *= st.def.attack;
+    }
     return f;
   }
 
-  /** Defence after poison's reduction. */
+  /** Defence after poison's and shock's reductions and defence buffs. */
   private effectiveDefense(a: Actor): Amounts | null {
-    const p = a.statuses.find(s => s.def.kind === "Poison");
     let f = 1;
-    for (const st of a.statuses) if (st.def.kind === "Buff") f *= 1 + (st.def.cfg.defenseModifier ?? 0);
-    if ((!p && f === 1) || !a.defense) return a.defense;
-    if (p) {
-      const c = p.def.cfg;
-      f *= 1 - ((c.minDefenseReduction ?? 0.05) + ((c.maxDefenseReduction ?? 0.25) - (c.minDefenseReduction ?? 0.05)) * p.def.power);
-    }
+    for (const st of a.statuses) f *= st.def.defense;
+    if (f === 1 || !a.defense) return a.defense;
     const out = { ...a.defense };
-    for (const k of Object.keys(out) as (keyof Amounts)[]) out[k] *= f;
+    for (const t of DAMAGE_TYPES) out[t] *= f;
     return out;
   }
 
-  /** Conditions react to a hit: sleepers wake, frozen victims crack sooner. */
-  private hitStatuses(a: Actor, amounts: Amounts) {
+  /** Conditions react to a hit: sleepers wake, a hit wears down a frozen victim's ice. */
+  private hitStatuses(a: Actor, amounts: Amounts, dmg = 0) {
     for (const st of [...a.statuses]) {
       if (st.def.kind === "Sleep") this.endStatus(a, st);
-      else if (st.def.kind === "Freeze") st.remaining -= 0.6;
+      else if (st.def.kind === "Freeze") {
+        st.ice = (st.ice ?? st.def.ice) - dmg;
+        if (st.ice <= 0) this.endStatus(a, st);
+      }
     }
     const s = (amounts as any).statuses as any[] | undefined;
     if (s) for (const ref of s) this.applyStatus(a, ref, (amounts as any).ctx ?? this.ctx(0));
@@ -2146,7 +2159,7 @@ export class World implements LogicHost {
         return;
       }
     }
-    this.hitStatuses(m, amounts);
+    this.hitStatuses(m, amounts, dmg);
     // a big enough hit interrupts the monster (minReactPercent of its health)
     if (dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning" && m.health > dmg) {
       m.attack = null;
@@ -2202,7 +2215,7 @@ export class World implements LogicHost {
     let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k))));
     // a sprite shield (the Seraphynx's Angelic Aura) takes the hit first
     if (this.companion) { dmg = Math.round(this.companion.absorb(dmg)); if (dmg <= 0) { k.invulnerable = 0.25; return; } }
-    this.hitStatuses(k, amounts);
+    this.hitStatuses(k, amounts, dmg);
     const before = k.health;
     k.health = Math.max(0, k.health - dmg);
     k.recentDamage += before - k.health;
@@ -2274,6 +2287,7 @@ export class World implements LogicHost {
   /** Heals a monster (absorbed minions), with the heal floater. */
   healMonster(m: Monster, amount: number) {
     if (m.state === "dying" || amount <= 0) return;
+    for (const s of m.statuses) amount *= s.def.heal;
     const before = m.health;
     m.health = Math.min(m.maxHealth, m.health + amount);
     if (m.health > before) this.floaters.push({ x: m.x, y: m.y, z: m.z + 2, text: `+${Math.round(m.health - before)}`, color: "#7bd88f", age: 0 });
