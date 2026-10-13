@@ -18,7 +18,8 @@ be done fully, with the reason.
 - [x] Every theme's music (`full-music-bundle.jar`, `sound/music`) mapped to its levels, bosses, towns and stingers (`docs/research/music.md`)
 - [ ] Boss arenas (agent: bosses): Royal Jelly (Jelly Palace), Snarbolax (Gloaming Wildwoods, bells), Roarmulus Twins (Ironclaw Munitions Factory), Lord Vanaduke (Firestorm Citadel)
 - [ ] Danger rooms, treasure vaults, arenas inside gates
-- [ ] Missions: all 272 configs (agent: missions) (rank missions 1-9 with prestige, exchange and gate missions), mission board, rewards, rescue camps
+- [x] Missions: all 272 configs read (238 shown: rank 1-10, prestige by schedule, operations), mission board, rewards, rank progression, tier locks (`src/game/missions.ts`, `src/ui/missions.ts`)
+- [ ] FLAG Mission levels, dialogue and rescue camps (server data and message bundles), event missions
 - [ ] Guilds: guild hall (agent: guilds), furniture placement, guild storage
 - [ ] Ready room (agent: guilds) (`rsrc/world/readyroom/scene.dat`), character creation (`rsrc/world/createknight/scene.dat`)
 - [ ] FLAG: game text (message bundles are in the code jars); labels written here

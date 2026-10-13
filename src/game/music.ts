@@ -103,12 +103,15 @@ export const STYLE_MUSIC: Record<string, Track> = {
   frostwood: mix([["sky_islands_day_ambient", 1], ["sky_islands_day_action", 1]], 0.25, 1, "scenes cache: jigsaw_valley_* (the sky islands mix; Frosty Islands are a sky-islands tileset)"),
   halls: mix([["apocrea", 1], ["somber", 1]], 0.5, 1, "scenes cache: dark_halls_lobby (apocrea), dark_halls_finale (somber)"),
   pools: one("freeze", 0.45, "ours: Frozen Pools play the freeze track (Universal/Freeze/Music)"),
+  vault: one("treasure_vault", 0.45, "ours: the prize vault tileset plays treasure_vault"),
+  whitespace: one("whitespace_ambient", 0.45, "character/npc/monster/swarm/model.dat (the Swarm's whitespace)"),
+  haven: one("haven", 0.25, SG + "Environment/Custom/Town/Haven/Default/Music"),
 };
 
 /** Tilesets (src/gen themes) to a style's music, for styles this table does not know by key. */
 const TILESET_MUSIC: [RegExp, string][] = [
   [/^(valley|sky)-night/, "den"], [/^(valley|sky)-autumn|lichen|grove/, "grove"], [/^(valley|sky)-winter|frost/, "frostwood"],
-  [/^valley|sky|island/, "valley"], [/castle-light|dark-?halls/, "halls"], [/^ice|pool/, "pools"],
+  [/^valley|sky|island/, "valley"], [/castle-light|dark-?halls/, "halls"], [/^ice|pool/, "pools"], [/vault/, "vault"], [/whitespace/, "whitespace"], [/^haven/, "haven"],
   [/castle|keep/, "keep"], [/graveyard/, "graveyard"], [/city|compound/, "compound"], [/clockworks-white/, "deconstruction"],
 ];
 const TILESET_ELEMENT: [RegExp, string][] = [[/fire|lava|ember/, "Fire"], [/freeze|ice|snow|frost/, "Freeze"], [/poison/, "Poison"], [/shock/, "Shock"]];
@@ -148,6 +151,8 @@ export function levelMusic(theme: StratumTheme | null, styleKey: string | null, 
   if (styleKey === "tunnels" && theme === "Undead") return { ...one("undead", 0.6, SG + "Environment/Custom/Clockwork Tunnels/Spooky/Music Mix") };
   if (styleKey === "tunnels" && theme === "Fiend") return { ...one("fiend", 0.4, SG + "Environment/Custom/Devilish Drudgery/Music Mix") };
   if (styleKey && STYLE_MUSIC[styleKey]) return STYLE_MUSIC[styleKey];
+  // mission floors: their element, else their monster family's track (Music/Monster Family/*)
+  if (styleKey === "mission" && theme && FAMILY_MUSIC[theme] && !TILESET_ELEMENT.some(([re]) => re.test(tileset))) return FAMILY_MUSIC[theme];
   const el = TILESET_ELEMENT.find(([re]) => re.test(tileset));
   if (el) return ELEMENT_MUSIC[el[1]];
   const byTileset = TILESET_MUSIC.find(([re]) => re.test(tileset));

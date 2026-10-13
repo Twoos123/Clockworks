@@ -109,12 +109,19 @@ Styles added later are matched by tileset name:
 - `sky-winter` plays Frosty Islands';
 - `castle-light` plays Dark Halls';
 - `ice` plays Frozen Pools';
+- `prize-vault` plays `treasure_vault`;
+- `whitespace` plays `whitespace_ambient`;
+- `haven` plays `haven`;
 - `castle` plays the keep's;
 - `city` plays the compound's;
 - `clockworks-white` plays the Deconstruction Zone's;
 - tilesets named for an element (fire, ice and so on) play that element's track.
 
 After that comes the stratum family's track, then the Clockwork Tunnels mix.
+
+Mission floors (gates with a `mission:` id, style key `mission`) play the element track when
+their tileset is an element's. Otherwise they play their monster family's track
+(`Music/Monster Family/*`, data). Mission boss floors play the boss table below.
 
 ### Bosses
 

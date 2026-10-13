@@ -25,6 +25,10 @@ test("every level style has its own music, and unknown tilesets still find some"
   assert.equal(levelMusic("Beast", null, "valley-night").files[0].file, "sound/music/beast.ogg");
   assert.equal(levelMusic(null, null, "ice-caves").files[0].file, "sound/music/freeze.ogg");
   assert.ok(levelMusic(null, null, "something-new").files.length);
+  // missions: the family's track, or the element's
+  assert.equal(levelMusic("Undead", "mission", "castle").files[0].file, "sound/music/undead.ogg");
+  assert.equal(levelMusic("Beast", "mission", "clockworks-freeze").files[0].file, "sound/music/freeze.ogg");
+  assert.equal(levelMusic(null, null, "prize-vault").files[0].file, "sound/music/treasure_vault.ogg");
   assert.equal(sceneMusic("haven town square"), PLACES.haven);
   assert.equal(sceneMusic("terminal core"), PLACES.core);
 });
