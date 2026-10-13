@@ -28,7 +28,7 @@ import { MusicPlayer } from "./game/musicplayer";
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
-import { loadMessages, messages } from "./i18n";
+import { loadMessages, messages, text } from "./i18n";
 import { itemName } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
@@ -1013,7 +1013,9 @@ class Viewer {
     const kp = eco.keeper(keeper, { tier, maxRarity });
     // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
     const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
-    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity, portrait);
+    // the keeper's name and title line from its description config, in the shop bundle
+    const desc = await (this.world?.data ?? new GameData(this.loader)).actorDescription(keeper).catch(() => null);
+    await this.ensureScreens().openShop(text("shop", desc?.dname, kp.title), stock, kp.maxRarity, portrait, text("shop", desc?.title, ""));
   }
 
   /** The economy over the install's configs (prices, levels, variants, recipes). */

@@ -99,10 +99,10 @@ export class GameScreens {
   }
 
   /** Opens a shopkeeper's shop with its stock. */
-  async openShop(title: string, stock: StockItem[], maxRarity: number, portrait: any = null) {
+  async openShop(title: string, stock: StockItem[], maxRarity: number, portrait: any = null, subtitle = "") {
     for (const o of this.all()) if (o !== this.shop) o.close();
     this.host.paused(true);
-    await this.shop.openFor(title, stock, maxRarity, portrait);
+    await this.shop.openFor(title, stock, maxRarity, portrait, subtitle);
   }
 
   /** Opens a window (closing any other), or closes it when it is open. */

@@ -232,6 +232,13 @@ export class GameData {
    * A DescriptionConfig (config/description.dat) through its derivations, arguments applied:
    * dname is its name key, title and description its other text, in the bundle its kind names.
    */
+  /** The description config an actor names (its own description field, or one of the same name). */
+  async actorDescription(name: string): Promise<{ dname: string; title: string; description: string } | null> {
+    const impl = await this.resolve("config/actor.dat", { name }, "actor").catch(() => null);
+    const ref = impl?.description ?? impl?.sprite?.description ?? impl?.property ?? null;
+    return (ref ? await this.description(ref) : null) ?? (await this.description({ name }));
+  }
+
   async description(ref: any): Promise<{ dname: string; title: string; description: string } | null> {
     if (!ref?.name) return null;
     const lib = await this.library("config/description.dat");
