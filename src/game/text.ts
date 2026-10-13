@@ -3,7 +3,7 @@
 // Each lookup falls back to the English this port made up before the bundles were read, so a
 // missing bundle or key never leaves a blank.
 
-import { hasMessage, message, qualify, text, xlate } from "../i18n";
+import { compose, hasMessage, message, qualify, tcompose, text, xlate } from "../i18n";
 
 type ItemResolver = (name: string) => any | null;
 let resolveItem: ItemResolver | null = null;
@@ -85,4 +85,55 @@ export function firstKey(bundle: string, keys: string[]): string | null {
 /** "DEPTH 12" as the dungeon bundle words it. */
 export function depthText(depth: number): string {
   return hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", String(depth)) : `DEPTH ${depth}`;
+}
+
+// ----------------------------------------------------------------------------- variants
+
+const enumOf = (v: any, d: string) => String(v?.name ?? v ?? d).split(".").pop()!;
+const BONUSES = ["CUSTOM", "LOW", "MEDIUM", "HIGH", "VERY_HIGH", "ULTRA", "MAXIMUM"];
+/** ItemCodes.ItemValueKey's steps: a CUSTOM bonus is graded by its value. */
+const STEPS: Record<string, number> = { DAMAGE: 0.08, SPEED: 0.04, CHARGE: 0.08, HEALTH: 40, TAGGED: 0.1 };
+function valueKey(kind: string, bonus: string, value: number): string {
+  if (bonus !== "CUSTOM") return "m." + bonus.toLowerCase();
+  const v = Math.abs(value);
+  for (let i = 1; i < BONUSES.length; i++) if (v <= STEPS[kind] * i) return "m." + BONUSES[i].toLowerCase();
+  return "m.maximum";
+}
+/** StatusResist.key(resist): a CUSTOM resistance is graded by its points. */
+function resistKey(grade: string, points: number): string {
+  if (grade !== "CUSTOM") return "m." + grade.toLowerCase();
+  for (const [g, v] of [["low", 10], ["medium", 20], ["high", 30], ["maximum", 40]] as const) if (points < v) return "m." + g;
+  return "m.maximum";
+}
+/** Status condition bits (StatusCodes) to their keys in the status bundle. */
+const CONDITIONS: Record<number, string> = { 1: "m.stun", 2: "m.poison", 4: "m.fire", 8: "m.freeze", 16: "m.shock", 32: "m.curse", 256: "m.sleep" };
+
+/**
+ * A unique variant's compound key in the item bundle, as VariantConfig builds it ("Attack
+ * Speed Increase: Medium" and so on), or null for a kind without one.
+ */
+export function variantKey(v: any): string | null {
+  const kind = String(v?.$class ?? "").split("$").pop();
+  const bonus = enumOf(v?.bonus, "LOW");
+  const q = (key: string) => qualify("item", key);
+  switch (kind) {
+    case "AttackSpeedChange": return q(compose("m.attack_speed", valueKey("SPEED", bonus, v.speed ?? 0)));
+    case "ChargeTimeReduction": return q(compose("m.charge_reduction", valueKey("CHARGE", bonus, v.reduction ?? 0)));
+    case "SpeedChange": return q(compose("m.move_speed", valueKey("SPEED", bonus, v.speed ?? 0)));
+    case "DefenseTypeBonus": return q(compose("m.defense_type", "m." + enumOf(v.type, "NORMAL").toLowerCase(), "m." + bonus.toLowerCase()));
+    case "HealthBonus": return q(tcompose("m.health_bonus", Math.trunc((v.health ?? 40) / 40)));
+    case "TaggedDamage": return q(compose("m.tagged_damage", "t." + (v.tag ?? ""), valueKey("DAMAGE", bonus, v.damage ?? 0)));
+    case "StatusResist": {
+      const c = CONDITIONS[v.conditionMask ?? 0];
+      return c ? q(compose("m.new_status_resist", qualify("status", c), resistKey(enumOf(v.statusResist, "LOW"), v.resist ?? 0))) : null;
+    }
+    case "Message": return typeof v.message === "string" && v.message ? qualify(v.bundle || "item", v.message) : null;
+    default: return null;
+  }
+}
+
+/** A variant's line in the game's words, else the fallback. */
+export function variantText(v: any, fallback: string): string {
+  const key = variantKey(v);
+  return key && hasMessage("global", key) ? xlate("global", key) : fallback;
 }
