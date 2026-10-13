@@ -746,14 +746,15 @@ class Viewer {
       return;
     }
     this.travelling = true;
-    void (async () => {
+    // (after this frame: the exit is reported from inside the world's update)
+    setTimeout(async () => {
       try {
         this.stopPlaying();
         await this.selectScene(t.id);
         this.arrivalTag = t.portal;
         await this.startPlaying();
       } finally { this.travelling = false; }
-    })();
+    }, 0);
   }
 
   private stopPlaying() {
