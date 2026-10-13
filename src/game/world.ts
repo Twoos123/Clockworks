@@ -17,6 +17,7 @@ import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind } from "./props";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
+import { StatusConditions, type ActiveStatus } from "./status";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -72,6 +73,8 @@ abstract class Actor {
   /** Nodes animated by the upper-body overlay (knights); null plays attacks whole-body. */
   upperBody: Set<string> | null = null;
   defense: Amounts | null = null;
+  /** Active status conditions (fire, freeze, shock...). */
+  statuses: ActiveStatus[] = [];
   abstract radius: number;
   abstract readonly team: Team;
   constructor(public instance: ModelInstance, readonly scale = 1) {}
@@ -177,6 +180,7 @@ export class World implements LogicHost {
   logic!: Logic;
   knightEntity!: Entity;
   private tables!: SpawnTables;
+  private conditions!: StatusConditions;
   /** Called when the knight takes the elevator at the end of the level. */
   onNextFloor: (() => void) | null = null;
   /** True once the level's exit elevator has been used. */
@@ -276,6 +280,8 @@ export class World implements LogicHost {
     await this.data.preload("config/actor.dat", "config/spawn_table.dat", "config/parameterized_handler.dat",
       "config/fire_action.dat", "config/item.dat");
     this.tables = new SpawnTables(this.data.library_("config/spawn_table.dat"));
+    await this.data.preload("config/status_condition.dat");
+    this.conditions = new StatusConditions(this.data.library_("config/status_condition.dat"), this.data.depth);
     this.logic = new Logic(this, {
       handlerRef: ref => this.data.resolveSync("config/parameterized_handler.dat", ref, "handler")?.handlers ?? [],
     });
@@ -382,6 +388,23 @@ export class World implements LogicHost {
       case "SpawnPrespawned": case "TaggedSpawnActor":
         if (cfg.actor) logic.spawn(cfg.actor, source.x, source.y, source.rotation, source, activator);
         return true;
+      case "ApplyStatus": {
+        const ref = cfg.condition ?? cfg.statusCondition;
+        const targets = cfg.target ? logic.resolveTarget(cfg.target, source, activator) : activator ? [activator] : [];
+        for (const t of targets) {
+          const a = t === this.knightEntity ? this.knight : t.game instanceof Monster ? t.game : null;
+          if (a && ref) this.applyStatus(a, ref, this.ctx(0), 1);
+        }
+        return true;
+      }
+      case "ClearStatus": {
+        const targets = cfg.target ? logic.resolveTarget(cfg.target, source, activator) : activator ? [activator] : [];
+        for (const t of targets) {
+          const a = t === this.knightEntity ? this.knight : t.game instanceof Monster ? t.game : null;
+          if (a) for (const st of [...a.statuses]) this.endStatus(a, st);
+        }
+        return true;
+      }
       case "NextFloor":
         this.finishLevel();
         return true;
@@ -413,6 +436,11 @@ export class World implements LogicHost {
   private healKnight(amount: number) {
     const k = this.knight;
     if (k.dead) return;
+    const poison = k.statuses.find(s => s.def.kind === "Poison");
+    if (poison) {
+      const c = poison.def.cfg;
+      amount *= 1 + ((c.minHealModifier ?? -0.1) + ((c.maxHealModifier ?? -0.5) - (c.minHealModifier ?? -0.1)) * poison.def.power);
+    }
     k.health = Math.min(k.maxHealth, k.health + amount);
     this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: `+${Math.round(amount)}`, color: "#7bd88f", age: 0 });
   }
@@ -738,6 +766,13 @@ export class World implements LogicHost {
     k.rearm -= dt;
     if (k.dead) { k.instance.overlay = null; this.setShieldEffect(false); return; }
     this.applyKnockback(k, dt, KNIGHT_MASK);
+    if (this.tickStatuses(k, dt)) {
+      // frozen, asleep or mid-spasm: no moving or attacking
+      k.shielding = false;
+      this.setShieldEffect(false);
+      if (k.hurtTime <= 0) this.play(k, "character/pc/idle.dat");
+      return;
+    }
     if (input.weaponSlot != null) this.switchWeapon(input.weaponSlot);
 
     const weapon = k.weapon;
@@ -788,7 +823,7 @@ export class World implements LogicHost {
     // Guns and bombs walk at the weapon's attacking speed.
     const [mx, my] = input.move;
     const len = Math.hypot(mx, my);
-    let factor = k.charge !== null ? 0.5 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? -0.5) : 1;
+    let factor = (k.charge !== null ? 0.5 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? -0.5) : 1) * this.statusSpeed(k);
     if (k.attack) {
       const at = k.attack;
       if (at.overlay) factor = weapon?.attackingSpeed ?? 0.5;
@@ -989,9 +1024,127 @@ export class World implements LogicHost {
 
   /** A DamageConfig as amounts per type; attacks without one deal a small normal hit. */
   private amounts(damage: any, ctx: DepthContext): Amounts {
-    const a = damage ? this.data.depth.damage(damage, ctx) : zeroAmounts();
+    const a: Amounts & { statuses?: any[]; ctx?: DepthContext } = damage ? this.data.depth.damage(damage, ctx) : zeroAmounts();
     if (a.NORMAL + a.PIERCING + a.ELEMENTAL + a.SHADOW <= 0) a.NORMAL = 10;
+    const statuses: any[] = [];
+    const walk = (d: any, depth = 0) => {
+      if (!d || depth > 6) return;
+      const k = String(d.$class ?? "").split("$").pop();
+      if ((k === "Status" || k === "ExclusiveStatus") && d.statusCondition) statuses.push(d.statusCondition);
+      else if (k === "Compound") for (const x of d.damages ?? []) walk(x, depth + 1);
+    };
+    walk(damage);
+    if (statuses.length) { a.statuses = statuses; a.ctx = ctx; }
     return a;
+  }
+
+  // ---------------------------------------------------------------- status conditions
+
+  /** Rolls and applies a status condition (refreshing one of the same kind). */
+  applyStatus(target: Actor, ref: any, ctx: DepthContext, chance?: number) {
+    if (target.dead || !this.conditions) return;
+    const got = this.conditions.get(ref, ctx);
+    if (!got) return;
+    if (Math.random() >= (chance ?? got.chance)) return;
+    const def = got.def;
+    const same = target.statuses.find(s => s.def.kind === def.kind);
+    // monsters stay frozen longer (monsterDurationMultiplier)
+    const duration = def.duration * (target.team === "monster" ? (def.cfg.monsterDurationMultiplier ?? 1) : 1);
+    if (same) { same.remaining = Math.max(same.remaining, duration); same.def = def; return; }
+    const st: ActiveStatus = { def, remaining: duration, tick: def.interval, fx: null };
+    target.statuses.push(st);
+    const sprite = def.cfg.sprite;
+    if (sprite?.applicationTransient) this.spawnEffect(sprite.applicationTransient, target.matrix(), 2, target);
+    if (sprite?.model) {
+      void this.loader.loadRef(sprite.model).then(async m => {
+        if (!m || !target.statuses.includes(st)) return;
+        const fx: Effect = { instance: await this.renderer.instantiate(m), matrix: target.matrix(), life: 1e9, follow: target };
+        st.fx = fx;
+        this.effects.push(fx);
+      });
+    }
+    if (def.kind === "Freeze" || def.kind === "Sleep") { target.attack = null; if (target instanceof Knight) target.charge = null; }
+  }
+
+  private endStatus(a: Actor, st: ActiveStatus) {
+    const i = a.statuses.indexOf(st);
+    if (i >= 0) a.statuses.splice(i, 1);
+    if (st.fx) st.fx.life = 0;
+    const rt = st.def.cfg.sprite?.removalTransient;
+    if (rt) this.spawnEffect(rt, a.matrix(), 1.5);
+  }
+
+  /**
+   * Ticks an actor's conditions. Returns true while the actor cannot act (frozen, asleep, or
+   * in a shock spasm).
+   */
+  private tickStatuses(a: Actor, dt: number): boolean {
+    let held = false;
+    for (const st of [...a.statuses]) {
+      st.remaining -= dt;
+      if (st.remaining <= 0 || a.dead) { this.endStatus(a, st); continue; }
+      st.tick -= dt;
+      const d = st.def;
+      if (st.tick <= 0) {
+        st.tick += d.interval;
+        if ((d.kind === "Fire" || d.kind === "Curse") && d.tickDamage > 0) this.statusDamage(a, d.tickDamage, d.kind === "Fire" ? "#ff8a3d" : "#b07bff");
+        if (d.kind === "Shock") {
+          // a spasm interrupts, and an arc jumps to the victim's neighbours
+          (st as any).spasm = 0.35 + 0.25 * d.power;
+          a.attack = null;
+          const arc = d.tickDamage || 5;
+          const others = a.team === "monster" ? this.monsters.filter(m => m !== a && m.state !== "dying" && Math.hypot(m.x - a.x, m.y - a.y) < 2) : [];
+          for (const o of others) this.statusDamage(o, arc, "#9fe8ff");
+        }
+      }
+      if (d.kind === "Freeze" || d.kind === "Sleep") held = true;
+      if (d.kind === "Shock" && ((st as any).spasm ?? 0) > 0) { (st as any).spasm -= dt; held = true; }
+    }
+    return held;
+  }
+
+  /** Damage from a condition: no knockback, no flinch. */
+  private statusDamage(a: Actor, amount: number, color: string) {
+    const dmg = Math.max(1, Math.round(amount));
+    if (a instanceof Knight) {
+      if (a.dead) return;
+      const before = a.health;
+      a.health = Math.max(0, a.health - dmg);
+      a.recentDamage += before - a.health;
+      a.sinceDamage = 0;
+      if (a.health <= 0) this.knockOut();
+    } else if (a instanceof Monster) {
+      a.health -= dmg;
+      if (a.health <= 0 && a.state !== "dying") { this.damageMonster(a, { NORMAL: 1, PIERCING: 0, ELEMENTAL: 0, SHADOW: 0 }, 0, a.x, a.y); return; }
+    }
+    this.floaters.push({ x: a.x, y: a.y, z: a.z + 1.3, text: String(dmg), color, age: 0 });
+  }
+
+  /** Movement factor from conditions (stun slows). */
+  private statusSpeed(a: Actor): number {
+    let f = 1;
+    for (const st of a.statuses) if (st.def.kind === "Stun") f *= 1 - Math.min(0.8, (st.def.cfg.minSpeedReduction ?? 0.3) + 0.3 * st.def.power);
+    return f;
+  }
+
+  /** Defence after poison's reduction. */
+  private effectiveDefense(a: Actor): Amounts | null {
+    const p = a.statuses.find(s => s.def.kind === "Poison");
+    if (!p || !a.defense) return a.defense;
+    const c = p.def.cfg, r = (c.minDefenseReduction ?? 0.05) + ((c.maxDefenseReduction ?? 0.25) - (c.minDefenseReduction ?? 0.05)) * p.def.power;
+    const out = { ...a.defense };
+    for (const k of Object.keys(out) as (keyof Amounts)[]) out[k] *= 1 - r;
+    return out;
+  }
+
+  /** Conditions react to a hit: sleepers wake, frozen victims crack sooner. */
+  private hitStatuses(a: Actor, amounts: Amounts) {
+    for (const st of [...a.statuses]) {
+      if (st.def.kind === "Sleep") this.endStatus(a, st);
+      else if (st.def.kind === "Freeze") st.remaining -= 0.6;
+    }
+    const s = (amounts as any).statuses as any[] | undefined;
+    if (s) for (const ref of s) this.applyStatus(a, ref, (amounts as any).ctx ?? this.ctx(0));
   }
 
   // ---------------------------------------------------------------- projectiles
@@ -1094,7 +1247,8 @@ export class World implements LogicHost {
   }
 
   private damageMonster(m: Monster, amounts: Amounts, knockback: number, fx: number, fy: number) {
-    const dmg = Math.max(1, Math.round(dealt(amounts, m.defense) * (0.95 + Math.random() * 0.1)));
+    const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m)) * (0.95 + Math.random() * 0.1)));
+    this.hitStatuses(m, amounts);
     m.health -= dmg;
     this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.2, text: String(dmg), color: TYPE_COLORS[mainType(amounts)], age: 0 });
     this.knock(m, fx, fy, knockback);
@@ -1105,6 +1259,7 @@ export class World implements LogicHost {
       m.attack = null;
       this.killCount++;
       if (m.entity) this.logic.destroy(m.entity, this.knightEntity);
+      for (const st of [...m.statuses]) this.endStatus(m, st);
       if (m.def.deathFx) this.spawnEffect(m.def.deathFx, compose([m.x, m.y, m.z], [0, 0, 0, 1], m.scale), 2);
     } else if (m.state === "idle") {
       m.state = "chase";
@@ -1128,7 +1283,8 @@ export class World implements LogicHost {
       if (k.shield.breakEffect) this.spawnEffect(k.shield.breakEffect, k.matrix(), 1.5);
       return;
     }
-    const dmg = Math.max(1, Math.round(dealt(amounts, k.defense) * (0.95 + Math.random() * 0.1)));
+    const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k)) * (0.95 + Math.random() * 0.1)));
+    this.hitStatuses(k, amounts);
     const before = k.health;
     k.health = Math.max(0, k.health - dmg);
     k.recentDamage += before - k.health;
@@ -1137,16 +1293,23 @@ export class World implements LogicHost {
     this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: String(dmg), color: "#ff6b6b", age: 0 });
     this.knock(k, fx, fy, knockback);
     if (k.health <= 0) {
-      k.dead = true;
-      k.attack = null;
-      k.charge = null;
-      this.defeated = true;
-      this.play(k, "character/pc/dead.dat", { loop: false, blend: 0.1 });
+      this.knockOut();
     } else if (!k.attack) {
       k.hurtTime = 0.35;
       k.charge = null;
       this.overlay(k, "character/pc/hurt_soft.dat");
     }
+  }
+
+  private knockOut() {
+    const k = this.knight;
+    if (k.dead) return;
+    k.dead = true;
+    k.attack = null;
+    k.charge = null;
+    this.defeated = true;
+    for (const st of [...k.statuses]) this.endStatus(k, st);
+    this.play(k, "character/pc/dead.dat", { loop: false, blend: 0.1 });
   }
 
   revive() {
@@ -1218,6 +1381,7 @@ export class World implements LogicHost {
     if (m.state === "dying") return;
     this.applyKnockback(m, dt, MONSTER_MASK);
     this.applyLunge(m, dt, MONSTER_MASK);
+    if (this.tickStatuses(m, dt)) return;
     const k = this.knight;
     const dx = k.x - m.x, dy = k.y - m.y, dist = Math.hypot(dx, dy) || 1e-3;
     // turnRate is radians per second (a jelly's 174.5 is 10,000 degrees: instant)
@@ -1257,7 +1421,7 @@ export class World implements LogicHost {
       m.cooldown = attack.rearm / 1000 + (attack.shape ? 0.6 : 0.9) + Math.random() * 0.8;
       return;
     }
-    const sp = m.def.targetedSpeed;
+    const sp = m.def.targetedSpeed * this.statusSpeed(m);
     if (sp <= 0) { this.play(m, m.def.idle); return; }
     // ranged-only monsters hold a middle distance; others close to melee range
     const keep = !melee.length && ranged.length ? Math.min(...ranged.map(a => this.reach(a))) * 0.6 : (melee.length ? this.reach(melee[0]) * 0.7 : 1);

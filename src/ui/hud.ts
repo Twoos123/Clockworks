@@ -31,6 +31,8 @@ export interface HudState {
   shieldBroken: boolean;
   shielding: boolean;
   weapons: { icon: any; selected: boolean }[];
+  /** Active conditions: HUD icon name and whole seconds left. */
+  statuses: { icon: string; seconds: number }[];
 }
 
 export function hudState(world: World, name: string): HudState {
@@ -39,6 +41,7 @@ export function hudState(world: World, name: string): HudState {
     name, health: k.health, maxHealth: k.maxHealth, recentDamage: k.recentDamage,
     shield: k.shieldHealth, shieldMax: k.shieldMax, shieldBroken: k.shieldBroken > 0, shielding: k.shielding,
     weapons: k.weapons.map((w, i) => ({ icon: w.def.icon, selected: i === k.slot })),
+    statuses: k.statuses.map(s => ({ icon: s.def.icon, seconds: Math.ceil(s.remaining) })),
   };
 }
 
@@ -55,6 +58,8 @@ export class GameHud {
   private low: "off" | "on" | "fading" = "off";
   private runners = new Map<Component, ScriptRunner>();
   private lastHealth = -1;
+  /** Built debuff icons (ui/health/debuff.dat) by icon and seconds left. */
+  private debuffs = new Map<string, Component | null>();
 
   constructor(private readonly ctx: GuiContext, readonly hooks: RenderHooks = {}) {}
 
@@ -133,8 +138,26 @@ export class GameHud {
     const px = (v: number) => Math.round(Math.max(0, v) / HEALTH_PER_PIP * PIP_WIDTH);
     bar(ui.find("health_ui"), px(s.maxHealth), px(s.health), px(s.recentDamage));
     bar(ui.find("shield_ui"), px(s.shieldMax), s.shieldBroken ? 0 : px(s.shield), 0);
-    // no status effects or heat yet: hide the panel's placeholder debuffs and heat meter
-    for (const tag of ["container_debuffs", "heat"]) { const c = ui.find(tag); if (c) c.visible = false; }
+    // the debuff row: one ui/health/debuff.dat per active condition (no heat meter yet)
+    const heat = ui.find("heat");
+    if (heat) heat.visible = false;
+    const row = ui.find("container_debuffs");
+    if (row) {
+      const kids: Component[] = [];
+      for (const st of s.statuses) {
+        const key = st.icon + "|" + st.seconds;
+        if (!this.debuffs.has(key)) {
+          this.debuffs.set(key, null);
+          void buildInterface(this.ctx, ref("ui/health/debuff.dat", { Icon: st.icon, "Seconds Remaining": String(st.seconds).padStart(2, "0"), Size: "Default" }))
+            .then(c => { if (c) { c.constraints = { fixed: true }; this.debuffs.set(key, c); } });
+        }
+        const c = this.debuffs.get(key);
+        if (c) kids.push(c);
+      }
+      row.children = kids;
+      row.visible = kids.length > 0;
+      if (this.debuffs.size > 200) this.debuffs.clear();
+    }
     const heart = ui.find("vitapod");
     if (heart) heart.text = `${Math.ceil(100 * s.health / Math.max(1, s.maxHealth))}%`;
     const shield = ui.find("shield");
