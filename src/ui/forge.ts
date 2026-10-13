@@ -6,6 +6,7 @@
 // and the chance of success; Forge crafts it and plays the forging animation
 // (ui/forge/interface_forging.dat and its own interface scripts).
 
+import { recordCraft } from "../game/achievements";
 import type { GameData } from "../game/data";
 import type { Economy, Recipe } from "../game/economy";
 import { CATEGORIES, itemLabel } from "../game/items";
@@ -181,6 +182,7 @@ export class ForgeScreen extends GuiScreen {
     const save = this.host_.save(), r = this.chosen;
     const made = r ? this.eco!.craft(save, r) : null;
     if (!r || !made) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
+    recordCraft(save, r.rarity);
     this.host_.changed();
     this.host.sound("sound/feedback/transmute.ogg");
     await this.playForging(r, made.variants);

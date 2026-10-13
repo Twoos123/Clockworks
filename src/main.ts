@@ -7,7 +7,7 @@ import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environ
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { GuiContext } from "./ui/gui";
+import { GuiContext, messageText } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -43,6 +43,10 @@ import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
 import { initNotices } from "./ui/notice";
+import {
+  ACHIEVEMENTS, evaluate as evaluateAchievements, recordBoss, recordDepth, recordHaven, recordKills, recordPocketUse, recordRevive,
+  recordRunEnd, recordRunStart, type AchievementType,
+} from "./game/achievements";
 import { UplinkScreen } from "./ui/uplink";
 import { HelpScreen } from "./ui/help";
 
@@ -323,7 +327,7 @@ class Viewer {
       if (b("cycle") && !e.repeat) { e.preventDefault(); const n = Math.max(1, this.world.knight.weapons.length); this.weaponSlot = (this.world.knight.slot + 1) % n; }
       // pocket items
       (["item1", "item2", "item3", "item4"] as const).forEach((a, i) => {
-        if (b(a) && !e.repeat && !this.paused && this.world!.useItem(i)) writeSave(this.save);
+        if (b(a) && !e.repeat && !this.paused) this.usePocket(i);
       });
       (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
@@ -678,6 +682,8 @@ class Viewer {
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
+    // arriving in Haven, and the arsenal as it stands, may earn achievements
+    this.achieve();
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
     this.outfit.onRedress = () => portrait.setModelRef(world.portraitRef());
@@ -799,9 +805,9 @@ class Viewer {
       gui: this.gui, colors: this.renderer.colors, eco: () => this.economy(),
       data: () => this.world?.data ?? new GameData(this.loader),
       save: () => this.save, sound: f => this.uiSound(f),
-      write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); },
+      write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); this.achieve(); },
       paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
-      arsenalClosed: () => this.places.arsenalClosed(),
+      arsenalClosed: () => { this.places.arsenalClosed(); this.achieve(); },
       outfit: () => this.outfit,
       // the equipment window's knight preview, the battle sprite page's sprite, the vendor's keeper
       view: (c, g, x, y, w, h, model) => {
@@ -1060,6 +1066,8 @@ class Viewer {
     const l = this.world.loot;
     const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
+    recordKills(this.save, this.world.killCount);
+    this.achieve(this.bossFloor && !this.bossAlive() ? recordBoss(this.save, this.bossFloor) : []);
     const t = this.runTotals;
     t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
     t.materials += [...l.materials.values()].reduce((a, b) => a + b, 0);
@@ -1143,7 +1151,8 @@ class Viewer {
         const n = this.save.sparks ?? 3;
         if (n <= 0 || !this.world) return false;
         this.save.sparks = n - 1;
-        writeSave(this.save);
+        recordRevive(this.save);
+        this.achieve();
         this.world.revive();
         this.knockedOut = false;
         this.uiSound("sound/feedback/ui_confirm.ogg");
@@ -1175,6 +1184,30 @@ class Viewer {
     void this.returnToHaven();
   }
 
+  /** Uses a pocket item (slot i); capsules count toward achievements. */
+  private usePocket(i: number) {
+    const item = this.world?.pocket[i]?.[0];
+    if (!item || !this.world?.useItem(i)) return;
+    recordPocketUse(this.save, item);
+    this.achieve();
+  }
+
+  /**
+   * Checks the achievements (src/game/achievements.ts) against the save, with those an event
+   * just earned, writes the save and announces the new ones.
+   */
+  private achieve(earned: AchievementType[] = []) {
+    const eco = this.eco;
+    const got = [...earned, ...evaluateAchievements(this.save, n => eco?.info(n) ?? null)];
+    // the knight made it to Haven (after creation)
+    if (this.save.knight && /haven/i.test(this.scene?.name ?? "")) got.push(...recordHaven(this.save));
+    writeSave(this.save);
+    for (const t of got) {
+      const d = ACHIEVEMENTS.find(a => a.type === t);
+      if (d) notice(`${messageText("m.achievement_unlocked", "chat").replace(/\.$/, "")}: ${messageText(d.nameKey, "projectx")}`);
+    }
+  }
+
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
   /** The run summary on arrival in Haven (the game's mission-complete window). */
@@ -1185,6 +1218,7 @@ class Viewer {
     const t = this.runTotals;
     const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
     this.gate = null;
+    recordRunEnd(this.save);
     this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "", notes: [] };
     this.stopPlaying();
     this.run = { depth: 0, health: null, floors: 0 };
@@ -1242,6 +1276,7 @@ class Viewer {
     this.arenaMode = false;
     // the descent starts above the first floor (a mission's floors start deeper)
     this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
+    if (!g.id.startsWith("mission:")) recordRunStart(this.save, this.run.depth);
     await this.descend();
   }
 
@@ -1356,6 +1391,7 @@ class Viewer {
       const sc = this.floorScene(f);
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
+      this.achieve(recordDepth(this.save, f.depth));
       this.bossFloor = f.kind === "boss" ? f.stratum!.boss : null;
       await this.selectScene(sc.id);
       await this.startPlaying();
@@ -1629,7 +1665,7 @@ class Viewer {
           if (pad.move[0] || pad.move[1]) move = rel(pad.move[0], pad.move[1]);
           if (pad.aim) { const [ax, ay] = rel(pad.aim[0], pad.aim[1]); const k = this.world.knight; aim = [k.x + ax * 3, k.y + ay * 3]; }
           else if (pad.move[0] || pad.move[1]) aim = null;
-          if (pad.item >= 0 && !this.paused && this.world.useItem(pad.item)) writeSave(this.save);
+          if (pad.item >= 0 && !this.paused) this.usePocket(pad.item);
           if (pad.cycle && this.world.knight.weapons.length) {
             const n = this.world.knight.weapons.length;
             this.weaponSlot = (this.world.knight.slot + pad.cycle + n) % n;
