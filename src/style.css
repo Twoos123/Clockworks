@@ -243,3 +243,8 @@ body.game #clockworks, body.game #arenaBtn { display: none; }
 .mission-rankup { color: #f3d36b; font-weight: 700; font-size: 16px; }
 .game-notice { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); z-index: 8; max-width: min(560px, calc(100% - 32px));
   background: #12202e; color: #f3d36b; border: 2px solid #c9a642; border-radius: 8px; padding: 10px 14px; font-weight: 600; text-align: center; }
+/* the knockout: the game's revive window on a canvas; the HTML card keeps only "Return to Haven" */
+.revive-canvas { z-index: 6; }
+#defeated { background: none; z-index: 7; pointer-events: none; place-items: end center; padding-bottom: 120px; }
+#defeated .defeated-card { pointer-events: auto; background: rgba(18,32,46,0.9); padding: 8px 14px; }
+#defeated h2, #defeated #reviveInfo, #defeated #revive { display: none; }
