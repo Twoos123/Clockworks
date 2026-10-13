@@ -22,6 +22,17 @@ export interface DamageShape {
   radius: number;
 }
 
+/** One fire action of an attack: a melee hit (shape and damage) or a spawned bullet or bomb. */
+export interface FireDef {
+  delay: number;
+  damage: any;
+  shape: DamageShape | null;
+  knockback: number;
+  spawn: { actor: any; variance: number; rotation: number } | null;
+  /** The fire action's name (Base/Spawn Actor, a monster's own). */
+  name?: string;
+}
+
 export interface AttackDef {
   name: string;
   /** Animation references (with arguments: the fire animation carries sound and effects). */
@@ -52,6 +63,12 @@ export interface AttackDef {
   impulse: { forward: number; side: number; delay: number; duration: number } | null;
   /** An actor the attack spawns (a bullet or bomb), with its spread in radians. */
   spawn: { actor: any; variance: number; rotation: number } | null;
+  /** Upper-body attack (AttackConfig blended, true unless the config says otherwise). */
+  blended: boolean;
+  /** A Chain attack: the index of the attacker's attack that follows it. */
+  chainTo: number | null;
+  /** Every fire action, in order: its delay, melee hit or spawned actor. */
+  fires: FireDef[];
   /** Shield bash: damage dealt once to each enemy touched during the attack's charge. */
   contact: { damage: any; knockback: number } | null;
 }
@@ -78,6 +95,11 @@ export interface MonsterDef {
   reactTime: number;
   /** Played when the monster appears. */
   creationFx?: any;
+  /** The model's own hit reaction and death animations (its "reacting" and "dying" mappings). */
+  react?: any;
+  dying?: any;
+  /** Milliseconds the body stays after death (the dying animation's time). */
+  deathTime: number;
   attacks: AttackDef[];
   hitFx?: any;
   deathFx?: any;
@@ -163,6 +185,10 @@ export interface ProjectileDef {
   collisionMask: number;
   /** DamageRegionFromPoint: damage, radius and knockback impulse. */
   damage: any;
+  /** The detonation does no damage (it spawns, heals or signals). */
+  harmless: boolean;
+  /** The detonation's other logic actions, run where it goes off. */
+  actions: any[];
   regionRadius: number;
   knockback: number;
   /** Played where a bullet hits or a bomb goes off; a bullet that runs out fizzles. */
@@ -246,28 +272,52 @@ export class GameData {
 
   async attack(ref: any): Promise<AttackDef | null> {
     const a = await this.resolve("config/attack.dat", ref, "attack");
-    if (!a || (kind(a) !== "Original" && kind(a) !== "ShieldBash")) return null;
+    // a Chain attack is an Original that leads into another of the monster's attacks
+    if (!a || (kind(a) !== "Original" && kind(a) !== "ShieldBash" && kind(a) !== "Chain")) return null;
     const contactAction = kind(a) === "ShieldBash" ? a.handler?.action : null;
-    const fire = (a.fireRefs ?? []).find((f: any) => f?.ref)?.ref;
-    const kb = getArg(fire, "Knock-Back") as any;
-    const actor = (getArg(fire, "Actor") ?? getArg(fire, "Bullet")) as any;
-    const shapeArg = getArg(fire, "Shape");
+    // every fire action: a burst fires several bullets at their own delays and angles, a
+    // thrust both strikes and spawns
+    const fires: FireDef[] = [];
+    for (const f of (a.fireRefs ?? []) as any[]) {
+      const fire = f?.ref;
+      if (!fire) continue;
+      const kb = getArg(fire, "Knock-Back") as any;
+      const actor = (getArg(fire, "Actor") ?? getArg(fire, "Bullet")) as any;
+      const shapeArg = getArg(fire, "Shape");
+      const damage = getArg(fire, "Damage") ?? null;
+      const spawn = actor?.name ? { actor, variance: Number(getArg(fire, "Rotation Variance") ?? 0), rotation: Number(getArg(fire, "Rotation") ?? 0) } : null;
+      // "Fire Prefired" launches bullets spawned earlier in the attack; it hits nothing itself
+      if (!spawn && /Prefired/.test(fire.name ?? "")) continue;
+      const delay = Number(getArg(fire, "Delay") ?? 0);
+      // a fire action whose config does nothing (a lichen's merge) marks a moment the game's
+      // own code acts on; it strikes nothing
+      if (!spawn && !shapeArg && !damage) {
+        const fa = await this.resolve("config/fire_action.dat", fire, "action");
+        if (fa && !fa.action) { fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name }); continue; }
+      }
+      const shape = !spawn || shapeArg ? readShape(shapeArg) : null;
+      fires.push({ delay, damage: spawn && !shapeArg ? null : damage, shape, knockback: kb?.translation?.x ?? 0.5, spawn, name: fire.name });
+    }
+    const primary = fires[0] ?? null;
     return {
       name: ref?.name ?? "",
       start: a.start?.name ? a.start : undefined, fire: a.fire?.name ? a.fire : undefined, end: a.end?.name ? a.end : undefined,
       startSpeed: a.startSpeed ?? 1, fireSpeed: a.fireSpeed ?? 1, endSpeed: a.endSpeed ?? 1,
       clear: a.clear ?? 400, rearm: a.rearm ?? 300,
-      damage: getArg(fire, "Damage") ?? null,
-      delay: Number(getArg(fire, "Delay") ?? 0),
-      shape: actor?.name && !shapeArg ? null : readShape(shapeArg),
-      knockback: kb?.translation?.x ?? 0.5,
+      damage: primary?.damage ?? null,
+      delay: primary?.delay ?? 0,
+      shape: primary ? primary.shape : readShape(undefined),
+      knockback: primary?.knockback ?? 0.5,
       swing: getArg(a.fire, "Swing"),
       interruptable: !!a.interruptable,
+      blended: a.blended !== false,
+      chainTo: kind(a) === "Chain" && typeof a.attack === "number" ? a.attack : null,
       impulse: a.impulseReceived ? {
         forward: a.impulseReceived.translation?.x ?? 0, side: a.impulseReceived.translation?.y ?? 0,
         delay: a.impulseReceived.delay ?? 0, duration: a.impulseReceived.duration ?? 150,
       } : null,
-      spawn: actor?.name ? { actor, variance: Number(getArg(fire, "Rotation Variance") ?? 0), rotation: Number(getArg(fire, "Rotation") ?? 0) } : null,
+      spawn: fires.find(f => f.spawn)?.spawn ?? null,
+      fires: fires.length ? fires : [{ delay: 0, damage: null, shape: readShape(undefined), knockback: 0.5, spawn: null }],
       contact: contactAction ? { damage: contactAction.damage ?? null, knockback: (contactAction.impulseDealt?.translation?.x ?? 3) / 6 } : null,
     };
   }
@@ -286,6 +336,11 @@ export class GameData {
     if (!m || !m.sprite?.model) return null;
     const sprite = m.sprite;
     const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : undefined);
+    // movements are single animations or quad sets (forward, back, left, right, as a knight's);
+    // of several, the one made for the speed the monster chases at
+    const chase = m.targetedSpeed ?? m.speed ?? 2;
+    const movement = ((sprite.targetedMovements ?? sprite.movements ?? []) as any[]).filter(Boolean)
+      .reduce((best: any, x: any) => !best || Math.abs((x.speed ?? 2) - chase) < Math.abs((best.speed ?? 2) - chase) ? x : best, null);
     return {
       name: ref?.name ?? "",
       model: sprite.model,
@@ -298,11 +353,12 @@ export class GameData {
       defense: m.defense ?? null,
       turnRate: m.turnRate ?? 180,
       idle: refOf((sprite.targetedIdles ?? sprite.idles)?.[0]?.animation),
-      move: refOf((sprite.targetedMovements ?? sprite.movements)?.[0]?.animation),
-      moveSpeed: (sprite.targetedMovements ?? sprite.movements)?.[0]?.speed ?? 2,
+      move: refOf(movement?.animation ?? movement?.forward),
+      moveSpeed: movement?.speed ?? 2,
       activation: refOf(sprite.activation),
       minReactPercent: m.minReactPercent ?? 0.25,
       reactTime: m.reactTime ?? 300,
+      deathTime: m.deathTime ?? 1000,
       creationFx: sprite.creationTransient ?? undefined,
       attacks: await this.attacks(m.attacks),
       hitFx: transient(sprite.hitTransient),
@@ -353,16 +409,22 @@ export class GameData {
     const p = await this.resolve("config/actor.dat", ref, "actor");
     const k = kind(p);
     if (k !== "Bullet" && k !== "Bomb") return null;
-    const det = p.detonationAction;
+    // the detonation: its damage region (a Compound may hold one beside other actions), and
+    // whatever else it does (a lichen bomb spawns its colony, a marker activates monsters)
+    const flat = (a: any, d = 0): any[] => !a || d > 6 ? [] : kind(a) === "Compound" ? (a.actions ?? []).flatMap((x: any) => flat(x, d + 1)) : [a];
+    const acts = flat(p.detonationAction);
+    const det = acts.find(a => /^DamageRegion/.test(kind(a))) ?? null;
     const region = det?.region?.shape;
     const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : null);
     return {
-      name: ref?.name ?? "", kind: k, model: p.model ?? null,
+      name: ref?.name ?? "", kind: k, model: p.sprite?.model ?? p.model ?? null,
       speed: p.speed ?? 0, fuse: p.fuse ?? (k === "Bomb" ? 2000 : 500),
       radius: p.shape?.radius ?? 0.2,
       offset: [p.offset?.x ?? 0.5, p.offset?.y ?? 0], height: p.height ?? (k === "Bomb" ? 0 : 1),
       collisionMask: p.collisionMask ?? 1,
       damage: det?.damage ?? null,
+      harmless: !!p.detonationAction && !det,
+      actions: acts.filter(a => a !== det && a?.$class),
       regionRadius: region?.radius ?? (k === "Bomb" ? 2 : 0.5),
       knockback: det?.impulseDealt?.translation?.x ?? 1,
       hitFx: transient(p.sprite?.destructionTransient),

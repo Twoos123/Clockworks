@@ -223,3 +223,15 @@ body.game #clockworks, body.game #arenaBtn { display: none; }
 /* the knockout: the game's revive window and leave panel on a canvas */
 .revive-canvas { z-index: 6; }
 
+/* the game's install picker: dark, in the game's colours, shown only when the install is unknown */
+html.game, html.game body { background: #0b141d; color: #dfe8f0; }
+html.game .welcome { background: radial-gradient(ellipse at center, #17324a 0%, #0b141d 70%); }
+html.game .welcome .card { visibility: hidden; }
+html.game .welcome.ready .card { visibility: visible; }
+html.game .welcome .card { background: #0f2131; border: 2px solid #c9a23b; border-radius: 12px; box-shadow: 0 0 0 4px #0b141d, 0 12px 40px #000a; color: #dfe8f0; }
+html.game .welcome h1 { color: #f3d36b; font-style: italic; font-weight: 900; font-size: 34px; letter-spacing: .5px; text-shadow: 0 2px 0 #5a3d00, 0 0 12px #000; }
+html.game .welcome .hint { color: #8fa9bf; }
+html.game .welcome code { color: #bfe0ff; background: #0b1824; padding: 1px 4px; border-radius: 3px; }
+html.game .welcome button, html.game .welcome label.button { background: #1d3a54; color: #e8f1f8; border: 1px solid #3d6d93; border-radius: 6px; font-weight: 700; }
+html.game .welcome button.primary { background: linear-gradient(#f6d76b, #d39e22); color: #3a2400; border-color: #8a6400; font-style: italic; }
+html.game .welcome button:hover { filter: brightness(1.12); }

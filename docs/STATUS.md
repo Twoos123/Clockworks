@@ -50,7 +50,7 @@ A single-player loop runs in the browser, built from the install's own data:
 
 | Area | What is in |
 |---|---|
-| Rendering | Every model and cached scene; library materials, colours, lights, fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
+| Rendering | Every model and cached scene; library materials (two texture units), colours, lights (scene directional plus point, spot and directional influences, nearest eight per object), fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
 | Knight | Gear from the arsenal, personal colour, idle, run, hurt, death, dash; keyboard and mouse or gamepad |
 | Weapons | Swords (combos with lunges, charge), guns (clips, reload, charge shots, auto-aim), bombs (charge, fuse, blast), from item and attack data |
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
@@ -67,11 +67,13 @@ A single-player loop runs in the browser, built from the install's own data:
 | UI sounds | The game's style feedback sounds on the arsenal, shops, crafting and run menus |
 | Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
+| Dungeon objects (`src/game/objects.ts`) | Crystal and ghost block chains, timed explosives, prism puzzles, gun, rocket and fire blocks, status floor traps, healing totems, heal pads, mortar shells, barricades, prisoner cages with freed companion knights, energy gates and crates (paid in crowns) |
 | Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions (themed floors at their rank's depth, ending in their boss), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
 | HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
 | Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
 | Ready Room | `rsrc/world/readyroom/scene.dat` with the arsenal open; the knight changes into a new loadout when it closes |
+| Level checklist | `src/game/levels.ts`: 366 server-side levels (Clockworks sets, bosses, Shadow Lairs, danger, rank, expansion and event missions, towns, PvP) with where to get each and a scene-name pattern; `npm run levels` prints collected/missing from the archive and cache; the options window's Levels tab shows the counts (docs/research/levels.md) |
 | Knight creation | On a fresh save: `rsrc/world/createknight/scene.dat`, a name (shown on the HUD name plate), personal colour, and the zero-star Spiral helmets and armours in their seven trims |
 
 ## What is still missing
@@ -82,7 +84,9 @@ A single-player loop runs in the browser, built from the install's own data:
    the Clockwork tunnels). More cached levels would add themes and improve the learned
    tiling. Generated floors have the cached levels' puzzles (gold keys, switch gates,
    block walls, spike runs, secret treasure rooms) and special floors (treasure vaults,
-   danger rooms, arenas): see docs/research/generated-features.md. Rescue camps are missing.
+   danger rooms, arenas) and dungeon objects (crystal gates, explosives, prism gates, trap runs,
+   rescue cages, healing totems, gun blocks): see docs/research/generated-features.md. Rescue
+   camps themselves (their townsfolk and missions) are missing.
 2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
    code jars, which this project does not read. Names come from config paths instead.
 3. **Shop catalogues** are server-side (`config/catalog.dat` ships empty). Prices are the
@@ -95,8 +99,14 @@ A single-player loop runs in the browser, built from the install's own data:
    is modelled (`save.heatAmplifier`, double heat) but cannot be bought. Minerals carry no
    energy in the data; they bank as materials and sell for nothing (their uses, sprite food
    and gate themes, are not modelled).
-5. **Boss levels.** Bosses run their own handlers in the Arena. Their scripted arenas (the
-   Jelly Palace, Snarbolax's bells) are server-streamed levels this cache lacks.
+5. **Boss levels.** The four Clockworks bosses have their own arena floors (`src/game/bosses.ts`):
+   the Royal Jelly's stage chain with polyps, minis it absorbs and its rage; the Snarbolax,
+   hurt only while a Beast Bell's ring has it stunned; the Roarmulus Twins, exposed only by
+   each other's rockets (pressure plates raise a blast wall); Lord Vanaduke's three body
+   stages and two burning masks, put out with water pots. The fights' server logic is not in
+   the client data (conditions, timers and signal names are stripped), so a director per boss
+   runs it, written from the configs and the wiki's fight descriptions. The arena layouts are
+   our own (the real levels are server-streamed).
 6. **Guilds and PvP.** Missions are in (below), but their own levels and dialogue are
    server data: dungeon missions play as themed generated floors, briefings show our summary.
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).

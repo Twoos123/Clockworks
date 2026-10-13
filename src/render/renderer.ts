@@ -5,16 +5,18 @@
 // each material pass resolved from the install's material library is drawn through one
 // GLSL ES 3.00 program that emulates those stages: alpha test functions, the Modulate,
 // Replace, Add and Decal texture environments plus Combine scaling, sphere-map texgen,
-// color-state overrides, and GL_LIGHT0-style lighting with a light-state override.
+// color-state overrides, a second texture unit (masks), GL_LIGHT0-style lighting with a
+// light-state override, and per-object point, spot and directional lights from scene
+// influencers (up to eight per object, the nearest, as GL's eight fixed-function lights).
 // Blend, depth and cull state map directly onto WebGL. Skinning (Clyde's "Vertex/Skin"
 // shader or CPU skin deformer) runs in the vertex shader from a bone-matrix texture.
 
-import { identity, invert, multiply, slerp, lerp3, toMatrix, type Mat4, type Transform } from "../math";
+import { identity, invert, multiply, slerp, lerp3, toMatrix, type Mat4, type Transform, type Vec3 } from "../math";
 import type { PassState, TextureUnitState } from "../config/materials";
 import { VIEWER_ENVIRONMENT, type Environment, type Rgb } from "../environment";
 import { Emitter } from "../particles";
 import { recolorPixels, type ColorPository } from "../colors";
-import type { AnimationClip, ClientArray, LoadedModel, MeshPart, NodeDef } from "../model";
+import type { AnimationClip, ClientArray, LightDef, LoadedModel, MeshPart, NodeDef } from "../model";
 import type { Vfs } from "../vfs";
 
 const VS = `#version 300 es
@@ -26,14 +28,16 @@ layout(location=3) in vec4 a_color;
 layout(location=4) in vec4 a_boneIdx;
 layout(location=5) in vec4 a_boneW;
 layout(location=6) in mat4 a_model; // per instance (locations 6-9)
-uniform mat4 u_proj, u_view, u_texMatrix;
-uniform bool u_skinned, u_sphereMap, u_wave;
+layout(location=10) in vec2 a_uv1;  // second texture-coordinate set
+uniform mat4 u_proj, u_view, u_texMatrix, u_texMatrix1;
+uniform bool u_skinned, u_sphereMap, u_sphereMap1, u_wave;
+uniform int u_coordSet, u_coordSet1;
 uniform float u_time, u_choppiness;
 uniform vec2 u_waveVectors[2];
 uniform float u_waveFreq[2], u_waveAmp[2], u_wavePhase[2];
 uniform highp sampler2D u_bones;
 out vec3 v_normal;
-out vec2 v_uv;
+out vec2 v_uv, v_uv1;
 out vec4 v_color;
 out vec3 v_eye;
 mat4 bone(float i) {
@@ -67,15 +71,18 @@ void main() {
     mv = u_view;
   }
   v_normal = mat3(mv) * nrm;
-  v_uv = a_uv;
-  if (u_sphereMap) {
+  vec2 sm = vec2(0.0);
+  if (u_sphereMap || u_sphereMap1) {
     // GL_SPHERE_MAP texture coordinate generation, as in the fixed-function pipeline
     vec3 u = normalize((mv * pos).xyz);
     vec3 r = reflect(u, normalize(v_normal));
     float m = 2.0 * sqrt(r.x * r.x + r.y * r.y + (r.z + 1.0) * (r.z + 1.0));
-    v_uv = vec2(r.x / m + 0.5, r.y / m + 0.5);
+    sm = vec2(r.x / m + 0.5, r.y / m + 0.5);
   }
-  v_uv = (u_texMatrix * vec4(v_uv, 0.0, 1.0)).xy;
+  vec2 uv0 = u_sphereMap ? sm : u_coordSet == 1 ? a_uv1 : a_uv;
+  vec2 uv1 = u_sphereMap1 ? sm : u_coordSet1 == 1 ? a_uv1 : a_uv;
+  v_uv = (u_texMatrix * vec4(uv0, 0.0, 1.0)).xy;
+  v_uv1 = (u_texMatrix1 * vec4(uv1, 0.0, 1.0)).xy;
   v_color = a_color;
   vec4 eye = mv * pos;
   v_eye = eye.xyz;
@@ -85,22 +92,35 @@ void main() {
 const FS = `#version 300 es
 precision mediump float;
 in vec3 v_normal;
-in vec2 v_uv;
+in vec2 v_uv, v_uv1;
 in vec4 v_color;
-in vec3 v_eye;
-uniform sampler2D u_tex, u_emissiveTex;
+in highp vec3 v_eye;
+uniform sampler2D u_tex, u_tex1;
 uniform bool u_emissive;
-uniform bool u_hasTex, u_lit, u_useVertexColor, u_particle;
-uniform int u_alphaFunc, u_env;
-uniform float u_alphaRef, u_rgbScale;
+uniform bool u_hasTex, u_hasTex1, u_lit, u_useVertexColor, u_particle;
+uniform int u_alphaFunc, u_env, u_env1;
+uniform float u_alphaRef, u_rgbScale, u_rgbScale1;
 uniform vec4 u_color;
 uniform vec3 u_ambient;
 uniform int u_numLights;
 uniform vec3 u_lightDirs[4], u_lightColors[4];
+// local lights (LightConfig point, spot and directional influences) in eye space: position
+// (w = 0 for a direction toward the light), colours, attenuation, spot direction and cos(cutoff)
+uniform int u_numLocal;
+uniform highp vec4 u_lPos[8], u_lSpot[8];
+uniform highp vec3 u_lAtt[8];
+uniform vec3 u_lDiffuse[8], u_lAmbient[8];
+uniform float u_lExp[8];
 uniform int u_fogMode; // 0 none, 1 linear, 2 exp, 3 exp2
 uniform vec3 u_fogColor;
 uniform float u_fogStart, u_fogEnd, u_fogDensity;
 out vec4 fragColor;
+vec4 texEnv(int env, vec4 c, vec4 t) {
+  if (env == 1) return t;                                   // Replace
+  if (env == 2) return vec4(c.rgb + t.rgb, c.a * t.a);      // Add
+  if (env == 3) return vec4(mix(c.rgb, t.rgb, t.a), c.a);   // Decal
+  return c * t;                                             // Modulate, Combine
+}
 bool alphaPasses(float a) {
   switch (u_alphaFunc) {
     case 1: return false;
@@ -121,21 +141,41 @@ void main() {
       if (i >= u_numLights) break;
       light += u_lightColors[i] * max(dot(n, u_lightDirs[i]), 0.0);
     }
-    c.rgb *= light;
+    for (int i = 0; i < 8; i++) {
+      if (i >= u_numLocal) break;
+      highp vec3 l;
+      highp float att = 1.0;
+      if (u_lPos[i].w == 0.0) {
+        l = normalize(u_lPos[i].xyz);
+      } else {
+        highp vec3 d = u_lPos[i].xyz - v_eye;
+        highp float dist = length(d);
+        l = d / max(dist, 1e-4);
+        att = 1.0 / max(u_lAtt[i].x + u_lAtt[i].y * dist + u_lAtt[i].z * dist * dist, 1e-4);
+        if (u_lSpot[i].w > -1.5) {
+          // GL spot: (max(-L . spotDir, 0))^exponent inside the cutoff cone, else nothing
+          highp float sd = dot(-l, u_lSpot[i].xyz);
+          att *= sd >= u_lSpot[i].w ? pow(max(sd, 0.0), u_lExp[i]) : 0.0;
+        }
+      }
+      light += att * (u_lAmbient[i] + u_lDiffuse[i] * max(dot(n, l), 0.0));
+    }
+    // fixed-function lighting clamps the lit colour
+    c.rgb = min(c.rgb * light, vec3(1.0));
   }
   if (u_emissive) {
     // Fragment/Emissive: diffuse * (lit + emissive - lit * emissive)
-    vec4 e = texture(u_emissiveTex, v_uv);
+    vec4 e = texture(u_tex1, v_uv);
     c = c + e - c * e;
   }
-  if (u_hasTex) {
-    vec4 t = texture(u_tex, v_uv);
-    if (u_env == 1) c = t;                                   // Replace
-    else if (u_env == 2) c = vec4(c.rgb + t.rgb, c.a * t.a); // Add
-    else if (u_env == 3) c.rgb = mix(c.rgb, t.rgb, t.a);     // Decal
-    else c *= t;                                             // Modulate, Combine
-  }
+  if (u_hasTex) c = texEnv(u_env, c, texture(u_tex, v_uv));
   c.rgb *= u_rgbScale;
+  if (u_hasTex1 && !u_emissive) {
+    // the second texture unit (a mask, a detail or a second scrolling layer), combined with
+    // the first unit's result as GL's texture stages are
+    c = texEnv(u_env1, clamp(c, 0.0, 1.0), texture(u_tex1, v_uv1));
+    c.rgb *= u_rgbScale1;
+  }
   if (!alphaPasses(c.a)) discard;
   if (u_fogMode > 0) {
     float d = length(v_eye), f;
@@ -163,8 +203,99 @@ interface GpuPart {
   primitive: number;
   /** Texture for each pass (unit 0). */
   textures: (WebGLTexture | null)[];
-  /** Emissive map for each pass (unit 1), for Fragment/Emissive passes. */
-  emissive: (WebGLTexture | null)[];
+  /** Unit 1's texture for each pass: a Fragment/Emissive map, or a second stage (masks). */
+  second: (WebGLTexture | null)[];
+}
+
+/** A light influence placed in the world for one frame. */
+interface WorldLight {
+  def: LightDef;
+  /** World position (point and spot) and direction (toward the light, or the spot axis). */
+  pos: Vec3;
+  dir: Vec3;
+  /** World bounds of the influence's extent. */
+  min: Vec3;
+  max: Vec3;
+}
+
+/** GL's limit on fixed-function lights; Clyde picks up to this many influences per object. */
+// lights per object, as Clyde (SceneInfluenceSet.MAX_LIGHTS)
+const MAX_LOCAL_LIGHTS = 4;
+
+type Box = { min: Vec3; max: Vec3 };
+
+/** The axis-aligned bounds of a local box (centre c, half sizes e) under a world matrix. */
+function transformBox(m: Mat4, c: Vec3, e: Vec3): Box {
+  const out: Box = { min: [0, 0, 0], max: [0, 0, 0] };
+  for (let i = 0; i < 3; i++) {
+    const center = m[i] * c[0] + m[4 + i] * c[1] + m[8 + i] * c[2] + m[12 + i];
+    const ext = Math.abs(m[i]) * e[0] + Math.abs(m[4 + i]) * e[1] + Math.abs(m[8 + i]) * e[2];
+    out.min[i] = center - ext;
+    out.max[i] = center + ext;
+  }
+  return out;
+}
+
+/**
+ * Places a light influence: LightConfig's updaters move its position and direction by the
+ * model's transform, and Extent.Limited's box (centred on the model) bounds whom it lights.
+ */
+function placeLight(def: LightDef, m: Mat4): WorldLight {
+  const p = def.position, d = def.direction;
+  const pos: Vec3 = [m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12], m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]];
+  const dir: Vec3 = [m[0] * d[0] + m[4] * d[1] + m[8] * d[2], m[1] * d[0] + m[5] * d[1] + m[9] * d[2], m[2] * d[0] + m[6] * d[1] + m[10] * d[2]];
+  const box = def.extent
+    ? transformBox(m, [0, 0, 0], [def.extent[0] / 2, def.extent[1] / 2, def.extent[2] / 2])
+    : { min: [-Infinity, -Infinity, -Infinity] as Vec3, max: [Infinity, Infinity, Infinity] as Vec3 };
+  return { def, pos, dir, ...box };
+}
+
+const partBoundsCache = new WeakMap<MeshPart, { c: Vec3; e: Vec3 }>();
+
+/** A mesh part's local bounds (centre and half sizes), from its vertices. */
+function partBounds(part: MeshPart): { c: Vec3; e: Vec3 } {
+  let b = partBoundsCache.get(part);
+  if (b) return b;
+  const v = part.vertex, step = v.stride ? v.stride / 4 : v.size, off = v.offset / 4;
+  const mn: Vec3 = [Infinity, Infinity, Infinity], mx: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (let i = off; i + 2 < v.data.length; i += step) {
+    for (let k = 0; k < 3; k++) {
+      const x = v.data[i + k];
+      if (x < mn[k]) mn[k] = x;
+      if (x > mx[k]) mx[k] = x;
+    }
+  }
+  b = mn[0] <= mx[0]
+    ? { c: [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2], e: [(mx[0] - mn[0]) / 2, (mx[1] - mn[1]) / 2, (mx[2] - mn[2]) / 2] }
+    : { c: [0, 0, 0], e: [0, 0, 0] };
+  partBoundsCache.set(part, b);
+  return b;
+}
+
+/**
+ * The lights whose extent touches an object's bounds, nearest first, at most eight: the
+ * scene influences Clyde gathers for an object, limited to GL's fixed-function lights.
+ */
+function nearestLights(lights: WorldLight[], box: Box): WorldLight[] {
+  const hits: { light: WorldLight; d: number }[] = [];
+  for (const l of lights) {
+    if (l.min[0] > box.max[0] || l.max[0] < box.min[0] || l.min[1] > box.max[1] || l.max[1] < box.min[1]
+      || l.min[2] > box.max[2] || l.max[2] < box.min[2]) continue;
+    // distance from the light (or, for a directional light, its extent's centre) to the box
+    const p = l.def.kind === "Directional" && isFinite(l.min[0])
+      ? [(l.min[0] + l.max[0]) / 2, (l.min[1] + l.max[1]) / 2, (l.min[2] + l.max[2]) / 2] : l.pos;
+    let d = 0;
+    if (l.def.kind !== "Directional" || isFinite(l.min[0])) {
+      for (let k = 0; k < 3; k++) {
+        const x = Math.max(box.min[k] - p[k], 0, p[k] - box.max[k]);
+        d += x * x;
+      }
+    }
+    hits.push({ light: l, d });
+  }
+  if (hits.length > MAX_LOCAL_LIGHTS) hits.sort((a, b) => a.d - b.d);
+  return hits.slice(0, MAX_LOCAL_LIGHTS).map(h => h.light);
 }
 
 /** Runtime state for one placed model (and, recursively, its attachments). */
@@ -267,6 +398,21 @@ export class ModelInstance {
     this.speed = opts.speed ?? 1;
     this.time = 0;
     this.blendDuration = opts.blend ?? 0.15;
+    // a model without a skeleton of its own (a compound monster: body, head and arms as
+    // separate articulated parts) passes the clip to its parts, each taking the nodes it has
+    if (!this.model.root) for (const c of this.children) c.instance.play(clip, opts);
+  }
+
+  /** Advances this instance's clock and its attachments' (a weapon's own animations). */
+  advance(dt: number) {
+    this.time += dt;
+    for (const c of this.children) c.instance.advance(dt);
+  }
+
+  /** Every instance in this one's attachment tree, itself first. */
+  *descendants(): Generator<ModelInstance> {
+    yield this;
+    for (const c of this.children) yield* c.instance.descendants();
   }
 
   /** Length of the current clip in seconds at its speed. */
@@ -407,7 +553,8 @@ export class Renderer {
       "u_lit", "u_alphaRef", "u_sphereMap", "u_useVertexColor", "u_alphaFunc", "u_env",
       "u_rgbScale", "u_color", "u_ambient", "u_numLights", "u_lightDirs", "u_lightColors", "u_fogMode",
       "u_fogColor", "u_fogStart", "u_fogEnd", "u_fogDensity", "u_texMatrix", "u_particle", "u_wave", "u_time", "u_choppiness", "u_waveVectors",
-      "u_waveFreq", "u_waveAmp", "u_wavePhase", "u_emissive", "u_emissiveTex"]) {
+      "u_waveFreq", "u_waveAmp", "u_wavePhase", "u_emissive", "u_tex1", "u_hasTex1", "u_env1", "u_rgbScale1", "u_texMatrix1",
+      "u_sphereMap1", "u_coordSet", "u_coordSet1", "u_numLocal", "u_lPos", "u_lSpot", "u_lAtt", "u_lDiffuse", "u_lAmbient", "u_lExp"]) {
       this.u[name] = gl.getUniformLocation(this.program, name);
     }
     this.boneTex = gl.createTexture()!;
@@ -441,6 +588,7 @@ export class Renderer {
       this.attrib(0, part.vertex);
       if (part.normal) this.attrib(1, part.normal); else gl.vertexAttrib3f(1, 0, 0, 1);
       if (part.texCoord) this.attrib(2, part.texCoord); else gl.vertexAttrib2f(2, 0, 0);
+      if (part.texCoord1) this.attrib(10, part.texCoord1);
       if (part.color) this.attrib(3, part.color); else gl.vertexAttrib4f(3, 1, 1, 1, 1);
       if (part.boneIndices) this.attrib(4, part.boneIndices);
       if (part.boneWeights) this.attrib(5, part.boneWeights);
@@ -458,11 +606,11 @@ export class Renderer {
         const u = p.units[0];
         return u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
-      const emissive = await Promise.all(part.material.passes.map(p => {
+      const second = await Promise.all(part.material.passes.map(p => {
         const u = p.units[1];
-        return p.emissive && u?.texture ? this.texture(u) : Promise.resolve(null);
+        return u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
-      inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures, emissive });
+      inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures, second });
     }
     for (const a of model.attachments) {
       inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model) });
@@ -503,14 +651,17 @@ export class Renderer {
     if (!p) {
       p = (async () => {
         try {
-          // Clyde premultiplies alpha on load by default, and its blend states assume it
-          // Clyde's Texture.setImage flips images vertically (GL's origin is the bottom row);
-          // WebGL ignores UNPACK_FLIP_Y for ImageBitmaps, so flip while decoding
-          const bmp = await createImageBitmap(await this.vfs.blob(path), { premultiplyAlpha: "none", imageOrientation: "flipY" });
+          // Clyde premultiplies alpha on load by default, and its blend states assume it.
+          // Clyde's Texture.setImage flips images vertically (GL's origin is the bottom row).
+          // WebGL ignores UNPACK_FLIP_Y and UNPACK_PREMULTIPLY_ALPHA for ImageBitmaps, so both
+          // happen while decoding. (Unpremultiplied, a sprite whose shape is only in its alpha
+          // channel, white everywhere else, drew as a white square under additive blending.)
+          const pos = unit.colorizations.length ? await this.colors : null;
+          const bmp = await createImageBitmap(await this.vfs.blob(path), {
+            premultiplyAlpha: unit.premultiply && !pos ? "premultiply" : "none", imageOrientation: "flipY" });
           const gl = this.gl;
           const t = gl.createTexture()!;
           gl.bindTexture(gl.TEXTURE_2D, t);
-          const pos = unit.colorizations.length ? await this.colors : null;
           if (pos) {
             // ImageUtil.recolorImage: shift colours near each class's source colour
             const canvas = new OffscreenCanvas(bmp.width, bmp.height);
@@ -523,7 +674,6 @@ export class Renderer {
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
           } else {
             gl.bindTexture(gl.TEXTURE_2D, t);
-            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, unit.premultiply);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
           }
           gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
@@ -826,6 +976,44 @@ export class Renderer {
     gl.uniform3fv(this.u.u_lightColors, colors);
   }
 
+  /** Local lights for the next draws, moved into eye space; passes enable them in applyPass. */
+  private localLights = 0;
+  private readonly lightArrays = {
+    pos: new Float32Array(4 * MAX_LOCAL_LIGHTS), spot: new Float32Array(4 * MAX_LOCAL_LIGHTS),
+    att: new Float32Array(3 * MAX_LOCAL_LIGHTS), diffuse: new Float32Array(3 * MAX_LOCAL_LIGHTS),
+    ambient: new Float32Array(3 * MAX_LOCAL_LIGHTS), exp: new Float32Array(MAX_LOCAL_LIGHTS),
+  };
+
+  private setLocalLights(lights: WorldLight[]) {
+    if (lights.length === 0 && this.localLights === 0) return;
+    const gl = this.gl, v = this.view, a = this.lightArrays;
+    const n = Math.min(MAX_LOCAL_LIGHTS, lights.length);
+    for (let i = 0; i < n; i++) {
+      const { def, pos, dir } = lights[i];
+      const ed: Vec3 = [v[0] * dir[0] + v[4] * dir[1] + v[8] * dir[2], v[1] * dir[0] + v[5] * dir[1] + v[9] * dir[2],
+        v[2] * dir[0] + v[6] * dir[1] + v[10] * dir[2]];
+      const dl = Math.hypot(...ed) || 1;
+      ed[0] /= dl; ed[1] /= dl; ed[2] /= dl;
+      if (def.kind === "Directional") a.pos.set([ed[0], ed[1], ed[2], 0], i * 4);
+      else a.pos.set([v[0] * pos[0] + v[4] * pos[1] + v[8] * pos[2] + v[12], v[1] * pos[0] + v[5] * pos[1] + v[9] * pos[2] + v[13],
+        v[2] * pos[0] + v[6] * pos[1] + v[10] * pos[2] + v[14], 1], i * 4);
+      // GL's spot cutoff of 180 degrees (any non-spot light) disables the cone
+      a.spot.set([ed[0], ed[1], ed[2], def.kind === "Spot" && def.cutoff < 180 ? Math.cos(def.cutoff * Math.PI / 180) : -2], i * 4);
+      a.att.set(def.attenuation, i * 3);
+      a.diffuse.set(def.diffuse, i * 3);
+      a.ambient.set(def.ambient, i * 3);
+      a.exp[i] = def.exponent;
+    }
+    this.localLights = n;
+    if (n === 0) return;
+    gl.uniform4fv(this.u.u_lPos, a.pos);
+    gl.uniform4fv(this.u.u_lSpot, a.spot);
+    gl.uniform3fv(this.u.u_lAtt, a.att);
+    gl.uniform3fv(this.u.u_lDiffuse, a.diffuse);
+    gl.uniform3fv(this.u.u_lAmbient, a.ambient);
+    gl.uniform1fv(this.u.u_lExp, a.exp);
+  }
+
   private setFog(fog: Environment["fog"]) {
     const gl = this.gl;
     this.fogOn = !!fog;
@@ -848,10 +1036,12 @@ export class Renderer {
     const dt = Math.min(0.1, Math.max(0, this.time - this.lastTime));
     const visits = new Map<ModelInstance, number>();
     const particles: { emitter: Emitter; matrix: Mat4 }[] = [];
+    const lights: WorldLight[] = [];
     // skel: the nearest articulated ancestor, whose skeleton drives skinned meshes in wrapper
     // models below it (armour inside compound/conditional wrappers on a knight)
     const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null) => {
       inst.update(frame);
+      if (inst.model.light && !this.skyboxPass) lights.push(placeLight(inst.model.light, placement));
       if (inst.model.root) skel = { inst, placement };
       else if (skel && inst.model.parts.some(p => p.bones)) {
         inst.boneParent = skel.inst;
@@ -896,22 +1086,45 @@ export class Renderer {
     };
     for (const it of items) collect(it.instance, it.matrix);
 
+    // Placements of a part lit by different local lights are drawn as separate batches, so
+    // each batch carries its own light set (most placements have none and stay together)
+    const batches: { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[] }[] = [];
+    for (const [gp, g] of groups) {
+      const lit = lights.length > 0 && g.inst.model.receivesLights !== false
+        && gp.part.material.passes.some(p => p.lit && !p.ambient);
+      if (!lit) { batches.push({ gp, inst: g.inst, matrices: g.matrices, lights: [] }); continue; }
+      const byKey = new Map<string, { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[] }>();
+      const local = partBounds(gp.part);
+      for (const m of g.matrices) {
+        const chosen = nearestLights(lights, transformBox(m, local.c, local.e));
+        const key = chosen.map(l => lights.indexOf(l)).join(",");
+        let b = byKey.get(key);
+        if (!b) byKey.set(key, b = { gp, inst: g.inst, matrices: [], lights: chosen });
+        b.matrices.push(m);
+      }
+      batches.push(...byKey.values());
+    }
+
     // upload every instance matrix for this frame in one buffer
     let total = 0;
-    for (const g of groups.values()) total += g.matrices.length;
+    for (const b of batches) total += b.matrices.length;
     if (this.instanceData.length < total * 16) this.instanceData = new Float32Array(total * 16 * 2);
-    const order = [...groups].sort((a, b) =>
-      (QUEUE_ORDER[a[0].part.material.queue] ?? 2) - (QUEUE_ORDER[b[0].part.material.queue] ?? 2));
-    const offsets = new Map<GpuPart, number>();
+    const order = batches.sort((a, b) =>
+      (QUEUE_ORDER[a.gp.part.material.queue] ?? 2) - (QUEUE_ORDER[b.gp.part.material.queue] ?? 2));
+    const offsets: number[] = [];
     let at = 0;
-    for (const [gp, g] of order) {
-      offsets.set(gp, at);
-      for (const m of g.matrices) { this.instanceData.set(m, at * 16); at++; }
+    for (const b of order) {
+      offsets.push(at);
+      for (const m of b.matrices) { this.instanceData.set(m, at * 16); at++; }
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.subarray(0, total * 16), gl.DYNAMIC_DRAW);
 
-    for (const [gp, g] of order) this.drawPart(g.inst, gp, offsets.get(gp)!, g.matrices.length);
+    order.forEach((b, i) => {
+      this.setLocalLights(b.lights);
+      this.drawPart(b.inst, b.gp, offsets[i], b.matrices.length);
+    });
+    this.setLocalLights([]);
     if (!this.skyboxPass) this.lastTime = this.time;
     if (particles.length) this.drawParticles(particles);
     gl.depthMask(true);
@@ -955,6 +1168,19 @@ export class Renderer {
   private readonly particleTextures = new Map<string, Promise<WebGLTexture | null>>();
   private readonly readyParticleTextures = new Map<string, WebGLTexture | null>();
 
+  /**
+   * A particle material unit's texture: null when the unit has none, undefined while it loads
+   * or when it failed to load (the layer is skipped rather than drawn as bare quads).
+   */
+  private particleTexture(unit: TextureUnitState | undefined): WebGLTexture | null | undefined {
+    if (!unit?.texture) return null;
+    const key = unit.texture;
+    if (!this.particleTextures.has(key)) {
+      this.particleTextures.set(key, this.texture(unit).then(t => { this.readyParticleTextures.set(key, t); return t; }));
+    }
+    return this.readyParticleTextures.get(key) ?? undefined;
+  }
+
   private drawParticles(list: { emitter: Emitter; matrix: Mat4 }[]) {
     const gl = this.gl, v = this.view;
     const right: [number, number, number] = [v[0], v[4], v[8]], up: [number, number, number] = [v[1], v[5], v[9]];
@@ -982,20 +1208,12 @@ export class Renderer {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STREAM_DRAW);
         for (const pass of state.layer.material.passes) {
-          const unit = pass.units[0];
-          let tex: WebGLTexture | null = null;
-          if (unit?.texture) {
-            const key = unit.texture;
-            if (this.readyParticleTextures.has(key)) tex = this.readyParticleTextures.get(key)!;
-            else if (!this.particleTextures.has(key)) {
-              this.particleTextures.set(key, this.texture(unit).then(t => { this.readyParticleTextures.set(key, t); return t; }));
-            }
-            // never draw a textured particle as a bare quad while its texture is loading
-            if (!tex) continue;
-          }
-          // particle colours are premultiplied, so blend accordingly and never write depth
-          this.applyPass({ ...pass, srcBlend: "ONE", destBlend: "ONE_MINUS_SRC_ALPHA", depthMask: false, cullFace: "DISABLED", lit: false },
-            tex, false, true);
+          // never draw a textured particle as a bare quad while a texture is loading (or failed)
+          const tex = this.particleTexture(pass.units[0]), second = this.particleTexture(pass.units[1]);
+          if (tex === undefined || second === undefined) continue;
+          // the material's own blend (its colours are premultiplied by the layer's alpha mode,
+          // as Clyde's are); particles never write depth
+          this.applyPass({ ...pass, depthMask: false, cullFace: "DISABLED", lit: false }, tex, false, true, second);
           gl.drawArrays(gl.TRIANGLES, 0, data.length / 9);
           this.stats.draws++;
         }
@@ -1014,16 +1232,9 @@ export class Renderer {
     const inst = layer.model ? this.meshInstance(layer.model) : null;
     if (!inst) return;
     const passes = layer.material.passes;
-    const textures = passes.map(p => {
-      const unit = p.units[0];
-      if (!unit?.texture) return null;
-      const key = unit.texture;
-      if (!this.particleTextures.has(key)) {
-        this.particleTextures.set(key, this.texture(unit).then(t => { this.readyParticleTextures.set(key, t); return t; }));
-      }
-      return this.readyParticleTextures.get(key) ?? undefined;
-    });
-    if (textures.some(t => t === undefined)) return; // still loading
+    const textures = passes.map(p => this.particleTexture(p.units[0]));
+    const seconds = passes.map(p => this.particleTexture(p.units[1]));
+    if (textures.some(t => t === undefined) || seconds.some(t => t === undefined)) return; // loading or missing
     for (const { matrix: m, color } of emitter.meshParticles(li, matrix)) {
       for (const gp of inst.parts) {
         gl.bindVertexArray(gp.vao);
@@ -1032,8 +1243,8 @@ export class Renderer {
           gl.vertexAttrib4f(6 + k, m[k * 4], m[k * 4 + 1], m[k * 4 + 2], m[k * 4 + 3]);
         }
         passes.forEach((pass, i) => {
-          this.applyPass({ ...pass, color, srcBlend: "ONE", destBlend: "ONE_MINUS_SRC_ALPHA", depthMask: false, lit: false },
-            textures[i] ?? null, false, false);
+          this.applyPass({ ...pass, color, depthMask: false, lit: false }, textures[i] ?? null, false, false, seconds[i] ?? null,
+            !!gp.part.texCoord1);
           if (gp.indexed) gl.drawElements(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0);
           else gl.drawArrays(gp.primitive, 0, gp.count);
           this.stats.draws++;
@@ -1060,7 +1271,7 @@ export class Renderer {
       gl.vertexAttribDivisor(6 + k, 1);
     }
     gp.part.material.passes.forEach((pass, i) => {
-      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.emissive[i]);
+      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1);
       if (gp.indexed) gl.drawElementsInstanced(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0, instances);
       else gl.drawArraysInstanced(gp.primitive, 0, gp.count, instances);
       this.stats.draws++;
@@ -1070,13 +1281,24 @@ export class Renderer {
   }
 
   private applyPass(pass: PassState, texture: WebGLTexture | null, hasNormals: boolean, hasColors: boolean,
-    emissive: WebGLTexture | null = null) {
+    second: WebGLTexture | null = null, hasUv1 = false) {
     const gl = this.gl, g = gl as unknown as Record<string, number>;
-    gl.uniform1i(this.u.u_emissive, emissive ? 1 : 0);
-    if (emissive) {
+    // unit 1: Fragment/Emissive's emissive map, or a second texture stage (texture unit 2 here,
+    // as unit 1 holds the bone matrices)
+    gl.uniform1i(this.u.u_emissive, second && pass.emissive ? 1 : 0);
+    gl.uniform1i(this.u.u_hasTex1, second && !pass.emissive ? 1 : 0);
+    if (second) {
+      const u1 = pass.units[1];
       gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D, emissive);
-      gl.uniform1i(this.u.u_emissiveTex, 2);
+      gl.bindTexture(gl.TEXTURE_2D, second);
+      gl.uniform1i(this.u.u_tex1, 2);
+      gl.uniform1i(this.u.u_env1, Math.max(0, ENVS.indexOf(u1?.env ?? "Modulate")));
+      gl.uniform1f(this.u.u_rgbScale1, u1?.rgbScale ?? 1);
+      gl.uniform1i(this.u.u_sphereMap1, u1?.sphereMap ? 1 : 0);
+      gl.uniform1i(this.u.u_coordSet1, hasUv1 && u1?.coordSet === 1 ? 1 : 0);
+      gl.uniformMatrix4fv(this.u.u_texMatrix1, false, u1?.transform ? u1.transform(this.time) : IDENTITY);
+    } else {
+      gl.uniform1i(this.u.u_sphereMap1, 0);
     }
     const w = pass.wave;
     gl.uniform1i(this.u.u_wave, w ? 1 : 0);
@@ -1093,6 +1315,7 @@ export class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, texture ?? this.white);
     gl.uniform1i(this.u.u_hasTex, texture ? 1 : 0);
     gl.uniform1i(this.u.u_sphereMap, unit?.sphereMap ? 1 : 0);
+    gl.uniform1i(this.u.u_coordSet, hasUv1 && unit?.coordSet === 1 ? 1 : 0);
     gl.uniform1i(this.u.u_env, Math.max(0, ENVS.indexOf(unit?.env ?? "Modulate")));
     gl.uniform1f(this.u.u_rgbScale, unit?.rgbScale ?? 1);
     // OpenGL lights normal-less meshes too, using the default normal (0, 0, 1)
@@ -1102,6 +1325,7 @@ export class Renderer {
     const amb = pass.ambient ?? this.sceneAmbient;
     gl.uniform3f(this.u.u_ambient, amb[0], amb[1], amb[2]);
     gl.uniform1i(this.u.u_numLights, pass.ambient && pass.overrideLights === 0 ? 0 : Math.min(4, this.env.lights.length));
+    gl.uniform1i(this.u.u_numLocal, pass.lit && !pass.ambient ? this.localLights : 0);
     if (this.fogOn) gl.uniform1i(this.u.u_fogMode, pass.fog ? FOG_MODES[this.env.fog!.mode] : 0);
     gl.uniformMatrix4fv(this.u.u_texMatrix, false, unit?.transform ? unit.transform(this.time) : IDENTITY);
     const c = pass.color ?? [1, 1, 1, 1];

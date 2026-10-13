@@ -5,13 +5,16 @@
   "type": "module",
   "license": "BSD-2-Clause",
   "scripts": {
+    "start": "npm run build && tsx server/play.ts",
+    "play": "tsx server/play.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "e2e": "tsx tests/e2e/folder-input.e2e.ts",
     "scan": "tsx tools/scan.ts",
-    "dump": "tsx tools/dump.ts"
+    "dump": "tsx tools/dump.ts",
+    "levels": "tsx tools/levels.ts"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
