@@ -697,7 +697,8 @@ export class World implements LogicHost {
       return;
     }
     this.finished = true;
-    if (elevator?.instance) this.startRide(elevator);
+    const model = elevator ? elevator.instance ?? this.rideModel?.(elevator.x, elevator.y) ?? null : null;
+    if (elevator && model) this.startRide(elevator, model);
     else this.onNextFloor?.();
   }
 
@@ -706,14 +707,19 @@ export class World implements LogicHost {
    * (Elevator sprite states 2 and 3), with the knight standing on it and sinking with it; the
    * floor ends when the ride does.
    */
-  private ride: { p: Prop; t: number; stage: 0 | 1 | 2; z0: number; base: number | null; at: number } | null = null;
+  private ride: { p: Prop; inst: ModelInstance; t: number; stage: 0 | 1 | 2; z0: number; base: number | null; at: number } | null = null;
+  /**
+   * The model an elevator actor animates: its sprite is a StatefulEntry, which drives the
+   * scene's own elevator model placed where the actor stands (the game supplies it).
+   */
+  rideModel: ((x: number, y: number) => ModelInstance | null) | null = null;
   /** True while the knight rides the exit elevator down. */
   get riding() { return !!this.ride; }
 
-  private startRide(p: Prop) {
+  private startRide(p: Prop, inst: ModelInstance) {
     const st = p.states;
     void this.preload(st[2], st[3]);
-    this.ride = { p, t: 0, stage: 0, z0: this.knight.z, base: null, at: 0 };
+    this.ride = { p, inst, t: 0, stage: 0, z0: this.knight.z, base: null, at: 0 };
     const k = this.knight;
     k.shielding = false;
     this.setShieldEffect(false);
@@ -721,7 +727,7 @@ export class World implements LogicHost {
   }
 
   private updateRide(dt: number) {
-    const r = this.ride!, k = this.knight, p = r.p, inst = p.instance!;
+    const r = this.ride!, k = this.knight, p = r.p, inst = r.inst;
     r.t += dt;
     k.instance.time += dt;
     k.invulnerable = Math.max(k.invulnerable, 0.5);

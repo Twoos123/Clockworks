@@ -623,6 +623,17 @@ class Viewer {
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
+    // the exit elevator animates the scene's elevator model where it stands
+    world.rideModel = (x, y) => {
+      let best: ModelInstance | null = null, bestD = 3;
+      for (const it of this.sceneItems ?? []) {
+        const path = it.instance.model.path;
+        if (!/world\/dynamic\/elevator\//.test(path) || /start/.test(path)) continue;
+        const d = Math.hypot(it.matrix[12] - x, it.matrix[13] - y);
+        if (d < bestD) { best = it.instance; bestD = d; }
+      }
+      return best;
+    };
     // Haven's north exit leads to the Arcade, which the scenes cache lacks: walking into it
     // brings up the Arcade's gate board
     world.onPortal = tags => { if (tags.some(t => /arcade/i.test(t)) && !this.gate) this.openGates(); };

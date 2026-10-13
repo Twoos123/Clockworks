@@ -59,7 +59,7 @@ export class ReviveScreen {
       const leave = await buildInterface(this.ctx, { $class: CONFIG_REF, name: "ui/continue/interface_leaveparty.dat" });
       if (leave && !this.leave) {
         const text = leave.find("town"), btn = leave.find("leaveparty");
-        if (text) text.text = "Or give up: ride back to Haven. The floor's loot is lost.";
+        if (text) text.text = "Give up: the floor's loot is lost.";
         if (btn) { btn.text = "Return to Haven"; btn.onAction = () => { this.actions.sound("sound/feedback/ui_dismiss.ogg"); this.close(); this.actions.giveUp(); }; }
         resetInput(leave);
         this.leave = leave;
