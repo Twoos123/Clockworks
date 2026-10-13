@@ -264,6 +264,8 @@ export class World implements LogicHost {
    * keeper's model and the animation it plays while the shop is open (the vendor portrait).
    */
   onOpenShop: ((keeper: string, portrait: { ref: any; idle: any } | null) => void) | null = null;
+  /** The knight talked to a townsperson: its actor name, the StartConversation action and its entity. */
+  onConversation: ((actor: string, action: any, source: Entity) => void) | null = null;
   /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
   onPortal: ((tags: string[], sceneId: number, portal: string, more: { area: string; townName?: string; sceneInternalId?: string }) => void) | null = null;
   /** True once the level's exit elevator has been used. */
@@ -705,6 +707,10 @@ export class World implements LogicHost {
         }
         return true;
       }
+      case "StartConversation":
+        // a townsperson talks (src/ui/conversation.ts); the knight is the activator
+        if (activator === this.knightEntity) this.onConversation?.(source.name, cfg, source);
+        return true;
       case "OpenShop": {
         // the keeper's look: its actor's sprite model, playing the shop's animation (or its idle)
         const actor = source.isActor ? this.data.resolveSync("config/actor.dat", { name: source.name }, "actor") : null;

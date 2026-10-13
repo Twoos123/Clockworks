@@ -44,6 +44,8 @@ import { currentNotice, initNotices } from "./ui/notice";
 import { UplinkScreen } from "./ui/uplink";
 import { HelpScreen } from "./ui/help";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
+import { readConversation } from "./game/conversation";
+import { ConversationScreen } from "./ui/conversation";
 import { messageText } from "./ui/gui";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
@@ -307,6 +309,7 @@ class Viewer {
     addEventListener("keydown", e => {
       if (!this.world || typing()) return;
       if (this.places.key(e)) { e.preventDefault(); return; }
+      if (this.conversation?.isOpen) { if (this.conversation.key(e)) e.preventDefault(); return; }
       // Esc opens the options menu (and closes whatever window is open)
       if (e.key === "Escape") {
         if (this.itemScreens?.escape()) return;
@@ -647,6 +650,7 @@ class Viewer {
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = (keeper, portrait) => void this.openShop(keeper, portrait);
+    world.onConversation = (actor, action, source) => void this.openConversation(actor, action, source);
     // the exit elevator animates the scene's elevator model where it stands
     world.rideModel = (x, y) => {
       let best: ModelInstance | null = null, bestD = 3;
@@ -759,6 +763,7 @@ class Viewer {
 
   private stopPlaying() {
     if (!this.world) return;
+    this.conversation?.end();
     this.outfit.leave(this.world);
     this.world = null;
     this.gameHud = null;
@@ -834,6 +839,9 @@ class Viewer {
       await this.ensureScreens().prebuild(idle);
       await idle();
       await this.optionsScreen().prebuild().catch(e => console.warn("options prebuild failed", e));
+      // the townsfolk's conversation interface (its styles, images and fonts load once)
+      await idle();
+      await ConversationScreen.prebuild(this.gui!).catch(() => undefined);
     })();
   }
 
@@ -1045,6 +1053,48 @@ class Viewer {
     this.audio.unlock();
     this.audio.ui(file);
   }
+
+  private conversation: ConversationScreen | null = null;
+
+  /**
+   * A townsperson's conversation (ProjectXActionConfig.StartConversation): the game's
+   * conversation interface with the NPC's lines from the bundles; the NPC turns to the knight
+   * and the world waits while they talk.
+   */
+  private async openConversation(actor: string, action: any, source: { x: number; y: number; rotation: number }) {
+    const w = this.world;
+    if (!w || this.conversation?.isOpen || !action?.conversation?.name) return;
+    await w.data.preload("config/conversation.dat", "config/actor.dat");
+    const impl = w.data.resolveSync("config/conversation.dat", action.conversation, "conversation");
+    const conv = impl ? readConversation(impl, action.name ?? "") : null;
+    if (!conv || this.world !== w) return;
+    const k = w.knight;
+    source.rotation = Math.atan2(k.y - source.y, k.x - source.x);
+    // the NPC's look: the action's model, else its actor's sprite model
+    const cfg = w.data.resolveSync("config/actor.dat", { name: actor }, "actor");
+    const npcRef = action.model ?? cfg?.sprite?.model ?? null;
+    const idle = cfg?.sprite?.idles?.[0]?.animation ?? null;
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    const views = new Map<string, PortraitView>();
+    this.conversation ??= new ConversationScreen(this.gui, this.canvas.parentElement!, {
+      sound: f => this.uiSound(f),
+      view: (who, anim) => {
+        const ref = who === "knight" ? this.world?.portraitRef() : this.talking?.ref;
+        if (!ref) return null;
+        const a = who === "knight" ? "character/pc/idle.dat" : anim ?? this.talking?.idle ?? null;
+        const key = who + JSON.stringify([ref, a], (kk, v) => (kk === "$outer" ? undefined : v));
+        let v = views.get(key);
+        if (!v) views.set(key, v = new PortraitView(this.renderer, this.loader, ref, a));
+        return (c, g, x, y, ww, h) => v!.draw(c, g, x, y, ww, h);
+      },
+      closed: () => { this.talking = null; this.paused = false; views.clear(); this.canvas.focus(); },
+    });
+    this.talking = { ref: npcRef, idle };
+    this.paused = true;
+    await this.conversation.start(conv, knightName(this.save));
+  }
+  /** The NPC in the conversation: its model and idle animation. */
+  private talking: { ref: any; idle: any } | null = null;
 
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
   private async openShop(keeper: string, portrait: { ref: any; idle: any } | null = null) {
@@ -1745,7 +1795,8 @@ class Viewer {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
           gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
-          this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
+          // (the HUD hides while the knight talks, as the game's conversation dialog hides it)
+          this.hud.draw(this.world, proj, view, gh && !this.talking ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }
       else this.renderer.draw(this.instance!, proj, view);
