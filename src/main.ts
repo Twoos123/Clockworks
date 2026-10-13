@@ -7,7 +7,7 @@ import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environ
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { GuiContext } from "./ui/gui";
+import { buildInterface, GuiContext, pack, render as renderGui } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -29,6 +29,8 @@ import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
 import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
+import { rankLabel, tierLock } from "./game/missions";
+import { MissionBoard, notice, progressOf } from "./ui/missions";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|\(|lobby/i;
@@ -208,6 +210,8 @@ class Viewer {
   private genNames = new Map<string, string>();
   /** The boss of the floor being played, if any. */
   private bossFloor: BossKey | null = null;
+  /** The mission board (src/ui/missions.ts), made on first use. */
+  private missionBoard: MissionBoard | null = null;
   /** Arena mode: waves on a cached level instead of its own wiring. */
   private arenaMode = false;
   private attackPressed = false;
@@ -737,10 +741,22 @@ class Viewer {
       case "button_forge": void this.toggleArsenal("craft"); break;
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
+      case "button_missions": void this.missions().toggle(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       case "button_guildhall": case "button_social": void this.goToGuildHall(); break;
       default: break;
     }
+  }
+
+  private missions(): MissionBoard {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.missionBoard ??= new MissionBoard({
+      data: this.world?.data ?? new GameData(this.loader), gui: this.gui,
+      save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
+      pause: on => { this.paused = on && !!this.world; },
+      startRun: (g, floors) => void this.enterGate(g, floors),
+      openGates: () => this.openGates(),
+    });
   }
 
   /** A simple window in the options' style (news and mail). */
@@ -989,6 +1005,9 @@ class Viewer {
       $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
       $("deeper").textContent = "Return to Haven";
       $("deeper").hidden = !next;
+      // an Arcade stratum cleared counts for prestige gate missions of its theme
+      const here = this.floors[this.run.depth], s = here?.stratum;
+      if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
       const last = this.nextLevel() === null;
       $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
@@ -1071,6 +1090,31 @@ class Viewer {
     if (!p) this.iconUrls.set(path, p = this.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => ""));
     return p;
   }
+  private levelIcons = new Map<string, Promise<string>>();
+  /**
+   * A gate lineup icon drawn through the game's own ui/adventureboard/parts/map_levelicon.dat
+   * (its colourisation turns the mask images purple and light blue), as an image URL.
+   */
+  private levelIcon(path: string, locked = false): Promise<string> {
+    const key = path + (locked ? "|locked" : "");
+    let p = this.levelIcons.get(key);
+    if (!p) {
+      p = (async () => {
+        this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+        const ui = await buildInterface(this.gui, { $class: "com.threerings.config.ConfigReference", name: "ui/adventureboard/parts/map_levelicon.dat",
+          arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Icon", path], ["Locked", !locked], ["You are Here", false], ["Friend Here", false]] } });
+        if (!ui) return "";
+        const size = pack(ui);
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, size.width); c.height = Math.max(1, size.height);
+        renderGui(ui, c.getContext("2d")!, 0, size.height, {});
+        return c.toDataURL();
+      })().catch(() => "");
+      this.levelIcons.set(key, p);
+    }
+    return p;
+  }
+
   private img(path: string, cls: string, title = "") {
     const im = document.createElement("img");
     im.className = cls;
@@ -1119,10 +1163,12 @@ class Viewer {
         const theme = f.stratum && f.kind !== "terminal" && f.kind !== "subtown" ? f.stratum.theme.toLowerCase() : "";
         if (f.stratum && f.depth === f.stratum.first) cell.append(this.img(`ui/icon/theme/${theme || "unk"}.png`, "gate-theme", f.stratum.theme));
         else cell.append(document.createElement("span"));
-        const icon = this.img(`ui/icon/map/${floorIcon(f)}.png`, "gate-level", `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`);
-        // the icons are colourisation masks (magenta); tint them by the stratum's theme
-        const hue = f.kind === "terminal" || f.kind === "subtown" || f.kind === "core" ? 200 : THEME_HUES[f.stratum?.theme ?? ""] ?? 200;
-        icon.style.filter = `hue-rotate(${hue - 300}deg) saturate(0.85)`;
+        const icon = document.createElement("img");
+        icon.className = "gate-level";
+        icon.title = `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`;
+        // tiers above the knight's rank show the lock, as the game's map does
+        const locked = tierLock(f.tier, progressOf(this.save)) !== null;
+        void this.levelIcon(`ui/icon/map/${floorIcon(f)}.png`, locked).then(u => { if (u) icon.src = u; });
         cell.append(icon);
         const d = document.createElement("small");
         d.textContent = String(f.depth);
@@ -1148,13 +1194,14 @@ class Viewer {
   }
 
   /** Starts a gate at depth 1. */
-  private async enterGate(g: Gate) {
+  private async enterGate(g: Gate, floors = gateFloors(g)) {
     this.gate = g;
     this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name };
     this.usedScenes.clear();
-    this.floors = gateFloors(g);
+    this.floors = floors;
     this.arenaMode = false;
-    this.run = { depth: 0, health: null, floors: 0 };
+    // the descent starts above the first floor (a mission's floors start deeper)
+    this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
     await this.descend();
   }
 
@@ -1185,7 +1232,7 @@ class Viewer {
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
     const id = `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
-    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} (${s.theme})`);
+    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   private usedScenes = new Set<string>();
@@ -1249,7 +1296,15 @@ class Viewer {
       // the gate's next floor (after the Core's terminal, back to Haven)
       const f = this.floors[this.run.depth + 1];
       this.stopPlaying();
-      if (!f) { this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven(); return; }
+      if (!f) {
+        const id = this.gate.id;
+        this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven();
+        this.missionBoard?.runFinished(id);
+        return;
+      }
+      // deeper tiers need rank (missions take the knight to their own depth)
+      const lock = this.gate.id.startsWith("mission:") ? null : tierLock(f.tier, progressOf(this.save));
+      if (lock) { this.gate = null; await this.returnToHaven(); notice(lock); return; }
       const sc = this.floorScene(f);
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
@@ -1587,7 +1642,7 @@ class Viewer {
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext() }, dt);
+          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
           this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }
@@ -1598,9 +1653,6 @@ class Viewer {
 }
 
 start();
-
-/** Hues the gate lineup tints its level icons with, by stratum theme. */
-const THEME_HUES: Record<string, number> = { Fire: 5, Freeze: 190, Poison: 110, Shock: 52, Beast: 30, Construct: 215, Fiend: 280, Gremlin: 22, Slime: 135, Undead: 165 };
 
 /** The scenes cache, for genTheme's availability check (set once scenes are listed). */
 let genScenes: { id: string; name: string }[] | null = null;

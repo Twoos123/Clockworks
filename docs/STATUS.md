@@ -62,6 +62,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | UI sounds | The game's style feedback sounds on the arsenal, shops, crafting and run menus |
 | Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
+| Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions (themed floors at their rank's depth, ending in their boss), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
 | HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
 
@@ -86,7 +87,8 @@ A single-player loop runs in the browser, built from the install's own data:
    and gate themes, are not modelled).
 5. **Boss levels.** Bosses run their own handlers in the Arena. Their scripted arenas (the
    Jelly Palace, Snarbolax's bells) are server-streamed levels this cache lacks.
-6. **Missions, guilds and PvP.**
+6. **Guilds and PvP.** Missions are in (below), but their own levels and dialogue are
+   server data: dungeon missions play as themed generated floors, briefings show our summary.
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).
 
 **Fidelity**
