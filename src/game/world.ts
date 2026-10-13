@@ -17,7 +17,7 @@ import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind } from "./props";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
-import { DEFAULT_LOADOUT, levelMultiplier, type Loadout as GearLoadout } from "./save";
+import { DEFAULT_LOADOUT, levelMultiplier, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
 import { StatusConditions, type ActiveStatus } from "./status";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
@@ -210,6 +210,13 @@ export class World implements LogicHost {
   finished = false;
   /** What the knight has collected on this floor. */
   readonly loot = { crowns: 0, heat: 0, materials: new Map<string, number>() };
+  /**
+   * The pocket: consumables (DungeonItemConfig Capsule and Vial) by item name and count. The
+   * array is the save's own, so what is picked up or used stays with the knight.
+   */
+  pocket: [string, number][] = [];
+  /** Actions waiting on an item's action delay. */
+  private delayed: { t: number; run: () => void }[] = [];
   readonly effects: Effect[] = [];
   readonly projectiles: Projectile[] = [];
   readonly floaters: Floater[] = [];
@@ -485,7 +492,11 @@ export class World implements LogicHost {
       }
       case "DamageTarget": case "DamageTargetFromPoint": case "DamageRegion": case "DamageRegionFromPoint": {
         const amounts = this.amounts(cfg.damage, this.ctx(0));
-        const targets = cfg.target ? logic.resolveTarget(cfg.target, source, activator) : activator ? [activator] : [];
+        const region = /Region/.test(k) && !cfg.target && !cfg.region && source.fixedShape?.k === "circle";
+        const fs = source.fixedShape, r = region && fs?.k === "circle" ? fs.r : 0;
+        const targets = region
+          ? logic.actors.filter(e => e !== activator && !e.destroyed && e.game instanceof Monster && Math.hypot(e.x - source.x, e.y - source.y) <= r + e.game.radius)
+          : cfg.target ? logic.resolveTarget(cfg.target, source, activator) : activator ? [activator] : [];
         for (const t of targets) {
           if (t === this.knightEntity) this.damageKnight(amounts, 0.5, source.x, source.y);
           else if (t.game instanceof Monster) this.damageMonster(t.game, amounts, 0.5, source.x, source.y);
@@ -566,8 +577,12 @@ export class World implements LogicHost {
     p.z = this.collision.groundZ(e.x, e.y);
     if (kind === "door") p.open = !!cfg.open;
     if (kind === "block") {
-      p.health = p.maxHealth = cfg.health ?? 0;
-      p.breakable = p.health > 0 && !/Unbreakable/i.test(e.name);
+      // no block config sets health, so the closed code's default applies: counted here in
+      // hits (treasure boxes and mineral nodes take a few, crates one)
+      const cls = String(cfg.$class).split("$").pop();
+      p.health = p.maxHealth = cfg.health ?? (/Treasure|Mineral|Gathering/.test(e.name) ? 3 : 1);
+      p.hits = cfg.health === undefined;
+      p.breakable = !/Unbreakable|Hedgehog|Echo/i.test(e.name) && cls !== "GhostlinkBlock" && cls !== "DamageMirrorBlock";
     }
     (e.game as any).onSignal = (name: string) => this.propSignal(p, name);
     this.props.push(p);
@@ -652,9 +667,55 @@ export class World implements LogicHost {
     else this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
   }
 
+  /** The item config for a pocket item (capsule or vial), or null for anything else. */
+  pocketItem(name: string): any | null {
+    const it = this.data.resolveSync("config/item.dat", { name }, "item");
+    return /\$(Capsule|Vial)$/.test(String(it?.$class ?? "")) ? it : null;
+  }
+
+  /** Puts a consumable in the pocket; false when every slot holds something else. */
+  private pocketAdd(name: string): boolean {
+    const slot = this.pocket.find(p => p[0] === name);
+    if (slot) { slot[1]++; return true; }
+    if (this.pocket.length >= POCKET_SLOTS) return false;
+    this.pocket.push([name, 1]);
+    return true;
+  }
+
+  /**
+   * Uses the item in pocket slot `i`. Capsules act on the knight after their action delay
+   * (healing, buffs, remedies, barriers); vials are thrown a few metres ahead and shatter,
+   * their action striking what stands around the point.
+   */
+  useItem(i: number): boolean {
+    const k = this.knight, slot = this.pocket[i];
+    if (k.dead || !slot) return false;
+    const it = this.pocketItem(slot[0]);
+    if (!it?.action) return false;
+    if (--slot[1] <= 0) this.pocket.splice(i, 1);
+    const ke = this.knightEntity;
+    if (/\$Vial$/.test(it.$class)) {
+      const d = 3.5, x = k.x + Math.cos(k.heading) * d, y = k.y + Math.sin(k.heading) * d;
+      const at = new Entity(false, "vial");
+      at.x = x; at.y = y; at.rotation = k.heading;
+      at.fixedShape = { k: "circle", x, y, r: 2 };
+      const z = this.collision.groundZ(x, y);
+      if (it.destructionTransient) void this.spawnEffect(it.destructionTransient, compose([x, y, z], [0, 0, 0, 1], 1), 3);
+      this.logic.execute(it.action, at, ke);
+    } else {
+      this.delayed.push({ t: (it.actionDelay ?? 0) / 1000, run: () => { if (!k.dead) this.logic.execute(it.action, ke, ke); } });
+    }
+    return true;
+  }
+
   /** An item from a loot table (materials, gear): added to the floor's tally. */
   private awardItem(item: any, x: number, y: number) {
     const name = String(item.name);
+    if (this.pocketItem(name)) {
+      const z = this.collision.groundZ(x, y) + 1;
+      if (this.pocketAdd(name)) this.floaters.push({ x, y, z, text: name.split("/").pop() ?? name, color: "#9ff0c0", age: 0 });
+      return;
+    }
     this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
     this.floaters.push({ x, y, z: this.collision.groundZ(x, y) + 1, text: name.split("/").pop() ?? name, color: "#c9e6ff", age: 0 });
   }
@@ -662,7 +723,9 @@ export class World implements LogicHost {
   private damageProp(p: Prop, amount: number) {
     if (!p.breakable || p.entity.destroyed) return;
     this.logic.damaged(p.entity, this.knightEntity);
-    p.health -= amount;
+    // each hit runs the block's damage action (treasure boxes spill loot as they are struck)
+    if (p.cfg.damageAction) this.logic.execute(p.cfg.damageAction, p.entity, this.knightEntity);
+    p.health -= p.hits ? 1 : amount;
     if (p.health <= 0) this.logic.destroy(p.entity, this.knightEntity);
   }
 
@@ -793,6 +856,7 @@ export class World implements LogicHost {
     ke.collisionFlags = this.knight.dead ? 0 : 4;
     for (const m of this.monsters) if (m.entity) { m.entity.x = m.x; m.entity.y = m.y; m.entity.rotation = m.heading; }
     this.logic.tick(dt * 1000);
+    for (const d of [...this.delayed]) if ((d.t -= dt) <= 0) { this.delayed.splice(this.delayed.indexOf(d), 1); d.run(); }
     if (this.arena) this.updateArena(dt);
     this.separate();
     this.updateProjectiles(dt);
@@ -1178,7 +1242,7 @@ export class World implements LogicHost {
   private attackerCtx(a: Actor): DepthContext {
     if (a !== this.knight) return this.ctx(0);
     const w = this.knight.weapon;
-    return { ...this.ctx(w?.rarity ?? 0), multiplier: levelMultiplier(this.weaponLevels.get(w?.name ?? "") ?? 1) };
+    return { ...this.ctx(w?.rarity ?? 0), multiplier: levelMultiplier(this.weaponLevels.get(w?.name ?? "") ?? 1) * this.buffDamage(this.knight) };
   }
 
   /** Applies an attack's damage shape in front of the attacker. */
@@ -1231,7 +1295,8 @@ export class World implements LogicHost {
     if (!got) return;
     if (Math.random() >= (chance ?? got.chance)) return;
     const def = got.def;
-    const same = target.statuses.find(s => s.def.kind === def.kind);
+    // buffs of different kinds (attack, defence, speed) stack; the same one refreshes
+    const same = target.statuses.find(s => s.def.kind === def.kind && (def.kind !== "Buff" || s.def.icon === def.icon));
     // monsters stay frozen longer (monsterDurationMultiplier)
     const duration = def.duration * (target.team === "monster" ? (def.cfg.monsterDurationMultiplier ?? 1) : 1);
     if (same) { same.remaining = Math.max(same.remaining, duration); same.def = def; return; }
@@ -1307,17 +1372,32 @@ export class World implements LogicHost {
   /** Movement factor from conditions (stun slows). */
   private statusSpeed(a: Actor): number {
     let f = 1;
-    for (const st of a.statuses) if (st.def.kind === "Stun") f *= 1 - Math.min(0.8, (st.def.cfg.minSpeedReduction ?? 0.3) + 0.3 * st.def.power);
+    for (const st of a.statuses) {
+      if (st.def.kind === "Stun") f *= 1 - Math.min(0.8, (st.def.cfg.minSpeedReduction ?? 0.3) + 0.3 * st.def.power);
+      else if (st.def.kind === "Buff") f *= 1 + (st.def.cfg.speedModifier ?? 0);
+    }
+    return f;
+  }
+
+  /** Damage factor from buffs (Damage Modifier and Relative Damage Modifier). */
+  private buffDamage(a: Actor): number {
+    let f = 1;
+    for (const st of a.statuses) if (st.def.kind === "Buff") f *= 1 + (st.def.cfg.damageModifier ?? 0) + (st.def.cfg.relativeDamageModifier ?? 0);
     return f;
   }
 
   /** Defence after poison's reduction. */
   private effectiveDefense(a: Actor): Amounts | null {
     const p = a.statuses.find(s => s.def.kind === "Poison");
-    if (!p || !a.defense) return a.defense;
-    const c = p.def.cfg, r = (c.minDefenseReduction ?? 0.05) + ((c.maxDefenseReduction ?? 0.25) - (c.minDefenseReduction ?? 0.05)) * p.def.power;
+    let f = 1;
+    for (const st of a.statuses) if (st.def.kind === "Buff") f *= 1 + (st.def.cfg.defenseModifier ?? 0);
+    if ((!p && f === 1) || !a.defense) return a.defense;
+    if (p) {
+      const c = p.def.cfg;
+      f *= 1 - ((c.minDefenseReduction ?? 0.05) + ((c.maxDefenseReduction ?? 0.25) - (c.minDefenseReduction ?? 0.05)) * p.def.power);
+    }
     const out = { ...a.defense };
-    for (const k of Object.keys(out) as (keyof Amounts)[]) out[k] *= 1 - r;
+    for (const k of Object.keys(out) as (keyof Amounts)[]) out[k] *= f;
     return out;
   }
 

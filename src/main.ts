@@ -247,7 +247,9 @@ class Viewer {
     addEventListener("keydown", e => {
       if (!this.world || typing()) return;
       if (e.key === "Escape") { this.stopPlaying(); return; }
-      if (/^[1-9]$/.test(e.key)) this.weaponSlot = Number(e.key) - 1;
+      if (/^[1-3]$/.test(e.key)) this.weaponSlot = Number(e.key) - 1;
+      // 4 to 7 use the pocket items
+      if (/^[4-7]$/.test(e.key) && !e.repeat && !this.paused && this.world.useItem(Number(e.key) - 4)) writeSave(this.save);
       if (e.key.toLowerCase() === "f" && !e.repeat) this.interactPressed = true;
       if (e.key === " " && !e.repeat) this.dashPressed = true;
       if (e.key.toLowerCase() === "i" && !e.repeat) void this.toggleArsenal();
@@ -419,6 +421,7 @@ class Viewer {
     $("arenaBtn").hidden = !town;
     world.color = this.save.color;
     for (const [n, h] of Object.entries(this.save.weaponHeat)) world.weaponLevels.set(n, weaponLevel(h));
+    world.pocket = this.save.pocket;
     await world.start(spawn, this.save.loadout);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the scene's music (a weighted pick from its mix) and ambient loops
@@ -902,6 +905,7 @@ class Viewer {
           if (pad.move[0] || pad.move[1]) move = rel(pad.move[0], pad.move[1]);
           if (pad.aim) { const [ax, ay] = rel(pad.aim[0], pad.aim[1]); const k = this.world.knight; aim = [k.x + ax * 3, k.y + ay * 3]; }
           else if (pad.move[0] || pad.move[1]) aim = null;
+          if (pad.item >= 0 && !this.paused && this.world.useItem(pad.item)) writeSave(this.save);
           if (pad.cycle && this.world.knight.weapons.length) {
             const n = this.world.knight.weapons.length;
             this.weaponSlot = (this.world.knight.slot + pad.cycle + n) % n;

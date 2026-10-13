@@ -25,9 +25,14 @@ export interface SaveData {
   color: number;
   /** Heat each weapon has absorbed (it levels the weapon up). */
   weaponHeat: Record<string, number>;
+  /** Consumables carried in the pocket slots (capsules and vials): item name and count. */
+  pocket: [string, number][];
 }
 
 const KEY = "clyde-web-save";
+
+/** Pocket slots on the quickbar. */
+export const POCKET_SLOTS = 4;
 
 export const DEFAULT_LOADOUT: Loadout = {
   weapons: ["Weapon/Sword/Proto Sword", "Weapon/Handgun/Proto Gun", "Weapon/Bomb/Proto Bomb"],
@@ -38,7 +43,7 @@ export const DEFAULT_LOADOUT: Loadout = {
 
 export function loadSave(): SaveData {
   const fresh: SaveData = { version: 1, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons] }, crowns: 0, heat: 0,
-    materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield], color: 257, weaponHeat: {} };
+    materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield], color: 257, weaponHeat: {}, pocket: [] };
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return fresh;
@@ -48,6 +53,7 @@ export function loadSave(): SaveData {
       loadout: { ...fresh.loadout, ...(d.loadout ?? {}), weapons: (d.loadout?.weapons ?? fresh.loadout.weapons).slice(0, 3) },
       materials: { ...(d.materials ?? {}) },
       weaponHeat: { ...(d.weaponHeat ?? {}) },
+      pocket: (d.pocket ?? []).filter(p => Array.isArray(p) && p[1] > 0).slice(0, POCKET_SLOTS),
       owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet]
         .filter((x): x is string => !!x))],
     };

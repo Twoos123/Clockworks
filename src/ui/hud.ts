@@ -36,7 +36,8 @@ export interface HudState {
   shielding: boolean;
   weapons: { icon: any; selected: boolean }[];
   /** Active conditions: HUD icon name and whole seconds left. */
-  statuses: { icon: string; seconds: number }[];
+  statuses: { icon: string; ui: string; seconds: number }[];
+  pocket: { icon: any; count: number }[];
   /** The equipped weapon's level (the heat meter), or 0 outside the Clockworks. */
   heatLevel: number;
 }
@@ -47,7 +48,8 @@ export function hudState(world: World, name: string, floor = ""): HudState {
     name, floor, health: k.health, maxHealth: k.maxHealth, recentDamage: k.recentDamage,
     shield: k.shieldHealth, shieldMax: k.shieldMax, shieldBroken: k.shieldBroken > 0, shielding: k.shielding,
     weapons: k.weapons.map((w, i) => ({ icon: w.def.icon, selected: i === k.slot })),
-    statuses: k.statuses.map(s => ({ icon: s.def.icon, seconds: Math.ceil(s.remaining) })),
+    statuses: k.statuses.map(s => ({ icon: s.def.icon, ui: s.def.iconUi, seconds: Math.ceil(s.remaining) })),
+    pocket: world.pocket.map(([n, c]) => ({ icon: world.pocketItem(n)?.icon ?? null, count: c })),
     heatLevel: world.depth > 0 ? world.weaponLevels.get(k.weapon?.name ?? "") ?? 1 : 0,
   };
 }
@@ -164,10 +166,10 @@ export class GameHud {
     if (row) {
       const kids: Component[] = [];
       for (const st of s.statuses) {
-        const key = st.icon + "|" + st.seconds;
+        const key = st.ui + "|" + st.icon + "|" + st.seconds;
         if (!this.debuffs.has(key)) {
           this.debuffs.set(key, null);
-          void buildInterface(this.ctx, ref("ui/health/debuff.dat", { Icon: st.icon, "Seconds Remaining": String(st.seconds).padStart(2, "0"), Size: "Default" }))
+          void buildInterface(this.ctx, ref(st.ui, { Icon: st.icon, "Seconds Remaining": String(st.seconds).padStart(2, "0"), Size: "Default" }))
             .then(c => { if (c) { c.constraints = { fixed: true }; this.debuffs.set(key, c); } });
         }
         const c = this.debuffs.get(key);
@@ -196,14 +198,17 @@ export class GameHud {
       // inventory icons are larger than the slot; the label is 40 px square
       if (icon && w?.icon) icon.icon = this.icon(w.icon, 40);
     });
-    // consumable slots stay empty until there are items to carry
-    for (const tag of ["slot0", "slot1", "slot2", "slot3", "vitaslot", "eventslot"]) {
+    // pocket slots: the carried consumables and their counts (keys 4 to 7 use them)
+    for (const [i, tag] of ["slot0", "slot1", "slot2", "slot3", "vitaslot", "eventslot"].entries()) {
       const slot = ui.find(tag);
       if (!slot) continue;
+      const it = i < 4 ? s.pocket[i] : undefined;
       const inner = slot.find("slot");
-      if (inner) inner.visible = false;
+      if (inner) inner.visible = !!it;
+      const icon = slot.find("icon");
+      if (icon) icon.icon = it?.icon ? this.icon(it.icon, 40) : null;
       const count = slot.find("itemcount");
-      if (count) count.text = "";
+      if (count) count.text = it && it.count > 1 ? String(it.count) : "";
     }
   }
 

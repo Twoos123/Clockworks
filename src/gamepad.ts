@@ -13,6 +13,8 @@ export interface PadState {
   interact: boolean;
   /** -1 or +1 when a bumper went down this frame. */
   cycle: number;
+  /** A pocket slot (d-pad up, right, down, left) used this frame, or -1. */
+  item: number;
 }
 
 const DEAD = 0.2;
@@ -38,6 +40,7 @@ export class Gamepads {
       shield: b(1) || b(6),
       dash: edge(2), interact: edge(3),
       cycle: cyc,
+      item: [12, 15, 13, 14].findIndex(i => edge(i)),
     };
   }
 }

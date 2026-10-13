@@ -11,7 +11,7 @@ import type { DepthContext, DepthScales } from "./depth";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 
-export type StatusKind = "Fire" | "Freeze" | "Shock" | "Poison" | "Curse" | "Sleep" | "Stun";
+export type StatusKind = "Fire" | "Freeze" | "Shock" | "Poison" | "Curse" | "Sleep" | "Stun" | "Buff";
 
 /** A condition resolved for one application. */
 export interface StatusDef {
@@ -26,8 +26,10 @@ export interface StatusDef {
   tickDamage: number;
   /** 0 to 1: how strong (poison reductions, stun slow). */
   power: number;
-  /** The HUD icon name (ui/health/debuff.dat "Icon" argument). */
+  /** The HUD icon name (the "Icon" argument of ui/health/debuff.dat, or buff.dat for buffs). */
   icon: string;
+  /** The HUD icon interface: ui/health/debuff.dat or ui/health/buff.dat. */
+  iconUi: string;
 }
 
 /** An active condition on an actor. */
@@ -36,7 +38,7 @@ export interface ActiveStatus { def: StatusDef; remaining: number; tick: number;
 // StatusCodes chance and power levels. Their values are game code; these are tuning numbers.
 const CHANCE: Record<string, number> = { LOW: 0.1, MEDIUM: 0.2, HIGH: 0.35, VERY_HIGH: 0.5, ULTRA: 0.7, MAXIMUM: 1 };
 const POWER: Record<string, number> = { MINOR: 0.2, MODERATE: 0.4, STRONG: 0.6, DEADLY: 0.8, ULTIMATE: 1 };
-const KINDS: StatusKind[] = ["Fire", "Freeze", "Shock", "Poison", "Curse", "Sleep", "Stun"];
+const KINDS: StatusKind[] = ["Fire", "Freeze", "Shock", "Poison", "Curse", "Sleep", "Stun", "Buff"];
 
 export class StatusConditions {
   constructor(private readonly lib: Map<string, any>, private readonly depth: DepthScales) {}
@@ -93,6 +95,7 @@ export class StatusConditions {
         interval: (c.signalInterval ?? 1000) / 1000,
         tickDamage, power,
         icon: String(c.icon?.arguments?.entries?.find?.(([n]: [string]) => n === "Icon")?.[1] ?? k),
+        iconUi: String(c.icon?.name ?? "ui/health/debuff.dat"),
       },
     };
   }

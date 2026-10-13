@@ -34,6 +34,8 @@ export class Prop {
   health = 0;
   maxHealth = 0;
   breakable = false;
+  /** Health counts hits rather than damage. */
+  hits = false;
   /** Doors. */
   open = false;
   /** Switches: pressed by something standing on them. */
