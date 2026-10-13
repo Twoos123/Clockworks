@@ -20,6 +20,8 @@ import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
 import { DEFAULT_LOADOUT, levelMultiplier, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
 import { StatusConditions, type ActiveStatus } from "./status";
+import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
+import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -311,8 +313,50 @@ export class World implements LogicHost {
     // without equipped ones, the body's own defaults, so they take the personal colour too
     for (const a of armor) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
     const ref: any = { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
-      arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
     return this.renderer.instantiate(await this.loader.load("character/pc/model.dat", ref));
+  }
+
+  /** Costumes and accessories the knight shows (accessories.ts); set before start or through redress. */
+  dressing: Dressing = NO_DRESSING;
+
+  /** Shows a new dressing: the knight's models are rebuilt with it. */
+  async redress(d: Dressing) {
+    this.dressing = d;
+    const k = this.knight;
+    if (!k) return;
+    const fresh = await Promise.all(k.weapons.map(l => this.knightInstance(l.def, k.shield, k.armor)));
+    fresh.forEach((inst, i) => { k.weapons[i].instance = inst; });
+    const cur = k.weapons[k.slot]?.instance ?? await this.knightInstance(null, k.shield, k.armor);
+    cur.time = k.instance.time;
+    k.instance = cur;
+    k.upperBody = cur.subtree("Bip01 Spine");
+    this.play(k, "character/pc/idle.dat");
+  }
+
+  /** The battle sprite following the knight (sprites.ts), or null. */
+  companion: SpriteCompanion | null = null;
+
+  /** What a battle sprite needs from the world. */
+  spriteWorld(): SpriteWorld {
+    const actor = (t: SpriteTarget) => t as unknown as Actor;
+    return {
+      data: this.data, loader: this.loader, renderer: this.renderer,
+      knight: () => this.knight,
+      monsters: () => this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive),
+      clip: r => this.clip(r),
+      preload: (...r) => this.preload(...r),
+      groundZ: (x, y) => this.collision.groundZ(x, y),
+      blocked: (x, y, r) => this.collision.collides(x, y, r, 0x81, false),
+      ctx: rarity => this.ctx(rarity),
+      evaluate: (ref, ctx) => this.data.depth.evaluate(ref, ctx),
+      damage: (t, damage, ctx, kb, fx, fy) => { if (t instanceof Monster) this.damageMonster(t, this.amounts(damage, ctx), kb, fx, fy); },
+      applyStatus: (t, ref, ctx, chance) => this.applyStatus(actor(t), ref, ctx, chance),
+      heal: n => this.healKnight(n),
+      effect: (ref, matrix, life, follow) => void this.spawnEffect(ref, matrix, life, follow ? this.knight : undefined),
+      events: (inst, matrix) => { if (inst.events.length) for (const a of inst.events.splice(0)) this.modelAction(a, matrix); },
+      floater: (x, y, z, text, color) => this.floaters.push({ x, y, z, text, color, age: 0 }),
+    };
   }
 
   /** The knight's body model as worn (armour and helmet, no weapon), for the HUD portrait. */
@@ -320,7 +364,7 @@ export class World implements LogicHost {
     const args: [string, any][] = [["Colorization", this.color]];
     for (const a of this.knight?.armor ?? []) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
     return { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
-      arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
   }
 
   async start(at: [number, number], gear: GearLoadout = DEFAULT_LOADOUT) {
@@ -896,6 +940,7 @@ export class World implements LogicHost {
   update(dt: number, input: KnightInput) {
     this.clock += dt;
     this.updateKnight(dt, input);
+    this.companion?.update(dt);
     for (const m of this.monsters) this.updateMonster(m, dt);
     this.updateProps(dt, !!input.interact && !this.knight.dead);
     // the logic sees actors where the game has moved them
@@ -1642,7 +1687,9 @@ export class World implements LogicHost {
       if (k.shield.breakEffect) this.spawnEffect(k.shield.breakEffect, k.matrix(), 1.5);
       return;
     }
-    const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k)) * (0.95 + Math.random() * 0.1)));
+    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k)) * (0.95 + Math.random() * 0.1)));
+    // a sprite shield (the Seraphynx's Angelic Aura) takes the hit first
+    if (this.companion) { dmg = Math.round(this.companion.absorb(dmg)); if (dmg <= 0) { k.invulnerable = 0.25; return; } }
     this.hitStatuses(k, amounts);
     const before = k.health;
     k.health = Math.max(0, k.health - dmg);
@@ -1760,7 +1807,8 @@ export class World implements LogicHost {
       if (!m.attack) m.state = "chase";
       return;
     }
-    if (k.dead) { m.state = "idle"; this.play(m, m.def.idle); return; }
+    // a cloaked knight (the Maskeraith's Shadow Cloak) is lost to the monsters
+    if (k.dead || this.companion?.hidesKnight()) { m.state = "idle"; this.play(m, m.def.idle); return; }
 
     if (m.state === "idle") {
       if (dist < AGGRO_RANGE) m.state = "chase";
@@ -1914,6 +1962,7 @@ export class World implements LogicHost {
       out.push({ instance: m.instance, matrix });
     }
     for (const p of this.props) if (p.instance) out.push({ instance: p.instance, matrix: p.matrix() });
+    if (this.companion) out.push(...this.companion.items());
     for (const p of this.projectiles) if (p.instance && !p.done) out.push({ instance: p.instance, matrix: p.matrix() });
     for (const e of this.effects) if (e.instance) out.push({ instance: e.instance, matrix: e.follow ? e.follow.matrix() : e.matrix });
     return out;
@@ -1923,6 +1972,7 @@ export class World implements LogicHost {
   shadows(): { x: number; y: number; z: number; r: number }[] {
     const out = [{ x: this.knight.x, y: this.knight.y, z: this.collision.groundZ(this.knight.x, this.knight.y), r: 0.75 }];
     for (const m of this.monsters) if (m.state !== "dying") out.push({ x: m.x, y: m.y, z: this.collision.groundZ(m.x, m.y), r: m.radius * m.scale * 1.7 });
+    if (this.companion) out.push(this.companion.shadow());
     return out;
   }
 

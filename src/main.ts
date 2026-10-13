@@ -17,10 +17,12 @@ import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./gam
 import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
+import { Outfit } from "./game/outfit";
+import { openWardrobe } from "./ui/wardrobe";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, keyName, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { OptionsScreen } from "./ui/options";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
@@ -188,6 +190,9 @@ class Viewer {
   private audio: AudioSystem | null = null;
   private save: SaveData = loadSave();
   private arsenal: Arsenal | null = null;
+  /** The battle sprite, accessories and costumes (game/outfit.ts); missions call outfit.setSprite. */
+  private outfit_: Outfit | null = null;
+  get outfit() { return this.outfit_ ??= new Outfit(this.loader, () => this.save, () => writeSave(this.save)); }
   /** Scenes in the install's cache, by name. */
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
@@ -316,6 +321,7 @@ class Viewer {
       (["item1", "item2", "item3", "item4"] as const).forEach((a, i) => {
         if (b(a) && !e.repeat && !this.paused && this.world!.useItem(i)) writeSave(this.save);
       });
+      (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
       if (b("dash") && !e.repeat) this.dashPressed = true;
       if (b("help") && !e.repeat) $("playHint").hidden = !$("playHint").hidden;
@@ -551,7 +557,10 @@ class Viewer {
     world.color = this.save.color;
     for (const [n, h] of Object.entries(this.save.weaponHeat)) world.weaponLevels.set(n, weaponLevel(h));
     world.pocket = this.save.pocket;
+    await this.outfit.dress(world);
     await world.start(spawn, this.save.loadout);
+    this.outfit.hotkeys = (["sprite1", "sprite2", "sprite3"] as const).map(a => keyName(this.bound(a)));
+    void this.outfit.accompany(world);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the scene's music (a weighted pick from its mix) and ambient loops
     const music = this.environment.music;
@@ -567,6 +576,7 @@ class Viewer {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
+    this.outfit.onRedress = () => portrait.setModelRef(world.portraitRef());
     // render views: the knight portrait, the heat meter's flame, the dash cooldown's ring and
     // the target panel's monster (a view per target)
     const heatView = new PortraitView(this.renderer, this.loader, undefined, null);
@@ -582,6 +592,7 @@ class Viewer {
     } });
     void this.gameHud.init(hudState(world, KNIGHT_NAME)).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
+    if (import.meta.env.DEV) openWardrobe(this.outfit, () => this.world, () => this.save, () => writeSave(this.save));
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
@@ -597,6 +608,7 @@ class Viewer {
 
   private stopPlaying() {
     if (!this.world) return;
+    this.outfit.leave(this.world);
     this.world = null;
     this.gameHud = null;
     this.audio?.stopMusic(1);

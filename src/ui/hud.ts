@@ -20,6 +20,7 @@ const ACTIVITIES = "ui/hud_v2/interface_activities.dat";
 const OBJECTIVE = "ui/hud_v2/interface_objective.dat";
 const TARGET = "ui/hud_v2/interface_status-mini.dat";
 const COOLDOWN = "ui/hud_v2/parts/interface_cooldown.dat";
+const SPRITE_SLOT = "ui/hud_v2/parts/interface_spriteslot.dat";
 
 /**
  * Text for the HUD's message keys. The game's message bundles are in its code jars, which
@@ -74,6 +75,8 @@ export interface HudState {
   objectives: string[];
   /** In a town (the activities panel opens; in dungeons it starts folded). */
   town: boolean;
+  /** The battle sprite's skills (the sprite slots beside the quickbar), or absent. */
+  sprite?: { icon: any; seconds: number; ready: boolean; locked: boolean; hotkey: string }[];
 }
 
 export function hudState(world: World, name: string, floor = ""): HudState {
@@ -89,6 +92,7 @@ export function hudState(world: World, name: string, floor = ""): HudState {
     dashCooldown: Math.max(0, k.dashCooldown),
     target: world.hudTarget(),
     objectives: [], town: false,
+    sprite: world.companion?.hud(),
   };
 }
 
@@ -247,7 +251,32 @@ export class GameHud {
     return r;
   }
 
+  /** The sprite slots (ui/hud_v2/parts/interface_spriteslot.dat), one per skill. */
+  private spriteSlots: Component[] = [];
+  private spriteBuilding = false;
+
+  private bindSprite(skills: NonNullable<HudState["sprite"]>) {
+    if (this.spriteSlots.length !== skills.length && !this.spriteBuilding) {
+      this.spriteBuilding = true;
+      void Promise.all(skills.map(s => buildInterface(this.ctx, ref(SPRITE_SLOT, { Cooldown: "", Hotkey: s.hotkey }))))
+        .then(uis => { this.spriteSlots = uis.filter((u): u is Component => !!u); }).finally(() => { this.spriteBuilding = false; });
+    }
+    skills.forEach((s, i) => {
+      const ui = this.spriteSlots[i];
+      if (!ui) return;
+      // the slot's root is dimmed (alpha 1/3) in the file: lit when the skill is ready
+      ui.setAlpha(s.locked ? 0.25 : s.ready ? 1 : 0.6);
+      const icon = ui.find("icon");
+      if (icon) icon.icon = s.icon && !s.locked ? this.icon(s.icon, 40) : null;
+      const cd = ui.find("cooldown");
+      if (cd) cd.text = !s.locked && s.seconds > 0 ? String(s.seconds) : "";
+      const hk = ui.find("slot_label");
+      if (hk) hk.text = s.hotkey;
+    });
+  }
+
   update(state: HudState, dt: number) {
+    if (state.sprite) this.bindSprite(state.sprite); else this.spriteSlots = [];
     if (this.built !== (state.shielding ? "Blocking" : "Idle") + "|" + state.heatLevel) void this.rebuildStatus(state);
     if (this.status) this.bindStatus(this.status, state);
     if (this.quickbar) this.bindQuickbar(this.quickbar, state);
@@ -405,6 +434,10 @@ export class GameHud {
     if (this.quickbar) {
       const size = pack(this.quickbar);
       render(this.quickbar, g, Math.round((cw - size.width) / 2), ch - 8, this.hooks);
+      // the sprite slots sit above the quickbar's right end (the corner menu takes its sides)
+      const sizes = this.spriteSlots.map(slot => pack(slot));
+      let sx = Math.round((cw + size.width) / 2) - sizes.reduce((t, ss) => t + ss.width + 2, 0);
+      this.spriteSlots.forEach((slot, i) => { render(slot, g, sx, ch - 8 - size.height - 2, this.hooks); sx += sizes[i].width + 2; });
       // the dash cooldown sits 60 pixels above the quickbar (the HUD mockup's anchor)
       if (this.cooldown?.visible) {
         const cs = pack(this.cooldown);

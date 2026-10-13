@@ -2,6 +2,9 @@
 // and materials banked between runs, and the deepest floor reached. Nothing leaves the
 // machine.
 
+import { normalizeAppearance, type Appearance } from "./accessories";
+import { normalizeSpriteSave, type SpriteSave } from "./sprites";
+
 export interface Loadout {
   /** Item config names, e.g. "Weapon/Sword/Proto Sword"; up to three weapons. */
   weapons: string[];
@@ -31,6 +34,10 @@ export interface SaveData {
   weaponHeat: Record<string, number>;
   /** Consumables carried in the pocket slots (capsules and vials): item name and count. */
   pocket: [string, number][];
+  /** Battle sprites: the one in the field and each one's level and augments (sprites.ts). */
+  sprites?: SpriteSave;
+  /** Accessories and costumes the knight shows (accessories.ts). */
+  appearance?: Appearance;
 }
 
 const KEY = "clyde-web-save";
@@ -61,6 +68,8 @@ export function loadSave(): SaveData {
       materials: { ...(d.materials ?? {}) },
       weaponHeat: { ...(d.weaponHeat ?? {}) },
       pocket: (d.pocket ?? []).filter(p => Array.isArray(p) && p[1] > 0).slice(0, POCKET_SLOTS),
+      sprites: normalizeSpriteSave(d.sprites),
+      appearance: normalizeAppearance(d.appearance),
       owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? []), d.loadout?.vitapod]
         .filter((x): x is string => !!x))],
     };
