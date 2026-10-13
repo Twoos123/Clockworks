@@ -16,6 +16,7 @@ import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from ".
 import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind } from "./props";
 import { intersects } from "./shapes";
+import { SpawnTables } from "./spawntable";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -175,10 +176,13 @@ export class World implements LogicHost {
   readonly props: Prop[] = [];
   logic!: Logic;
   knightEntity!: Entity;
+  private tables!: SpawnTables;
   /** Called when the knight takes the elevator at the end of the level. */
   onNextFloor: (() => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
+  /** What the knight has collected on this floor. */
+  readonly loot = { crowns: 0, heat: 0, materials: new Map<string, number>() };
   readonly effects: Effect[] = [];
   readonly projectiles: Projectile[] = [];
   readonly floaters: Floater[] = [];
@@ -269,7 +273,9 @@ export class World implements LogicHost {
 
   /** Builds the level logic from the scene's entries and starts it (EntryLogic startup). */
   private async startLogic() {
-    await this.data.preload("config/actor.dat", "config/spawn_table.dat", "config/parameterized_handler.dat");
+    await this.data.preload("config/actor.dat", "config/spawn_table.dat", "config/parameterized_handler.dat",
+      "config/fire_action.dat", "config/item.dat");
+    this.tables = new SpawnTables(this.data.library_("config/spawn_table.dat"));
     this.logic = new Logic(this, {
       handlerRef: ref => this.data.resolveSync("config/parameterized_handler.dat", ref, "handler")?.handlers ?? [],
     });
@@ -345,11 +351,33 @@ export class World implements LogicHost {
     switch (k) {
       case "ActivateMonster": case "TableSpawn": case "TableSpawnPerMember": {
         const table = cfg.spawnTable ?? cfg.table;
-        const ref = table ? this.data.spawnActorSync(table, this.tier()) : null;
-        if (!ref) return false;
+        if (!table) return false;
         const at = cfg.location ? logic.resolveTarget(cfg.location, source, activator) : [source];
-        for (const t of at) logic.spawn(ref, t.x, t.y, t.rotation, source, activator);
-        return true;
+        let any = false;
+        for (const t of at) {
+          const results = this.tables.evaluate(table, { depth: this.depth, tier: this.tier(), difficulty: this.difficulty });
+          for (const r of results) {
+            for (let n = 0; n < r.count; n++) {
+              // several results scatter a little around the spawn point
+              const j = results.length > 1 || r.count > 1 ? 0.7 : 0;
+              const x = t.x + (Math.random() - 0.5) * j, y = t.y + (Math.random() - 0.5) * j;
+              if (r.actor) { logic.spawn(r.actor, x, y, t.rotation, source, activator); any = true; }
+              else if (r.item) { this.awardItem(r.item, x, y); any = true; }
+            }
+          }
+        }
+        return any;
+      }
+      case "FireAction": {
+        // a named FireActionConfig wraps a logic action (loot drops are built this way)
+        const fa = cfg.fireAction ? this.data.resolveSync("config/fire_action.dat", cfg.fireAction, "action") : null;
+        let act = fa?.action ?? fa;
+        // a monster's loot drop opens with a switch on a value the export lost (it reads as
+        // "no loot"); go straight to the loot-kind switch inside it
+        if (/\/Loot Drop$/.test(cfg.fireAction?.name ?? "") && act?.actions?.[0]?.defaultAction) {
+          act = { ...act, actions: [act.actions[0].defaultAction, ...act.actions.slice(1)] };
+        }
+        return act?.$class ? logic.execute(act, source, activator) : true;
       }
       case "SpawnPrespawned": case "TaggedSpawnActor":
         if (cfg.actor) logic.spawn(cfg.actor, source.x, source.y, source.rotation, source, activator);
@@ -467,6 +495,31 @@ export class World implements LogicHost {
     if (effect && fx?.name) this.spawnEffect(fx, p.matrix(), 2);
   }
 
+  /**
+   * A pickup's item: health heals, crowns and heat add up, anything else goes to the
+   * materials tally. The amounts come from the item config's arguments where it has them.
+   */
+  private collect(p: Prop) {
+    const ref = p.cfg.pickupAction?.item;
+    const name = String(ref?.name ?? p.entity.name);
+    const item = ref ? this.data.resolveSync("config/item.dat", ref, "item") : null;
+    const num = (...keys: string[]) => { for (const k of keys) if (typeof item?.[k] === "number") return item[k]; return null; };
+    if (/Health|Heart/i.test(name)) this.healKnight(num("health", "amount") ?? this.knight.maxHealth * 0.25);
+    else if (/Crown/i.test(name)) {
+      const v = num("value", "amount", "crowns") ?? (/Gold/i.test(name) ? 10 : /Silver/i.test(name) ? 5 : 1);
+      this.loot.crowns += v;
+      this.floaters.push({ x: p.x, y: p.y, z: p.z + 1, text: `+${v} cr`, color: "#ffd84d", age: 0 });
+    } else if (/Heat/i.test(name)) this.loot.heat += num("heat", "amount", "value") ?? 1;
+    else this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
+  }
+
+  /** An item from a loot table (materials, gear): added to the floor's tally. */
+  private awardItem(item: any, x: number, y: number) {
+    const name = String(item.name);
+    this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
+    this.floaters.push({ x, y, z: this.collision.groundZ(x, y) + 1, text: name.split("/").pop() ?? name, color: "#c9e6ff", age: 0 });
+  }
+
   private damageProp(p: Prop, amount: number) {
     if (!p.breakable || p.entity.destroyed) return;
     this.logic.damaged(p.entity, this.knightEntity);
@@ -497,8 +550,7 @@ export class World implements LogicHost {
         }
         case "pickup":
           if (!k.dead && touching(p)) {
-            const item = String(p.cfg.pickupAction?.item?.name ?? "");
-            if (/Health/i.test(item)) this.healKnight(k.maxHealth * 0.5);
+            this.collect(p);
             const fx = p.cfg.sprite?.pickupTransient;
             if (fx?.name) this.spawnEffect(fx, p.matrix(), 2);
             this.logic.destroy(p.entity, ke);

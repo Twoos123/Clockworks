@@ -183,6 +183,9 @@ export class GameData {
     return lib ? resolveRef(lib, ref, field) : null;
   }
 
+  /** A preloaded library's configs by name. */
+  library_(file: string): Map<string, any> { return this.loaded.get(file) ?? new Map(); }
+
   /** A library config by name, without arguments applied (preloaded libraries only). */
   config(file: string, name: string): any | null { return this.loaded.get(file)?.get(name) ?? null; }
 
@@ -199,7 +202,9 @@ export class GameData {
       const next = cfg.base ?? cfg.implementation?.table;
       const tiered = getArg(next, `Tier ${tier}`) ?? getArg(next, "Tier 1");
       if (tiered && (tiered as any).name) return tiered;
-      const actor = findActorRef(cfg);
+      // loot tables name items and pickups, not only monsters
+      const actors = this.loaded.get("config/actor.dat");
+      const actor = findActorRef(cfg, 0, actors ? (n: string) => actors.has(n) : undefined);
       if (actor) return actor;
       ref = next;
     }
@@ -364,11 +369,13 @@ export class GameData {
   }
 }
 
-function findActorRef(o: any, depth = 0): any | null {
+/** The first actor reference in a spawn table: a monster, or any name `isActor` accepts. */
+function findActorRef(o: any, depth = 0, isActor?: (name: string) => boolean): any | null {
   if (!o || typeof o !== "object" || depth > 10 || ArrayBuffer.isView(o)) return null;
-  if (o.$class === "com.threerings.config.ConfigReference" && typeof o.name === "string" && o.name.startsWith("Character/")) return o;
-  if (o.$map) { for (const [, v] of o.entries) { const r = findActorRef(v, depth + 1); if (r) return r; } return null; }
-  for (const k of Object.keys(o)) { if (k === "$outer") continue; const r = findActorRef(o[k], depth + 1); if (r) return r; }
+  if (o.$class === "com.threerings.config.ConfigReference" && typeof o.name === "string"
+    && (o.name.startsWith("Character/") || isActor?.(o.name))) return o;
+  if (o.$map) { for (const [, v] of o.entries) { const r = findActorRef(v, depth + 1, isActor); if (r) return r; } return null; }
+  for (const k of Object.keys(o)) { if (k === "$outer") continue; const r = findActorRef(o[k], depth + 1, isActor); if (r) return r; }
   return null;
 }
 

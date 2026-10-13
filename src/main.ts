@@ -436,7 +436,9 @@ class Viewer {
     this.run.health = this.world.knight.health;
     this.run.floors++;
     $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
-    $("floorInfo").textContent = `${this.world.killCount} monsters defeated on this floor.`;
+    const l = this.world.loot;
+    const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
+    $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} other pickups.`;
     $("floorDone").hidden = false;
   }
 

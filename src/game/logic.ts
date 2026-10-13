@@ -402,7 +402,16 @@ export class Logic {
       }
       case "ExpressionSwitch": {
         const v = this.expression(cfg.value, source, activator);
-        for (const c of cfg.cases ?? []) if (valuesEqual(v, this.expression(c.value, source, activator))) return this.execute(c.action, source, activator);
+        const cases: any[] = cfg.cases ?? [];
+        // the export drops every case value in some switches (loot sizes and kinds); the
+        // parameter options give their order, so match the switch value by position there
+        if (cases.length && cases.every(c => c.value === undefined) && typeof v === "string") {
+          const vocab = CASE_ORDERS.find(o => o.includes(v.toLowerCase()));
+          const i = vocab ? vocab.indexOf(v.toLowerCase()) : -1;
+          if (i >= 0 && i < cases.length) return this.execute(cases[i].action, source, activator);
+          if (v === "" && cases[0]) return this.execute(cases[0].action, source, activator);
+        }
+        for (const c of cases) if (valuesEqual(v, this.expression(c.value, source, activator))) return this.execute(c.action, source, activator);
         return cfg.defaultAction ? this.execute(cfg.defaultAction, source, activator) : true;
       }
       case "Random": {
@@ -637,6 +646,8 @@ export class Logic {
   // ------------------------------------------------------------------ expressions
 
   expression(cfg: any, source: Entity, activator: Entity | null, previous: unknown = null): unknown {
+    // a parameter-set value on an implicit default Constant
+    if (cfg && !cfg.$class && "value" in cfg) return parseValue(String(cfg.value ?? ""));
     if (!cfg?.$class) return "";
     const ev = (c: any) => this.expression(c, source, activator, previous);
     const num = (c: any) => toNum(ev(c));
@@ -679,6 +690,12 @@ export class Logic {
     }
   }
 }
+
+/** Case orders for switches whose case values the export dropped (see ExpressionSwitch). */
+const CASE_ORDERS = [
+  ["mini", "small", "medium", "large"],
+  ["primary", "health", "crown", "pickups", "breakable", "tutorial", "horde"],
+];
 
 /**
  * Signal handler name matching. Clyde matches exactly, but the game's data leaves the name
