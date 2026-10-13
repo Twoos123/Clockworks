@@ -983,6 +983,7 @@ class Viewer {
       closed: () => { if (!this.settings?.isOpen) { this.paused = false; this.canvas.focus(); } },
       playing: () => !!this.world,
       sound: f => this.uiSound(f),
+      sceneNames: () => this.sceneList.map(s => s.name),
     });
     await this.options.open();
   }

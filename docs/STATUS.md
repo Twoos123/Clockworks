@@ -72,6 +72,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
 | Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
 | Ready Room | `rsrc/world/readyroom/scene.dat` with the arsenal open; the knight changes into a new loadout when it closes |
+| Level checklist | `src/game/levels.ts`: 366 server-side levels (Clockworks sets, bosses, Shadow Lairs, danger, rank, expansion and event missions, towns, PvP) with where to get each and a scene-name pattern; `npm run levels` prints collected/missing from the archive and cache; the options window's Levels tab shows the counts (docs/research/levels.md) |
 | Knight creation | On a fresh save: `rsrc/world/createknight/scene.dat`, a name (shown on the HUD name plate), personal colour, and the zero-star Spiral helmets and armours in their seven trims |
 
 ## What is still missing
