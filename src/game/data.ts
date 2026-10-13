@@ -23,9 +23,10 @@ export interface DamageShape {
 
 export interface AttackDef {
   name: string;
-  start?: string;
-  fire?: string;
-  end?: string;
+  /** Animation references (with arguments: the fire animation carries sound and effects). */
+  start?: any;
+  fire?: any;
+  end?: any;
   startSpeed: number;
   fireSpeed: number;
   endSpeed: number;
@@ -193,7 +194,7 @@ export class GameData {
     const shapeArg = getArg(fire, "Shape");
     return {
       name: ref?.name ?? "",
-      start: a.start?.name, fire: a.fire?.name, end: a.end?.name,
+      start: a.start?.name ? a.start : undefined, fire: a.fire?.name ? a.fire : undefined, end: a.end?.name ? a.end : undefined,
       startSpeed: a.startSpeed ?? 1, fireSpeed: a.fireSpeed ?? 1, endSpeed: a.endSpeed ?? 1,
       clear: a.clear ?? 400, rearm: a.rearm ?? 300,
       damage: getArg(fire, "Damage") ?? null,

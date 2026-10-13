@@ -26,6 +26,10 @@ export interface Environment {
   skyboxes: LoadedModel[];
   models: LoadedModel[];
   camera: { azimuth: number; elevation: number; distance: number } | null;
+  /** Music tracks (a weighted mix picks one) and their gain. */
+  music?: { files: { file: string; weight: number }[]; gain: number } | null;
+  /** Looping ambient sounders (wind, rain) heard everywhere in the scene. */
+  ambience?: any[];
 }
 
 export const VIEWER_ENVIRONMENT: Environment = {
@@ -75,6 +79,25 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
     try { root = applyArguments(await loader.importFile(ref.name), ref); } catch { return; }
     const impl = root?.implementation;
     const kind = impl?.$class ?? "";
+    // music and ambience models: their arguments name the files and sounders
+    const arg = (n: string) => (ref.arguments?.entries as [string, any][] | undefined)?.find(([k]) => k === n)?.[1];
+    if (ref.name === "world/environment/global_music.dat") {
+      if (arg("File")) env.music = { files: [{ file: arg("File"), weight: 1 }], gain: arg("Gain") ?? 1 };
+      return;
+    }
+    if (ref.name === "world/environment/global_music_mix.dat") {
+      const files = ((arg("Files") ?? []) as any[]).filter(f => f?.file).map(f => ({ file: f.file as string, weight: f.weight ?? 1 }));
+      if (files.length) env.music = { files, gain: arg("Gain") ?? 1 };
+      return;
+    }
+    if (ref.name === "world/environment/global_skybox.dat" && /sounder/.test(arg("Model")?.name ?? "")) {
+      await applyModel(arg("Model"), depth + 1);
+      return;
+    }
+    if ((ref.name === "world/environment/global_sounder.dat" || ref.name === "model/viewer/sounder.dat") && arg("Sounder")) {
+      (env.ambience ??= []).push(arg("Sounder"));
+      return;
+    }
     if (kind.endsWith("SceneInfluencerConfig")) {
       const inf = impl.influence;
       const ik = inf?.$class?.substring(inf.$class.lastIndexOf("$") + 1) ?? "AmbientLight";

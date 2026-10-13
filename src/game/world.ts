@@ -3,7 +3,8 @@
 // breakables from startup markers, melee and projectile combat with the attack data from
 // the install, depth-scaled damage against defence, and transient effects.
 
-import { compose, type Mat4, type Vec3 } from "../math";
+import type { AudioSystem } from "../audio";
+import { compose, multiply, readTransform, type Mat4, type Vec3 } from "../math";
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
@@ -151,12 +152,21 @@ class Projectile {
   }
 }
 
-interface Effect { instance: ModelInstance; matrix: Mat4; life: number; follow?: Actor }
+interface Effect {
+  /** The drawn model, or null for a scripted model (timed actions only). */
+  instance: ModelInstance | null;
+  matrix: Mat4;
+  life: number;
+  follow?: Actor;
+  /** ScriptedConfig: its actions, the time so far and the next action to run. */
+  script?: { actions: { time: number; action: any }[]; loop: number; t: number; next: number };
+}
 
 export interface WorldOptions {
   /** Dungeon depth, which scales damage, health and defence. */
   depth?: number;
   difficulty?: Difficulty;
+  audio?: AudioSystem | null;
 }
 
 export class World {
@@ -178,29 +188,37 @@ export class World {
   defeated = false;
   depth: number;
   difficulty: Difficulty;
+  readonly audio: AudioSystem | null;
+  /** Camera shake strength from ShakeCamera actions, decaying. */
+  shake = 0;
 
   constructor(private readonly loader: ModelLoader, private readonly renderer: Renderer,
     private readonly scene: LoadedScene, private readonly collision: CollisionMap, opts: WorldOptions = {}) {
     this.data = new GameData(loader);
     this.depth = opts.depth ?? 1;
     this.difficulty = opts.difficulty ?? "medium";
+    this.audio = opts.audio ?? null;
   }
 
   ctx(rarity = 0): DepthContext { return { depth: this.depth, rarity, difficulty: this.difficulty }; }
 
   // ---------------------------------------------------------------- setup
 
-  /** Loads (and caches) an animation clip; returns it synchronously once ready. */
-  clip(path?: string): AnimationClip | null {
-    if (!path) return null;
-    if (!this.clips.has(path)) {
-      this.clips.set(path, loadAnimation(this.loader, path).catch(() => null).then(c => { this.ready.set(path, c); return c; }));
+  /**
+   * Loads (and caches) an animation clip from a path or a ConfigReference (whose arguments,
+   * such as an attack's sound, apply); returns it synchronously once ready.
+   */
+  clip(p?: string | any): AnimationClip | null {
+    if (!p) return null;
+    const key = clipKey(p);
+    if (!this.clips.has(key)) {
+      this.clips.set(key, loadAnimation(this.loader, p).catch(() => null).then(c => { this.ready.set(key, c); return c; }));
     }
-    return this.ready.get(path) ?? null;
+    return this.ready.get(key) ?? null;
   }
 
-  private async preload(...paths: (string | undefined)[]) {
-    await Promise.all(paths.filter(Boolean).map(p => { this.clip(p); return this.clips.get(p!); }));
+  private async preload(...paths: (string | any | undefined)[]) {
+    await Promise.all(paths.filter(Boolean).map(p => { this.clip(p); return this.clips.get(clipKey(p)); }));
   }
 
   private async preloadAttacks(attacks: (AttackDef | null | undefined)[]) {
@@ -295,13 +313,13 @@ export class World {
 
   // ---------------------------------------------------------------- animation helpers
 
-  private play(a: Actor, path: string | undefined, opts: { loop?: boolean; speed?: number; blend?: number } = {}) {
+  private play(a: Actor, path: string | any | undefined, opts: { loop?: boolean; speed?: number; blend?: number } = {}) {
     const c = this.clip(path);
     if (c) a.instance.play(c, opts);
   }
 
   /** Plays a clip on the knight's upper body. */
-  private overlay(a: Actor, path: string | undefined, loop = false, speed = 1) {
+  private overlay(a: Actor, path: string | any | undefined, loop = false, speed = 1) {
     const c = this.clip(path);
     if (c && a.upperBody) a.instance.playOverlay(c, a.upperBody, { loop, speed });
   }
@@ -314,7 +332,17 @@ export class World {
     for (const m of this.monsters) this.updateMonster(m, dt);
     this.separate();
     this.updateProjectiles(dt);
-    for (const e of this.effects) e.life -= dt;
+    this.runEvents();
+    this.shake = Math.max(0, this.shake - dt * 2);
+    for (const e of this.effects) {
+      e.life -= dt;
+      const sc = e.script;
+      if (sc) {
+        sc.t += dt;
+        while (sc.next < sc.actions.length && sc.actions[sc.next].time <= sc.t) this.modelAction(sc.actions[sc.next++].action, e.follow ? e.follow.matrix() : e.matrix, e.follow);
+        if (sc.next >= sc.actions.length && sc.loop > 0 && sc.t >= sc.loop) { sc.t -= sc.loop; sc.next = 0; }
+      }
+    }
     for (let i = this.effects.length - 1; i >= 0; i--) if (this.effects[i].life <= 0) this.effects.splice(i, 1);
     for (const f of this.floaters) f.age += dt;
     for (let i = this.floaters.length - 1; i >= 0; i--) if (this.floaters[i].age > 1.2) this.floaters.splice(i, 1);
@@ -540,7 +568,7 @@ export class World {
   }
 
   /** One-shot attack animation: upper body for walking attacks, else whole body. */
-  private animate(a: Actor, path: string, speed: number) {
+  private animate(a: Actor, path: string | any, speed: number) {
     if (a.attack?.overlay) { this.overlay(a, path, false, speed); return; }
     a.instance.overlay = null;
     this.play(a, path, { loop: false, speed, blend: 0.06 });
@@ -934,8 +962,73 @@ export class World {
   private async spawnEffect(ref: any, matrix: Mat4, life: number, follow?: Actor) {
     const model = await this.loader.loadRef(ref).catch(() => null);
     if (!model) return;
+    // scripted models (alone or inside compounds) have no geometry: they run their timed
+    // actions, then end (looping ones live as long as the effect)
+    const startScripts = (m: LoadedModel, local: Mat4, depth: number) => {
+      if (depth > 6) return;
+      if (m.script) {
+        const sc = m.script;
+        const end = sc.actions.length ? sc.actions[sc.actions.length - 1].time : 0;
+        this.effects.push({ instance: null, matrix: multiply(matrix, local), life: sc.loopDuration > 0 ? life : end + 0.1, follow,
+          script: { actions: sc.actions, loop: sc.loopDuration, t: 0, next: 0 } });
+      }
+      for (const a of m.attachments) {
+        const t = a.transform;
+        startScripts(a.model, multiply(local, t.matrix ?? compose(t.t, t.r, t.s)), depth + 1);
+      }
+    };
+    startScripts(model, compose([0, 0, 0], [0, 0, 0, 1], 1), 0);
+    if (model.script) return;
     const instance = await this.renderer.instantiate(model);
     this.effects.push({ instance, matrix, life, follow });
+  }
+
+  /**
+   * Executes a model action (opengl.model.config.ActionConfig) from a scripted model or an
+   * animation frame: spawn a transient model, play a sound, or shake the camera.
+   */
+  private modelAction(action: any, matrix: Mat4, follow?: Actor, depth = 0) {
+    if (!action || depth > 6) return;
+    const k = String(action.$class ?? "").split("$").pop();
+    switch (k) {
+      case "SpawnTransient": {
+        if (!action.model) break;
+        const t = readTransform(action.transform);
+        const local = t.matrix ?? compose(t.t, t.r, t.s);
+        this.spawnEffect(action.model, multiply(matrix, local), 2.5, action.moveWithOrigin ? follow : undefined);
+        break;
+      }
+      case "PlaySound":
+        this.audio?.play(action.sounder, [matrix[12], matrix[13], matrix[14]]);
+        break;
+      case "ShakeCamera": {
+        const d = Math.hypot(matrix[12] - this.knight.x, matrix[13] - this.knight.y);
+        this.shake = Math.max(this.shake, (action.amplitude ?? 0.3) / (1 + d * 0.3));
+        break;
+      }
+      case "Compound": for (const a of action.actions ?? []) this.modelAction(a, matrix, follow, depth + 1); break;
+      case "Random": {
+        const list: any[] = action.actions ?? [];
+        const total = list.reduce((s, w) => s + (w.weight ?? 1), 0);
+        let r = Math.random() * total;
+        for (const w of list) { r -= w.weight ?? 1; if (r <= 0) { this.modelAction(w.action, matrix, follow, depth + 1); break; } }
+        break;
+      }
+      case "Conditional": this.modelAction(action.defaultAction, matrix, follow, depth + 1); break;
+    }
+  }
+
+  /** Runs the frame actions the knight's, monsters' and effects' animations have reached. */
+  private runEvents() {
+    const drain = (inst: ModelInstance, matrix: () => Mat4, follow?: Actor) => {
+      if (!inst.events.length) return;
+      const m = matrix();
+      for (const a of inst.events.splice(0)) this.modelAction(a, m, follow);
+    };
+    const k = this.knight;
+    drain(k.instance, () => k.matrix(), k);
+    for (const m of this.monsters) drain(m.instance, () => m.matrix(), m);
+    for (const e of this.effects) if (e.instance) drain(e.instance, () => e.follow ? e.follow.matrix() : e.matrix, e.follow);
   }
 
   items(): { instance: ModelInstance; matrix: Mat4 }[] {
@@ -952,12 +1045,17 @@ export class World {
     }
     for (const b of this.blocks) out.push({ instance: b.instance, matrix: b.matrix() });
     for (const p of this.projectiles) if (p.instance && !p.done) out.push({ instance: p.instance, matrix: p.matrix() });
-    for (const e of this.effects) out.push({ instance: e.instance, matrix: e.follow ? e.follow.matrix() : e.matrix });
+    for (const e of this.effects) if (e.instance) out.push({ instance: e.instance, matrix: e.follow ? e.follow.matrix() : e.matrix });
     return out;
   }
 
   /** Living monsters, for health bars. */
   get liveMonsters() { return this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning"); }
+}
+
+/** Cache key for an animation path or reference (arguments included). */
+function clipKey(p: string | any): string {
+  return typeof p === "string" ? p : p.name + JSON.stringify(p.arguments?.entries ?? [], (k, v) => (k === "$outer" ? undefined : v));
 }
 
 function pointInPoly(x: number, y: number, poly: [number, number][]): boolean {

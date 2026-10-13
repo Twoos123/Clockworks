@@ -192,6 +192,32 @@ export class ModelInstance {
    * can swing a sword while its legs run. Its time is advanced by the owner.
    */
   overlay: { clip: AnimationClip; time: number; speed: number; mask: Set<string>; blendIn: number } | null = null;
+  /**
+   * Frame actions (AnimationConfig.FrameAction) the clips have passed since the owner last
+   * drained this list; the owner executes them (sounds, swing trails).
+   */
+  readonly events: any[] = [];
+  private baseMark = { clip: null as AnimationClip | null, frame: 0 };
+  private overlayMark = { clip: null as AnimationClip | null, frame: 0 };
+
+  /** Queues the actions of `clip` between the mark's frame and time `t` (seconds). */
+  private markActions(clip: AnimationClip | null, t: number, mark: { clip: AnimationClip | null; frame: number }) {
+    if (!clip) { mark.clip = null; return; }
+    let f = t * clip.rate;
+    if (!clip.loop) f = Math.min(f, clip.frames.length - 1);
+    let prev = mark.clip === clip ? mark.frame : -1e-6;
+    if (f < prev) prev = -1e-6;
+    mark.clip = clip;
+    mark.frame = f;
+    if (!clip.actions?.length || f === prev) return;
+    const n = clip.frames.length;
+    for (const a of clip.actions) {
+      if (!clip.loop || n <= 0) { if (a.frame > prev && a.frame <= f) this.events.push(a.action); continue; }
+      for (let k = Math.ceil((prev - a.frame) / n); a.frame + k * n <= f; k++) {
+        if (a.frame + k * n > prev) this.events.push(a.action);
+      }
+    }
+  }
 
   /** Plays a clip on the masked nodes only, over whatever the base clip does. */
   playOverlay(clip: AnimationClip, mask: Set<string>, opts: { loop?: boolean; speed?: number; blendIn?: number } = {}) {
@@ -260,6 +286,9 @@ export class ModelInstance {
       if (frame === this.updatedFrame) return;
       this.updatedFrame = frame;
     }
+    this.markActions(this.clip, this.time * this.speed, this.baseMark);
+    this.markActions(this.overlay?.clip ?? null, (this.overlay?.time ?? 0) * (this.overlay?.speed ?? 1), this.overlayMark);
+    if (this.events.length > 64) this.events.splice(0, this.events.length - 64);
     if (!this.model.root) return;
     const current = this.clip ? sampleClip(this.clip, this.time * this.speed) : new Map<string, Transform>();
     let pose = current;

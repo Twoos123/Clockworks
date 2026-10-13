@@ -10,6 +10,7 @@ import { Hud } from "./game/hud";
 import { GuiContext } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
+import { AudioSystem } from "./audio";
 
 /** The name shown on the HUD name plate. */
 const KNIGHT_NAME = "Knight";
@@ -139,6 +140,7 @@ class Viewer {
   private hud: Hud | null = null;
   private gameHud: GameHud | null = null;
   private gui: GuiContext | null = null;
+  private audio: AudioSystem | null = null;
   private attackPressed = false;
   private attackHeld = false;
   /** A weapon slot picked with the number keys, applied on the next update. */
@@ -344,8 +346,19 @@ class Viewer {
     const spawn = this.scene.collision.findSpawn((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
-    const world = new World(this.loader, this.renderer, this.scene, this.scene.collision);
+    this.audio ??= new AudioSystem(this.vfs, this.loader);
+    this.audio.unlock();
+    const world = new World(this.loader, this.renderer, this.scene, this.scene.collision, { audio: this.audio });
     await world.start(spawn);
+    // the scene's music (a weighted pick from its mix) and ambient loops
+    const music = this.environment.music;
+    if (music?.files.length) {
+      const total = music.files.reduce((t, f) => t + f.weight, 0);
+      let r = Math.random() * total;
+      const pick = music.files.find(f => (r -= f.weight) <= 0) ?? music.files[0];
+      void this.audio.playMusic(pick.file, music.gain);
+    }
+    for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
@@ -370,6 +383,8 @@ class Viewer {
     if (!this.world) return;
     this.world = null;
     this.gameHud = null;
+    this.audio?.stopMusic(1);
+    this.audio?.stopAmbience();
     this.hud?.clear();
     $("defeated").hidden = true;
     $("spawnJelly").hidden = true;
@@ -626,7 +641,11 @@ class Viewer {
         this.target[2] + this.dist * Math.sin(this.el),
       ];
       const proj = perspective(0.75, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
+      // camera shake from explosions (ShakeCamera actions)
+      const shake = this.world?.shake ?? 0;
+      if (shake > 0) for (let i = 0; i < 3; i++) eye[i] += (Math.random() - 0.5) * shake * 0.6;
       const view = lookAt(eye, this.target, [0, 0, 1]);
+      if (this.world) this.audio?.setListener([this.world.knight.x, this.world.knight.y, this.world.knight.z]);
       if (!this.paused) this.renderer.time += dt;
       if (this.sceneItems) {
         // Fog in the game is tuned for a camera about camera.distance from the player; shift it so

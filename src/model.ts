@@ -63,6 +63,8 @@ export interface LoadedModel {
   skipped: string[];
   /** Particle-system layers, for ParticleSystemConfig models. */
   particles?: ParticleLayer[];
+  /** ScriptedConfig models: timed model actions (spawn a transient, play a sound). */
+  script?: { loopDuration: number; actions: { time: number; action: any }[] };
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
@@ -238,6 +240,16 @@ export class ModelLoader {
       return model;
     }
 
+    // Scripted models run timed actions (ScriptedConfig.TimeAction); the owner executes them
+    if (impl.$class.endsWith("ScriptedConfig")) {
+      model.script = {
+        loopDuration: impl.loopDuration ?? 0,
+        actions: ((impl.actions ?? []) as any[]).filter(a => a?.action).map(a => ({ time: a.time ?? 0, action: a.action }))
+          .sort((a, b) => a.time - b.time),
+      };
+      return model;
+    }
+
     if (impl.$class.endsWith("ParticleSystemConfig")) {
       model.particles = readParticleLayers(impl, ref => lib.resolve(ref, null, local),
         impl.$class.endsWith("MetaParticleSystemConfig"));
@@ -300,30 +312,41 @@ export class ModelLoader {
 // --- animations ---
 
 export interface AnimationClip {
+  /** The file, plus its arguments when it was loaded through a reference that has some. */
   path: string;
   rate: number;
   loop: boolean;
   targets: string[];
   /** frames[frame][target] */
   frames: Transform[][];
+  /** AnimationConfig.FrameAction: model actions (sounds, transients) at fractional frames. */
+  actions: { frame: number; action: any }[];
 }
 
-export async function loadAnimation(loader: ModelLoader, path: string, depth = 0): Promise<AnimationClip | null> {
-  const root: any = await loader.importFile(path);
+/**
+ * Loads an animation file, or a ConfigReference to one whose arguments are applied (attack
+ * animations take their sound and swing effect as arguments).
+ */
+export async function loadAnimation(loader: ModelLoader, pathOrRef: string | any, depth = 0): Promise<AnimationClip | null> {
+  const ref = typeof pathOrRef === "string" ? null : pathOrRef;
+  const path: string = ref ? ref.name : pathOrRef;
+  if (!path?.endsWith(".dat")) return null;
+  let root: any = await loader.importFile(path);
   if (root?.$class !== "com.threerings.opengl.model.config.AnimationConfig") return null;
+  root = applyArguments(root, ref);
   const impl = root.implementation;
   if (!impl) return null;
   if (impl.$class.endsWith("$Derived")) {
-    const name = impl.animation?.name;
-    return name?.endsWith(".dat") && depth < 6 ? loadAnimation(loader, name, depth + 1) : null;
+    return impl.animation?.name && depth < 6 ? loadAnimation(loader, impl.animation, depth + 1) : null;
   }
   if (!impl.transforms || !impl.targets) return null;
   return {
-    path,
+    path: hasArguments(ref) ? path + "|" + argKey(ref) : path,
     rate: impl.rate ?? 30,
     loop: !!impl.loop,
     targets: impl.targets,
     frames: (impl.transforms as any[]).map(f => (f as any[]).map(readTransform)),
+    actions: ((impl.actions ?? []) as any[]).filter(a => a?.action).map(a => ({ frame: a.frame ?? 0, action: a.action })),
   };
 }
 
