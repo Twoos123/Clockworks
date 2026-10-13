@@ -142,6 +142,8 @@ export class Knight extends Actor {
 
 export class Monster extends Actor {
   readonly team = "monster";
+  /** Monsters without attacks (traders, wandering townsfolk) are passive and untouchable. */
+  get passive() { return this.def.attacks.length === 0; }
   /** The monster's logic actor (tags such as its wave, handlers). */
   entity: Entity | null = null;
   radius: number;
@@ -1307,7 +1309,7 @@ export class World implements LogicHost {
   private projectileTarget(p: Projectile): boolean {
     const r = p.def.radius;
     if (p.team === "knight") {
-      if (this.monsters.some(m => m.state !== "dying" && m.state !== "spawning" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + r)) return true;
+      if (this.monsters.some(m => m.state !== "dying" && m.state !== "spawning" && !m.passive && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + r)) return true;
       return this.props.some(b => b.breakable && Math.hypot(b.x - p.x, b.y - p.y) < 0.5 + r);
     }
     const k = this.knight;
@@ -1342,6 +1344,7 @@ export class World implements LogicHost {
   }
 
   private damageMonster(m: Monster, amounts: Amounts, knockback: number, fx: number, fy: number) {
+    if (m.passive) return;
     const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m)) * (0.95 + Math.random() * 0.1)));
     this.hitStatuses(m, amounts);
     m.health -= dmg;
@@ -1477,6 +1480,7 @@ export class World implements LogicHost {
     this.applyKnockback(m, dt, MONSTER_MASK);
     this.applyLunge(m, dt, MONSTER_MASK);
     if (this.tickStatuses(m, dt)) return;
+    if (m.passive) { if (m.state !== "spawning") this.play(m, m.def.idle); m.state = m.state === "spawning" && m.stateTime < 1.2 ? m.state : "idle"; return; }
     const k = this.knight;
     const dx = k.x - m.x, dy = k.y - m.y, dist = Math.hypot(dx, dy) || 1e-3;
     // turnRate is radians per second (a jelly's 174.5 is 10,000 degrees: instant)
@@ -1640,7 +1644,7 @@ export class World implements LogicHost {
   }
 
   /** Living monsters, for health bars. */
-  get liveMonsters() { return this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning"); }
+  get liveMonsters() { return this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive); }
 }
 
 /** TagConfig: its tags plus the chain of derived tag configs. */
