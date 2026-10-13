@@ -3,6 +3,7 @@
 // machine.
 
 import type { GearState } from "./economy";
+import type { GuildSave } from "./guild";
 
 export interface Loadout {
   /** Item config names, e.g. "Weapon/Sword/Proto Sword"; up to three weapons. */
@@ -45,7 +46,22 @@ export interface SaveData {
   sparks?: number;
   /** Letters in the knight's mailbox (welcome notes, mission rewards). */
   mail?: { from: string; subject: string; body: string; read: boolean; at: number }[];
+  /** The knight made at character creation; absent until then (a fresh save). */
+  knight?: KnightProfile;
+  /** The player's guild: name, emblem, vault and hall furniture (src/game/guild.ts). */
+  guild?: GuildSave;
 }
+
+export interface KnightProfile {
+  /** Shown on the HUD name plate. */
+  name: string;
+  /** The look picked at creation (starting helmet and armour; the colour is SaveData.color). */
+  helmet: string;
+  armor: string;
+}
+
+/** The name plate's text: the created knight's name, else "Knight". */
+export const knightName = (d: SaveData) => d.knight?.name || "Knight";
 
 import type { MissionProgress } from "./missions";
 

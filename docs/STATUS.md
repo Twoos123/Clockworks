@@ -65,6 +65,9 @@ A single-player loop runs in the browser, built from the install's own data:
 | Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions (themed floors at their rank's depth, ending in their boss), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
 | HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
+| Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
+| Ready Room | `rsrc/world/readyroom/scene.dat` with the arsenal open; the knight changes into a new loadout when it closes |
+| Knight creation | On a fresh save: `rsrc/world/createknight/scene.dat`, a name (shown on the HUD name plate), personal colour, and the zero-star Spiral helmets and armours in their seven trims |
 
 ## What is still missing
 
