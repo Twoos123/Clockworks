@@ -33,6 +33,10 @@ export interface SaveData {
   weaponHeat: Record<string, number>;
   /** Consumables carried in the pocket slots (capsules and vials): item name and count. */
   pocket: [string, number][];
+  /** Rank, completed missions and prestige (src/game/missions.ts); made on first use. */
+  missions?: MissionProgress;
+  /** Letters in the knight's mailbox (welcome notes, mission rewards). */
+  mail?: { from: string; subject: string; body: string; read: boolean; at: number }[];
   /** The knight made at character creation; absent until then (a fresh save). */
   knight?: KnightProfile;
   /** The player's guild: name, emblem, vault and hall furniture (src/game/guild.ts). */
@@ -49,6 +53,8 @@ export interface KnightProfile {
 
 /** The name plate's text: the created knight's name, else "Knight". */
 export const knightName = (d: SaveData) => d.knight?.name || "Knight";
+
+import type { MissionProgress } from "./missions";
 
 const KEY = "clyde-web-save";
 

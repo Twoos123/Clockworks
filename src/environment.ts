@@ -83,6 +83,12 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
     const kind = impl?.$class ?? "";
     // music and ambience models: their arguments name the files and sounders
     const arg = (n: string) => (ref.arguments?.entries as [string, any][] | undefined)?.find(([k]) => k === n)?.[1];
+    // a light set ("Environment/Light Set"): a compound of ambient and directional lights
+    if (ref.name === "model/compound/model.dat" && Array.isArray(arg("Models"))
+      && (arg("Models") as any[]).some(c => /^world\/environment\//.test(c?.model?.name ?? ""))) {
+      for (const c of arg("Models") as any[]) await applyModel(c?.model, depth + 1);
+      return;
+    }
     if (ref.name === "world/environment/global_music.dat") {
       if (arg("File")) env.music = { files: [{ file: arg("File"), weight: 1 }], gain: arg("Gain") ?? 1 };
       return;
