@@ -203,6 +203,7 @@ const MESSAGES: Record<string, string> = {
   add_more_bonuses: "Add More Bonuses", add_more_success: "Add More Success", apply_crystals: "Apply Crystals",
   intro_pref: "Preferences", intro_type: "Type", intro_arcade: "Arcade", intro_expansion: "Expansion",
   intro_prestige: "Prestige", intro_rank: "Rank", edit_advanced: "Advanced", edit_beta: "Beta",
+  characteroptions: "Character Options", feed_sprite: "Feed Sprite", pet_skillpoints: "Skill Points",
 };
 const ACRONYMS = new Set(["ui", "hud", "npc", "pvp", "pve", "eu", "us", "id", "fps", "fov", "xp", "hp", "aoe", "dps"]);
 const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to", "with"]);
@@ -499,6 +500,15 @@ const vgroup = (policy: string, just: string, off: string, gap = 5) =>
   ({ $class: "LayoutConfig$VerticalGroup", policy: enm(policy), justification: enm(just), offAxisPolicy: enm(off), gap });
 const FIXED = { fixed: true };
 
+/**
+ * Builds a component from an inline ComponentConfig (as an interface file holds them), resolving
+ * style names against an interface's local styles (`host.local` of a built interface) and then
+ * config/style.dat: for parts the game fills in from code (rows, tabs), laid out the game's way.
+ */
+export function buildComponentConfig(ctx: GuiContext, cfg: any, local: Map<string, any> = new Map()): Promise<Component> {
+  return buildComponent(ctx, cfg, local, {}, 0);
+}
+
 async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>, opts: BuildOptions, depth: number): Promise<Component> {
   const k = kind(cfg);
   const ck: CompKind = k === "Container" ? "container" : k === "Label" || k === "StatusLabel" || k === "FadeLabel" || k === "TextArea" ? "label"
@@ -719,7 +729,7 @@ function selectItem(c: Component, index: number) {
 }
 
 /** TabbedPane.selectTab: selects the tab's button and shows its page in the centre. */
-function selectTab(p: Component, index: number) {
+export function selectTab(p: Component, index: number) {
   if (index === p.selectedIndex || !p.tabs.length) return;
   index = Math.max(0, Math.min(p.tabs.length - 1, index));
   const buttons = p.parts.buttons!;
@@ -1779,7 +1789,14 @@ function focusText(root: Component, st: Input, c: Component) {
     else if (e.key === "Escape") el.blur();
   };
   el.onkeyup = e => e.stopPropagation();
-  el.onblur = () => { if (st.focus === c) { st.focus = null; c.focused = false; } };
+  // the press that focused the field goes on to focus its canvas (mousedown's default): a blur
+  // straight after focusing gives the focus back instead of ending it
+  const since = performance.now();
+  el.onblur = () => {
+    if (st.focus !== c) return;
+    if (performance.now() - since < 250) { setTimeout(focus, 0); return; }
+    st.focus = null; c.focused = false;
+  };
   const focus = () => { if (st.focus === c) { el.focus({ preventScroll: true }); el.setSelectionRange(el.value.length, el.value.length); } };
   // the canvas's own pointer-down default may take the focus back, so focus again afterwards
   focus();

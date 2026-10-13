@@ -6,13 +6,14 @@
 import type { ColorPository } from "../colors";
 import type { GameData } from "../game/data";
 import type { Economy } from "../game/economy";
+import type { Outfit } from "../game/outfit";
 import type { Loadout, SaveData } from "../game/save";
 import { ArsenalScreen } from "./equipment";
 import { ForgeScreen } from "./forge";
 import { ShopScreen, type StockItem } from "./shop";
 import { BackpackScreen } from "./backpack";
 import type { Component, GuiContext } from "./gui";
-import type { GuiScreen } from "./screen";
+import type { GuiScreen, ViewModel } from "./screen";
 
 export interface ScreensHost {
   gui: GuiContext;
@@ -27,9 +28,11 @@ export interface ScreensHost {
   paused(on: boolean): void;
   colors: Promise<ColorPository | null>;
   /** Draws the knight preview into a RenderableView. */
-  view?(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void;
+  view?(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, model?: ViewModel): void;
   /** The arsenal closed (the Ready Room dresses the knight). */
   arsenalClosed?(): void;
+  /** The battle sprite, accessories and costumes. */
+  outfit(): Outfit;
 }
 
 export class GameScreens {
@@ -78,6 +81,8 @@ export class GameScreens {
       equipped: (l: Loadout) => { h.save().loadout = l; h.write(); },
       colors: () => this.colorList,
       setColor: print => { h.save().color = print; h.write(); },
+      outfit: h.outfit,
+      write: h.write,
     });
   }
 
@@ -94,10 +99,10 @@ export class GameScreens {
   }
 
   /** Opens a shopkeeper's shop with its stock. */
-  async openShop(title: string, stock: StockItem[], maxRarity: number) {
+  async openShop(title: string, stock: StockItem[], maxRarity: number, portrait: any = null) {
     for (const o of this.all()) if (o !== this.shop) o.close();
     this.host.paused(true);
-    await this.shop.openFor(title, stock, maxRarity);
+    await this.shop.openFor(title, stock, maxRarity, portrait);
   }
 
   /** Opens a window (closing any other), or closes it when it is open. */
@@ -111,4 +116,12 @@ export class GameScreens {
   toggleArsenal() { return this.toggle(this.arsenal); }
   toggleForge() { return this.toggle(this.forge); }
   toggleBackpack() { return this.toggle(this.backpack); }
+
+  /** Builds the arsenal, backpack and forge ahead of their first opening, one after another. */
+  async prebuild(idle: () => Promise<void>) {
+    for (const s of [() => this.arsenal, () => this.backpack, () => this.forge]) {
+      await idle();
+      try { await s().prebuild(); } catch (e) { console.warn("window prebuild failed", e); }
+    }
+  }
 }

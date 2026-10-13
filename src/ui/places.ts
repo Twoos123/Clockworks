@@ -18,7 +18,7 @@ import { writeSave } from "../game/save";
 import { FurnitureLayer, FurnitureWindow, type FurnitureHost } from "./furniture";
 import { GuildWindow } from "./guild";
 import { CreateKnight, starterGear, type KnightLook } from "./createknight";
-import { el, injectStyle } from "./panel";
+import { ReadyBar } from "./readybar";
 
 export interface PlacesHost extends FurnitureHost {
   vfs: Vfs;
@@ -45,27 +45,25 @@ export class Places {
   readonly furniture: FurnitureWindow;
   readonly guild: GuildWindow;
   readonly create: CreateKnight;
-  private readonly readyBar: HTMLElement;
+  private readonly readyBar: ReadyBar;
   private swatches: { print: number; name: string; rgb: [number, number, number] }[] = [];
-  private urls = new Map<string, Promise<string | null>>();
   /** Called when knight creation finishes (the viewer enters Haven). */
   onCreated: (() => void) | null = null;
 
   constructor(private readonly host: PlacesHost) {
-    injectStyle();
     this.layer = new FurnitureLayer(host);
     this.furniture = new FurnitureWindow(host, this.layer);
     this.furniture.onClose = () => host.focus();
-    this.guild = new GuildWindow({
+    this.guild = new GuildWindow(host.gui(), {
       save: () => host.save(), write: () => host.write(), sound: f => host.sound(f),
-      image: p => this.image(p),
+      icon: item => host.data().resolveSync("config/item.dat", { name: item }, "item")?.icon ?? null,
       goToHall: () => void this.goToHall(),
       openFurniture: () => void this.openFurniture(),
       furnish: cached => void this.furnish(cached),
       inHall: () => this.inHall(),
       onClose: () => { host.pause(false); host.focus(); },
     });
-    this.create = new CreateKnight({
+    this.create = new CreateKnight(host.gui(), {
       gear: async () => {
         const d = host.data();
         await d.preload("config/item.dat");
@@ -76,10 +74,7 @@ export class Places {
       done: (name, look) => this.created(name, look),
       sound: f => host.sound(f),
     });
-    this.readyBar = el("div", "sk-card ready-bar");
-    this.readyBar.hidden = true;
-    this.readyBar.addEventListener("pointerdown", e => e.stopPropagation());
-    document.body.append(this.readyBar);
+    this.readyBar = new ReadyBar(host.gui(), { arsenal: () => void host.openArsenal(), leave: () => host.returnToHaven() });
     void host.colors().then(pos => {
       const cls = pos?.classes.get(host.save().color >> 8);
       if (!pos || !cls) return;
@@ -87,15 +82,7 @@ export class Places {
         const z = pos.byPrint((cls.classId << 8) | c.colorId);
         return { print: (cls.classId << 8) | c.colorId, name: c.name, rgb: z ? z.colorizedRoot() : [128, 128, 128] as [number, number, number] };
       });
-      if (this.create.isOpen) void this.create.open(host.save());
     });
-  }
-
-  /** An object URL for an rsrc image (emblem heraldry). */
-  image(path: string): Promise<string | null> {
-    let p = this.urls.get(path);
-    if (!p) { p = this.host.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => null); this.urls.set(path, p); }
-    return p;
   }
 
   // ------------------------------------------------------------ scenes
@@ -116,13 +103,12 @@ export class Places {
     if (id === GUILD_HALL && scene) void this.layer.attach(scene).then(() => this.furniture.refresh());
     else this.layer.detach();
     if (id !== GUILD_HALL) this.furniture.close();
-    this.readyBar.hidden = id !== READY_ROOM;
     if (id === READY_ROOM) {
       // the room's Camera/Default placeable looks from azimuth -120 degrees, 11 degrees up, with
       // a narrow lens; this wider lens looks from a little higher to clear the crates
       this.host.camera(0.15, 0.55, 6.5);
-      this.renderReadyBar();
-    }
+      void this.readyBar.show();
+    } else this.readyBar.hide();
     if (id === CREATE_KNIGHT) this.host.camera(-Math.PI / 2 + 0.35, 0.2, 6.5);
   }
 
@@ -149,13 +135,6 @@ export class Places {
   async readyRoom() {
     if (this.host.scene()?.id !== READY_ROOM) await this.host.go(READY_ROOM);
     if (!this.host.arsenalOpen()) await this.host.openArsenal();
-  }
-
-  private renderReadyBar() {
-    const arsenal = el("button", "", "Arsenal (I)"), leave = el("button", "", "Return to Haven");
-    arsenal.onclick = () => void this.host.openArsenal();
-    leave.onclick = () => this.host.returnToHaven();
-    this.readyBar.replaceChildren(el("h2", "", "Ready Room"), arsenal, leave);
   }
 
   /** The arsenal closed: in the Ready Room the knight changes into the new loadout at once. */
@@ -233,7 +212,7 @@ export class Places {
 
   /** Keys while a window of this module is open; true when handled. */
   key(e: KeyboardEvent): boolean {
-    if (this.guild.isOpen) { if (e.key === "Escape") this.guild.close(); return e.key === "Escape"; }
+    if (this.guild.isOpen) { if (e.key === "Escape") this.guild.escape(); return e.key === "Escape"; }
     if (this.create.isOpen) return e.key === "Escape";
     if (!this.furniture.isOpen) return false;
     const k = e.key.toLowerCase();

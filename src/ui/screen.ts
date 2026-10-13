@@ -15,9 +15,15 @@ export interface ScreenHost {
   sound(file: string): void;
   /** Called when the window closes (the game resumes). */
   closed(): void;
-  /** Draws a RenderableView (the knight preview), when the game can. */
-  view?(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void;
+  /**
+   * Draws a RenderableView, when the game can: the knight preview, or another model (a
+   * battle sprite, a shopkeeper) in the view's place.
+   */
+  view?(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, model?: ViewModel): void;
 }
+
+/** A model shown in a RenderableView instead of the knight: its reference (null for none) and idle animation. */
+export interface ViewModel { ref: any; idle: string | null }
 
 /** A ConfigReference to an interface with arguments. */
 export function uiRef(name: string, args: Record<string, unknown> = {}) {
@@ -41,7 +47,7 @@ export async function buildUi(ctx: GuiContext, ref: any): Promise<Component | nu
 }
 
 /** A tooltip: an interface reference and lines of bonus text (ui/window/tooltip_parts/bonus.dat). */
-export interface TipSpec { ref: any; lines?: string[] }
+export interface TipSpec { ref: any; lines?: string[]; /** Texts set on tagged labels after the build. */ texts?: Record<string, string> }
 
 /** A synthetic container laying children out in a row (as interface_forge.dat does). */
 export function row(kids: Component[], gap = 0, align = "TOP"): Component {
@@ -122,6 +128,18 @@ export abstract class GuiScreen {
     if (this.root && this.isOpen) { resetInput(this.root); await this.refresh(); }
   }
 
+  /**
+   * Builds the window ahead of its first opening (in idle time), with the save's data put
+   * in, so the first open shows it at once.
+   */
+  async prebuild() {
+    if (this.root) return;
+    this.building ??= this.build();
+    const root = await this.building;
+    this.root ??= root;
+    if (this.root && !this.isOpen) await this.refresh();
+  }
+
   close() {
     if (!this.isOpen) return;
     this.canvas.hidden = true;
@@ -197,6 +215,7 @@ export abstract class GuiScreen {
     // the tooltips' 3D item previews are drawn by the game's item renderer; not here
     const view = c.find("renderview");
     if (view) view.visible = false;
+    for (const [tag, text] of Object.entries(spec.texts ?? {})) { const t = c.find(tag); if (t) t.text = text; }
     const pills = c.find("tooltip_pills");
     if (pills) {
       pills.children = lines.filter((l): l is Component => !!l);
