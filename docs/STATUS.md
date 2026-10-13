@@ -20,20 +20,33 @@ A single-player loop runs in the browser, built from the install's own data:
    - Gold keys unlock gold gates.
    - Monsters drop crowns, heat and items.
    - The exit elevator ends the floor.
-5. **Saving.** Loadout, owned items, colour, banked crowns and heat, deepest floor and runs
-   are kept in the browser.
+5. **Knockouts.** A knocked-out knight can revive for crowns (25 per depth) or give up and
+   ride back to Haven with nothing from the floor.
+6. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
+   deeper as they go, with a checkpoint every fifth wave to bank loot.
+7. **Crafting.** Recipes from `config/recipe.dat` turn materials, crowns and a levelled base
+   item into the next item.
+8. **Saving.** The browser keeps:
+   - loadout, owned items and colour;
+   - banked crowns, heat and materials;
+   - weapon heat and the pocket;
+   - the deepest floor and the number of runs.
 
 ## What works
 
 | Area | What is in |
 |---|---|
-| Rendering | Every model and cached scene; library materials, colours, lights, fog, particles, animation, scripted models |
-| Knight | Gear from the arsenal, personal colour, idle, run, hurt, death, dash |
+| Rendering | Every model and cached scene; library materials, colours, lights, fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
+| Knight | Gear from the arsenal, personal colour, idle, run, hurt, death, dash; keyboard and mouse or gamepad |
 | Weapons | Swords (combos with lunges, charge), guns (clips, reload, charge shots, auto-aim), bombs (charge, fuse, blast), from item and attack data |
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
 | Damage | Depth-scaled damage, health and defence from `config/depth_scale.dat`; four damage types; status conditions |
 | Status conditions | Fire, freeze, shock, poison, curse, sleep and stun, with the game's effects and HUD icons |
-| Monsters | Data-driven spawns, tiers by depth, loot, a clean-room AI (turrets, ranged spacing, melee) |
+| Weapon heat | Weapons absorb heat and level up (1 to 10), raising their damage; the HUD heat meter shows the level |
+| Monsters | Data-driven spawns, tiers by depth, loot, a clean-room AI (turrets, ranged spacing, melee), A* pathing around walls |
+| Treasure and blocks | Breakable blocks break after a few hits; treasure boxes spill crowns and items from their damage action |
+| Pocket items | Capsules (health, remedy, buffs, barriers) and vials (thrown, splash damage and status), four slots on keys 4 to 7 |
+| Buffs | Attack, defence and speed buffs from `Buff` status conditions, with their HUD icons |
 | Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
 | HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
@@ -53,11 +66,12 @@ A single-player loop runs in the browser, built from the install's own data:
 
 **Systems**
 
-4. **Weapon heat levels**: weapons level up with heat in the game.
-5. **Vitapods, trinkets, energy and revives**: revive is free and instant.
-6. **Bosses and special monsters**: those that rely on game-code behaviours (Royal Jelly,
+4. **Vitapods, trinkets and energy.** Trinkets and vitapod slots are not modelled; revives
+   cost crowns rather than energy.
+5. **Bosses and special monsters.** Those that rely on game-code behaviours (Royal Jelly,
    Snarbolax) need their own AI.
-7. **Crafting, missions, guilds, PvP.**
+6. **Missions, guilds and PvP.**
+7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).
 
 **Fidelity**
 
@@ -78,7 +92,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Model files loaded in the browser | 5,816 of 5,816, no failures |
 | Cached scenes loaded | 12 of 12, zero unresolved references |
 | A full run, Haven to Terminal Core and back | passes (automated) |
-| Unit tests | 12 of 12 |
+| Unit tests | 13 of 13 |
 
 ## Decisions for you
 
