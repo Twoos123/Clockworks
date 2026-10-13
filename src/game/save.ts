@@ -39,6 +39,8 @@ export interface SaveData {
   pocket: [string, number][];
   /** Until when (ms) the heat amplifier doubles heat; 0 for none. An Energy item in the game. */
   heatAmplifier: number;
+  /** Letters in the knight's mailbox (welcome notes, mission rewards). */
+  mail?: { from: string; subject: string; body: string; read: boolean; at: number }[];
 }
 
 const KEY = "clyde-web-save";
