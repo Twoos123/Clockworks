@@ -1281,6 +1281,20 @@ function blit(g: CanvasRenderingContext2D, im: GuiImage, sx: number, sy: number,
   // the game: GL stretches the single texel line at the seam, so sample that line
   if (sw <= 0) { if (sx >= im.width) sx = im.width - 1; sw = 1; }
   if (sh <= 0) { if (sy >= im.height) sy = im.height - 1; sy = Math.max(0, sy - (sy > 0 ? 1 : 0)); sh = 1; }
+  // a source running past the image's edge (a frame inset wider than the image) repeats the
+  // edge texels, as GL's clamp-to-edge does; a canvas would clip it and leave a gap
+  if (sx + sw > im.width && sx < im.width && sw > 1) {
+    const inside = im.width - sx, tin = Math.round(tw * inside / sw);
+    blit(g, im, sx, sy, inside, sh, bx, by, tx, ty, tin, th);
+    blit(g, im, im.width - 1, sy, 1, sh, bx, by, tx + tin, ty, tw - tin, th);
+    return;
+  }
+  if (sy + sh > im.height && sy < im.height && sh > 1) {
+    const inside = im.height - sy, tin = Math.round(th * inside / sh);
+    blit(g, im, sx, sy, sw, inside, bx, by, tx, ty, tw, tin);
+    blit(g, im, sx, im.height - 1, sw, 1, bx, by, tx, ty + tin, tw, th - tin);
+    return;
+  }
   g.drawImage(im.source, sx, im.height - sy - sh, sw, sh, bx + tx, by - ty - th, tw, th);
 }
 
