@@ -384,9 +384,11 @@ class Viewer {
   }
 
   private async listScenes(vfs: Vfs) {
-    const ids = await vfs.scenes();
-    if (ids.length === 0) return;
-    const named = await Promise.all(ids.map(async id => {
+    // the local server keeps every level's name in an index; a picked folder is read file by file
+    const index = vfs instanceof DevServerVfs ? await vfs.sceneIndex().catch(() => null) : null;
+    const ids = index ? [] : await vfs.scenes();
+    if (!index && ids.length === 0) return;
+    const named = index ? index.map(([id, name]) => ({ id, name })) : await Promise.all(ids.map(async id => {
       try { return { id, name: await sceneName(await vfs.readScene(id)) }; } catch { return null; }
     }));
     const ul = $("scenes");

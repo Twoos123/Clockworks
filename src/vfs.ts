@@ -246,6 +246,11 @@ export class DevServerVfs implements Vfs {
     const r = await fetch("/__sk/scenelist");
     return r.ok ? r.json() : [];
   }
+  /** Every archived level's id and display name, from the server's index (one request). */
+  async sceneIndex(): Promise<[string, string][] | null> {
+    const r = await fetch("/__sk/sceneindex");
+    return r.ok ? r.json() : null;
+  }
   async readScene(name: string) {
     const r = await fetch("/__sk/scenes/" + encodeURIComponent(name));
     if (!r.ok) throw new VfsError(`Missing scene: ${name}`);

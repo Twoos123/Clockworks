@@ -27,13 +27,16 @@ const wallet = (over: Partial<Wallet> = {}): Wallet => ({
   loadout: { weapons: [], shield: "", armor: "", helmet: "", trinkets: [], vitapod: "" }, ...over,
 });
 
-test("heat curve: level 1 at 0, the first step is the base heat, level 10 at the total", () => {
+test("heat curve: the client's series, each level a fixed step dearer than the last", () => {
   const t = heatCurve(100, 5000);
   assert.equal(t.length, 10);
   assert.equal(t[0], 0);
   assert.equal(t[1], 100);
-  assert.equal(t[9], 5000);
-  for (let i = 1; i < 10; i++) assert.ok(t[i] > t[i - 1]);
+  // step (2 * 5000 / 10 - 200) / 9 = 88.9; level 10 at 100 + 0.8 * 5000
+  assert.equal(t[9], 4100);
+  for (let i = 2; i < 10; i++) assert.ok(Math.abs((t[i] - t[i - 1]) - (t[i - 1] - t[i - 2]) - 800 / 9) < 2);
+  // the class defaults (baseHeat 5, maxHeat 2000)
+  assert.deepEqual(heatCurve(5, 2000), [0, 5, 53, 145, 280, 458, 680, 945, 1253, 1605]);
 });
 
 test("seeded random is repeatable", () => {
@@ -58,27 +61,29 @@ test("weapons and armour level 1-10 with heat; level tables give damage, charge,
   const sword = "Weapon/Sword/Calibur", armor = "Gear/Armor/Cobalt Armor";
   const t = e.heatTable(sword);
   assert.equal(t[1], 100); // 2-star baseHeat
-  assert.equal(t[9], 5000); // 2-star maxHeat
+  assert.equal(t[9], 4100); // 2-star maxHeat 5000: 100 + 0.8 * 5000
   assert.equal(e.levelFor(sword, 0), 1);
-  assert.equal(e.levelFor(sword, 5000), 10);
+  assert.equal(e.levelFor(sword, 4100), 10);
   // 2-3 star weapons: +75% damage at level 10 from depth 8; charge time reduction low at 5, medium at 10
-  assert.ok(Math.abs(e.levelStats(sword, 10, 10).damage - 0.75) < 1e-6);
-  assert.equal(e.levelStats(sword, 10, 3).damage, 0);
-  assert.ok(Math.abs(e.levelStats(sword, 5, 10).charge - 0.05) < 1e-6);
-  assert.ok(Math.abs(e.levelStats(sword, 10, 10).charge - 0.1) < 1e-6);
+  // the level tables' damage is uncapped (applied on its own, not in the gear bonus pool)
+  assert.ok(Math.abs(e.levelStats(sword, 10, 10).uncapped - 0.75) < 1e-6);
+  assert.equal(e.levelStats(sword, 10, 3).uncapped, 0);
+  // ItemValueKey CHARGE: 0.08 a step (LOW at 5, MEDIUM at 10)
+  assert.ok(Math.abs(e.levelStats(sword, 5, 10).charge - 0.08) < 1e-6);
+  assert.ok(Math.abs(e.levelStats(sword, 10, 10).charge - 0.16) < 1e-6);
   assert.equal(e.levelStats(sword, 4, 10).charge, 0);
   assert.equal(e.levelStats(armor, 10, 10).defense, 25);
   // most armour gains a heart pip at level 5 (the wiki); 2-star armour gains another from tier 2
   assert.ok(e.levelStats(armor, 5, 1).health >= 40);
   assert.ok(e.levelStats(armor, 5, 10).health > e.levelStats(armor, 5, 1).health);
   const w = wallet({ owned: [sword, armor], loadout: { weapons: [sword], shield: "", armor, helmet: "", trinkets: ["Gear/Trinket/Heart Pendant"], vitapod: "" } });
-  const ups = e.addHeat(w, 400);
+  const ups = e.addHeat(w, 800);
   assert.ok(ups.some(u => u.name === sword) && ups.some(u => u.name === armor));
-  assert.equal(w.gear[sword].heat, 400);
+  assert.equal(w.gear[sword].heat, 400, "the heat is shared between the two heated items");
   assert.equal(w.gear["Gear/Trinket/Heart Pendant"], undefined, "trinkets take no heat");
   w.heatAmplifier = Date.now() + 1000;
   e.addHeat(w, 100);
-  assert.equal(w.gear[sword].heat, 600, "the heat amplifier doubles heat");
+  assert.equal(w.gear[sword].heat, 500, "the heat amplifier doubles heat");
 });
 
 test("shops: keepers sell their kinds within the star range; buying, recipes and selling", { skip: !have }, async () => {
@@ -143,8 +148,9 @@ test("unique variants roll from the variant tables: mostly none, sometimes one t
   for (let i = 0; i < 3000; i++) for (const v of e.rollVariants("Gear/Armor/Cobalt Armor", undefined, rand)) seen.add(v);
   assert.ok([...seen].every(v => v.startsWith("Gear/")));
   assert.equal(e.variantLabel("Gear/Elemental Defense 3"), "Elemental Defense: High");
-  assert.equal(e.variant("Weapon/Beast Damage 2")?.tagged?.damage, 0.10000000149011612);
-  assert.equal(e.variant("Gear/Fire Resist 4")?.resist?.points, 25);
+  // a named bonus level overrides the config's own amount: MEDIUM is two 0.08 steps
+  assert.ok(Math.abs(e.variant("Weapon/Beast Damage 2")!.tagged!.damage - 0.16) < 1e-6);
+  assert.deepEqual(e.variant("Gear/Fire Resist 4")?.resist, { mask: 4, points: 40, scaled: true });
   assert.match(e.displayName("Weapon/Sword/Calibur", { heat: 0, level: 1, variants: ["Weapon/Charge Time 1"] }), /Calibur \(Charge Time: Low\)/);
 });
 

@@ -73,7 +73,8 @@ export async function sceneName(data: Uint8Array): Promise<string> {
 
 export function prettySceneName(raw: string): string {
   // e.g. "%town:m.haven_town_square" or "%guild:m.hall|~The Exceeds"
-  const m = /^%[a-z]+:m\.([^|]+)(?:\|~(.*))?$/.exec(raw);
+  // a key may name another bundle's key: "%dungeon:%town:m.haven"
+  const m = /^(?:%[a-z]+:)+m\.([^|]+)(?:\|~(.*))?$/.exec(raw);
   if (!m) return raw || "(unnamed)";
   const base = m[1].replace(/_/g, " ");
   return m[2] ? `${base} (${m[2]})` : base;

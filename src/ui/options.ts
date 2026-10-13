@@ -415,7 +415,8 @@ export class OptionsScreen {
     table.children = [names, counts];
     for (const k of table.children) k.constraints = { fixed: true };
     table.constraints = { fixed: true };
-    page.children = [label("Levels collected from the game's scene cache"), table, label("npm run levels lists where to find each one")];
+    page.children = [label("Levels collected from the game's scene cache"), table,
+      ...(list.guildHalls ? [label(`Guild halls: ${list.guildHalls} archived`)] : []), label("npm run levels lists where to find each one")];
   }
 
   /** Save Data (in the Steam tab's place): what the save holds, export, import and reset. */

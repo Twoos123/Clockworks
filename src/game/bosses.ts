@@ -196,8 +196,14 @@ export abstract class BossFight implements BossDirector {
     return m;
   }
 
-  /** Sets a monster's health to a multiple of the depth's boss health (Health Base +40). */
+  /**
+   * Sets a boss's health to a multiple of the depth's boss health (Health Base +40), but
+   * only for an actor whose config gives none: the bosses' own configs carry their health
+   * (Snarbolax and the Royal Jelly (v1) Health Base +40, the Jelly v2 stages +30 and +20,
+   * the Twins +10, Vanaduke 15000 and his mask 5000), which the spawn has already applied.
+   */
   protected sizeHealth(m: Monster, factor: number) {
+    if (m.def.healthScale || m.def.health) return;
     const base = this.w.depthValue(H40) || 100;
     m.maxHealth = m.health = Math.max(1, Math.round(base * factor));
   }
@@ -380,7 +386,9 @@ export class JellyFight extends BossFight {
 
 const SNARB = BOSS + "Snarbolax/Snarbolax";
 /** Seconds the Snarbolax lies stunned after a bell ("a few seconds"). */
-const SNARB_STUN = 6;
+// The bell's ring runs the Snarbolax's handler: ApplyStatus "Stun 3" at ULTIMATE power, whose
+// maxDuration is 8000 ms (status_condition.dat).
+const SNARB_STUN = 8;
 /** How close it must be to the bell for the ring to stun it. */
 const BELL_RANGE = 4.5;
 
@@ -490,8 +498,8 @@ const RT = BOSS + "Roarmulus Twins/";
 type Side = "west" | "east";
 const other = (s: Side): Side => (s === "west" ? "east" : "west");
 const ROCKET = RT + "Parts/Rocket";
-/** Seconds a struck twin stays exposed (Monster Attacks/Boss/Roarmulus Twins/Exposed: 5000). */
-const EXPOSED = 5;
+/** Seconds a struck twin stays exposed (Monster Attacks/Boss/Roarmulus Twins/Exposed: 7000 ms). */
+const EXPOSED = 7;
 const LASER_DAMAGE = { $class: "projectx.dungeon.config.DamageConfig$DepthScale", flags: 4, depthScale: { $class: REF, name: "Monster/Damage/Attack Base +10" } };
 
 interface Twin { side: Side; e: Entity | null; stage: number; exposed: number; cooldown: number; lane: number; targetY: number;
@@ -561,12 +569,12 @@ export class TwinsFight extends BossFight {
       }
       this.runTwin(t, m, dt);
     }
-    // scuttle pads: a Surgebot from each when its last is gone ("Delay" 45 s; sooner here, one knight)
+    // scuttle pads: a Surgebot from each when its last is gone, after the pad's "Delay" (45 s)
     this.geo.pads.forEach(([x, y], i) => {
       if (this.bots[i] && !this.bots[i]!.destroyed) return;
       this.padT[i] -= dt;
       if (this.padT[i] > 0) return;
-      this.padT[i] = 20;
+      this.padT[i] = 45;
       this.bots[i] = this.spawn("Character/NPC/Monster/Construct/Scuttlebot/Surgebot/Surgebot Mk II", x, y, 0, [["Loot", "Health Only"], ["Wave Tag", "minion"]]);
     });
   }
