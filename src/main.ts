@@ -25,7 +25,7 @@ import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, keyName, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
@@ -37,6 +37,10 @@ import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, t
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
+import { initNotices } from "./ui/notice";
+import { UplinkScreen } from "./ui/uplink";
+import { HelpScreen } from "./ui/help";
+import { SummaryScreen } from "./ui/summary";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site/i;
@@ -200,7 +204,6 @@ class Viewer {
   private hud: Hud | null = null;
   private gameHud: GameHud | null = null;
   private readonly options_: Settings = loadSettings();
-  private settings: SettingsMenu | null = null;
   /** The key bound to an action (options menu). */
   private bound(a: Action) { return this.options_.keys[a] ?? ACTIONS[a].key; }
   private gui: GuiContext | null = null;
@@ -269,15 +272,6 @@ class Viewer {
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
     this.places = this.makePlaces();
-    this.settings = new SettingsMenu($("settings"), this.options_, {
-      changed: () => this.applyOptions(),
-      playing: () => !!this.world,
-      resume: () => { this.paused = false; this.canvas.focus(); },
-      returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
-      leave: () => { this.paused = false; this.stopPlaying(); if (GAME) void this.enterTitle(); },
-      saveReplaced: d => { this.save = d; },
-      sound: f => this.uiSound(f),
-    });
     this.applyOptions();
     this.listScenes(vfs);
     this.datFiles = files.filter(f => f.endsWith(".dat")).sort();
@@ -337,12 +331,12 @@ class Viewer {
       // Esc opens the options menu (and closes whatever window is open)
       if (e.key === "Escape") {
         if (this.itemScreens?.escape()) return;
-        if (this.settings?.isOpen) this.settings.close();
-        else if (this.options?.isOpen) this.options.close();
+        if (this.escapeWindow()) return;
+        if (this.options?.isOpen) this.options.close();
         else { this.paused = true; void this.openOptions(); }
         return;
       }
-      if (this.settings?.isOpen || this.options?.isOpen) return;
+      if (this.options?.isOpen) return;
       const key = e.key.toLowerCase(), b = (a: Action) => key === this.bound(a);
       (["weapon1", "weapon2", "weapon3"] as const).forEach((a, i) => { if (b(a)) this.weaponSlot = i; });
       if (b("cycle") && !e.repeat) { e.preventDefault(); const n = Math.max(1, this.world.knight.weapons.length); this.weaponSlot = (this.world.knight.slot + 1) % n; }
@@ -353,7 +347,7 @@ class Viewer {
       (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
       if (b("dash") && !e.repeat) this.dashPressed = true;
-      if (b("help") && !e.repeat) $("playHint").hidden = !$("playHint").hidden;
+      if (b("help") && !e.repeat) this.toggleHelp();
       if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
       if (key === "n" && !e.repeat) this.openFeed();
       if (key === "m" && !e.repeat) this.openMail();
@@ -677,6 +671,7 @@ class Viewer {
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    initNotices(this.gui);
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
     this.outfit.onRedress = () => portrait.setModelRef(world.portraitRef());
@@ -702,7 +697,6 @@ class Viewer {
     this.dist = (cam?.distance ?? 10) * 1.35 * this.options_.zoom;
     this.applyOptions();
     $("play").textContent = "Stop playing";
-    $("playHint").hidden = true; // the ? button on the HUD (or H) shows the controls
     document.body.classList.add("playing");
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
@@ -723,7 +717,6 @@ class Viewer {
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
-    $("playHint").hidden = true;
     document.body.classList.remove("playing");
   }
 
@@ -838,7 +831,7 @@ class Viewer {
     if (this.places.hudAction(tag)) return;
     switch (tag) {
       case "button_menu": this.openSettings(); break;
-      case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
+      case "button_help": this.toggleHelp(); break;
       case "button_feed": this.openFeed(); break;
       case "button_mail": this.openMail(); break;
       case "button_loadout": case "button_gear": void this.toggleArsenal(); break;
@@ -906,61 +899,45 @@ class Viewer {
     });
   }
 
-  /** A simple window in the options' style (news and mail). */
-  private showPanel(title: string, fill: (body: HTMLElement) => void) {
-    const root = $("gates");
-    root.replaceChildren();
-    const card = document.createElement("div");
-    card.className = "settings-card";
-    const head = document.createElement("div");
-    head.className = "settings-head";
-    const h = document.createElement("h2");
-    h.textContent = title;
-    const close = document.createElement("button");
-    close.textContent = "Close";
-    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
-    head.append(h, close);
-    const body = document.createElement("div");
-    body.className = "settings-body";
-    fill(body);
-    card.append(head, body);
-    root.append(card);
-    root.hidden = false;
-    this.paused = !!this.world;
+  private uplink: UplinkScreen | null = null;
+  private help: HelpScreen | null = null;
+  private summary: SummaryScreen | null = null;
+
+  /** The game's news and mail, help and run summary windows (src/ui/uplink.ts, help.ts, summary.ts). */
+  private windows() {
+    const gui = this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    initNotices(gui);
+    const host = {
+      sound: (f: string) => this.uiSound(f),
+      closed: () => { if (!this.anyWindowOpen()) { this.paused = false; this.canvas.focus(); } },
+    };
+    this.uplink ??= new UplinkScreen(gui, { ...host, save: () => this.save, write: () => writeSave(this.save) });
+    this.help ??= new HelpScreen(gui, { ...host,
+      keys: () => (Object.keys(ACTIONS) as Action[]).map(a => [ACTIONS[a].label, keyName(this.bound(a))] as [string, string]) });
+    this.summary ??= new SummaryScreen(gui, host);
+    return { uplink: this.uplink, help: this.help, summary: this.summary };
+  }
+
+  /** True while one of the windows above is open. */
+  private anyWindowOpen() { return !!(this.uplink?.isOpen || this.help?.isOpen || this.summary?.isOpen); }
+
+  /** Escape: closes the topmost of the windows above; false when none is open. */
+  private escapeWindow(): boolean {
+    for (const w of [this.summary, this.help, this.uplink]) if (w?.isOpen) { w.escape(); return true; }
+    return false;
   }
 
   /** The news feed: what this port has and lacks (the game's feed came from its servers). */
-  private openFeed() {
-    this.showPanel("News", body => {
-      const items: [string, string][] = [
-        ["The Clockworks are open", "Four gates a day in the Arcade, six strata from depth 1 to 28, terminals, Moorcroft Manor, Emberlight and the Core."],
-        ["Generated floors", "Floors are built from the game's own tiles, spawners, gates and treasure; the real layouts of levels you have not visited are not in the install."],
-        ["Single player", "Parties, trading, PvP and guild chat are online features and are not part of this port."],
-      ];
-      for (const [t, d] of items) {
-        const p = document.createElement("p");
-        p.innerHTML = `<b style="color:#f3d36b">${t}</b><br>${d}`;
-        body.append(p);
-      }
-    });
-  }
+  private openFeed() { this.paused = !!this.world; void this.windows().uplink.show("news"); }
 
   /** The mailbox: letters kept in the save (a welcome note; missions add their rewards here). */
-  private openMail() {
-    const mail = this.save.mail ??= [];
-    if (!mail.length) mail.push({ from: "Spiral HQ", subject: "Welcome to Haven", at: Date.now(), read: false,
-      body: "Welcome, knight. Visit the Bazaar for gear, then take a gate in the Arcade into the Clockworks. Good luck below!" });
-    this.showPanel("Mail", body => {
-      for (const m of [...mail].reverse()) {
-        const d = document.createElement("details");
-        d.className = "settings-row";
-        d.style.display = "block";
-        d.innerHTML = `<summary><b>${m.read ? "" : "● "}${m.subject}</b> <span class="settings-note">from ${m.from}</span></summary><p>${m.body}</p>`;
-        d.ontoggle = () => { if (d.open && !m.read) { m.read = true; writeSave(this.save); } };
-        body.append(d);
-      }
-    });
-    writeSave(this.save);
+  private openMail() { this.paused = !!this.world; void this.windows().uplink.show("mail"); }
+
+  /** The controls (the HUD's ? button, or H). */
+  private toggleHelp() {
+    const h = this.windows().help;
+    if (!h.isOpen) this.paused = !!this.world;
+    h.toggle();
   }
 
   /** The settings menu (filled in by the settings module). */
@@ -973,10 +950,10 @@ class Viewer {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.options ??= new OptionsScreen(this.gui, $<HTMLCanvasElement>("optionsCanvas"), this.options_, {
       changed: () => { saveSettings(this.options_); this.applyOptions(); },
-      advanced: tab => this.settings?.open(tab),
+      saveReplaced: d => { this.save = d; },
       returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
       quit: () => { this.paused = false; this.stopPlaying(); if (GAME) void this.enterTitle(); },
-      closed: () => { if (!this.settings?.isOpen) { this.paused = false; this.canvas.focus(); } },
+      closed: () => { this.paused = false; this.canvas.focus(); },
       playing: () => !!this.world,
       sound: f => this.uiSound(f),
     });
@@ -1160,17 +1137,10 @@ class Viewer {
     await this.selectScene(haven.id);
     await this.startPlaying();
     if (summary && summary.deepest > 0) {
-      this.showPanel("Back in Haven", body => {
-        const rows: [string, string][] = [["Gate", summary.gate || "The Clockworks"], ["Deepest depth this run", String(summary.deepest)],
-          ["Deepest depth ever", String(summary.best)], ["Monsters defeated", String(summary.kills)],
-          ["Crowns banked", String(summary.crowns)], ["Heat earned", String(summary.heat)], ["Materials and items", String(summary.materials)]];
-        for (const [k, v] of rows) {
-          const r = document.createElement("div");
-          r.className = "settings-row";
-          r.innerHTML = `<span>${k}</span><b>${v}</b><span></span>`;
-          body.append(r);
-        }
-      });
+      this.paused = !!this.world;
+      void this.windows().summary.show("Back in Haven", summary.gate || "The Clockworks", [
+        `Deepest depth this run: ${summary.deepest}`, `Deepest depth ever: ${summary.best}`, `Monsters defeated: ${summary.kills}`,
+        `Crowns banked: ${summary.crowns}`, `Heat earned: ${summary.heat}`, `Materials and items: ${summary.materials}`]);
     }
   }
 

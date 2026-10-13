@@ -499,6 +499,15 @@ const vgroup = (policy: string, just: string, off: string, gap = 5) =>
   ({ $class: "LayoutConfig$VerticalGroup", policy: enm(policy), justification: enm(just), offAxisPolicy: enm(off), gap });
 const FIXED = { fixed: true };
 
+/**
+ * Builds a component from an inline ComponentConfig (as an interface file holds them), resolving
+ * style names against an interface's local styles (`host.local` of a built interface) and then
+ * config/style.dat: for parts the game fills in from code (rows, tabs), laid out the game's way.
+ */
+export function buildComponentConfig(ctx: GuiContext, cfg: any, local: Map<string, any> = new Map()): Promise<Component> {
+  return buildComponent(ctx, cfg, local, {}, 0);
+}
+
 async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>, opts: BuildOptions, depth: number): Promise<Component> {
   const k = kind(cfg);
   const ck: CompKind = k === "Container" ? "container" : k === "Label" || k === "StatusLabel" || k === "FadeLabel" || k === "TextArea" ? "label"
@@ -719,7 +728,7 @@ function selectItem(c: Component, index: number) {
 }
 
 /** TabbedPane.selectTab: selects the tab's button and shows its page in the centre. */
-function selectTab(p: Component, index: number) {
+export function selectTab(p: Component, index: number) {
   if (index === p.selectedIndex || !p.tabs.length) return;
   index = Math.max(0, Math.min(p.tabs.length - 1, index));
   const buttons = p.parts.buttons!;

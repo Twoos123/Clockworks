@@ -107,12 +107,10 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 .defeated-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 28px; text-align: center; }
 .defeated-card h2 { margin: 0 0 14px; font-size: 18px; }
 .cleared { background: rgba(0, 30, 50, 0.45); }
-.hint-bar { bottom: auto; top: 56px; left: 50%; transform: translateX(-50%); }
 /* while playing, the game's HUD owns the screen: viewer controls move to the lower right */
 .playing .info, .playing #anim, .playing #pause, .playing #reset, .playing #status { display: none; }
 /* above the quickbar (its slots run to the vitapod on the right) */
 .playing .toolbar { top: auto; left: auto; bottom: 78px; right: 12px; }
-.playing .hint-bar { top: auto; left: auto; bottom: 118px; right: 12px; transform: none; max-width: 330px; }
 .info {
   position: absolute;
   top: 56px;
@@ -139,7 +137,6 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 .defeated { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(40, 0, 0, 0.45); }
 .defeated-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 28px; text-align: center; }
 .defeated-card h2 { margin: 0 0 14px; font-size: 18px; }
-.hint-bar { bottom: auto; top: 56px; left: 50%; transform: translateX(-50%); }
 .info { display: none; }
 }
 
@@ -181,9 +178,7 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 button.danger { background: #7a1f1f; color: #fff; border-color: #a33; }
 /* while playing, the game's own HUD menus replace the viewer toolbar */
 .playing #play, .playing #arsenalBtn, .playing #spawnJelly, .playing .toolbar label.button { display: none; }
-.no-hint .playing .hint-bar, body.no-hint #playHint { display: none; }
 /* the controls card (the HUD's ? button): solid, in the HUD's colours, above the game */
-.playing .hint-bar { background: #12202e; color: #dbe9f7; border: 2px solid #3c6a8f; opacity: 1; z-index: 6; bottom: 90px; }
 .arsenal-all { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
 .arsenal-item.locked { opacity: 0.45; filter: grayscale(0.7); cursor: default; }
 .gates-card { width: min(980px, calc(100% - 32px)); }
@@ -199,7 +194,6 @@ body.game main { grid-template-columns: 1fr; }
 body.game .sidebar, body.game .info, body.game #status, body.game #anim, body.game #pause, body.game #reset,
 body.game #play, body.game #arsenalBtn, body.game #spawnJelly, body.game .toolbar label.button { display: none; }
 .options-canvas { z-index: 8; }
-#settings { z-index: 9; }
 .gate-row { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 10px; background: #0d1824; border: 1px solid #2d5574; border-radius: 8px; padding: 6px 8px; margin: 6px 0; }
 .gate-name { display: flex; align-items: center; gap: 6px; color: #f3d36b; font-style: italic; font-weight: 700; }
 .gate-emblem { width: 40px; height: 40px; }
@@ -240,8 +234,6 @@ body.game #play, body.game #arsenalBtn, body.game #spawnJelly, body.game .toolba
 .mission-brief { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
 .mission-brief h3 { margin: 0; color: #f3d36b; }
 .mission-rankup { color: #f3d36b; font-weight: 700; font-size: 16px; }
-.game-notice { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); z-index: 8; max-width: min(560px, calc(100% - 32px));
-  background: #12202e; color: #f3d36b; border: 2px solid #c9a642; border-radius: 8px; padding: 10px 14px; font-weight: 600; text-align: center; }
 /* the knockout: the game's revive window on a canvas; the HTML card keeps only "Return to Haven" */
 .revive-canvas { z-index: 6; }
 #defeated { background: none; z-index: 7; pointer-events: none; place-items: end center; padding-bottom: 120px; }
