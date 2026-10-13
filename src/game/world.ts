@@ -678,7 +678,12 @@ export class World implements LogicHost {
       return;
     }
     const target = near.find(p => p.entity.handlers.some(h => h.kind === "Interaction"));
-    if (target) this.logic.interact(target.entity, ke);
+    if (target) { this.logic.interact(target.entity, ke); return; }
+    // traders and townsfolk that are actors with interactions (gremlin merchants)
+    const fx = k.x + Math.cos(k.heading) * 0.7, fy = k.y + Math.sin(k.heading) * 0.7;
+    const npc = this.monsters.filter(m => m.passive && m.entity?.handlers.some(h => h.kind === "Interaction") && Math.hypot(m.x - fx, m.y - fy) < 1.8)
+      .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y))[0];
+    if (npc?.entity) this.logic.interact(npc.entity, ke);
   }
 
   /** Depth-scaled defence and shield health from the knight's gear. */
