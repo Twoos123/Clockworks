@@ -18,7 +18,8 @@ import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
 import { ACTIONS, loadSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { pad as padOptions } from "./gamepad";
-import { generateLevel, type TileInfo } from "./gen/level";
+import { generateLevel } from "./gen/level";
+import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|\(|lobby/i;
@@ -37,7 +38,7 @@ const THEMES: { key: string; test: RegExp; label: string }[] = [
 ];
 const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
 /** Generated floor ids: "gen:<theme>:<seed>". */
-const GEN = /^gen:([a-z]+):(\d+)$/;
+const GEN = /^gen:([a-z-]+):(\d+)$/;
 
 /** The name shown on the HUD name plate. */
 const KNIGHT_NAME = "Knight";
@@ -379,31 +380,26 @@ class Viewer {
     return p;
   }
 
-  private tileInfos = new Map<string, TileInfo>();
-
   /**
-   * Builds a generated floor: learns the theme's tiling from its cached levels and paints a
-   * new layout with their spawners, treasure and elevators (src/gen).
+   * Builds a generated floor: the theme's tiling (learned from its cached levels, mirrored
+   * from a related theme, or rule-based; src/gen/themes.ts) painted on a new layout with
+   * spawners, treasure and elevators from the cached levels.
    */
   private async generatedRoot(id: string): Promise<any> {
     const [, key, seed] = GEN.exec(id)!;
-    const theme = THEMES.find(t => t.key === key)!;
-    const ids = this.sceneList.filter(s => theme.test.test(s.name)).map(s => s.id);
-    const sources = await Promise.all(ids.map(async sid => ({ id: sid, root: await this.sceneLoader.parse(await this.vfs.readScene(sid)) })));
-    // resolve every tile the sources use first; the generator asks synchronously
-    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
-    for (const s of sources) {
-      for (const m of (s.root.tileConfigs?.items ?? s.root.tileConfigs ?? []) as any[]) {
-        const k = refKey(m?.tile);
-        if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
-      }
-    }
-    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
+    const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
+    const level = await themeLevel(key, {
+      scenes: this.sceneList, readRoot,
+      tileNames: () => this.sceneLoader.configNames("config/tile.dat"),
+      tileInfo: ref => this.sceneLoader.tileInfo(ref),
+    });
+    const ids = level.sources.map(s => s.id);
     // spawners and treasure from every cached combat level, for themes whose levels spawn
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
-    const pool = (await Promise.all(others.map(async sid => (await this.sceneLoader.parse(await this.vfs.readScene(sid))).entries ?? []))).flat();
-    return generateLevel(sources, info, Number(seed), `${theme.label} · new floor`, pool);
+    const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
+    return generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed), `${level.def.label} · new floor`, pool,
+      { model: level.model, globals: level.globals });
   }
 
   private async selectScene(id: string) {
@@ -839,7 +835,8 @@ class Viewer {
     let next = this.nextLevel();
     // past the end of the run, deeper floors are generated
     if (deeper && !next) {
-      const usable = THEMES.filter(t => this.sceneList.some(s => t.test.test(s.name)));
+      // any tileset theme whose source levels are cached (src/gen/themes.ts)
+      const usable = GEN_THEMES.filter(t => themeAvailable(t.key, this.sceneList));
       const t = usable[Math.floor(Math.random() * usable.length)];
       next = t ? { id: `gen:${t.key}:${Math.floor(Math.random() * 1e9)}`, name: `${t.label} · new floor` } : this.runLevels()[0] ?? null;
     }
