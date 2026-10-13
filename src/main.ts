@@ -12,7 +12,8 @@ import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Arsenal } from "./ui/arsenal";
-import { loadSave, writeSave, type SaveData } from "./game/save";
+import { loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
@@ -384,6 +385,7 @@ class Viewer {
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision, { audio: this.audio, depth: this.run.depth });
     this.arsenal?.close();
     world.onNextFloor = () => this.floorCleared();
+    world.onOpenShop = keeper => void this.openShop(keeper);
     const town = TOWN.test(this.scene.name);
     $("clockworks").hidden = !town;
     await world.start(spawn, this.save.loadout);
@@ -454,13 +456,36 @@ class Viewer {
 
   /** Opens or closes the arsenal; the world pauses while it is open. */
   private async toggleArsenal() {
+    const arsenal = this.ensureArsenal();
+    if (arsenal.isOpen) { arsenal.close(); this.paused = false; this.canvas.focus(); return; }
+    this.paused = !!this.world;
+    await arsenal.open(this.save.loadout);
+  }
+
+  private ensureArsenal() {
     if (!this.gui) this.gui = new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.arsenal ??= new Arsenal($("arsenal"), this.world?.data ?? new GameData(this.loader), this.gui,
       l => { this.save.loadout = l; writeSave(this.save); },
-      () => ({ crowns: this.save.crowns, heat: this.save.heat }));
-    if (this.arsenal.isOpen) { this.arsenal.close(); this.paused = false; this.canvas.focus(); return; }
-    this.paused = !!this.world;
-    await this.arsenal.open(this.save.loadout);
+      () => ({ crowns: this.save.crowns, heat: this.save.heat }),
+      () => new Set(this.save.owned),
+      (name, cost) => {
+        if (this.save.crowns < cost || this.save.owned.includes(name)) return false;
+        this.save.crowns -= cost;
+        this.save.owned.push(name);
+        writeSave(this.save);
+        return true;
+      });
+    this.arsenal.onClose = () => { this.paused = false; this.canvas.focus(); };
+    return this.arsenal;
+  }
+
+  /** A shopkeeper's stock, by what the NPC's config name says it sells. */
+  private async openShop(keeper: string) {
+    const k = keeper.toLowerCase();
+    const tabs: ShopMode["tabs"] = /sword|gun|bomb|weapon/.test(k) ? ["weapons"] : /armor|helm/.test(k) ? ["armor", "helmet"]
+      : /shield|trinket/.test(k) ? ["shield"] : ["weapons", "shield", "armor", "helmet"];
+    this.paused = true;
+    await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity: shopTier(this.save) });
   }
 
   /** The knight reached the exit elevator: offer the next floor. */

@@ -184,6 +184,8 @@ export class World implements LogicHost {
   private conditions!: StatusConditions;
   /** Called when the knight takes the elevator at the end of the level. */
   onNextFloor: (() => void) | null = null;
+  /** Called when a shopkeeper opens their shop (the NPC's name says what it sells). */
+  onOpenShop: ((keeper: string) => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
   /** What the knight has collected on this floor. */
@@ -421,6 +423,9 @@ export class World implements LogicHost {
         }
         return true;
       }
+      case "OpenShop":
+        this.onOpenShop?.(source.name);
+        return true;
       case "NextFloor":
         this.finishLevel();
         return true;
@@ -515,6 +520,11 @@ export class World implements LogicHost {
       anim = changed ? st[p.open ? 2 : 0] : st[p.open ? 3 : 1];
       loop = !changed;
     } else if (p.kind === "switch") anim = st[p.pressed ? 1 : 0];
+    else {
+      // townsfolk and other animated actors stand in their (weighted) idle animation
+      const idles: any[] = p.cfg.sprite?.idles ?? [];
+      anim = idles.length ? idles.reduce((a, b) => ((b.weight ?? 1) > (a.weight ?? 1) ? b : a)).animation : null;
+    }
     const clip = anim ? this.clip(anim) : null;
     if (clip) p.instance.play(clip, { loop, blend: 0.05 });
     else if (anim) void this.preload(anim).then(() => this.showPropState(p, changed));

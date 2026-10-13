@@ -19,6 +19,8 @@ export interface SaveData {
   materials: Record<string, number>;
   bestDepth: number;
   runs: number;
+  /** Item config names the knight owns (bought or starting gear). */
+  owned: string[];
 }
 
 const KEY = "clyde-web-save";
@@ -31,7 +33,8 @@ export const DEFAULT_LOADOUT: Loadout = {
 };
 
 export function loadSave(): SaveData {
-  const fresh: SaveData = { version: 1, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons] }, crowns: 0, heat: 0, materials: {}, bestDepth: 0, runs: 0 };
+  const fresh: SaveData = { version: 1, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons] }, crowns: 0, heat: 0,
+    materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield] };
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return fresh;
@@ -40,10 +43,24 @@ export function loadSave(): SaveData {
       ...fresh, ...d,
       loadout: { ...fresh.loadout, ...(d.loadout ?? {}), weapons: (d.loadout?.weapons ?? fresh.loadout.weapons).slice(0, 3) },
       materials: { ...(d.materials ?? {}) },
+      owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet]
+        .filter((x): x is string => !!x))],
     };
   } catch { return fresh; }
 }
 
 export function writeSave(d: SaveData) {
   try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* storage unavailable */ }
+}
+
+/**
+ * Shop prices by star rating, in crowns. Real prices come from the game's servers, so these
+ * are tuning numbers.
+ */
+export const PRICES = [100, 300, 1200, 3500, 9000, 20000];
+export const price = (rarity: number) => PRICES[Math.max(0, Math.min(5, rarity))];
+
+/** Highest star rating shops sell, from progress: deeper floors and finished runs unlock more. */
+export function shopTier(d: SaveData): number {
+  return d.runs >= 2 ? 5 : d.runs >= 1 ? 4 : d.bestDepth >= 3 ? 3 : 2;
 }

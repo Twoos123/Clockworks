@@ -377,6 +377,8 @@ export class Logic {
   execute(cfg: any, source: Entity, activator: Entity | null): boolean {
     // a parameter-built action with no class name but a signal name is a Signal
     if (cfg && !cfg.$class && typeof cfg.name === "string") cfg = { ...cfg, $class: "com.threerings.tudey.config.ActionConfig$Signal" };
+    // ...and one with an actor is the default SpawnActor
+    else if (cfg && !cfg.$class && cfg.actor?.name) cfg = { ...cfg, $class: "com.threerings.tudey.config.ActionConfig$SpawnActor" };
     if (!cfg?.$class) return true;
     const k = kind(cfg);
     if (!pkg(cfg).includes("tudey.config.ActionConfig")) {

@@ -3,7 +3,7 @@
 // arsenal window is filled in by closed code (scroll lists, search), so this one is HTML.
 
 import type { GameData } from "../game/data";
-import type { Loadout } from "../game/save";
+import { price, type Loadout } from "../game/save";
 import type { GuiContext } from "./gui";
 
 type Tab = "weapons" | "shield" | "armor" | "helmet";
@@ -17,23 +17,34 @@ const SKIP = /\/Parts\/|\/Dev\/|\(Dev\)|\bTEST\b|\/Test\/|PvP|\(Test\)|Tutorial|
 
 interface Entry { name: string; label: string; kind: string; rarity: number; icon: any }
 
+/** What the window is showing: the knight's own gear, or a shop's stock. */
+export interface ShopMode { title: string; tabs: Tab[]; maxRarity: number }
+
 export class Arsenal {
   private tab: Tab = "weapons";
   private catalogue = new Map<Tab, Entry[]>();
   private loadout!: Loadout;
   private filter = "";
+  private shop: ShopMode | null = null;
 
   constructor(private readonly root: HTMLElement, private readonly data: GameData, private readonly gui: GuiContext,
-    private readonly onChange: (l: Loadout) => void, private readonly bank: () => { crowns: number; heat: number }) {}
+    private readonly onChange: (l: Loadout) => void, private readonly bank: () => { crowns: number; heat: number },
+    private readonly owned: () => Set<string>, private readonly buy: (name: string, cost: number) => boolean) {}
 
-  async open(loadout: Loadout) {
+  /** Opens the arsenal (owned gear), or a shop when `shop` is given. */
+  async open(loadout: Loadout, shop: ShopMode | null = null) {
     this.loadout = { ...loadout, weapons: [...loadout.weapons] };
+    this.shop = shop;
+    if (shop && !shop.tabs.includes(this.tab)) this.tab = shop.tabs[0];
     await this.data.preload("config/item.dat");
     this.root.hidden = false;
     this.render();
   }
 
-  close() { this.root.hidden = true; }
+  /** Called when the window closes. */
+  onClose: (() => void) | null = null;
+
+  close() { this.root.hidden = true; this.onClose?.(); }
   get isOpen() { return !this.root.hidden; }
 
   private entries(tab: Tab): Entry[] {
@@ -78,14 +89,14 @@ export class Arsenal {
     r.replaceChildren();
     const card = el("div", "arsenal-card");
     const head = el("div", "arsenal-head");
-    const title = el("h2", "", "Arsenal");
+    const title = el("h2", "", this.shop?.title ?? "Arsenal");
     const bank = this.bank();
     const money = el("span", "arsenal-bank", `${bank.crowns} crowns · ${bank.heat} heat`);
     const close = el("button", "", "Close");
     close.onclick = () => this.close();
     head.append(title, money, close);
     const tabs = el("div", "arsenal-tabs");
-    for (const t of TABS) {
+    for (const t of TABS.filter(t => !this.shop || this.shop.tabs.includes(t.id))) {
       const b = el("button", t.id === this.tab ? "active" : "", t.label);
       b.onclick = () => { this.tab = t.id; this.render(); };
       tabs.append(b);
@@ -104,6 +115,7 @@ export class Arsenal {
   }
 
   private summary(): string {
+    if (this.shop) return `Stock up to ${this.shop.maxRarity}★. Bought items go to your arsenal; owned items show a tick.`;
     const l = this.loadout, last = (n: string) => n ? n.split("/").pop() : "default";
     return `Equipped: ${l.weapons.map(last).join(", ")} · ${last(l.shield)} · ${last(l.armor)} · ${last(l.helmet)}. Changes apply on the next floor.`;
   }
@@ -111,9 +123,13 @@ export class Arsenal {
   private fillGrid(grid: HTMLElement) {
     grid.replaceChildren();
     const q = this.filter.toLowerCase();
+    const owned = this.owned();
     let shown = 0;
     for (const e of this.entries(this.tab)) {
       if (q && !e.label.toLowerCase().includes(q)) continue;
+      // the arsenal holds what the knight owns; a shop sells what its tier allows
+      if (!this.shop && !owned.has(e.name)) continue;
+      if (this.shop && (e.rarity > this.shop.maxRarity || e.rarity < 1)) continue;
       if (++shown > 400) break;
       const tile = el("button", "arsenal-item" + (this.equipped(e) ? " equipped" : ""));
       tile.title = `${e.name} (${e.rarity}★)`;
@@ -126,7 +142,12 @@ export class Arsenal {
         g.drawImage(im.source, (48 - im.width * s) / 2, (48 - im.height * s) / 2, im.width * s, im.height * s);
       });
       tile.append(c, el("span", "arsenal-name", e.label), el("span", "arsenal-stars", "★".repeat(Math.max(0, e.rarity)) || "–"));
-      tile.onclick = () => this.toggle(e);
+      if (this.shop) {
+        const has = owned.has(e.name), cost = price(e.rarity);
+        tile.append(el("span", "arsenal-price", has ? "✓ owned" : `${cost} cr`));
+        if (has) tile.classList.add("equipped");
+        tile.onclick = () => { if (!has && this.buy(e.name, cost)) this.render(); };
+      } else tile.onclick = () => this.toggle(e);
       grid.append(tile);
     }
   }
