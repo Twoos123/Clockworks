@@ -44,6 +44,12 @@ export class Prop {
   carried = false;
   /** Elevator: seconds the knight has stood on it. */
   standTime = 0;
+  /**
+   * Switches rung by a blow rather than stepped on (a Beast Bell: no collision mask, a Damage
+   * handler): the world time until the switch can be struck again.
+   */
+  strikable = false;
+  cooldownUntil = 0;
   constructor(readonly kind: PropKind, readonly entity: Entity, readonly cfg: any) {}
 
   get x() { return this.entity.x; }

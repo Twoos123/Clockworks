@@ -6,7 +6,7 @@
 // and the source's lighting, fog, music and camera globals.
 
 import { learn, paint, type TileModel } from "./autotile";
-import { generateLayout, rng, type Room } from "./layout";
+import { generateLayout, rng, type Layout, type Room } from "./layout";
 
 const clone = <T>(o: T): T => JSON.parse(JSON.stringify(o, (k, v) => (k === "$outer" ? undefined : v)));
 const CLS = "com.threerings.tudey.data.TudeySceneModel$";
@@ -30,6 +30,16 @@ const transform = (x: number, y: number, z: number, heading = 0) => ({
 
 export interface TileInfo { width: number; height: number; walkable: boolean }
 
+/** Options for special floors (boss arenas). */
+export interface LevelOptions {
+  /** A fixed floor plan instead of a generated one (`deep`: the theme's edges run two cells deep). */
+  layout?: (deep: boolean) => Layout;
+  /** Encounter rooms with spawners and treasure (default true). */
+  encounters?: boolean;
+  /** Renames painted tiles (a tileset's look-alike in another theme), or null to keep one. */
+  retile?: (name: string, rand: () => number) => string | null;
+}
+
 /** The learned tiling for a theme, cached by the sources' ids. */
 const models = new Map<string, TileModel>();
 
@@ -38,7 +48,7 @@ const models = new Map<string, TileModel>();
  * tile reference's footprint and whether it is walkable floor (resolved from config/tile.dat).
  */
 export function generateLevel(sources: { id: string; root: any }[], tileInfo: (ref: any) => TileInfo, seed: number, title: string,
-  pool: any[] = []): any {
+  pool: any[] = [], opts: LevelOptions = {}): any {
   const rand = rng(seed);
   const key = sources.map(s => s.id).join(",");
   let model = models.get(key);
@@ -46,7 +56,7 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
     model = learn(sources.map(s => s.root), r => { const t = tileInfo(r); return [t.width, t.height]; }, r => tileInfo(r).walkable);
     models.set(key, model);
   }
-  const layout = generateLayout(rand, { deepEdges: model.deepEdges > 0.25 });
+  const layout = opts.layout ? opts.layout(model.deepEdges > 0.25) : generateLayout(rand, { deepEdges: model.deepEdges > 0.25 });
   const painted = paint(model, layout.cells, rand);
 
   // --- the tile grid: CoordIntMap cells of 8x8, values (config << 16 | elevation << 2 | rotation)
@@ -60,7 +70,10 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
     b.values[((p.y & (size - 1)) << granularity) | (p.x & (size - 1))] = (p.tile << 16) | ((p.elev & 0x3fff) << 2) | (p.rot & 3);
   }
   const tiles = { granularity, empty: -1, cells: { entries: [...blocks.values()].map(b => [b.coord, { values: b.values }]) } };
-  const tileConfigs = model.tiles.map(tile => ({ tile }));
+  const tileConfigs = model.tiles.map(tile => {
+    const name = opts.retile?.(String(tile?.name ?? ""), rand);
+    return { tile: name ? { ...clone(tile), name } : tile };
+  });
 
   // --- entries copied from the sources
   const all = sources.flatMap(s => s.root.entries ?? []);
@@ -86,7 +99,7 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
   const treasure = placeable(/Block\/Treasure/);
   let wave = 0;
   layout.rooms.forEach((r, i) => {
-    if (i === layout.start || i === layout.exit || !spawners.length) return;
+    if (i === layout.start || i === layout.exit || !spawners.length || opts.encounters === false) return;
     wave++;
     const tag = `gen spawn ${wave}`;
     const area = {
