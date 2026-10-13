@@ -21,6 +21,8 @@ export interface SaveData {
   runs: number;
   /** Item config names the knight owns (bought or starting gear). */
   owned: string[];
+  /** The knight's personal colour: a colour print (class << 8 | colour), 257 by default. */
+  color: number;
 }
 
 const KEY = "clyde-web-save";
@@ -34,7 +36,7 @@ export const DEFAULT_LOADOUT: Loadout = {
 
 export function loadSave(): SaveData {
   const fresh: SaveData = { version: 1, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons] }, crowns: 0, heat: 0,
-    materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield] };
+    materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield], color: 257 };
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return fresh;

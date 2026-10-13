@@ -390,6 +390,7 @@ class Viewer {
     world.onOpenShop = keeper => void this.openShop(keeper);
     const town = TOWN.test(this.scene.name);
     $("clockworks").hidden = !town;
+    world.color = this.save.color;
     await world.start(spawn, this.save.loadout);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the scene's music (a weighted pick from its mix) and ambient loops
@@ -484,6 +485,18 @@ class Viewer {
         return true;
       });
     this.arsenal.onClose = () => { this.paused = false; this.canvas.focus(); };
+    this.arsenal.color = this.save.color;
+    this.arsenal.onColor = print => { this.save.color = print; writeSave(this.save); };
+    // the personal colour class (the default print's class) and its named colours
+    void this.renderer.colors.then(pos => {
+      const cls = pos?.classes.get(this.save.color >> 8);
+      if (!pos || !cls || !this.arsenal) return;
+      this.arsenal.colors = [...cls.colors.values()].map(c => {
+        const z = pos.byPrint((cls.classId << 8) | c.colorId);
+        return { print: (cls.classId << 8) | c.colorId, name: c.name, rgb: z ? z.colorizedRoot() : [128, 128, 128] as [number, number, number] };
+      });
+      this.arsenal.refresh();
+    });
     return this.arsenal;
   }
 

@@ -26,6 +26,10 @@ export class Arsenal {
   private loadout!: Loadout;
   private filter = "";
   private shop: ShopMode | null = null;
+  /** Personal colour swatches: print and RGB, and the chosen print. */
+  colors: { print: number; name: string; rgb: [number, number, number] }[] = [];
+  color = 257;
+  onColor: ((print: number) => void) | null = null;
 
   constructor(private readonly root: HTMLElement, private readonly data: GameData, private readonly gui: GuiContext,
     private readonly onChange: (l: Loadout) => void, private readonly bank: () => { crowns: number; heat: number },
@@ -40,6 +44,9 @@ export class Arsenal {
     this.root.hidden = false;
     this.render();
   }
+
+  /** Redraws the window if it is open (after late data such as colour swatches arrives). */
+  refresh() { if (this.isOpen) this.render(); }
 
   /** Called when the window closes. */
   onClose: (() => void) | null = null;
@@ -108,6 +115,18 @@ export class Arsenal {
     search.oninput = () => { this.filter = search.value; this.fillGrid(grid); };
     tabs.append(search);
     const summary = el("div", "arsenal-summary", this.summary());
+    if (!this.shop && this.colors.length) {
+      const row = el("div", "arsenal-colors");
+      row.append(el("span", "", "Colour"));
+      for (const c of this.colors) {
+        const b = el("button", "swatch" + (c.print === this.color ? " active" : ""));
+        b.title = c.name;
+        b.style.background = `rgb(${c.rgb.join(",")})`;
+        b.onclick = () => { this.color = c.print; this.onColor?.(c.print); this.render(); };
+        row.append(b);
+      }
+      card.append(row);
+    }
     const grid = el("div", "arsenal-grid");
     card.append(head, tabs, summary, grid);
     r.append(card);

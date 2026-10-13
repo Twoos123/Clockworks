@@ -34,6 +34,11 @@ const STARTER_ARMOR = ["Gear/Armor/Parts/Proto (Base)", "Gear/Helm/Parts/Proto (
  * lives in game code, not data); the data's explicit combo lunges are 1.25 to 2.5 units.
  */
 const DEFAULT_SWING_IMPULSE = { forward: 1, side: 0, delay: 0, duration: 150 };
+/** The body model's default armour and helmet (character/pc/model.dat's own arguments). */
+const gearRef = (name: string) => ({ $class: "com.threerings.config.ConfigReference", name,
+  arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Colorization", 257], ["Variant", "grey"]] } });
+const DEFAULT_GEAR = { armor: gearRef("item/gear/armor/doublebelt/model.dat"), helmet: gearRef("item/gear/helm/pith/model.dat") };
+
 /** The dash: its numbers live in game code, so these are tuning values. */
 const DASH = { distance: 3.2, time: 0.25, cooldown: 0.9 };
 const CHARGE_ANIMS: Record<string, string> = {
@@ -253,12 +258,22 @@ export class World implements LogicHost {
   }
 
   /** The knight's body with one weapon in hand ("Weapon" attaches at bone_weapon_r). */
+  /** The knight's personal colour (a colour print for the body model's "Colorization"). */
+  color = 257;
+
+  /** A gear model reference recoloured to the knight's colour, where it takes one. */
+  private colored(ref: any): any {
+    if (!ref?.arguments?.entries?.some(([k]: [string]) => k === "Colorization")) return ref;
+    return { ...ref, arguments: { ...ref.arguments, entries: ref.arguments.entries.map(([k, v]: [string, unknown]) => [k, k === "Colorization" ? this.color : v]) } };
+  }
+
   private async knightInstance(weapon: WeaponDef | null, shield: ShieldDef | null, armor: ArmorDef[] = []) {
-    const args: [string, any][] = [];
+    const args: [string, any][] = [["Colorization", this.color]];
     if (weapon) args.push(["Weapon", weapon.model]);
     if (shield) args.push(["Shield", shield.model]);
-    // armour and helmet attach through the body model's "Armor" and "Helmet" parameters
-    for (const a of armor) if (a.model) args.push([a.slot === "helmet" ? "Helmet" : "Armor", a.model]);
+    // armour and helmet attach through the body model's "Armor" and "Helmet" parameters;
+    // without equipped ones, the body's own defaults, so they take the personal colour too
+    for (const a of armor) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
     const ref: any = { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
     return this.renderer.instantiate(await this.loader.load("character/pc/model.dat", ref));
@@ -266,8 +281,8 @@ export class World implements LogicHost {
 
   /** The knight's body model as worn (armour and helmet, no weapon), for the HUD portrait. */
   portraitRef(): any {
-    const args: [string, any][] = [];
-    for (const a of this.knight?.armor ?? []) if (a.model) args.push([a.slot === "helmet" ? "Helmet" : "Armor", a.model]);
+    const args: [string, any][] = [["Colorization", this.color]];
+    for (const a of this.knight?.armor ?? []) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
     return { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
   }
