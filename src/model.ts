@@ -63,6 +63,11 @@ export interface LoadedModel {
   skipped: string[];
   /** Particle-system layers, for ParticleSystemConfig models. */
   particles?: ParticleLayer[];
+  /**
+   * SceneInfluencerConfig projectors (fake shadows under roofs, trees and characters): an
+   * orthographic decal of `texture` covering width by height, tinted by the shadow colour.
+   */
+  decal?: { width: number; height: number; texture: string; glow: boolean };
   /** ScriptedConfig models: timed model actions (spawn a transient, play a sound). */
   script?: { loopDuration: number; actions: { time: number; action: any }[] };
   bounds?: { min: [number, number, number]; max: [number, number, number] };
@@ -241,6 +246,18 @@ export class ModelLoader {
     }
 
     // Scripted models run timed actions (ScriptedConfig.TimeAction); the owner executes them
+    if (impl.$class.endsWith("SceneInfluencerConfig") && impl.influence?.$class?.endsWith("$Projector")) {
+      const proj = impl.influence.projection ?? {};
+      // the projected material's "Texture" argument names the shadow image
+      const tex = proj.material?.arguments?.entries?.find(([k]: [string]) => k === "Texture")?.[1];
+      const file = tex?.arguments?.entries?.find(([k]: [string]) => k === "File")?.[1];
+      if (typeof file === "string") {
+        model.decal = { width: proj.width ?? impl.extent?.sizeX ?? 1, height: proj.height ?? impl.extent?.sizeY ?? 1, texture: file,
+          glow: /glow/i.test(file) };
+      }
+      return model;
+    }
+
     if (impl.$class.endsWith("ScriptedConfig")) {
       model.script = {
         loopDuration: impl.loopDuration ?? 0,

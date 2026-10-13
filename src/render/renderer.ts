@@ -712,6 +712,88 @@ export class Renderer {
     gl.disable(gl.BLEND);
   }
 
+  private decalProgram: WebGLProgram | null = null;
+  private decalTextures = new Map<string, Promise<WebGLTexture | null>>();
+  private decalReady = new Map<string, WebGLTexture | null>();
+
+  private decalTexture(file: string): WebGLTexture | null {
+    if (!this.decalTextures.has(file)) {
+      this.decalTextures.set(file, (async () => {
+        try {
+          const bmp = await createImageBitmap(await this.vfs.blob(file), { premultiplyAlpha: "none", imageOrientation: "flipY" });
+          const gl = this.gl, t = gl.createTexture()!;
+          gl.bindTexture(gl.TEXTURE_2D, t);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+          return t;
+        } catch { return null; }
+      })().then(t => { this.decalReady.set(file, t); return t; }));
+    }
+    return this.decalReady.get(file) ?? null;
+  }
+
+  /**
+   * Projected shadow decals (SceneInfluencer projectors): horizontal textured quads on the
+   * ground, placed by `matrix` (its rotation and position), drawn over the scene.
+   */
+  drawDecals(list: { matrix: Mat4; width: number; height: number; texture: string; glow: boolean }[], proj: Mat4, view: Mat4,
+    color: [number, number, number, number]) {
+    if (!list.length) return;
+    const gl = this.gl;
+    if (!this.decalProgram) {
+      this.decalProgram = link(gl, `#version 300 es
+        in vec2 a_pos;
+        uniform mat4 u_pv, u_model;
+        uniform vec2 u_size;
+        out vec2 v_uv;
+        void main() {
+          v_uv = a_pos * 0.5 + 0.5;
+          gl_Position = u_pv * u_model * vec4(a_pos * u_size * 0.5, 0.12, 1.0);
+        }`, `#version 300 es
+        precision mediump float;
+        in vec2 v_uv;
+        uniform sampler2D u_tex;
+        uniform vec4 u_color;
+        uniform bool u_shadow;
+        out vec4 o;
+        void main() {
+          vec4 t = texture(u_tex, v_uv);
+          // shadow decals darken in the shadow colour; others (floor logos) show their texture
+          float a = u_shadow ? u_color.a * t.a : t.a;
+          o = u_shadow ? vec4(u_color.rgb * a, a) : vec4(t.rgb * a, a);
+        }`);
+    }
+    if (!this.shadowVao) this.drawShadows([{ x: 0, y: 0, z: -1e6, r: 0 }], proj, view, [0, 0, 0, 0.001]);
+    const p = this.decalProgram;
+    gl.useProgram(p);
+    gl.bindVertexArray(this.shadowVao);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniformMatrix4fv(gl.getUniformLocation(p, "u_pv"), false, multiply(proj, view));
+    gl.uniform4fv(gl.getUniformLocation(p, "u_color"), color);
+    gl.uniform1i(gl.getUniformLocation(p, "u_tex"), 0);
+    gl.activeTexture(gl.TEXTURE0);
+    const uModel = gl.getUniformLocation(p, "u_model"), uSize = gl.getUniformLocation(p, "u_size");
+    const uShadow = gl.getUniformLocation(p, "u_shadow");
+    for (const d of list) {
+      if (d.glow) continue;
+      gl.uniform1i(uShadow, d.texture.includes("/shadow/") ? 1 : 0);
+      const t = this.decalTexture(d.texture);
+      if (!t) continue;
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.uniformMatrix4fv(uModel, false, d.matrix);
+      gl.uniform2f(uSize, d.width, d.height);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    gl.bindVertexArray(null);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+
   private skyboxPass = false;
   private fogOn = false;
 

@@ -4,7 +4,7 @@ import { Renderer, type ModelInstance } from "./render/renderer";
 import { SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
 import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environment";
-import { identity, multiply as multiplyMat, type Mat4 } from "./math";
+import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
 import { GuiContext } from "./ui/gui";
@@ -488,6 +488,22 @@ class Viewer {
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   }
 
+  private decals: { scene: unknown; list: { matrix: Mat4; width: number; height: number; texture: string; glow: boolean }[] } | null = null;
+
+  /** The scene's projected shadow decals (from SceneInfluencer projector models), cached per scene. */
+  private sceneDecals() {
+    if (this.decals?.scene === this.scene) return this.decals.list;
+    const list: { matrix: Mat4; width: number; height: number; texture: string; glow: boolean }[] = [];
+    const walk = (m: LoadedModel, matrix: Mat4, depth: number) => {
+      if (depth > 4) return;
+      if (m.decal) list.push({ matrix, ...m.decal });
+      for (const a of m.attachments) walk(a.model, multiplyMat(matrix, a.transform.matrix ?? toMatrix(a.transform)), depth + 1);
+    };
+    for (const o of this.scene?.objects ?? []) walk(o.model, o.matrix, 0);
+    this.decals = { scene: this.scene, list };
+    return list;
+  }
+
   /** The minimap's label: the depth in the Clockworks, or the town's name. */
   private floorLabel(): string {
     if (!this.scene) return "";
@@ -920,6 +936,7 @@ class Viewer {
         }
         const items = this.world ? [...this.sceneItems, ...this.world.items()] : this.sceneItems;
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
+        if (this.scene) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         if (this.world) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;
         this.lastView = view;
