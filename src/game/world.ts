@@ -217,8 +217,11 @@ export class World implements LogicHost {
   private conditions!: StatusConditions;
   /** Called when the knight takes the elevator at the end of the level. */
   onNextFloor: (() => void) | null = null;
-  /** Called when a shopkeeper opens their shop (the NPC's name says what it sells). */
-  onOpenShop: ((keeper: string) => void) | null = null;
+  /**
+   * Called when a shopkeeper opens their shop (the NPC's name says what it sells), with the
+   * keeper's model and the animation it plays while the shop is open (the vendor portrait).
+   */
+  onOpenShop: ((keeper: string, portrait: { ref: any; idle: any } | null) => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
   /**
@@ -565,9 +568,14 @@ export class World implements LogicHost {
         }
         return true;
       }
-      case "OpenShop":
-        this.onOpenShop?.(source.name);
+      case "OpenShop": {
+        // the keeper's look: its actor's sprite model, playing the shop's animation (or its idle)
+        const actor = source.isActor ? this.data.resolveSync("config/actor.dat", { name: source.name }, "actor") : null;
+        const model = actor?.sprite?.model ?? null;
+        const idle = cfg.animation ?? actor?.sprite?.idles?.[0]?.animation ?? null;
+        this.onOpenShop?.(source.name, model?.name ? { ref: model, idle } : null);
         return true;
+      }
       case "NextFloor":
         this.finishLevel();
         return true;

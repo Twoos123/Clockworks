@@ -19,7 +19,6 @@ import { GameScreens } from "./ui/screens";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
-import { openWardrobe } from "./ui/wardrobe";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen } from "./ui/elevator";
 import { MusicPlayer } from "./game/musicplayer";
@@ -646,7 +645,7 @@ class Viewer {
     this.itemScreens?.closeAll();
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
-    world.onOpenShop = keeper => void this.openShop(keeper);
+    world.onOpenShop = (keeper, portrait) => void this.openShop(keeper, portrait);
     const town = TOWN.test(this.scene.name);
     $("clockworks").hidden = !town;
     $("arenaBtn").hidden = !town;
@@ -690,7 +689,9 @@ class Viewer {
     } });
     void this.gameHud.init(hudState(world, knightName(this.save))).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
-    if (import.meta.env.DEV) openWardrobe(this.outfit, () => this.world, () => this.save, () => writeSave(this.save));
+    // in town, the item windows and the options are built while the player looks around, so
+    // their first opening is instant
+    if (town) void this.prebuildWindows();
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
@@ -770,7 +771,22 @@ class Viewer {
   }
 
   private itemScreens: GameScreens | null = null;
-  private previewView: { key: string; view: PortraitView } | null = null;
+  /** The item windows' render views (the knight, the battle sprite, a shopkeeper), by model. */
+  private previewViews = new Map<string, PortraitView>();
+  private prebuilding: Promise<void> | null = null;
+
+  /**
+   * Builds the arsenal, backpack, forge and options windows in idle time, one at a time,
+   * once the knight is in town (building one takes long enough to notice on first open).
+   */
+  private prebuildWindows() {
+    const idle = () => new Promise<void>(r => typeof requestIdleCallback === "function" ? requestIdleCallback(() => r(), { timeout: 2000 }) : setTimeout(r, 200));
+    return this.prebuilding ??= (async () => {
+      await this.ensureScreens().prebuild(idle);
+      await idle();
+      await this.optionsScreen().prebuild().catch(e => console.warn("options prebuild failed", e));
+    })();
+  }
 
   /** The game's item windows: arsenal, forge, shops, backpack (src/ui/screens.ts). */
   private ensureScreens() {
@@ -782,13 +798,20 @@ class Viewer {
       write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); },
       paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
       arsenalClosed: () => this.places.arsenalClosed(),
-      // the equipment window's knight preview
-      view: (c, g, x, y, w, h) => {
-        const ref = this.world?.portraitRef();
+      outfit: () => this.outfit,
+      // the equipment window's knight preview, the battle sprite page's sprite, the vendor's keeper
+      view: (c, g, x, y, w, h, model) => {
+        const ref = model ? model.ref : this.world?.portraitRef();
         if (!ref) return;
-        const key = JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v));
-        if (this.previewView?.key !== key) this.previewView = { key, view: new PortraitView(this.renderer, this.loader, ref) };
-        this.previewView.view.draw(c, g, x, y, w, h);
+        const idle = model ? model.idle : "character/pc/idle.dat";
+        const key = JSON.stringify([ref, idle], (k, v) => (k === "$outer" ? undefined : v));
+        let view = this.previewViews.get(key);
+        if (!view) {
+          // a few views stay loaded (switching tabs or shops comes back to them)
+          if (this.previewViews.size >= 6) this.previewViews.delete(this.previewViews.keys().next().value!);
+          this.previewViews.set(key, view = new PortraitView(this.renderer, this.loader, ref, idle));
+        }
+        view.draw(c, g, x, y, w, h);
       },
     });
   }
@@ -968,8 +991,12 @@ class Viewer {
 
   /** The game's own options window (ui/options), bound to our settings. */
   private async openOptions() {
+    await this.optionsScreen().open();
+  }
+
+  private optionsScreen(): OptionsScreen {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    this.options ??= new OptionsScreen(this.gui, $<HTMLCanvasElement>("optionsCanvas"), this.options_, {
+    return this.options ??= new OptionsScreen(this.gui, $<HTMLCanvasElement>("optionsCanvas"), this.options_, {
       changed: () => { saveSettings(this.options_); this.applyOptions(); },
       advanced: tab => this.settings?.open(tab),
       returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
@@ -978,7 +1005,6 @@ class Viewer {
       playing: () => !!this.world,
       sound: f => this.uiSound(f),
     });
-    await this.options.open();
   }
 
   /** Plays a UI feedback sound once audio exists (it starts with the first play). */
@@ -989,7 +1015,7 @@ class Viewer {
   }
 
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
-  private async openShop(keeper: string) {
+  private async openShop(keeper: string, portrait: { ref: any; idle: any } | null = null) {
     this.paused = true;
     const eco = await this.economy();
     // in the Clockworks a terminal's keepers stock their tier (Basil sells its recipes, the
@@ -1000,7 +1026,7 @@ class Viewer {
     const kp = eco.keeper(keeper, { tier, maxRarity });
     // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
     const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
-    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity);
+    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity, portrait);
   }
 
   /** The economy over the install's configs (prices, levels, variants, recipes). */

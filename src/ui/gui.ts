@@ -203,6 +203,7 @@ const MESSAGES: Record<string, string> = {
   add_more_bonuses: "Add More Bonuses", add_more_success: "Add More Success", apply_crystals: "Apply Crystals",
   intro_pref: "Preferences", intro_type: "Type", intro_arcade: "Arcade", intro_expansion: "Expansion",
   intro_prestige: "Prestige", intro_rank: "Rank", edit_advanced: "Advanced", edit_beta: "Beta",
+  characteroptions: "Character Options", feed_sprite: "Feed Sprite", pet_skillpoints: "Skill Points",
 };
 const ACRONYMS = new Set(["ui", "hud", "npc", "pvp", "pve", "eu", "us", "id", "fps", "fov", "xp", "hp", "aoe", "dps"]);
 const SMALL_WORDS = new Set(["a", "an", "and", "as", "at", "by", "for", "in", "of", "on", "or", "the", "to", "with"]);

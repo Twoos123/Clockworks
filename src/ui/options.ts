@@ -43,10 +43,17 @@ export class OptionsScreen {
 
   get isOpen() { return !this.canvas.hidden; }
 
+  private building: Promise<Component | null> | null = null;
+
+  /** Builds the window ahead of its first opening (in idle time). */
+  async prebuild() {
+    this.ui ??= await (this.building ??= this.build());
+  }
+
   async open() {
     this.canvas.hidden = false;
     this.actions.sound("sound/feedback/ui_open.ogg");
-    if (!this.ui) this.ui = await this.build();
+    if (!this.ui) this.ui = await (this.building ??= this.build());
     if (this.ui) { this.load(this.ui); resetInput(this.ui); }
     const ret = this.ui?.find("return"), quit = this.ui?.find("quit"), logoff = this.ui?.find("logoff");
     if (ret) ret.visible = this.actions.playing();
