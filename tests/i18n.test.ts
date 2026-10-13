@@ -112,3 +112,35 @@ test("loading bundles picks the base files and the chosen locale", async () => {
   assert.equal(messages.getBundle("other").get("m.a"), "Ay");
   assert.equal(messages.getBundle("other").get("m.b"), "café");
 });
+
+test("conversations walk from the initial node through first responses", async () => {
+  const { messages } = await import("../src/i18n.ts");
+  const { walkConversation } = await import("../src/game/conversation.ts");
+  messages.add("talk", parseProperties("m.hi=Hello {0}\nr.hi=Go on\nm.bye=Farewell\nr.bye=End\nn.who=Speaker"));
+  const impl = {
+    bundle: "talk", speakerName: "n.who", initialAction: { node: "a" },
+    nodes: [
+      { name: "end", message: "m.bye", responses: [{ text: "r.bye", action: {} }] },
+      { name: "a", message: "m.hi", userInterface: { arguments: { entries: [["image", "pic.png"]] } }, responses: [{ text: "r.hi", action: { node: "end" } }] },
+      { name: "unused", message: "m.hi", responses: [] },
+    ],
+  };
+  const c = walkConversation(impl, "Ann")!;
+  assert.equal(c.speaker, "Speaker");
+  assert.deepEqual(c.steps.map(s => [s.message, s.responses[0], s.image]), [["Hello Ann", "Go on", "pic.png"], ["Farewell", "End", null]]);
+  assert.equal(walkConversation({ nodes: [] }, "x"), null);
+});
+
+test("variant keys compose as VariantConfig builds them", async () => {
+  const { messages } = await import("../src/i18n.ts");
+  const { variantKey, variantText } = await import("../src/game/text.ts");
+  messages.add("item", parseProperties("m.attack_speed=Speed: {0}\nm.medium=Mid\nm.high=Top\nm.new_status_resist=Resist {0}: {1}\nm.low=Low\nm.health_bonus=Health +{0}"));
+  messages.add("status", parseProperties("m.curse=Hex"));
+  const speed = { $class: "x.VariantConfig$AttackSpeedChange", bonus: { name: "MEDIUM" }, speed: 0.03 };
+  assert.equal(variantKey(speed), "%item:m.attack_speed|m.medium");
+  assert.equal(variantText(speed, "ours"), "Speed: Mid");
+  assert.equal(variantText({ $class: "x$AttackSpeedChange", bonus: { name: "CUSTOM" }, speed: 0.1 }, "ours"), "Speed: Top");
+  assert.equal(variantText({ $class: "x$StatusResist", statusResist: { name: "LOW" }, conditionMask: 32 }, "ours"), "Resist Hex: Low");
+  assert.equal(variantText({ $class: "x$HealthBonus", health: 80 }, "ours"), "Health +2");
+  assert.equal(variantText({ $class: "x$Unknown" }, "ours"), "ours");
+});

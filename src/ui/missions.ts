@@ -19,6 +19,7 @@ import { knightName, type SaveData } from "../game/save";
 import { loadConversation, type Conversation } from "../game/conversation";
 import { SpawnTables } from "../game/spawntable";
 import { itemName } from "../game/text";
+import { text } from "../i18n";
 import { buildComponentConfig, Component, type GuiContext, type GuiImage } from "./gui";
 import { notice } from "./notice";
 import { buildUi, GuiScreen, uiRef } from "./screen";
@@ -554,7 +555,7 @@ class MissionScreen extends GuiScreen {
     const [win, up] = await Promise.all([buildUi(this.ctx, uiRef(COMPLETE)), rankUp ? buildUi(this.ctx, uiRef(RANKUP)) : null]);
     if (!win) return;
     const set = (tag: string, text: string) => { const c = win.find(tag); if (c) c.text = text; };
-    set("title", "Mission Complete");
+    set("title", text("mission", "t.missioncomplete", "Mission Complete"));
     set("name", m.title.toUpperCase());
     set("objective", withName(m.objective || m.summary, this.board.knight()));
     const rewards = win.find("rewards");
@@ -568,7 +569,7 @@ class MissionScreen extends GuiScreen {
     const line = up?.find("rankup");
     const box = win.find("window");
     if (line && box) {
-      line.text = `Rank up! ${rankUp}`;
+      line.text = `${text("mission", "m.rank_up", "Rank up!")} ${rankUp}`;
       line.constraints = null;
       box.children.splice(1, 0, line);
     }
@@ -596,7 +597,7 @@ class MissionScreen extends GuiScreen {
     const show = () => {
       set("prompt", (npc ? `${npc}:\n` : "") + (steps[at]?.message ?? this.board.briefingOf(m)));
       const ok = o.find("accept");
-      if (ok) ok.text = steps[at]?.responses[0] ?? "Done";
+      if (ok) ok.text = steps[at]?.responses[0] ?? text("uplink", "m.done", "Done");
     };
     show();
     const check = o.find("confirm");
@@ -609,7 +610,7 @@ class MissionScreen extends GuiScreen {
     const shut = () => { this.overlays = this.overlays.filter(x => x !== o); };
     this.on(o, "dismiss", shut);
     const cancel = this.on(o, "cancel", shut);
-    if (cancel) cancel.text = "Cancel";
+    if (cancel) cancel.text = text("global", "m.cancel", "Cancel");
     this.on(o, "accept", () => {
       if (at < steps.length - 1) { at++; show(); this.host.sound("sound/feedback/button_press.ogg"); return; }
       shut(); this.board.finish(m);
