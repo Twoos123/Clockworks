@@ -12,6 +12,7 @@
 import { identity, invert, multiply, slerp, lerp3, toMatrix, compose, type Mat4, type Transform } from "../math";
 import type { PassState, TextureUnitState } from "../config/materials";
 import { VIEWER_ENVIRONMENT, type Environment, type Rgb } from "../environment";
+import { Emitter } from "../particles";
 import { recolorPixels, type ColorPository } from "../colors";
 import type { AnimationClip, ClientArray, LoadedModel, MeshPart, NodeDef } from "../model";
 import type { Vfs } from "../vfs";
@@ -26,7 +27,10 @@ layout(location=4) in vec4 a_boneIdx;
 layout(location=5) in vec4 a_boneW;
 layout(location=6) in mat4 a_model; // per instance (locations 6-9)
 uniform mat4 u_proj, u_view, u_texMatrix;
-uniform bool u_skinned, u_sphereMap;
+uniform bool u_skinned, u_sphereMap, u_wave;
+uniform float u_time, u_choppiness;
+uniform vec2 u_waveVectors[2];
+uniform float u_waveFreq[2], u_waveAmp[2], u_wavePhase[2];
 uniform highp sampler2D u_bones;
 out vec3 v_normal;
 out vec2 v_uv;
@@ -47,6 +51,21 @@ void main() {
     nrm = mat3(skin) * nrm;
   }
   mat4 mv = u_view * a_model;
+  if (u_wave) {
+    // Vertex/Wave: Gerstner waves applied in world space (rsrc/shader/vertex/wave.vert)
+    vec4 wv = a_model * pos;
+    vec3 wn = mat3(a_model) * nrm;
+    for (int i = 0; i < 2; i++) {
+      float ang = dot(u_waveVectors[i], wv.xy) - u_waveFreq[i] * u_time + u_wavePhase[i];
+      vec2 off = u_waveVectors[i] * u_waveAmp[i] * sin(ang);
+      wn.xy -= off;
+      float l = max(length(u_waveVectors[i]), 1e-4);
+      wv.xyz += vec3(off * (u_choppiness / l), u_waveAmp[i] * cos(ang));
+    }
+    pos = wv;
+    nrm = wn;
+    mv = u_view;
+  }
   v_normal = mat3(mv) * nrm;
   v_uv = a_uv;
   if (u_sphereMap) {
@@ -69,8 +88,9 @@ in vec3 v_normal;
 in vec2 v_uv;
 in vec4 v_color;
 in vec3 v_eye;
-uniform sampler2D u_tex;
-uniform bool u_hasTex, u_lit, u_useVertexColor;
+uniform sampler2D u_tex, u_emissiveTex;
+uniform bool u_emissive;
+uniform bool u_hasTex, u_lit, u_useVertexColor, u_particle;
 uniform int u_alphaFunc, u_env;
 uniform float u_alphaRef, u_rgbScale;
 uniform vec4 u_color;
@@ -103,12 +123,18 @@ void main() {
     }
     c.rgb *= light;
   }
+  if (u_emissive) {
+    // Fragment/Emissive: diffuse * (lit + emissive - lit * emissive)
+    vec4 e = texture(u_emissiveTex, v_uv);
+    c = c + e - c * e;
+  }
   if (u_hasTex) {
     vec4 t = texture(u_tex, v_uv);
     if (u_env == 1) c = t;                                   // Replace
     else if (u_env == 2) c = vec4(c.rgb + t.rgb, c.a * t.a); // Add
     else if (u_env == 3) c.rgb = mix(c.rgb, t.rgb, t.a);     // Decal
     else c *= t;                                             // Modulate, Combine
+    if (u_particle) c.rgb *= t.a;                            // particle colours are premultiplied
   }
   c.rgb *= u_rgbScale;
   if (!alphaPasses(c.a)) discard;
@@ -138,6 +164,8 @@ interface GpuPart {
   primitive: number;
   /** Texture for each pass (unit 0). */
   textures: (WebGLTexture | null)[];
+  /** Emissive map for each pass (unit 1), for Fragment/Emissive passes. */
+  emissive: (WebGLTexture | null)[];
 }
 
 /** Runtime state for one placed model (and, recursively, its attachments). */
@@ -175,6 +203,11 @@ export class ModelInstance {
     }
     if (!this.model.root) return;
     const overrides = this.sample();
+    // procedural animations set the target nodes' local transforms outright
+    for (const p of this.model.procedurals) {
+      const m = p.transform(this.time);
+      for (const t of p.targets) overrides.set(t, m);
+    }
     const walk = (n: NodeDef, parent: Mat4) => {
       const local = overrides.get(n.name) ?? toMatrix(this.bindLocal.get(n.name)!);
       const w = multiply(parent, local);
@@ -225,6 +258,12 @@ export class Renderer {
   private readonly loadedTextures = new Map<string, WebGLTexture | null>();
   private readonly boneTex: WebGLTexture;
   private readonly instanceBuffer: WebGLBuffer;
+  private readonly particleBuffer: WebGLBuffer;
+  private readonly particleVao: WebGLVertexArrayObject;
+  /** Emitters per model instance, one per placement in traversal order. */
+  private readonly emitters = new WeakMap<ModelInstance, Emitter[]>();
+  private lastTime = 0;
+  private view: Mat4 = identity();
   private instanceData = new Float32Array(16 * 1024);
   private readonly white: WebGLTexture;
   stats = { draws: 0, triangles: 0 };
@@ -237,7 +276,8 @@ export class Renderer {
     for (const name of ["u_proj", "u_view", "u_model", "u_skinned", "u_bones", "u_tex", "u_hasTex",
       "u_lit", "u_alphaRef", "u_sphereMap", "u_useVertexColor", "u_alphaFunc", "u_env",
       "u_rgbScale", "u_color", "u_ambient", "u_numLights", "u_lightDirs", "u_lightColors", "u_fogMode",
-      "u_fogColor", "u_fogStart", "u_fogEnd", "u_fogDensity", "u_texMatrix"]) {
+      "u_fogColor", "u_fogStart", "u_fogEnd", "u_fogDensity", "u_texMatrix", "u_particle", "u_wave", "u_time", "u_choppiness", "u_waveVectors",
+      "u_waveFreq", "u_waveAmp", "u_wavePhase", "u_emissive", "u_emissiveTex"]) {
       this.u[name] = gl.getUniformLocation(this.program, name);
     }
     this.boneTex = gl.createTexture()!;
@@ -245,6 +285,17 @@ export class Renderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     this.instanceBuffer = gl.createBuffer()!;
+    this.particleBuffer = gl.createBuffer()!;
+    this.particleVao = gl.createVertexArray()!;
+    gl.bindVertexArray(this.particleVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 36, 0);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 36, 12);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 36, 20);
+    gl.bindVertexArray(null);
     this.white = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, this.white);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
@@ -277,7 +328,11 @@ export class Renderer {
         const u = p.units[0];
         return u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
-      inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures });
+      const emissive = await Promise.all(part.material.passes.map(p => {
+        const u = p.units[1];
+        return p.emissive && u?.texture ? this.texture(u) : Promise.resolve(null);
+      }));
+      inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures, emissive });
     }
     for (const a of model.attachments) {
       inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model) });
@@ -387,6 +442,7 @@ export class Renderer {
     this.env = env;
     this.sceneAmbient = env.ambient;
     this.setLights(env, view);
+    this.view = view;
     if (skyboxes.length) {
       // skyboxes follow the camera: drop the view translation, never write depth
       const sky = view.slice();
@@ -447,8 +503,27 @@ export class Renderer {
     // Group placements by mesh part so each part and pass is one instanced draw. A part
     // belongs to one (possibly shared) ModelInstance, so all of its placements share a pose.
     const groups = new Map<GpuPart, { inst: ModelInstance; matrices: Mat4[] }>();
+    const dt = Math.min(0.1, Math.max(0, this.time - this.lastTime));
+    const visits = new Map<ModelInstance, number>();
+    const particles: { emitter: Emitter; matrix: Mat4 }[] = [];
     const collect = (inst: ModelInstance, placement: Mat4) => {
       inst.update(frame);
+      if (inst.model.particles?.length) {
+        const n = visits.get(inst) ?? 0;
+        visits.set(inst, n + 1);
+        let list = this.emitters.get(inst);
+        if (!list) this.emitters.set(inst, list = []);
+        const emitter = list[n] ??= new Emitter(inst.model.particles);
+        emitter.update(dt, placement);
+        particles.push({ emitter, matrix: placement });
+        // model-emitting layers place their model at each particle
+        emitter.states.forEach((state, li) => {
+          const model = state.layer.model;
+          if (!model) return;
+          const meshInst = this.meshInstance(model);
+          if (meshInst) for (const m of emitter.meshMatrices(li, placement)) collect(meshInst, m);
+        });
+      }
       for (const gp of inst.parts) {
         const m = gp.part.node ? multiply(placement, inst.nodeMatrix(gp.part.node)) : placement;
         let g = groups.get(gp);
@@ -478,8 +553,67 @@ export class Renderer {
     gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.subarray(0, total * 16), gl.DYNAMIC_DRAW);
 
     for (const [gp, g] of order) this.drawPart(g.inst, gp, offsets.get(gp)!, g.matrices.length);
+    if (!this.skyboxPass) this.lastTime = this.time;
+    if (particles.length) this.drawParticles(particles);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
+  }
+
+  private readonly meshInstances = new Map<LoadedModel, ModelInstance | null>();
+
+  /** Instance for a particle-emitted model; null until its textures have loaded. */
+  private meshInstance(model: LoadedModel): ModelInstance | null {
+    if (!this.meshInstances.has(model)) {
+      this.meshInstances.set(model, null);
+      this.instantiate(model).then(i => this.meshInstances.set(model, i)).catch(() => {});
+    }
+    return this.meshInstances.get(model) ?? null;
+  }
+
+  private readonly particleTextures = new Map<string, Promise<WebGLTexture | null>>();
+  private readonly readyParticleTextures = new Map<string, WebGLTexture | null>();
+
+  private drawParticles(list: { emitter: Emitter; matrix: Mat4 }[]) {
+    const gl = this.gl, v = this.view;
+    const right: [number, number, number] = [v[0], v[4], v[8]], up: [number, number, number] = [v[1], v[5], v[9]];
+    gl.bindVertexArray(this.particleVao);
+    gl.disableVertexAttribArray(1);
+    gl.vertexAttrib3f(1, 0, 0, 1);
+    for (let k = 0; k < 4; k++) {
+      gl.disableVertexAttribArray(6 + k);
+      gl.vertexAttrib4f(6 + k, k === 0 ? 1 : 0, k === 1 ? 1 : 0, k === 2 ? 1 : 0, k === 3 ? 1 : 0);
+    }
+    gl.uniform1i(this.u.u_skinned, 0);
+    gl.uniform1i(this.u.u_particle, 1);
+    const data: number[] = [];
+    for (const { emitter, matrix } of list) {
+      emitter.states.forEach((state, li) => {
+        if (state.particles.length === 0) return;
+        data.length = 0;
+        emitter.emit(li, matrix, right, up, data);
+        if (data.length === 0) return;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STREAM_DRAW);
+        for (const pass of state.layer.material.passes) {
+          const unit = pass.units[0];
+          let tex: WebGLTexture | null = null;
+          if (unit?.texture) {
+            const key = unit.texture;
+            if (this.readyParticleTextures.has(key)) tex = this.readyParticleTextures.get(key)!;
+            else if (!this.particleTextures.has(key)) {
+              this.particleTextures.set(key, this.texture(unit).then(t => { this.readyParticleTextures.set(key, t); return t; }));
+            }
+          }
+          // particle colours are premultiplied, so blend accordingly and never write depth
+          this.applyPass({ ...pass, srcBlend: "ONE", destBlend: "ONE_MINUS_SRC_ALPHA", depthMask: false, cullFace: "DISABLED", lit: false },
+            tex, false, true);
+          gl.drawArrays(gl.TRIANGLES, 0, data.length / 9);
+          this.stats.draws++;
+        }
+      });
+    }
+    gl.uniform1i(this.u.u_particle, 0);
+    gl.bindVertexArray(null);
   }
 
   private drawPart(inst: ModelInstance, gp: GpuPart, first: number, instances: number) {
@@ -500,7 +634,7 @@ export class Renderer {
       gl.vertexAttribDivisor(6 + k, 1);
     }
     gp.part.material.passes.forEach((pass, i) => {
-      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color);
+      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.emissive[i]);
       if (gp.indexed) gl.drawElementsInstanced(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0, instances);
       else gl.drawArraysInstanced(gp.primitive, 0, gp.count, instances);
       this.stats.draws++;
@@ -509,8 +643,25 @@ export class Renderer {
     gl.bindVertexArray(null);
   }
 
-  private applyPass(pass: PassState, texture: WebGLTexture | null, hasNormals: boolean, hasColors: boolean) {
+  private applyPass(pass: PassState, texture: WebGLTexture | null, hasNormals: boolean, hasColors: boolean,
+    emissive: WebGLTexture | null = null) {
     const gl = this.gl, g = gl as unknown as Record<string, number>;
+    gl.uniform1i(this.u.u_emissive, emissive ? 1 : 0);
+    if (emissive) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, emissive);
+      gl.uniform1i(this.u.u_emissiveTex, 2);
+    }
+    const w = pass.wave;
+    gl.uniform1i(this.u.u_wave, w ? 1 : 0);
+    if (w) {
+      gl.uniform1f(this.u.u_time, this.time);
+      gl.uniform1f(this.u.u_choppiness, w.choppiness);
+      gl.uniform2fv(this.u.u_waveVectors, w.vectors);
+      gl.uniform1fv(this.u.u_waveFreq, w.frequencies);
+      gl.uniform1fv(this.u.u_waveAmp, w.amplitudes);
+      gl.uniform1fv(this.u.u_wavePhase, w.phases);
+    }
     const unit = pass.units[0];
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, texture ?? this.white);

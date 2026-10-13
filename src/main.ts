@@ -209,7 +209,18 @@ class Viewer {
 
   private instanceOf(model: LoadedModel): Promise<ModelInstance> {
     let p = this.instances.get(model);
-    if (!p) { p = this.renderer.instantiate(model); this.instances.set(model, p); }
+    if (!p) {
+      p = this.renderer.instantiate(model).then(async inst => {
+        // scene props play their automatic animation (idle loops, flags, machinery)
+        const first = model.autoAnimations[0];
+        if (first && model.root) {
+          const clip = await loadAnimation(this.loader, first).catch(() => null);
+          if (clip) inst.clip = { ...clip, loop: true };
+        }
+        return inst;
+      });
+      this.instances.set(model, p);
+    }
     return p;
   }
 

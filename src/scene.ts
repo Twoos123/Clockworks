@@ -128,6 +128,7 @@ export class SceneLoader {
     let done = 0;
     const unique = new Set<LoadedModel>();
     for (const job of jobs) {
+      if (job.ref?.name?.startsWith("editor/")) { stats.markers++; continue; }
       const model = await this.loader.loadRef(job.ref);
       if (model) { objects.push({ model, matrix: job.matrix }); unique.add(model); } else stats.unresolved++;
       if (++done % 200 === 0) onProgress?.(done, jobs.length);

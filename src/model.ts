@@ -5,6 +5,9 @@
 
 import { ConfigLibrary, defaultMaterialRef, localConfigs, type LocalConfigs, type ResolvedMaterial } from "./config/materials";
 import { applyArguments, hasArguments } from "./config/params";
+import { readParticleLayers, type ParticleLayer } from "./particles";
+import { transformExpr, type F } from "./expr";
+import type { Mat4 } from "./math";
 import { importBinary, type JObject } from "./export/BinaryImport";
 import { IDENTITY_TRANSFORM, readTransform, type Transform } from "./math";
 import type { Vfs } from "./vfs";
@@ -50,10 +53,14 @@ export interface LoadedModel {
   parts: MeshPart[];
   root?: NodeDef;
   attachments: Attachment[];
-  /** Animations that start automatically, by path. */
+  /** Imported animations that start automatically, by path. */
   autoAnimations: string[];
+  /** Procedural animations that start automatically: node local transforms from expressions. */
+  procedurals: { targets: string[]; transform: F<Mat4> }[];
   /** Implementation classes that were found but are not drawn yet. */
   skipped: string[];
+  /** Particle-system layers, for ParticleSystemConfig models. */
+  particles?: ParticleLayer[];
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
@@ -177,7 +184,7 @@ export class ModelLoader {
     const lib = await this.configs();
     const dir = path.substring(0, path.lastIndexOf("/") + 1);
     const model: LoadedModel = {
-      path, kind: short(impl?.$class ?? "none"), parts: [], attachments: [], autoAnimations: [], skipped: [],
+      path, kind: short(impl?.$class ?? "none"), parts: [], attachments: [], autoAnimations: [], procedurals: [], skipped: [],
     };
     if (!impl) return model;
 
@@ -224,6 +231,14 @@ export class ModelLoader {
       return model;
     }
 
+    if (impl.$class.endsWith("ParticleSystemConfig")) {
+      model.particles = readParticleLayers(impl, ref => lib.resolve(ref, null, local),
+        impl.$class.endsWith("MetaParticleSystemConfig"));
+      for (const layer of model.particles) if (layer.modelRef) layer.model = await this.loadRef(layer.modelRef, depth);
+      if (model.particles.length === 0) model.skipped.push(model.kind);
+      return model;
+    }
+
     const ctx: Ctx = { lib, local, impl, dir };
     if (impl.root) model.root = readNode(ctx, impl.root, model.parts);
     for (const m of impl.skin?.visible ?? []) {
@@ -251,9 +266,18 @@ export class ModelLoader {
       if (m) model.attachments.push({ node: a.node ?? "", transform: readTransform(a.transform ?? IDENTITY_TRANSFORM), model: m });
     }
     for (const am of impl.animationMappings ?? []) {
-      if (am.startAutomatically && typeof am.animation?.name === "string" && am.animation.name.endsWith(".dat")
-        && !am.animation.name.startsWith("animation/procedural/")) {
-        model.autoAnimations.push(am.animation.name);
+      const ref = am.animation;
+      if (!am.startAutomatically || typeof ref?.name !== "string" || !ref.name.endsWith(".dat")) continue;
+      let anim: any;
+      try { anim = applyArguments(await this.importFile(ref.name), ref); } catch { continue; }
+      const ai = anim?.implementation;
+      if (ai?.$class?.endsWith("$Procedural")) {
+        for (const tt of ai.transforms ?? []) {
+          const fn = transformExpr(tt.expression);
+          if (fn) model.procedurals.push({ targets: (tt.targets ?? []).filter(Boolean), transform: fn });
+        }
+      } else {
+        model.autoAnimations.push(ref.name);
       }
     }
     if (model.parts.length === 0 && model.attachments.length === 0) model.skipped.push(model.kind);

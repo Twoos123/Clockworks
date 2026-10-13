@@ -42,6 +42,18 @@ export interface PassState {
   units: TextureUnitState[];
   /** GLSL programs the original pass uses; this renderer emulates them, see renderer.ts. */
   shaders: string[];
+  /** Vertex/Wave parameters (Gerstner waves), when the pass uses that shader. */
+  wave?: Wave;
+  /** Fragment/Emissive: unit 1 is an emissive map added over the lit colour. */
+  emissive?: boolean;
+}
+
+export interface Wave {
+  vectors: number[];
+  frequencies: number[];
+  amplitudes: number[];
+  phases: number[];
+  choppiness: number;
 }
 
 export interface ResolvedMaterial {
@@ -75,6 +87,7 @@ const enumName = (e: any, def: string): string => e?.name ?? def;
 export class ConfigLibrary {
   private materials = new Map<string, any>();
   private textures = new Map<string, any>();
+  private shaderConfigs = new Map<string, any>();
   private readonly cache = new Map<string, ResolvedMaterial>();
 
   async load(importFile: (path: string) => Promise<any>) {
@@ -86,6 +99,7 @@ export class ConfigLibrary {
     };
     for (const c of await list("config/material.dat")) this.materials.set(c.name, c);
     for (const c of await list("config/texture.dat")) this.textures.set(c.name, c);
+    for (const c of await list("config/shader.dat")) this.shaderConfigs.set(c.name, c);
     return this;
   }
 
@@ -124,8 +138,10 @@ export class ConfigLibrary {
     const alpha = p.alphaState ?? {}, depth = p.depthState ?? {}, cull = p.cullState ?? {};
     const light = p.lightStateOverride;
     const shaders: string[] = [];
+    let wave: Wave | undefined;
     if (p.shaderState?.$class?.endsWith("$Enabled")) {
       for (const s of [p.shaderState.vertex, p.shaderState.fragment]) if (s?.name) shaders.push(s.name);
+      if (p.shaderState.vertex?.name === "Vertex/Wave") wave = this.wave(p.shaderState.vertex);
     }
     return {
       srcBlend: enumName(alpha.srcBlendFactor, "ONE"),
@@ -143,7 +159,25 @@ export class ConfigLibrary {
       fog: !p.fogStateOverride?.$class?.endsWith("$Disabled"),
       units: (p.textureState?.units ?? []).map((u: any, i: number) => this.unit(u, local, bindingFor(p, i))),
       shaders,
+      wave,
+      emissive: p.shaderState?.fragment?.name === "Fragment/Emissive",
     };
+  }
+
+  /** Reads the uniforms of a Vertex/Wave shader reference (arguments applied). */
+  private wave(ref: any): Wave {
+    const base = this.shaderConfigs.get(ref.name);
+    const uniforms: any[] = base ? applyArguments(base, ref).implementation?.uniforms ?? [] : [];
+    const get = (name: string) => uniforms.find(u => u.name === name)?.value;
+    const out: Wave = { vectors: [], frequencies: [], amplitudes: [], phases: [], choppiness: get("choppiness") ?? 0 };
+    for (let i = 0; i < 2; i++) {
+      const v = get(`vectors[${i}]`);
+      out.vectors.push(v?.x ?? 0, v?.y ?? 0);
+      out.frequencies.push(get(`frequencies[${i}]`) ?? 0);
+      out.amplitudes.push(get(`amplitudes[${i}]`) ?? 0);
+      out.phases.push(get(`phases[${i}]`) ?? 0);
+    }
+    return out;
   }
 
   private unit(u: any, local?: LocalConfigs, animated: F<Mat4> | null = null): TextureUnitState {
