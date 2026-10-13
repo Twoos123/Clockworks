@@ -648,6 +648,14 @@ class Viewer {
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
+    // energy uses (energy gates, crates) are paid in crowns: the floor's first, then the bank's
+    world.spendCrowns = n => {
+      const l = world.loot, fromFloor = Math.min(l.crowns, n);
+      if (fromFloor + this.save.crowns < n) return false;
+      l.crowns -= fromFloor;
+      this.save.crowns -= n - fromFloor;
+      return true;
+    };
     const town = TOWN.test(this.scene.name);
     $("clockworks").hidden = !town;
     $("arenaBtn").hidden = !town;

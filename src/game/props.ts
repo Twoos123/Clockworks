@@ -8,6 +8,7 @@
 import { compose, type Mat4 } from "../math";
 import type { ModelInstance } from "../render/renderer";
 import type { Entity } from "./logic";
+import type { ObjectState } from "./objects";
 
 export type PropKind = "door" | "switch" | "block" | "lift" | "pickup" | "elevator" | "trap" | "generic";
 
@@ -35,9 +36,10 @@ export function propKind(cfg: any): PropKind {
  */
 export const TRAP_CYCLE = { period: 3.2, warning: 1.7, extend: 2.3 };
 export type TrapState = 0 | 1 | 2;
-export function trapState(clock: number, cycleB: boolean): TrapState {
-  const t = ((clock + (cycleB ? TRAP_CYCLE.period / 2 : 0)) % TRAP_CYCLE.period + TRAP_CYCLE.period) % TRAP_CYCLE.period;
-  return t >= TRAP_CYCLE.extend ? 2 : t >= TRAP_CYCLE.warning ? 1 : 0;
+export function trapState(clock: number, cycleB: boolean, period = TRAP_CYCLE.period): TrapState {
+  const f = period / TRAP_CYCLE.period;
+  const t = ((clock + (cycleB ? period / 2 : 0)) % period + period) % period;
+  return t >= TRAP_CYCLE.extend * f ? 2 : t >= TRAP_CYCLE.warning * f ? 1 : 0;
 }
 
 export class Prop {
@@ -50,6 +52,12 @@ export class Prop {
   breakable = false;
   /** Health counts hits rather than damage. */
   hits = false;
+  /** Takes hits without breaking (prisms, emitters, gun blocks, cages: src/game/objects.ts). */
+  hittable = false;
+  /** Dungeon object state (src/game/objects.ts), or null for plain props. */
+  obj: ObjectState | null = null;
+  /** Whether attacks and blasts strike the prop. */
+  get struck() { return this.breakable || this.hittable; }
   /** Doors. */
   open = false;
   /** Switches: pressed by something standing on them. */
@@ -63,6 +71,11 @@ export class Prop {
   trapHalf = 0.5;
   trapB = false;
   trapDamage: any = null;
+  /** Traps: whether the plate strikes what stands on it (rocket blocks fire instead). */
+  trapStrikes = true;
+  /** Traps: seconds per cycle (rocket blocks take three Intervals), and switched off. */
+  trapPeriod = TRAP_CYCLE.period;
+  trapOff = false;
   constructor(readonly kind: PropKind, readonly entity: Entity, readonly cfg: any) {}
 
   get x() { return this.entity.x; }

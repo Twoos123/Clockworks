@@ -16,6 +16,7 @@ import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from ".
 import { addItemBonuses, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind, trapState } from "./props";
+import { DungeonObjects, ENERGY_CROWNS, isAlly, isCaptive, type BeamResult } from "./objects";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
 import { DEFAULT_LOADOUT, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
@@ -77,7 +78,8 @@ export interface KnightInput {
 export interface Floater { x: number; y: number; z: number; text: string; color: string; age: number }
 
 type Phase = "start" | "fire" | "end";
-type Team = "knight" | "monster";
+/** Hazard bullets (gun blocks, rocket blocks) strike the knight, monsters and blocks alike. */
+type Team = "knight" | "monster" | "hazard";
 
 abstract class Actor {
   x = 0; y = 0; z = 0;
@@ -95,7 +97,7 @@ abstract class Actor {
   /** Active status conditions (fire, freeze, shock...). */
   statuses: ActiveStatus[] = [];
   abstract radius: number;
-  abstract readonly team: Team;
+  abstract get team(): Team;
   constructor(public instance: ModelInstance, readonly scale = 1) {}
 
   /** Actor sprites face -y in model space (as the knight's face mesh shows). */
@@ -114,7 +116,7 @@ abstract class Actor {
 export interface Loadout { def: WeaponDef; instance: ModelInstance }
 
 export class Knight extends Actor {
-  readonly team = "knight";
+  get team(): Team { return "knight"; }
   radius = KNIGHT_RADIUS;
   chain = 0;
   buffered = false;
@@ -154,9 +156,13 @@ export class Knight extends Actor {
 }
 
 export class Monster extends Actor {
-  readonly team = "monster";
+  /** Allies fight for the knight (freed companions, energy turrets: objects.ts isAlly). */
+  ally = false;
+  /** Allies in a cage stand still, untouchable, until released. */
+  captive = false;
+  get team(): Team { return this.ally ? "knight" : "monster"; }
   /** Monsters without attacks (traders, wandering townsfolk) are passive and untouchable. */
-  get passive() { return this.def.attacks.length === 0; }
+  get passive() { return this.captive || this.def.attacks.length === 0; }
   /** The monster's logic actor (tags such as its wave, handlers). */
   entity: Entity | null = null;
   radius: number;
@@ -262,6 +268,16 @@ export class World implements LogicHost {
   readonly audio: AudioSystem | null;
   /** Camera shake strength from ShakeCamera actions, decaying. */
   shake = 0;
+  /** Dungeon objects: crystals, ghost blocks, explosives, prisms, gun blocks, cages (objects.ts). */
+  readonly objects: DungeonObjects;
+  /**
+   * Pays crowns from the bank for energy uses (energy gates, crates); true when paid. Unset,
+   * the floor's crowns pay.
+   */
+  spendCrowns: ((n: number) => boolean) | null = null;
+  /** Prism beams drawn (model instances along each segment). */
+  private beamItems: { instance: ModelInstance; matrix: Mat4 }[] = [];
+  private beamGen = 0;
 
   constructor(private readonly loader: ModelLoader, private readonly renderer: Renderer,
     private readonly scene: LoadedScene, private readonly collision: CollisionMap, opts: WorldOptions = {}) {
@@ -270,6 +286,56 @@ export class World implements LogicHost {
     this.difficulty = opts.difficulty ?? "medium";
     this.audio = opts.audio ?? null;
     if (opts.arena) this.arena = { wave: 0, timer: 3, family: "" };
+    const world = this;
+    this.objects = new DungeonObjects({
+      get logic() { return world.logic; },
+      get knightEntity() { return world.knightEntity; },
+      props: this.props,
+      knight: () => this.knight,
+      destroy: p => this.logic.destroy(p.entity, this.knightEntity),
+      playState: (p, i, loop = true) => { if (p.obj) { p.obj.state = i; p.obj.loop = loop; } this.showPropState(p); },
+      blast: (x, y, r, action, source) => {
+        const at = new Entity(false, source.name);
+        at.x = x; at.y = y; at.rotation = source.rotation;
+        at.fixedShape = { k: "circle", x, y, r };
+        this.logic.execute(action, at, source);
+        this.shake = Math.max(this.shake, 0.25);
+      },
+      spawn: (ref, x, y, rot, source) => { this.logic.spawn(ref, x, y, rot, source, source); },
+      heal: n => this.healKnight(n),
+      wall: (x, y) => { const c = this.collision.cell(x, y); return !c || (c.flags & 1) !== 0; },
+      beams: segs => void this.showBeams(segs),
+      release: (x, y, r) => {
+        for (const m of this.monsters) if (m.captive && m.entity && Math.hypot(m.x - x, m.y - y) <= r) this.logic.destroy(m.entity, this.knightEntity);
+      },
+    });
+  }
+
+  /** Lays the prism beam model along each beam segment. */
+  private async showBeams(segs: BeamResult["segments"] | null) {
+    const gen = ++this.beamGen;
+    const items: { instance: ModelInstance; matrix: Mat4 }[] = [];
+    for (const s of segs ?? []) {
+      const len = Math.hypot(s.x1 - s.x0, s.y1 - s.y0);
+      if (len < 0.05) continue;
+      const ref = { $class: "com.threerings.config.ConfigReference", name: "world/dynamic/prism_puzzle/laser/model_beam.dat",
+        arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Length", len], ["Variant", "Shock"]] } };
+      const model = await this.loader.loadRef(ref).catch(() => null);
+      if (!model || gen !== this.beamGen) return;
+      const a = Math.atan2(s.y1 - s.y0, s.x1 - s.x0);
+      const z = this.collision.groundZ(s.x0, s.y0) + 0.5;
+      items.push({ instance: await this.renderer.instantiate(model), matrix: compose([s.x0, s.y0, z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], 1) });
+    }
+    if (gen === this.beamGen) this.beamItems = items;
+  }
+
+  /** Pays for an energy use in crowns (ENERGY_CROWNS each); a floater says when it cannot. */
+  private payEnergy(amount: number): boolean {
+    const cost = Math.max(0, Math.round(amount * ENERGY_CROWNS));
+    const k = this.knight;
+    const paid = this.spendCrowns ? this.spendCrowns(cost) : this.loot.crowns >= cost && ((this.loot.crowns -= cost), true);
+    this.floaters.push({ x: k.x, y: k.y, z: k.z + 2, text: paid ? `-${cost} cr (energy)` : `Needs ${cost} crowns`, color: paid ? "#9fd8ff" : "#ff9a9a", age: 0 });
+    return paid;
   }
 
   /** Arena state: the current wave, the pause before the next, and its monster family. */
@@ -359,7 +425,7 @@ export class World implements LogicHost {
     return {
       data: this.data, loader: this.loader, renderer: this.renderer,
       knight: () => this.knight,
-      monsters: () => this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive),
+      monsters: () => this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive && !m.ally),
       clip: r => this.clip(r),
       preload: (...r) => this.preload(...r),
       groundZ: (x, y) => this.collision.groundZ(x, y),
@@ -429,7 +495,7 @@ export class World implements LogicHost {
   /** Builds the level logic from the scene's entries and starts it (EntryLogic startup). */
   private async startLogic() {
     await this.data.preload("config/actor.dat", "config/spawn_table.dat", "config/parameterized_handler.dat",
-      "config/fire_action.dat", "config/item.dat");
+      "config/fire_action.dat", "config/item.dat", "config/effect.dat");
     const eco = this.economy;
     this.tables = new SpawnTables(this.data.library_("config/spawn_table.dat"), eco ? {
       autoItem: (type, dw, ctx) => eco.autoItem(type, dw, ctx),
@@ -493,7 +559,12 @@ export class World implements LogicHost {
       e.mobile = true;
       void this.spawnMonster(ref, e);
     } else if (k === "Bullet" || k === "Bomb") {
-      void this.spawnProjectileAt(ref, x, y, rotation, "monster", this.ctx(0));
+      // trap and gun block bullets strike everything; monsters' strike the knight
+      const hazard = /^Bullet\/Dynamic Objects\/(?!Energy)|Traps and Hazards/.test(String(ref?.name ?? ""));
+      void this.spawnProjectileAt(ref, x, y, rotation, hazard ? "hazard" : "monster", this.ctx(0));
+    } else if (k === "PrismLaser") {
+      // beams are traced by the prism system (objects.ts), not run as actors
+      return null;
     } else {
       this.createProp(e, cfg);
     }
@@ -506,8 +577,23 @@ export class World implements LogicHost {
     else if (g instanceof Monster && g.state !== "dying") { g.state = "dying"; g.stateTime = 0; }
   }
 
-  fireEffect(_ref: any, _x: number, _y: number, _rotation: number) {
-    // EffectConfigs drive client visuals and sounds; not modelled yet
+  /**
+   * An EffectConfig (config/effect.dat): its sprite model plays at the spot, and its action (a
+   * healing totem's pulse, a mortar shell's blast) runs over its shape.
+   */
+  fireEffect(ref: any, x: number, y: number, rotation: number) {
+    const cfg = this.data.resolveSync("config/effect.dat", ref, "effect");
+    if (!cfg) return;
+    const z = this.collision.groundZ(x, y);
+    const model = cfg.sprite?.model;
+    if (model) void this.spawnEffect(model, compose([x, y, z], [0, 0, Math.sin(rotation / 2), Math.cos(rotation / 2)], 1), Math.max(0.5, (cfg.lifespan ?? 1500) / 1000));
+    if (cfg.action) {
+      const at = new Entity(false, ref?.name ?? "effect");
+      at.x = x; at.y = y; at.rotation = rotation;
+      const r = cfg.shape?.radius;
+      at.fixedShape = typeof r === "number" ? { k: "circle", x, y, r } : { k: "point", x, y };
+      this.logic.execute(cfg.action, at, at);
+    }
   }
 
   /** Spiral Knights' own actions (DungeonActionConfig and friends). */
@@ -573,22 +659,41 @@ export class World implements LogicHost {
         return true;
       case "Heal": case "DepthScaleHeal": case "DepthHeal": {
         const amount = k === "Heal" ? (cfg.current ?? 20) : this.data.depth.evaluate(cfg.depthScale, this.ctx(0)) || 20;
+        const fs = source.fixedShape;
+        if (!cfg.target && fs?.k === "circle") {
+          // an area heal (a healing totem's pulse) mends the monsters inside it
+          for (const m of this.monsters) {
+            if (m.state === "dying" || m.passive || m.ally || Math.hypot(m.x - fs.x, m.y - fs.y) > fs.r + m.radius || m.health >= m.maxHealth) continue;
+            const h = Math.max(1, Math.min(amount, m.maxHealth * 0.1));
+            m.health = Math.min(m.maxHealth, m.health + h);
+            this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.4, text: `+${Math.round(h)}`, color: "#7bd88f", age: 0 });
+          }
+          return true;
+        }
         for (const t of cfg.target ? logic.resolveTarget(cfg.target, source, activator) : [activator]) {
           if (t === this.knightEntity) this.healKnight(amount);
         }
         return true;
       }
+      case "UseEnergy": {
+        // energy is not modelled: crowns pay instead (ENERGY_CROWNS a point)
+        if (!this.payEnergy(cfg.amount ?? cfg.actionDesc?.amount ?? 5)) return false;
+        return cfg.action ? logic.execute(cfg.action, source, activator) : true;
+      }
       case "DamageTarget": case "DamageTargetFromPoint": case "DamageRegion": case "DamageRegionFromPoint": {
         const amounts = this.amounts(cfg.damage, this.ctx(0));
         const region = /Region/.test(k) && !cfg.target && !cfg.region && source.fixedShape?.k === "circle";
         const fs = source.fixedShape, r = region && fs?.k === "circle" ? fs.r : 0;
+        // a region (a vial's splash, a blast, a mortar shell's explosion) strikes the monsters,
+        // the knight (unless the knight threw it) and the blocks inside it
         const targets = region
-          ? logic.actors.filter(e => e !== activator && !e.destroyed && e.game instanceof Monster && Math.hypot(e.x - source.x, e.y - source.y) <= r + e.game.radius)
+          ? logic.actors.filter(e => e !== activator && !e.destroyed && (e.game instanceof Monster || e.game instanceof Prop || e === this.knightEntity)
+            && Math.hypot(e.x - source.x, e.y - source.y) <= r + (e.game instanceof Monster ? e.game.radius : e === this.knightEntity ? KNIGHT_RADIUS : 0.5))
           : cfg.target ? logic.resolveTarget(cfg.target, source, activator) : activator ? [activator] : [];
         for (const t of targets) {
           if (t === this.knightEntity) this.damageKnight(amounts, 0.5, source.x, source.y);
           else if (t.game instanceof Monster) this.damageMonster(t.game, amounts, 0.5, source.x, source.y);
-          else if (t.game instanceof Prop) this.damageProp(t.game, dealt(amounts, null));
+          else if (t.game instanceof Prop && t.game.struck) this.damageProp(t.game, dealt(amounts, null), 1);
         }
         return true;
       }
@@ -606,7 +711,7 @@ export class World implements LogicHost {
     if (this.knight.dead) return;
     // count spawned actors (monsters load asynchronously after their logic actor exists)
     const ke = this.knightEntity;
-    if (this.logic.actors.some(e => e.mobile && e !== ke && !e.destroyed && !(e.game instanceof Monster && e.game.passive))) return;
+    if (this.logic.actors.some(e => e.mobile && e !== ke && !e.destroyed && !(e.game instanceof Monster && (e.game.passive || e.game.ally)))) return;
     if (a.wave > 0 && a.timer === 3) {
       // a wave was just cleared
       this.loot.crowns += 10 * a.wave;
@@ -706,9 +811,10 @@ export class World implements LogicHost {
       // no block config sets health, so the closed code's default applies: counted here in
       // hits (treasure boxes and mineral nodes take a few, crates one)
       const cls = String(cfg.$class).split("$").pop();
-      p.health = p.maxHealth = cfg.health ?? (/Treasure|Mineral|Gathering/.test(e.name) ? 3 : 1);
+      // (stone blocks give their hits: a mortar shell's 2)
+      p.health = p.maxHealth = cfg.health ?? cfg.hits ?? (/Treasure|Mineral|Gathering|Stone/.test(e.name) ? 3 : 1);
       p.hits = cfg.health === undefined;
-      p.breakable = !/Unbreakable|Hedgehog|Echo/i.test(e.name) && cls !== "GhostlinkBlock" && cls !== "DamageMirrorBlock";
+      p.breakable = !/Unbreakable|Hedgehog|Echo/i.test(e.name) && cls !== "DamageMirrorBlock";
     }
     if (kind === "trap") {
       // the intersection handler fires "Traps and Hazards/Trap, floor" with the plate's size;
@@ -719,9 +825,15 @@ export class World implements LogicHost {
       p.trapHalf = Math.max(w || 1, h || 1) / 2;
       p.trapB = cfg.cycle?.name === "B" || /"B"/.test(JSON.stringify(cfg.cycle ?? ""));
       const fa = fire ? this.data.resolveSync("config/fire_action.dat", fire, "action") : null;
-      const first = (fa?.action ?? fa)?.actions?.[0]?.action?.actions?.[0];
+      // the tiers' damage (and status infliction) by the floor's tier
+      const tiers = (fa?.action ?? fa)?.actions ?? [];
+      const first = (tiers[this.tier() - 1] ?? tiers[0])?.action?.actions?.[0];
       p.trapDamage = first?.damage ?? null;
+      // rocket and fire blocks fire from their TrapState handler instead of striking the plate
+      p.trapStrikes = !!fire;
+      if (cfg.interval) p.trapPeriod = 3 * cfg.interval / 1000;
     }
+    this.objects.setup(p);
     (e.game as any).onSignal = (name: string) => this.propSignal(p, name);
     this.props.push(p);
     this.updatePropCollision(p);
@@ -735,14 +847,28 @@ export class World implements LogicHost {
 
   /** Doors and blocks block movement while closed or standing. */
   private updatePropCollision(p: Prop) {
-    const solid = (p.kind === "door" && !p.open) || (p.kind === "block" && (p.cfg.collisionFlags ?? 1) !== 0 && String(p.cfg.$class).split("$").pop() !== "GhostlinkBlock")
-      || (p.kind === "generic" && ((p.cfg.collisionFlags ?? 1) & 1) !== 0 && !!p.cfg.shape);
+    const flags = p.cfg.collisionFlags ?? 1;
+    const solid = (p.kind === "door" && !p.open) || (p.kind === "block" && flags !== 0)
+      || (p.kind === "generic" && (flags & 1) !== 0 && !!p.cfg.shape)
+      // hit switches (emitters, gun blocks, cages) stand like blocks; rocket blocks too
+      || (p.kind === "switch" && !!p.obj && (flags & 1) !== 0)
+      || (p.kind === "trap" && !!p.cfg.shape && (flags & 3) !== 0);
     if (solid && p.collisionId === null) {
       const sh = p.cfg.shape;
-      const w = (sh?.width ?? (sh?.radius ? sh.radius * 2 : 1)) / 2, h = (sh?.height ?? (sh?.radius ? sh.radius * 2 : 1)) / 2;
+      let w = (sh?.width ?? (sh?.radius ? sh.radius * 2 : 1)) / 2, h = (sh?.height ?? (sh?.radius ? sh.radius * 2 : 1)) / 2;
+      if (/Compound$/.test(sh?.$class ?? "")) {
+        // a cage's bars: the box around its pieces
+        let mx = 0.5, my = 0.5;
+        for (const t of sh.shapes ?? []) {
+          const tr = t?.transform?.translation, s = t?.shape;
+          mx = Math.max(mx, Math.abs(tr?.x ?? 0) + (s?.width ?? 1) / 2);
+          my = Math.max(my, Math.abs(tr?.y ?? 0) + (s?.height ?? 1) / 2);
+        }
+        w = mx; h = my;
+      }
       const c = Math.abs(Math.cos(p.entity.rotation)), s2 = Math.abs(Math.sin(p.entity.rotation));
       p.collisionId = this.nextId++;
-      this.collision.addBox(p.collisionId, p.x, p.y, w * c + h * s2, w * s2 + h * c, 1);
+      this.collision.addBox(p.collisionId, p.x, p.y, w * c + h * s2, w * s2 + h * c, p.kind === "trap" ? (flags & 3) : 1);
     } else if (!solid && p.collisionId !== null) {
       this.collision.remove(p.collisionId);
       p.collisionId = null;
@@ -754,7 +880,11 @@ export class World implements LogicHost {
     if (!p.instance) return;
     const st = p.states;
     let anim: any = null, loop = true;
-    if (p.kind === "door") {
+    if (p.obj && st.length) {
+      // dungeon objects pick their state (objects.ts)
+      anim = st[p.obj.state ?? 0] ?? null;
+      loop = p.obj.loop ?? true;
+    } else if (p.kind === "door") {
       anim = changed ? st[p.open ? 2 : 0] : st[p.open ? 3 : 1];
       loop = !changed;
     } else if (p.kind === "switch") anim = st[p.pressed ? 1 : 0];
@@ -773,6 +903,13 @@ export class World implements LogicHost {
 
   /** Doors open and close on signals; anything else listens through its handlers only. */
   private propSignal(p: Prop, name: string) {
+    if (this.objects.signal(p, name)) return;
+    if (p.kind === "trap") {
+      // rocket block controls switch their blocks off
+      if (/^(deactivate|off|close|stop|disable)$/i.test(name)) p.trapOff = true;
+      else if (/^(activate|on|open|start|enable)$/i.test(name)) p.trapOff = false;
+      return;
+    }
     if (p.kind !== "door") return;
     const open = name === "open" ? true : name === "close" ? false : name === "toggle" ? !p.open : p.open;
     if (open === p.open) return;
@@ -788,6 +925,8 @@ export class World implements LogicHost {
     if (p.collisionId !== null) { this.collision.remove(p.collisionId); p.collisionId = null; }
     const fx = p.cfg.sprite?.destructionTransient;
     if (effect && fx?.name) this.spawnEffect(fx, p.matrix(), 2);
+    // crystal and ghost chains go with it; a cage frees its prisoner
+    if (effect) this.objects.destroyed(p);
   }
 
   /**
@@ -889,8 +1028,11 @@ export class World implements LogicHost {
     this.floaters.push({ x, y, z, text: label, color: "#c9e6ff", age: 0 });
   }
 
-  private damageProp(p: Prop, amount: number) {
-    if (!p.breakable || p.entity.destroyed) return;
+  /** A hit on a prop from a knight (by 2) or a hazard, bullet or blast (by 1). */
+  private damageProp(p: Prop, amount: number, by = 2) {
+    if (p.entity.destroyed) return;
+    if (this.objects.hit(p, by)) return;
+    if (!p.breakable) return;
     this.logic.damaged(p.entity, this.knightEntity);
     // each hit runs the block's damage action (treasure boxes spill loot as they are struck)
     if (p.cfg.damageAction) this.logic.execute(p.cfg.damageAction, p.entity, this.knightEntity);
@@ -908,6 +1050,8 @@ export class World implements LogicHost {
       if (p.instance) p.instance.time += dt;
       switch (p.kind) {
         case "switch": {
+          // hit switches (emitters, gun blocks, cages) are not stood on
+          if (p.obj) break;
           // party platforms answer to the party (knights) only, and stay down once pressed
           const party = /Party Platform/i.test(p.entity.name);
           const on = touching(p) || (!party && this.monsters.some(m => m.state !== "dying" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + 0.4));
@@ -938,10 +1082,15 @@ export class World implements LogicHost {
           }
           break;
         case "trap": {
-          const st = trapState(this.clock, p.trapB);
-          if (st !== p.trapState) { p.trapState = st; this.showPropState(p); }
+          const st = p.trapOff ? 0 : trapState(this.clock, p.trapB, p.trapPeriod);
+          if (st !== p.trapState) {
+            p.trapState = st;
+            this.showPropState(p);
+            // rocket and fire blocks launch from their TrapState handler as they fire
+            if (st === 2) for (const h of p.entity.handlers) if (h.kind === "TrapState") this.logic.execute(h.cfg.action, p.entity, p.entity);
+          }
           // extended spikes strike a knight standing on the plate
-          if (st === 2 && !k.dead && Math.abs(k.x - p.x) < p.trapHalf + KNIGHT_RADIUS * 0.5 && Math.abs(k.y - p.y) < p.trapHalf + KNIGHT_RADIUS * 0.5) {
+          if (st === 2 && p.trapStrikes && !k.dead && Math.abs(k.x - p.x) < p.trapHalf + KNIGHT_RADIUS * 0.5 && Math.abs(k.y - p.y) < p.trapHalf + KNIGHT_RADIUS * 0.5) {
             this.damageKnight(this.amounts(p.trapDamage, this.ctx(0)), 0.5, p.x, p.y);
           }
           break;
@@ -960,6 +1109,11 @@ export class World implements LogicHost {
     const near = this.props.filter(p => p !== carried && Math.hypot(p.x - (k.x + Math.cos(k.heading) * 0.7), p.y - (k.y + Math.sin(k.heading) * 0.7)) < 1.6)
       .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y));
     const door = near.find(p => p.kind === "door" && !p.open);
+    if (door && /\$Energy$/.test(door.cfg.actionDesc?.$class ?? "") && !carried) {
+      // an energy gate opens for its energy (paid in crowns here)
+      if (this.payEnergy(door.cfg.actionDesc.amount ?? 5)) this.propSignal(door, "open");
+      return;
+    }
     if (door && carried && carried.cfg.actionableSignal && carried.cfg.actionableSignal === door.cfg.actionableSignal) {
       // a carried key with the door's signal unlocks it and is used up
       this.logic.signal(door.entity, carried.entity, door.cfg.actionableSignal);
@@ -1088,6 +1242,7 @@ export class World implements LogicHost {
     this.companion?.update(dt);
     for (const m of this.monsters) this.updateMonster(m, dt);
     this.updateProps(dt, !!input.interact && !this.knight.dead);
+    this.objects.update(dt);
     // the logic sees actors where the game has moved them
     const ke = this.knightEntity;
     ke.x = this.knight.x; ke.y = this.knight.y; ke.rotation = this.knight.heading;
@@ -1522,13 +1677,13 @@ export class World implements LogicHost {
       return Math.hypot(lx, ly) <= shape.radius + r;
     };
     const amounts = this.amounts(def.damage, this.attackerCtx(a));
-    if (a === this.knight) {
+    if (a.team === "knight") {
       for (const m of this.monsters) {
-        if (m.state === "dying" || m.state === "spawning" || !hits(m.x, m.y, m.radius)) continue;
+        if (m.state === "dying" || m.state === "spawning" || m.ally || !hits(m.x, m.y, m.radius)) continue;
         this.damageMonster(m, amounts, def.knockback, a.x, a.y);
       }
-      for (const p of [...this.props]) {
-        if (p.breakable && hits(p.x, p.y, 0.45)) this.damageProp(p, dealt(amounts, null));
+      if (a === this.knight) for (const p of [...this.props]) {
+        if (p.struck && hits(p.x, p.y, 0.45)) this.damageProp(p, dealt(amounts, null));
       }
     } else if (!this.knight.dead && hits(this.knight.x, this.knight.y, this.knight.radius)) {
       this.damageKnight(amounts, def.knockback, a.x, a.y);
@@ -1744,11 +1899,12 @@ export class World implements LogicHost {
   /** Whether a bullet touches something it can hit. */
   private projectileTarget(p: Projectile): boolean {
     const r = p.def.radius;
-    if (p.team === "knight") {
-      if (this.monsters.some(m => m.state !== "dying" && m.state !== "spawning" && !m.passive && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + r)) return true;
-      return this.props.some(b => b.breakable && Math.hypot(b.x - p.x, b.y - p.y) < 0.5 + r);
-    }
     const k = this.knight;
+    if (p.team === "knight" || p.team === "hazard") {
+      if (this.monsters.some(m => m.state !== "dying" && m.state !== "spawning" && !m.passive && !m.ally && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + r)) return true;
+      if (p.team === "hazard" && p.age > 0.05 && !k.dead && Math.hypot(k.x - p.x, k.y - p.y) < k.radius + r) return true;
+      return this.props.some(b => b.struck && Math.hypot(b.x - p.x, b.y - p.y) < 0.5 + r);
+    }
     return !k.dead && Math.hypot(k.x - p.x, k.y - p.y) < k.radius + r;
   }
 
@@ -1758,12 +1914,14 @@ export class World implements LogicHost {
     const d = p.def, r = d.regionRadius;
     const amounts = this.amounts(d.damage, p.ctx);
     if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, bullet ? p.z : this.collision.groundZ(p.x, p.y)], [0, 0, Math.sin(p.heading / 2), Math.cos(p.heading / 2)], 1), 2);
-    if (p.team === "knight") {
+    if (p.team === "knight" || p.team === "hazard") {
       for (const m of this.monsters) {
         if (m.state === "dying" || m.state === "spawning" || Math.hypot(m.x - p.x, m.y - p.y) > r + m.radius) continue;
         this.damageMonster(m, amounts, d.knockback * 0.25, p.x - Math.cos(p.heading) * 0.01, p.y - Math.sin(p.heading) * 0.01);
       }
-      for (const b of [...this.props]) if (b.breakable && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.5) this.damageProp(b, dealt(amounts, null));
+      for (const b of [...this.props]) if (b.struck && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.5) this.damageProp(b, dealt(amounts, null), p.team === "hazard" ? 1 : 2);
+      const k = this.knight;
+      if (p.team === "hazard" && !k.dead && Math.hypot(k.x - p.x, k.y - p.y) <= r + k.radius) this.damageKnight(amounts, d.knockback * 0.25, p.x, p.y);
     } else {
       const k = this.knight;
       if (!k.dead && Math.hypot(k.x - p.x, k.y - p.y) <= r + k.radius) this.damageKnight(amounts, d.knockback * 0.25, p.x, p.y);
@@ -1795,7 +1953,8 @@ export class World implements LogicHost {
   }
 
   private damageMonster(m: Monster, amounts: Amounts, knockback: number, fx: number, fy: number) {
-    if (m.passive) return;
+    // allies are immortal companions here (the game's rest and recover when worn down)
+    if (m.passive || m.ally) return;
     this.lastStruck = { m, at: this.clock };
     // gear bonuses against the monster's family (the family is its folder: Monster/Slime/...)
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(m.entity?.name ?? "")?.[1]?.toLowerCase();
@@ -1903,11 +2062,14 @@ export class World implements LogicHost {
     const m = new Monster(await this.renderer.instantiate(model), def, Math.max(1, Math.round((def.health / 100) * (base || 100))));
     m.defense = def.defense ? this.data.depth.defense(def.defense, ctx) : null;
     // the spawn point may sit in a wall or pit; move to the nearest free spot
-    const spot = this.collision.collides(e.x, e.y, def.radius, MONSTER_MASK) ? this.collision.findSpawn(e.x, e.y, def.radius, MONSTER_MASK) : null;
+    // (a prisoner stays in its cage)
+    const spot = !isCaptive(e.name) && this.collision.collides(e.x, e.y, def.radius, MONSTER_MASK) ? this.collision.findSpawn(e.x, e.y, def.radius, MONSTER_MASK) : null;
     m.x = m.homeX = spot?.[0] ?? e.x; m.y = m.homeY = spot?.[1] ?? e.y;
     m.z = this.collision.groundZ(m.x, m.y);
     m.heading = e.rotation;
     m.entity = e;
+    m.ally = isAlly(e.name);
+    m.captive = m.ally && isCaptive(e.name);
     if (def.creationFx) this.spawnEffect(def.creationFx, m.matrix(), 2);
     e.game = m;
     this.play(m, def.activation ?? def.idle, { loop: !def.activation });
@@ -1945,7 +2107,9 @@ export class World implements LogicHost {
     if (this.tickStatuses(m, dt)) return;
     if (m.reacting > 0) { m.reacting -= dt; return; }
     if (m.passive) { if (m.state !== "spawning") this.play(m, m.def.idle); m.state = m.state === "spawning" && m.stateTime < 1.2 ? m.state : "idle"; return; }
-    const k = this.knight;
+    // allies fight the nearest monster, else follow the knight
+    const k: Actor = m.ally ? (this.allyTarget(m) ?? this.knight) : this.knight;
+    const follow = m.ally && k === this.knight;
     const dx = k.x - m.x, dy = k.y - m.y, dist = Math.hypot(dx, dy) || 1e-3;
     // turnRate is radians per second (a jelly's 174.5 is 10,000 degrees: instant)
     const turn = m.def.turnRate;
@@ -1962,13 +2126,13 @@ export class World implements LogicHost {
       return;
     }
     // a cloaked knight (the Maskeraith's Shadow Cloak) is lost to the monsters
-    if (k.dead || this.companion?.hidesKnight()) { m.state = "idle"; this.play(m, m.def.idle); return; }
+    if (!m.ally && (k.dead || this.companion?.hidesKnight())) { m.state = "idle"; this.play(m, m.def.idle); return; }
 
     if (m.state === "idle") {
       if (dist < AGGRO_RANGE) m.state = "chase";
       else { this.play(m, m.def.idle); return; }
     }
-    if (dist > LEASH_RANGE) { m.state = "idle"; return; }
+    if (dist > LEASH_RANGE && !m.ally) { m.state = "idle"; return; }
 
     const want = Math.atan2(dy, dx);
     m.turnToward(want, turn, dt);
@@ -1978,7 +2142,7 @@ export class World implements LogicHost {
     const usable = m.def.attacks.filter(a => gap <= this.reach(a));
     // prefer a melee attack in reach, then a ranged one
     const attack = usable.find(a => a.shape) ?? usable[0] ?? null;
-    if (attack && m.cooldown <= 0 && facing < (turn < 6 ? 0.25 : 0.6)) {
+    if (!follow && attack && m.cooldown <= 0 && facing < (turn < 6 ? 0.25 : 0.6)) {
       if (turn >= 6) m.heading = want;
       m.state = "attack";
       this.startAttack(m, attack);
@@ -1988,7 +2152,7 @@ export class World implements LogicHost {
     const sp = m.def.targetedSpeed * this.statusSpeed(m);
     if (sp <= 0) { this.play(m, m.def.idle); return; }
     // ranged-only monsters hold a middle distance; others close to melee range
-    const keep = !melee.length && ranged.length ? Math.min(...ranged.map(a => this.reach(a))) * 0.6 : (melee.length ? this.reach(melee[0]) * 0.7 : 1);
+    const keep = follow ? 2 : !melee.length && ranged.length ? Math.min(...ranged.map(a => this.reach(a))) * 0.6 : (melee.length ? this.reach(melee[0]) * 0.7 : 1);
     let mx = 0, my = 0;
     if (gap > keep) {
       // straight at the knight when the way is clear, else along an A* path around walls
@@ -2011,6 +2175,17 @@ export class World implements LogicHost {
     } else {
       this.play(m, m.def.idle);
     }
+  }
+
+  /** An ally's foe: the nearest fighting monster near it and the knight. */
+  private allyTarget(m: Monster): Monster | null {
+    let best: Monster | null = null, bd = 9;
+    for (const o of this.monsters) {
+      if (o.ally || o.passive || o.state === "dying" || o.state === "spawning") continue;
+      const d = Math.hypot(o.x - m.x, o.y - m.y);
+      if (d < bd && Math.hypot(o.x - this.knight.x, o.y - this.knight.y) < 14) { bd = d; best = o; }
+    }
+    return best;
   }
 
   /** Keeps actors from overlapping each other. */
@@ -2116,6 +2291,7 @@ export class World implements LogicHost {
       out.push({ instance: m.instance, matrix });
     }
     for (const p of this.props) if (p.instance) out.push({ instance: p.instance, matrix: p.matrix() });
+    out.push(...this.beamItems);
     if (this.companion) out.push(...this.companion.items());
     for (const p of this.projectiles) if (p.instance && !p.done) out.push({ instance: p.instance, matrix: p.matrix() });
     for (const e of this.effects) if (e.instance) out.push({ instance: e.instance, matrix: e.follow ? e.follow.matrix() : e.matrix });
@@ -2131,7 +2307,7 @@ export class World implements LogicHost {
   }
 
   /** Living monsters, for health bars. */
-  get liveMonsters() { return this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive); }
+  get liveMonsters() { return this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive && !m.ally); }
 }
 
 /** TagConfig: its tags plus the chain of derived tag configs. */
