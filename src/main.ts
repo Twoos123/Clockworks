@@ -7,6 +7,12 @@ import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environ
 import { identity, multiply as multiplyMat, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
+import { GuiContext } from "./ui/gui";
+import { GameHud, hudState } from "./ui/hud";
+import { PortraitView } from "./ui/portrait";
+
+/** The name shown on the HUD name plate. */
+const KNIGHT_NAME = "Knight";
 import { invert } from "./math";
 import {
   canPickDirectory, DevServerVfs, FileListVfs, HandleVfs, recallHandle, rememberHandle, VfsError, type Vfs,
@@ -131,6 +137,8 @@ class Viewer {
   private scene: LoadedScene | null = null;
   private world: World | null = null;
   private hud: Hud | null = null;
+  private gameHud: GameHud | null = null;
+  private gui: GuiContext | null = null;
   private attackPressed = false;
   private attackHeld = false;
   private shieldHeld = false;
@@ -337,6 +345,11 @@ class Viewer {
     await world.start(spawn);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    const portrait = new PortraitView(this.renderer, this.loader);
+    if (import.meta.env.DEV) (window as any).__portrait = portrait;
+    this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => portrait.draw(c, g, x, y, w, h) });
+    void this.gameHud.init(hudState(world, KNIGHT_NAME)).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
@@ -345,6 +358,7 @@ class Viewer {
     this.dist = (cam?.distance ?? 10) * 1.35;
     $("play").textContent = "Stop playing";
     $("playHint").hidden = false;
+    document.body.classList.add("playing");
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
   }
@@ -352,12 +366,14 @@ class Viewer {
   private stopPlaying() {
     if (!this.world) return;
     this.world = null;
+    this.gameHud = null;
     this.hud?.clear();
     $("defeated").hidden = true;
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
     $("playHint").hidden = true;
+    document.body.classList.remove("playing");
   }
 
   /** Where the mouse points on the knight's ground plane, for aiming attacks. */
@@ -621,7 +637,11 @@ class Viewer {
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
         this.lastProj = proj;
         this.lastView = view;
-        if (this.world && this.hud) this.hud.draw(this.world, proj, view);
+        if (this.world && this.hud) {
+          const gh = this.gameHud;
+          gh?.update(hudState(this.world, KNIGHT_NAME), dt);
+          this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
+        }
       }
       else this.renderer.draw(this.instance!, proj, view);
     }

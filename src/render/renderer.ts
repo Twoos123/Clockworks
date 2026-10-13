@@ -537,12 +537,14 @@ export class Renderer {
    * scene environment, with optional skyboxes drawn around the camera first.
    */
   drawAll(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4,
-    env: Environment = VIEWER_ENVIRONMENT, skyboxes: ModelInstance[] = []) {
+    env: Environment = VIEWER_ENVIRONMENT, skyboxes: ModelInstance[] = [],
+    target?: { width: number; height: number; clear: [number, number, number, number] }) {
     const gl = this.gl;
-    const w = this.canvas.width, h = this.canvas.height;
+    const w = target?.width ?? this.canvas.width, h = target?.height ?? this.canvas.height;
     gl.viewport(0, 0, w, h);
     const bg = env.background ?? [0.16, 0.18, 0.22];
-    gl.clearColor(bg[0], bg[1], bg[2], 1);
+    if (target) gl.clearColor(...target.clear);
+    else gl.clearColor(bg[0], bg[1], bg[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.useProgram(this.program);
@@ -570,6 +572,53 @@ export class Renderer {
     this.drawItems(items);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
+  }
+
+  private offscreen: { fb: WebGLFramebuffer; color: WebGLRenderbuffer; depth: WebGLRenderbuffer; w: number; h: number } | null = null;
+
+  /**
+   * Draws items into an offscreen buffer with a transparent background and returns the
+   * pixels top row first, with alpha not premultiplied (as ImageData expects). Used for
+   * interface views such as the HUD portrait.
+   */
+  renderToPixels(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4, width: number, height: number,
+    env: Environment = VIEWER_ENVIRONMENT): ImageData {
+    const gl = this.gl;
+    let o = this.offscreen;
+    if (!o || o.w !== width || o.h !== height) {
+      if (o) { gl.deleteFramebuffer(o.fb); gl.deleteRenderbuffer(o.color); gl.deleteRenderbuffer(o.depth); }
+      const fb = gl.createFramebuffer()!, color = gl.createRenderbuffer()!, depth = gl.createRenderbuffer()!;
+      gl.bindRenderbuffer(gl.RENDERBUFFER, color);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, width, height);
+      gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+      gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, width, height);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, color);
+      gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+      o = this.offscreen = { fb, color, depth, w: width, h: height };
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, o.fb);
+    const stats = this.stats;
+    this.drawAll(items, proj, view, env, [], { width, height, clear: [0, 0, 0, 0] });
+    this.stats = stats;
+    const px = new Uint8ClampedArray(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // flip rows (GL's first row is the bottom) and undo premultiplied alpha
+    const out = new ImageData(width, height);
+    const row = width * 4;
+    for (let y = 0; y < height; y++) {
+      const src = (height - 1 - y) * row, dst = y * row;
+      for (let i = 0; i < row; i += 4) {
+        const a = px[src + i + 3];
+        const k = a > 0 ? 255 / a : 0;
+        out.data[dst + i] = px[src + i] * k;
+        out.data[dst + i + 1] = px[src + i + 1] * k;
+        out.data[dst + i + 2] = px[src + i + 2] * k;
+        out.data[dst + i + 3] = a;
+      }
+    }
+    return out;
   }
 
   private skyboxPass = false;

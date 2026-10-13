@@ -15,7 +15,8 @@ export class Hud {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  draw(world: World, proj: Mat4, view: Mat4) {
+  /** Draws world-space HUD bits, then `overlay` (the game's own HUD panels) on top. */
+  draw(world: World, proj: Mat4, view: Mat4, overlay?: (g: CanvasRenderingContext2D, cw: number, ch: number) => void) {
     const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1);
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -59,7 +60,6 @@ export class Hud {
     }
     g.globalAlpha = 1;
 
-    // knight health, bottom centre
     const k = world.knight;
 
     // charge meter above the knight
@@ -73,33 +73,7 @@ export class Hud {
         g.fillRect(p[0] - 30, p[1], 60 * frac, 7);
       }
     }
-    const bw = Math.min(360, cw - 40), bx = (cw - bw) / 2, by = ch - 48;
-    g.fillStyle = "rgba(10,12,18,0.75)";
-    roundRect(g, bx - 8, by - 22, bw + 16, 46, 8);
-    g.fill();
-    g.fillStyle = "#3a1f24";
-    g.fillRect(bx, by, bw, 14);
-    const frac = Math.max(0, k.health / k.maxHealth);
-    const grad = g.createLinearGradient(bx, by, bx, by + 14);
-    grad.addColorStop(0, "#ff7a7a");
-    grad.addColorStop(1, "#c93a3a");
-    g.fillStyle = grad;
-    g.fillRect(bx, by, bw * frac, 14);
-    g.fillStyle = "#fff";
-    g.font = "600 12px system-ui, sans-serif";
     g.textAlign = "left";
-    g.fillText(`Health ${Math.ceil(k.health)} / ${k.maxHealth}`, bx, by - 6);
-    g.textAlign = "right";
-    g.fillText(`Monsters defeated: ${world.killCount}   Nearby: ${world.liveMonsters.length}`, bx + bw, by - 6);
+    overlay?.(g, cw, ch);
   }
-}
-
-function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  g.beginPath();
-  g.moveTo(x + r, y);
-  g.arcTo(x + w, y, x + w, y + h, r);
-  g.arcTo(x + w, y + h, x, y + h, r);
-  g.arcTo(x, y + h, x, y, r);
-  g.arcTo(x, y, x + w, y, r);
-  g.closePath();
 }

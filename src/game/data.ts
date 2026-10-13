@@ -72,6 +72,8 @@ export interface WeaponDef {
   /** Milliseconds of holding the attack button to fully charge. */
   chargeTime: number;
   chargedAttack: AttackDef | null;
+  /** The inventory icon (IconConfig), shown in the HUD's weapon slots. */
+  icon: any;
 }
 
 export interface ShieldDef {
@@ -81,6 +83,14 @@ export interface ShieldDef {
   effect: any;
   /** Movement speed change while defending (-0.5 = half speed). */
   defendingSpeed: number;
+  icon: any;
+  /** Milliseconds a full shield takes to refill, once regeneration starts. */
+  regenTime: number;
+  /** Milliseconds a broken shield stays down. */
+  breakTime: number;
+  /** Milliseconds after a hit before the shield starts to regenerate. */
+  hitTime: number;
+  breakEffect: any;
 }
 
 export class GameData {
@@ -178,13 +188,14 @@ export class GameData {
       if (def) attacks.push(def);
     }
     const chargedAttack = w.chargedAttack ? await this.attack(w.chargedAttack) : null;
-    return { name, model: w.model, attacks, chargeTime: w.chargeTime ?? 2000, chargedAttack };
+    return { name, model: w.model, attacks, chargeTime: w.chargeTime ?? 2000, chargedAttack, icon: w.icon ?? null };
   }
 
   async shield(name: string): Promise<ShieldDef | null> {
     const s = await this.resolve("config/item.dat", { name }, "item");
     if (!s?.model) return null;
-    return { name, model: s.model, effect: s.effect, defendingSpeed: s.defendingSpeed ?? -0.5 };
+    return { name, model: s.model, effect: s.effect, defendingSpeed: s.defendingSpeed ?? -0.5, icon: s.icon ?? null,
+      regenTime: s.regenTime ?? 6000, breakTime: s.breakTime ?? 8000, hitTime: s.hitTime ?? 3000, breakEffect: s.breakEffect };
   }
 
   /**

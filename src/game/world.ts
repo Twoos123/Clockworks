@@ -15,6 +15,8 @@ const MONSTER_MASK = 1 | 2 | 8 | 32;
 const AGGRO_RANGE = 10, LEASH_RANGE = 18;
 const STARTER_WEAPON = "Weapon/Sword/Proto Sword";
 const STARTER_SHIELD = "Gear/Shield/Proto Shield";
+/** Shield health; a tuning value (the game scales it by depth and star rating). */
+const SHIELD_HEALTH = 100;
 /**
  * Assumed lunge for knight swings whose AttackConfig omits impulseReceived (the class default
  * lives in game code, not data); the data's explicit combo lunges are 1.25 to 2.5 units.
@@ -80,6 +82,19 @@ export class Knight extends Actor {
   /** Seconds the attack button has been held for a charge, or null when not charging. */
   charge: number | null = null;
   shielding = false;
+  /**
+   * Shield health. Its maximum comes from a depth-scaled table in the game data, so this is
+   * a tuning value, not the game's own number.
+   */
+  shieldHealth = SHIELD_HEALTH;
+  shieldMax = SHIELD_HEALTH;
+  /** Seconds since the shield last took a hit. */
+  sinceShieldHit = 1e9;
+  /** Seconds left while the shield is broken. */
+  shieldBroken = 0;
+  /** Health lost recently, shown on the HUD as a damage segment that drains away. */
+  recentDamage = 0;
+  sinceDamage = 1e9;
 }
 
 export class Monster extends Actor {
@@ -241,6 +256,9 @@ export class World {
     k.invulnerable -= dt;
     k.hurtTime -= dt;
     k.sinceAttack += dt;
+    this.updateShieldHealth(dt);
+    k.sinceDamage += dt;
+    if (k.sinceDamage > 0.6) k.recentDamage = Math.max(0, k.recentDamage - dt * 120);
     k.rearm -= dt;
     if (k.dead) { k.instance.overlay = null; this.setShieldEffect(false); return; }
     this.applyKnockback(k, dt, KNIGHT_MASK);
@@ -328,6 +346,22 @@ export class World {
   private overlay(a: Actor, path: string | undefined, loop = false, speed = 1) {
     const c = this.clip(path);
     if (c && a.upperBody) a.instance.playOverlay(c, a.upperBody, { loop, speed });
+  }
+
+  /**
+   * Shield health after the item data: regeneration starts hitTime ms after the last hit and
+   * refills the shield over regenTime ms; a broken shield stays down for breakTime ms.
+   */
+  private updateShieldHealth(dt: number) {
+    const k = this.knight, s = k.shield;
+    if (!s) return;
+    k.sinceShieldHit += dt;
+    if (k.shieldBroken > 0) {
+      k.shieldBroken -= dt;
+      if (k.shieldBroken <= 0) k.shieldHealth = k.shieldMax;
+      return;
+    }
+    if (k.sinceShieldHit * 1000 >= s.hitTime) k.shieldHealth = Math.min(k.shieldMax, k.shieldHealth + k.shieldMax * dt * 1000 / s.regenTime);
   }
 
   private shieldFx: Effect | null = null;
@@ -475,18 +509,24 @@ export class World {
   private damageKnight(amount: number, knockback: number, from: Actor) {
     const k = this.knight;
     if (k.invulnerable > 0 || k.dead) return;
-    // a raised shield blocks hits from the front
-    const toAttacker = Math.atan2(from.y - k.y, from.x - k.x);
-    const facing = Math.abs(Math.atan2(Math.sin(toAttacker - k.heading), Math.cos(toAttacker - k.heading)));
-    if (k.shielding && facing < 1.9) {
-      this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: "Blocked", color: "#9ad8ff", age: 0 });
+    const dmg = Math.max(1, Math.round(amount * (0.9 + Math.random() * 0.2)));
+    // a raised shield takes hits from every direction until it breaks
+    if (k.shielding && k.shieldBroken <= 0 && k.shield) {
+      k.shieldHealth -= dmg;
+      k.sinceShieldHit = 0;
       this.knock(k, from, knockback * 0.3);
       k.invulnerable = 0.25;
       this.overlay(k, "character/pc/shield_hit.dat");
+      if (k.shieldHealth > 0) return;
+      k.shieldHealth = 0;
+      k.shieldBroken = k.shield.breakTime / 1000;
+      if (k.shield.breakEffect) this.spawnEffect(k.shield.breakEffect, k.matrix(), 1.5);
       return;
     }
-    const dmg = Math.max(1, Math.round(amount * (0.9 + Math.random() * 0.2)));
+    const before = k.health;
     k.health = Math.max(0, k.health - dmg);
+    k.recentDamage += before - k.health;
+    k.sinceDamage = 0;
     k.invulnerable = 0.5;
     this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: String(dmg), color: "#ff6b6b", age: 0 });
     this.knock(k, from, knockback);
