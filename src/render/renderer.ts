@@ -639,7 +639,10 @@ export class Renderer {
     for (let y = 0; y < height; y++) {
       const src = (height - 1 - y) * row, dst = y * row;
       for (let i = 0; i < row; i += 4) {
-        const a = px[src + i + 3];
+        // additive effects (glows, flames) add colour without alpha; count their brightness
+        // as coverage so they survive compositing over the HUD
+        const glow = Math.max(px[src + i], px[src + i + 1], px[src + i + 2]);
+        const a = Math.max(px[src + i + 3], glow > 40 ? Math.min(255, (glow - 40) * 1.2) : 0);
         const k = a > 0 ? 255 / a : 0;
         out.data[dst + i] = px[src + i] * k;
         out.data[dst + i + 1] = px[src + i + 1] * k;
@@ -710,7 +713,11 @@ export class Renderer {
         let list = this.emitters.get(inst);
         if (!list) this.emitters.set(inst, list = []);
         const emitter = list[n] ??= new Emitter(inst.model.particles);
-        emitter.update(dt, placement);
+        // each emitter keeps its own clock, so views drawn offscreen in the same frame (HUD
+        // portraits, the heat flame) still advance
+        const last = (emitter as any).lastTime as number | undefined;
+        (emitter as any).lastTime = this.time;
+        emitter.update(last === undefined ? dt : Math.min(0.1, Math.max(0, this.time - last)), placement);
         particles.push({ emitter, matrix: placement });
         // model-emitting layers place their model at each particle
         emitter.states.forEach((state, li) => {

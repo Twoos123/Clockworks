@@ -37,6 +37,8 @@ export interface HudState {
   weapons: { icon: any; selected: boolean }[];
   /** Active conditions: HUD icon name and whole seconds left. */
   statuses: { icon: string; seconds: number }[];
+  /** The equipped weapon's level (the heat meter), or 0 outside the Clockworks. */
+  heatLevel: number;
 }
 
 export function hudState(world: World, name: string, floor = ""): HudState {
@@ -46,6 +48,7 @@ export function hudState(world: World, name: string, floor = ""): HudState {
     shield: k.shieldHealth, shieldMax: k.shieldMax, shieldBroken: k.shieldBroken > 0, shielding: k.shielding,
     weapons: k.weapons.map((w, i) => ({ icon: w.def.icon, selected: i === k.slot })),
     statuses: k.statuses.map(s => ({ icon: s.def.icon, seconds: Math.ceil(s.remaining) })),
+    heatLevel: world.depth > 0 ? world.weaponLevels.get(k.weapon?.name ?? "") ?? 1 : 0,
   };
 }
 
@@ -84,7 +87,8 @@ export class GameHud {
 
   private async rebuildStatus(state: HudState) {
     const choice = state.shielding ? "Blocking" : "Idle";
-    if (this.building || this.built === choice) return;
+    const built = choice + "|" + state.heatLevel;
+    if (this.building || this.built === built) return;
     this.building = true;
     try {
       // the interface's Variant choices are named after its health part's options
@@ -93,8 +97,9 @@ export class GameHud {
         ["health_ui", choice === "Idle" ? big : small],
         ["shield_ui", choice === "Idle" ? small : big],
       ]);
-      const ui = await buildInterface(this.ctx, ref(STATUS, { Name: state.name, "Dungeon UI": true, Shield: choice }), { overrides });
-      if (ui) { this.status = ui; this.built = choice; }
+      const ui = await buildInterface(this.ctx, ref(STATUS, { Name: state.name, "Dungeon UI": true, Shield: choice,
+        HeatPower: `Level ${Math.max(1, state.heatLevel)}` }), { overrides });
+      if (ui) { this.status = ui; this.built = built; }
     } finally { this.building = false; }
   }
 
@@ -115,7 +120,7 @@ export class GameHud {
   }
 
   update(state: HudState, dt: number) {
-    if (this.built !== (state.shielding ? "Blocking" : "Idle")) void this.rebuildStatus(state);
+    if (this.built !== (state.shielding ? "Blocking" : "Idle") + "|" + state.heatLevel) void this.rebuildStatus(state);
     if (this.status) this.bindStatus(this.status, state);
     if (this.quickbar) this.bindQuickbar(this.quickbar, state);
     const label = this.minimapUi?.find("floorlabel");
@@ -152,9 +157,9 @@ export class GameHud {
     const px = (v: number) => Math.round(Math.max(0, v) / HEALTH_PER_PIP * PIP_WIDTH);
     bar(ui.find("health_ui"), px(s.maxHealth), px(s.health), px(s.recentDamage));
     bar(ui.find("shield_ui"), px(s.shieldMax), s.shieldBroken ? 0 : px(s.shield), 0);
-    // the debuff row: one ui/health/debuff.dat per active condition (no heat meter yet)
+    // the heat meter shows the equipped weapon's level in the Clockworks
     const heat = ui.find("heat");
-    if (heat) heat.visible = false;
+    if (heat) heat.visible = s.heatLevel > 0;
     const row = ui.find("container_debuffs");
     if (row) {
       const kids: Component[] = [];

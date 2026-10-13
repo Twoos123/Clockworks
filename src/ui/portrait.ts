@@ -49,7 +49,7 @@ export class PortraitView {
     this.last = now;
     const view = c.view;
     if (!view || w <= 0 || h <= 0) return;
-    const key = JSON.stringify(view.models?.[0]?.model?.name ?? "");
+    const key = JSON.stringify(view.models?.[0]?.model ?? "", (k, v) => (k === "$outer" ? undefined : v));
     if (key !== this.configKey) { this.configKey = key; this.instance = null; }
     if (!this.instance) { if (!this.loading) void this.load(view); return; }
     this.since += dt;
@@ -74,9 +74,10 @@ export class PortraitView {
     } else {
       const target: [number, number, number] = [placement[12], placement[13], placement[14]];
       const az = view.azimuth ?? 0, el = view.elevation ?? Math.PI / 4, dist = view.distance ?? 10;
+      // OrbitCameraHandler: azimuth 0 puts the camera south of the target, looking north
       const eye: [number, number, number] = [
-        target[0] + Math.cos(az) * Math.cos(el) * dist,
-        target[1] + Math.sin(az) * Math.cos(el) * dist,
+        target[0] + Math.sin(az) * Math.cos(el) * dist,
+        target[1] - Math.cos(az) * Math.cos(el) * dist,
         target[2] + Math.sin(el) * dist,
       ];
       cam = lookAt(eye, target, [0, 0, 1]);

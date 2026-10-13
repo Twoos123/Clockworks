@@ -12,7 +12,7 @@ import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Arsenal } from "./ui/arsenal";
-import { loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
 import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
 
@@ -391,6 +391,7 @@ class Viewer {
     const town = TOWN.test(this.scene.name);
     $("clockworks").hidden = !town;
     world.color = this.save.color;
+    for (const [n, h] of Object.entries(this.save.weaponHeat)) world.weaponLevels.set(n, weaponLevel(h));
     await world.start(spawn, this.save.loadout);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the scene's music (a weighted pick from its mix) and ambient loops
@@ -407,7 +408,9 @@ class Viewer {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
-    this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => portrait.draw(c, g, x, y, w, h) });
+    // two render views: the knight portrait and the heat meter's flame
+    const heatView = new PortraitView(this.renderer, this.loader);
+    this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => (c.tag === "heat_view" ? heatView : portrait).draw(c, g, x, y, w, h) });
     void this.gameHud.init(hudState(world, KNIGHT_NAME)).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
@@ -517,6 +520,8 @@ class Viewer {
     this.save.crowns += l.crowns;
     this.save.heat += l.heat;
     for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
+    // equipped weapons absorb the floor's heat
+    for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
     writeSave(this.save);
     this.run.health = this.world.knight.health;

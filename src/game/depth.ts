@@ -16,6 +16,8 @@ export interface DepthContext {
   /** Star rating of the item a scale belongs to, 0 to 5. */
   rarity: number;
   difficulty: Difficulty;
+  /** Extra damage factor for an attacker (a levelled weapon). */
+  multiplier?: number;
 }
 
 export const DAMAGE_TYPES = ["NORMAL", "PIERCING", "ELEMENTAL", "SHADOW"] as const;

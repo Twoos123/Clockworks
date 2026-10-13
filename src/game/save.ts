@@ -23,6 +23,8 @@ export interface SaveData {
   owned: string[];
   /** The knight's personal colour: a colour print (class << 8 | colour), 257 by default. */
   color: number;
+  /** Heat each weapon has absorbed (it levels the weapon up). */
+  weaponHeat: Record<string, number>;
 }
 
 const KEY = "clyde-web-save";
@@ -36,7 +38,7 @@ export const DEFAULT_LOADOUT: Loadout = {
 
 export function loadSave(): SaveData {
   const fresh: SaveData = { version: 1, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons] }, crowns: 0, heat: 0,
-    materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield], color: 257 };
+    materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield], color: 257, weaponHeat: {} };
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return fresh;
@@ -45,6 +47,7 @@ export function loadSave(): SaveData {
       ...fresh, ...d,
       loadout: { ...fresh.loadout, ...(d.loadout ?? {}), weapons: (d.loadout?.weapons ?? fresh.loadout.weapons).slice(0, 3) },
       materials: { ...(d.materials ?? {}) },
+      weaponHeat: { ...(d.weaponHeat ?? {}) },
       owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet]
         .filter((x): x is string => !!x))],
     };
@@ -66,3 +69,9 @@ export const price = (rarity: number) => PRICES[Math.max(0, Math.min(5, rarity))
 export function shopTier(d: SaveData): number {
   return d.runs >= 2 ? 5 : d.runs >= 1 ? 4 : d.bestDepth >= 3 ? 3 : 2;
 }
+
+/** Heat for weapon levels 1 to 10. The game's curve is server data; these are tuning numbers. */
+const LEVEL_HEAT = [0, 5, 15, 30, 50, 80, 120, 170, 230, 300];
+export const weaponLevel = (heat: number) => LEVEL_HEAT.filter(h => heat >= h).length;
+/** Damage bonus per weapon level above 1 (tuning). */
+export const levelMultiplier = (level: number) => 1 + 0.03 * (level - 1);

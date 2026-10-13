@@ -17,7 +17,7 @@ import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind } from "./props";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
-import { DEFAULT_LOADOUT, type Loadout as GearLoadout } from "./save";
+import { DEFAULT_LOADOUT, levelMultiplier, type Loadout as GearLoadout } from "./save";
 import { StatusConditions, type ActiveStatus } from "./status";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
@@ -260,6 +260,8 @@ export class World implements LogicHost {
   /** The knight's body with one weapon in hand ("Weapon" attaches at bone_weapon_r). */
   /** The knight's personal colour (a colour print for the body model's "Colorization"). */
   color = 257;
+  /** Weapon levels from banked heat, by item name. */
+  weaponLevels = new Map<string, number>();
 
   /** A gear model reference recoloured to the knight's colour, where it takes one. */
   private colored(ref: any): any {
@@ -1083,9 +1085,11 @@ export class World implements LogicHost {
     }
   }
 
-  /** The attacker's depth context: weapons use their star rating. */
-  private attackerCtx(a: Actor) {
-    return a === this.knight ? this.ctx(this.knight.weapon?.rarity ?? 0) : this.ctx(0);
+  /** The attacker's depth context: weapons use their star rating and level. */
+  private attackerCtx(a: Actor): DepthContext {
+    if (a !== this.knight) return this.ctx(0);
+    const w = this.knight.weapon;
+    return { ...this.ctx(w?.rarity ?? 0), multiplier: levelMultiplier(this.weaponLevels.get(w?.name ?? "") ?? 1) };
   }
 
   /** Applies an attack's damage shape in front of the attacker. */
@@ -1116,6 +1120,7 @@ export class World implements LogicHost {
   private amounts(damage: any, ctx: DepthContext): Amounts {
     const a: Amounts & { statuses?: any[]; ctx?: DepthContext } = damage ? this.data.depth.damage(damage, ctx) : zeroAmounts();
     if (a.NORMAL + a.PIERCING + a.ELEMENTAL + a.SHADOW <= 0) a.NORMAL = 10;
+    if (ctx.multiplier) for (const t of ["NORMAL", "PIERCING", "ELEMENTAL", "SHADOW"] as const) a[t] *= ctx.multiplier;
     const statuses: any[] = [];
     const walk = (d: any, depth = 0) => {
       if (!d || depth > 6) return;
