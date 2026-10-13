@@ -38,6 +38,10 @@ export class Arsenal {
   private catalogue = new Map<Tab, Entry[]>();
   private loadout!: Loadout;
   private filter = "";
+  /** Show every item of the tab, the ones not owned greyed with where they come from. */
+  private showAll = false;
+  /** Items some recipe makes (filled once the recipe library is read). */
+  private craftable: Set<string> | null = null;
   private shop: ShopMode | null = null;
   /** Personal colour swatches: print and RGB, and the chosen print. */
   colors: { print: number; name: string; rgb: [number, number, number] }[] = [];
@@ -141,6 +145,14 @@ export class Arsenal {
     search.value = this.filter;
     search.oninput = () => { this.filter = search.value; this.fillGrid(grid); };
     tabs.append(search);
+    if (!this.shop && this.tab !== "craft") {
+      const all = el("label", "arsenal-all");
+      const box = document.createElement("input");
+      box.type = "checkbox"; box.checked = this.showAll;
+      box.onchange = () => { this.showAll = box.checked; this.fillGrid(grid); };
+      all.append(box, document.createTextNode(" All gear"));
+      tabs.append(all);
+    }
     const summary = el("div", "arsenal-summary", this.summary());
     let colorRow: HTMLElement | null = null;
     if (!this.shop && this.colors.length && this.tab !== "craft") {
@@ -228,6 +240,7 @@ export class Arsenal {
 
   private fillGrid(grid: HTMLElement) {
     grid.replaceChildren();
+    if (this.showAll && !this.craftable) void this.recipes().then(list => { this.craftable = new Set(list.map(r => r.output)); this.fillGrid(grid); });
     if (this.tab === "craft") { void this.fillCraft(grid); return; }
     const q = this.filter.toLowerCase();
     const owned = this.owned();
@@ -235,7 +248,8 @@ export class Arsenal {
     for (const e of this.entries(this.tab)) {
       if (q && !e.label.toLowerCase().includes(q)) continue;
       // the arsenal holds what the knight owns; a shop sells what its tier allows
-      if (!this.shop && !owned.has(e.name)) continue;
+      const locked = !this.shop && !owned.has(e.name);
+      if (locked && !this.showAll) continue;
       if (this.shop && (e.rarity > this.shop.maxRarity || e.rarity < 1)) continue;
       if (++shown > 400) break;
       const tile = el("button", "arsenal-item" + (this.equipped(e) ? " equipped" : ""));
@@ -254,6 +268,12 @@ export class Arsenal {
         tile.append(el("span", "arsenal-price", has ? "✓ owned" : `${cost} cr`));
         if (has) tile.classList.add("equipped");
         tile.onclick = () => { if (!has && this.buy(e.name, cost)) { this.fb("ui_merchant_trade_add"); this.render(); } };
+      } else if (locked) {
+        // not owned yet: where it comes from (a shop sells up to five stars; crafted gear needs its recipe)
+        tile.classList.add("locked");
+        const craft = this.craftable?.has(e.name);
+        tile.append(el("span", "arsenal-price", craft ? "Craft" : e.rarity >= 1 && e.rarity <= 5 ? `Shop ${price(e.rarity)} cr` : "Not sold"));
+        tile.title += craft ? " · made at the forge from a recipe" : " · bought from a Haven shop";
       } else tile.onclick = () => { this.fb("ui_confirm"); this.toggle(e); };
       grid.append(tile);
     }
