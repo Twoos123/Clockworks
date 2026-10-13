@@ -55,6 +55,8 @@ export interface LoadedModel {
   attachments: Attachment[];
   /** Imported animations that start automatically, by path. */
   autoAnimations: string[];
+  /** Nodes that turn to face the camera (ArticulatedConfig node transforms). */
+  billboards: Map<string, "Billboard" | "Upright">;
   /** Procedural animations that start automatically: node local transforms from expressions. */
   procedurals: { targets: string[]; transform: F<Mat4> }[];
   /** Implementation classes that were found but are not drawn yet. */
@@ -184,7 +186,7 @@ export class ModelLoader {
     const lib = await this.configs();
     const dir = path.substring(0, path.lastIndexOf("/") + 1);
     const model: LoadedModel = {
-      path, kind: short(impl?.$class ?? "none"), parts: [], attachments: [], autoAnimations: [], procedurals: [], skipped: [],
+      path, kind: short(impl?.$class ?? "none"), parts: [], attachments: [], autoAnimations: [], procedurals: [], billboards: new Map(), skipped: [],
     };
     if (!impl) return model;
 
@@ -237,6 +239,11 @@ export class ModelLoader {
       for (const layer of model.particles) if (layer.modelRef) layer.model = await this.loadRef(layer.modelRef, depth);
       if (model.particles.length === 0) model.skipped.push(model.kind);
       return model;
+    }
+
+    for (const nt of impl.nodeTransforms ?? []) {
+      const k = nt.$class?.endsWith("$Upright") ? "Upright" : "Billboard";
+      if (nt.node) model.billboards.set(nt.node, k);
     }
 
     const ctx: Ctx = { lib, local, impl, dir };

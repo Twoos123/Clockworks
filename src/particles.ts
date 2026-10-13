@@ -374,15 +374,22 @@ export class Emitter {
 
   /** World matrices for each live particle of a model-emitting layer. */
   meshMatrices(layerIndex: number, emitter: Mat4): Mat4[] {
+    return this.meshParticles(layerIndex, emitter).map(p => p.matrix);
+  }
+
+  /** World matrix and premultiplied colour for each live particle of a model-emitting layer. */
+  meshParticles(layerIndex: number, emitter: Mat4): { matrix: Mat4; color: Rgba }[] {
     const s = this.states[layerIndex], L = s.layer;
     const toWorld = multiply(emitter, L.transform);
-    const out: Mat4[] = [];
+    const out: { matrix: Mat4; color: Rgba }[] = [];
     for (const p of s.particles) {
       const t = Math.min(1, p.age / p.life);
+      const c = p.color(t), a = c[3];
+      const color: Rgba = L.alphaMode === "PREMULTIPLIED" ? c
+        : [c[0] * a, c[1] * a, c[2] * a, L.alphaMode === "OPAQUE" ? 1 : L.alphaMode === "ADDITIVE" ? 0 : a];
       const spin = compose([0, 0, 0], [0, 0, Math.sin(p.spun / 2), Math.cos(p.spun / 2)], 1);
       const local = multiply(compose(p.pos, p.orientation, p.size(t)), spin);
-      out.push(L.moveWithEmitter ? multiply(toWorld, local)
-        : multiply(compose([0, 0, 0], [0, 0, 0, 1], 1), local));
+      out.push({ matrix: L.moveWithEmitter ? multiply(toWorld, local) : local, color });
     }
     return out;
   }

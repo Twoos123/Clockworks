@@ -13,6 +13,8 @@ export interface TextureUnitState {
   texture: string | null;
   /** ColorizationConfig objects applied to the image when it is loaded. */
   colorizations: any[];
+  /** Whether alpha is premultiplied on load (TextureConfig ImageFile.premultiply, default true). */
+  premultiply: boolean;
   /** Modulate, Replace, Add, Decal, Blend or Combine. */
   env: string;
   rgbScale: number;
@@ -191,6 +193,7 @@ export class ConfigLibrary {
     return {
       texture: this.texturePath(u.texture, local),
       colorizations: this.textureColorizations(u.texture, local),
+      premultiply: this.texturePremultiply(u.texture, local),
       env: env.substring(env.lastIndexOf("$") + 1),
       rgbScale: scale === "TWO" ? 2 : scale === "FOUR" ? 4 : 1,
       sphereMap: !!u.coordGenS?.$class?.endsWith("$SphereMap"),
@@ -200,6 +203,12 @@ export class ConfigLibrary {
 
   /** Resolves a TextureConfig reference to an image path under rsrc/. */
   /** The colorizations a TextureConfig reference applies to its image. */
+  texturePremultiply(ref: any, local?: LocalConfigs): boolean {
+    const base = ref && (local?.textures.get(ref.name) ?? this.textures.get(ref.name));
+    if (!base) return true;
+    return applyArguments(base, ref).implementation?.contents?.premultiply ?? true;
+  }
+
   textureColorizations(ref: any, local?: LocalConfigs): any[] {
     const base = ref && (local?.textures.get(ref.name) ?? this.textures.get(ref.name));
     if (!base) return [];
@@ -232,7 +241,7 @@ function fallback(name: string, texture: string | null): ResolvedMaterial {
       destBlend: n.includes("additive") ? "ONE" : translucent ? "ONE_MINUS_SRC_ALPHA" : "ZERO",
       alphaFunc: n.includes("masked") ? "GEQUAL" : "ALWAYS", alphaRef: n.includes("masked") ? 0.5 : 0,
       depthFunc: "LEQUAL", depthMask: !translucent, cullFace: "BACK", color: null, lit: true, ambient: null, overrideLights: 0,
-      ignoreVertexColors: false, fog: true, units: [{ texture, colorizations: [], env: "Modulate", rgbScale: 1, sphereMap: false, transform: null }], shaders: [],
+      ignoreVertexColors: false, fog: true, units: [{ texture, colorizations: [], premultiply: true, env: "Modulate", rgbScale: 1, sphereMap: false, transform: null }], shaders: [],
     }],
   };
 }

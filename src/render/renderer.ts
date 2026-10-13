@@ -134,7 +134,6 @@ void main() {
     else if (u_env == 2) c = vec4(c.rgb + t.rgb, c.a * t.a); // Add
     else if (u_env == 3) c.rgb = mix(c.rgb, t.rgb, t.a);     // Decal
     else c *= t;                                             // Modulate, Combine
-    if (u_particle) c.rgb *= t.a;                            // particle colours are premultiplied
   }
   c.rgb *= u_rgbScale;
   if (!alphaPasses(c.a)) discard;
@@ -366,12 +365,13 @@ export class Renderer {
 
   private texture(unit: TextureUnitState): Promise<WebGLTexture | null> {
     const path = unit.texture!;
-    const key = unit.colorizations.length
-      ? path + "|" + JSON.stringify(unit.colorizations, (k, v) => (k === "$outer" ? undefined : v)) : path;
+    const key = (unit.premultiply ? "p:" : "s:") + (unit.colorizations.length
+      ? path + "|" + JSON.stringify(unit.colorizations, (k, v) => (k === "$outer" ? undefined : v)) : path);
     let p = this.textures.get(key);
     if (!p) {
       p = (async () => {
         try {
+          // Clyde premultiplies alpha on load by default, and its blend states assume it
           const bmp = await createImageBitmap(await this.vfs.blob(path), { premultiplyAlpha: "none" });
           const gl = this.gl;
           const t = gl.createTexture()!;
@@ -384,10 +384,15 @@ export class Renderer {
             ctx.drawImage(bmp, 0, 0);
             const img = ctx.getImageData(0, 0, bmp.width, bmp.height);
             recolorPixels(img.data, unit.colorizations.map(c => pos.resolve(c)));
+            gl.bindTexture(gl.TEXTURE_2D, t);
+            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, unit.premultiply);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
           } else {
+            gl.bindTexture(gl.TEXTURE_2D, t);
+            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, unit.premultiply);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
           }
+          gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
@@ -519,19 +524,23 @@ export class Renderer {
         // model-emitting layers place their model at each particle
         emitter.states.forEach((state, li) => {
           const model = state.layer.model;
-          if (!model) return;
+          if (!model || state.layer.geometry === "Meshes") return;
           const meshInst = this.meshInstance(model);
           if (meshInst) for (const m of emitter.meshMatrices(li, placement)) collect(meshInst, m);
         });
       }
       for (const gp of inst.parts) {
-        const m = gp.part.node ? multiply(placement, inst.nodeMatrix(gp.part.node)) : placement;
+        let m = gp.part.node ? multiply(placement, inst.nodeMatrix(gp.part.node)) : placement;
+        const bb = gp.part.node ? inst.model.billboards.get(gp.part.node) : undefined;
+        if (bb) m = this.faceCamera(m, bb);
         let g = groups.get(gp);
         if (!g) groups.set(gp, g = { inst, matrices: [] });
         g.matrices.push(m);
       }
       for (const c of inst.children) {
-        const at = c.node && inst.world.has(c.node) ? multiply(placement, inst.nodeMatrix(c.node)) : placement;
+        let at = c.node && inst.world.has(c.node) ? multiply(placement, inst.nodeMatrix(c.node)) : placement;
+        const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
+        if (bb) at = this.faceCamera(at, bb);
         collect(c.instance, multiply(at, c.transform));
       }
     };
@@ -557,6 +566,29 @@ export class Renderer {
     if (particles.length) this.drawParticles(particles);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
+  }
+
+  /**
+   * Replaces a world matrix's rotation so it faces the camera, keeping position and scale.
+   * Billboard: x right, y up, z toward the viewer. Upright: z stays up, turning about it.
+   */
+  private faceCamera(m: Mat4, kind: "Billboard" | "Upright"): Mat4 {
+    const v = this.view, s = Math.hypot(m[0], m[1], m[2]);
+    const out = m.slice();
+    let rx = v[0], ry = v[4], rz = v[8];
+    let ux = v[1], uy = v[5], uz = v[9];
+    let bx = v[2], by = v[6], bz = v[10];
+    if (kind === "Upright") {
+      const l = Math.hypot(rx, ry) || 1;
+      rx /= l; ry /= l; rz = 0;
+      ux = 0; uy = 0; uz = 1;
+      bx = ry; by = -rx; bz = 0;
+      // x right, z up, y away from the viewer
+      out.set([rx * s, ry * s, 0, 0, -bx * s, -by * s, 0, 0, 0, 0, s, 0], 0);
+      return out;
+    }
+    out.set([rx * s, ry * s, rz * s, 0, ux * s, uy * s, uz * s, 0, bx * s, by * s, bz * s, 0], 0);
+    return out;
   }
 
   private readonly meshInstances = new Map<LoadedModel, ModelInstance | null>();
@@ -589,6 +621,11 @@ export class Renderer {
     for (const { emitter, matrix } of list) {
       emitter.states.forEach((state, li) => {
         if (state.particles.length === 0) return;
+        if (state.layer.geometry === "Meshes") {
+          this.drawMeshParticles(emitter, li, matrix);
+          gl.bindVertexArray(this.particleVao);
+          return;
+        }
         data.length = 0;
         emitter.emit(li, matrix, right, up, data);
         if (data.length === 0) return;
@@ -603,6 +640,8 @@ export class Renderer {
             else if (!this.particleTextures.has(key)) {
               this.particleTextures.set(key, this.texture(unit).then(t => { this.readyParticleTextures.set(key, t); return t; }));
             }
+            // never draw a textured particle as a bare quad while its texture is loading
+            if (!tex) continue;
           }
           // particle colours are premultiplied, so blend accordingly and never write depth
           this.applyPass({ ...pass, srcBlend: "ONE", destBlend: "ONE_MINUS_SRC_ALPHA", depthMask: false, cullFace: "DISABLED", lit: false },
@@ -614,6 +653,43 @@ export class Renderer {
     }
     gl.uniform1i(this.u.u_particle, 0);
     gl.bindVertexArray(null);
+  }
+
+  /**
+   * Meshes geometry: each particle draws the layer's mesh with the layer's material and the
+   * particle's colour, rather than the mesh's own material.
+   */
+  private drawMeshParticles(emitter: Emitter, li: number, matrix: Mat4) {
+    const gl = this.gl, layer = emitter.states[li].layer;
+    const inst = layer.model ? this.meshInstance(layer.model) : null;
+    if (!inst) return;
+    const passes = layer.material.passes;
+    const textures = passes.map(p => {
+      const unit = p.units[0];
+      if (!unit?.texture) return null;
+      const key = unit.texture;
+      if (!this.particleTextures.has(key)) {
+        this.particleTextures.set(key, this.texture(unit).then(t => { this.readyParticleTextures.set(key, t); return t; }));
+      }
+      return this.readyParticleTextures.get(key) ?? undefined;
+    });
+    if (textures.some(t => t === undefined)) return; // still loading
+    for (const { matrix: m, color } of emitter.meshParticles(li, matrix)) {
+      for (const gp of inst.parts) {
+        gl.bindVertexArray(gp.vao);
+        for (let k = 0; k < 4; k++) {
+          gl.disableVertexAttribArray(6 + k);
+          gl.vertexAttrib4f(6 + k, m[k * 4], m[k * 4 + 1], m[k * 4 + 2], m[k * 4 + 3]);
+        }
+        passes.forEach((pass, i) => {
+          this.applyPass({ ...pass, color, srcBlend: "ONE", destBlend: "ONE_MINUS_SRC_ALPHA", depthMask: false, lit: false },
+            textures[i] ?? null, false, false);
+          if (gp.indexed) gl.drawElements(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0);
+          else gl.drawArrays(gp.primitive, 0, gp.count);
+          this.stats.draws++;
+        });
+      }
+    }
   }
 
   private drawPart(inst: ModelInstance, gp: GpuPart, first: number, instances: number) {
@@ -669,7 +745,9 @@ export class Renderer {
     gl.uniform1i(this.u.u_sphereMap, unit?.sphereMap ? 1 : 0);
     gl.uniform1i(this.u.u_env, Math.max(0, ENVS.indexOf(unit?.env ?? "Modulate")));
     gl.uniform1f(this.u.u_rgbScale, unit?.rgbScale ?? 1);
-    gl.uniform1i(this.u.u_lit, pass.lit && hasNormals ? 1 : 0);
+    // OpenGL lights normal-less meshes too, using the default normal (0, 0, 1)
+    void hasNormals;
+    gl.uniform1i(this.u.u_lit, pass.lit ? 1 : 0);
     // a light-state override replaces the scene lights: its ambient term plus its own lights
     const amb = pass.ambient ?? this.sceneAmbient;
     gl.uniform3f(this.u.u_ambient, amb[0], amb[1], amb[2]);

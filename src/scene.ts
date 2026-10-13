@@ -16,7 +16,7 @@ export interface LoadedScene {
   id: string;
   name: string;
   objects: SceneObject[];
-  stats: { tiles: number; placeables: number; markers: number; unresolved: number; uniqueModels: number };
+  stats: { tiles: number; placeables: number; furniture: number; markers: number; unresolved: number; uniqueModels: number };
   /** The scene's GlobalEntry references (lighting, fog, skybox, camera, music...). */
   globals: any[];
   bounds: { min: [number, number]; max: [number, number] };
@@ -54,7 +54,8 @@ export class SceneLoader {
     if (!p) {
       p = this.loader.importFile(file).then(root => {
         const map = new Map<string, any>();
-        for (const c of Array.isArray(root) ? root : []) map.set((c as any).name, c);
+        const list: any[] = Array.isArray(root) ? root : (root as any)?.array ?? [];
+        for (const c of list) map.set(c.name, c);
         return map;
       }).catch(() => new Map());
       this.libs.set(file, p);
@@ -76,10 +77,19 @@ export class SceneLoader {
     return impl ?? null;
   }
 
+  /** The model a FurniConfig shows: its own, a placeable's, or an actor's sprite. */
+  private async furnitureModel(item: any): Promise<any> {
+    if (!item) return null;
+    if (item.model) return item.model;
+    if (item.placeable) return (await this.resolveImpl("config/placeable.dat", item.placeable, "placeable"))?.model;
+    if (item.actor) return (await this.resolveImpl("config/actor.dat", item.actor, "actor"))?.sprite?.model;
+    return null;
+  }
+
   async load(id: string, data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<LoadedScene> {
     const s: any = (await importBinary(data, inflate)).root;
     const objects: SceneObject[] = [];
-    const stats = { tiles: 0, placeables: 0, markers: 0, unresolved: 0, uniqueModels: 0 };
+    const stats = { tiles: 0, placeables: 0, furniture: 0, markers: 0, unresolved: 0, uniqueModels: 0 };
     const min: [number, number] = [Infinity, Infinity], max: [number, number] = [-Infinity, -Infinity];
     const grow = (x: number, y: number) => {
       min[0] = Math.min(min[0], x); min[1] = Math.min(min[1], y);
@@ -117,9 +127,16 @@ export class SceneLoader {
       const impl = await this.resolveImpl("config/placeable.dat", e.placeable, "placeable");
       if (!impl) { stats.unresolved++; continue; }
       if (HIDDEN.test(impl.$class)) { stats.markers++; continue; }
-      if (!impl.model) { stats.unresolved++; continue; }
+      let modelRef = impl.model;
+      if (impl.$class.endsWith("$Furni")) {
+        // guild furniture: the placeable names a furniture item, whose config gives the model
+        const item = await this.resolveImpl("config/item.dat", impl.furni, "item");
+        modelRef = await this.furnitureModel(item);
+        if (modelRef) stats.furniture++;
+      }
+      if (!modelRef) { stats.unresolved++; continue; }
       const t = readTransform(e.transform);
-      jobs.push({ ref: impl.model, matrix: toMatrix(t) });
+      jobs.push({ ref: modelRef, matrix: toMatrix(t) });
       stats.placeables++;
       grow(t.t[0], t.t[1]);
     }

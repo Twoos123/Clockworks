@@ -279,6 +279,7 @@ class Viewer {
       ["Cache file", "scenes/" + scene.id],
       ["Tiles", scene.stats.tiles.toLocaleString()],
       ["Props", scene.stats.placeables.toLocaleString()],
+      ["Guild furniture", scene.stats.furniture.toLocaleString()],
       ["Distinct models", scene.stats.uniqueModels.toLocaleString()],
       ["Editor markers hidden", scene.stats.markers.toLocaleString()],
       ["Unresolved", scene.stats.unresolved.toLocaleString()],
