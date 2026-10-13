@@ -98,11 +98,17 @@ Family strata play their style's music:
 | Graveyard | `undead` 0.6 | data (Graveyard/Music Mix) |
 | Gremlin Compound (city) | `gremlin` ×1.5, `city_ambient`, `city_action` | gremlin from data (Music/Monster Family/Gremlin); city ours |
 | Deconstruction Zone | `construct` 0.4 | data (Music/Monster Family/Construct) |
+| Frosty Islands | the sky islands mix | data (jigsaw valley scenes; a sky-islands tileset) |
+| Dark Halls | `apocrea`, `somber`, cross-fade 1 | data (dark halls lobby and finale) |
+| Frozen Pools | `freeze` 0.45 | ours |
 
 Styles added later are matched by tileset name:
 
-- `valley-night` plays the den's music;
-- `valley-autumn` plays the lumberyard's;
+- `sky-night` / `valley-night` plays the den's music;
+- `sky-autumn` / `valley-autumn` plays the lumberyard's;
+- `sky-winter` plays Frosty Islands';
+- `castle-light` plays Dark Halls';
+- `ice` plays Frozen Pools';
 - `castle` plays the keep's;
 - `city` plays the compound's;
 - `clockworks-white` plays the Deconstruction Zone's;

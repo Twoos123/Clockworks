@@ -63,11 +63,11 @@ export class MusicPlayer {
     if (t) this.play(t);
     const w = ctx.world;
     const fight = ctx.boss ? BOSS_MUSIC[ctx.boss].fight : null;
-    let roused = false, seen = false, gone = 0, down = w.defeated;
+    let roused = false, seen = false, won = false, gone = 0, down = w.defeated;
     this.timer = setInterval(() => {
       // knocked out and revived
       if (w.defeated !== down) { down = w.defeated; this.stinger(down ? "failure" : "resurrect"); }
-      if (fight && this.base && w.knight) {
+      if (fight && !won && this.base && w.knight) {
         const k = w.knight;
         // the bosses' logic actors (their monster bodies may still be loading); a boss between
         // phases (one stage gone, the next spawning) is still a boss
@@ -78,7 +78,7 @@ export class MusicPlayer {
         if (!roused && bosses.some(b => Math.hypot(b.x - k.x, b.y - k.y) < 14 || (b as any).state === "attack")) { roused = true; this.play(fight, 1); }
         else if (seen && gone >= 6) {
           // the boss fell: the victory fanfare, then the level's own music again
-          seen = false; roused = false;
+          won = true;
           this.stinger("victory");
           this.play(this.base, 4);
         }

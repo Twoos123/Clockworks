@@ -100,11 +100,15 @@ export const STYLE_MUSIC: Record<string, Track> = {
   compound: mix([["gremlin", 1.5], ["city_ambient", 1], ["city_action", 1]], 0.4, 1, "ours: gremlin (Music/Monster Family/Gremlin) with city_ambient, city_action"),
   deconstruction: one("construct", 0.4, SG + "Music/Monster Family/Construct"),
   city: mix([["city_ambient", 1], ["city_action", 1]], 0.4, 1, "ours: city_ambient, city_action"),
+  frostwood: mix([["sky_islands_day_ambient", 1], ["sky_islands_day_action", 1]], 0.25, 1, "scenes cache: jigsaw_valley_* (the sky islands mix; Frosty Islands are a sky-islands tileset)"),
+  halls: mix([["apocrea", 1], ["somber", 1]], 0.5, 1, "scenes cache: dark_halls_lobby (apocrea), dark_halls_finale (somber)"),
+  pools: one("freeze", 0.45, "ours: Frozen Pools play the freeze track (Universal/Freeze/Music)"),
 };
 
 /** Tilesets (src/gen themes) to a style's music, for styles this table does not know by key. */
 const TILESET_MUSIC: [RegExp, string][] = [
-  [/^valley-night/, "den"], [/^valley-autumn|lichen|grove/, "grove"], [/^valley|sky|island/, "valley"],
+  [/^(valley|sky)-night/, "den"], [/^(valley|sky)-autumn|lichen|grove/, "grove"], [/^(valley|sky)-winter|frost/, "frostwood"],
+  [/^valley|sky|island/, "valley"], [/castle-light|dark-?halls/, "halls"], [/^ice|pool/, "pools"],
   [/castle|keep/, "keep"], [/graveyard/, "graveyard"], [/city|compound/, "compound"], [/clockworks-white/, "deconstruction"],
 ];
 const TILESET_ELEMENT: [RegExp, string][] = [[/fire|lava|ember/, "Fire"], [/freeze|ice|snow|frost/, "Freeze"], [/poison/, "Poison"], [/shock/, "Shock"]];
@@ -140,12 +144,12 @@ const ELEMENTS = new Set(["Fire", "Freeze", "Poison", "Shock"]);
 /** A level floor's music: element strata play their element, else the style's mix. */
 export function levelMusic(theme: StratumTheme | null, styleKey: string | null, tileset: string): Track {
   if (theme && ELEMENTS.has(theme)) return ELEMENT_MUSIC[theme];
-  const el = TILESET_ELEMENT.find(([re]) => re.test(tileset));
-  if (el && !/^castle-fire$/.test(tileset)) return ELEMENT_MUSIC[el[1]];
   // the Clockwork Tunnels have family variants: Spooky (undead) and the fiends' Devilish Drudgery
   if (styleKey === "tunnels" && theme === "Undead") return { ...one("undead", 0.6, SG + "Environment/Custom/Clockwork Tunnels/Spooky/Music Mix") };
   if (styleKey === "tunnels" && theme === "Fiend") return { ...one("fiend", 0.4, SG + "Environment/Custom/Devilish Drudgery/Music Mix") };
   if (styleKey && STYLE_MUSIC[styleKey]) return STYLE_MUSIC[styleKey];
+  const el = TILESET_ELEMENT.find(([re]) => re.test(tileset));
+  if (el) return ELEMENT_MUSIC[el[1]];
   const byTileset = TILESET_MUSIC.find(([re]) => re.test(tileset));
   if (byTileset) return STYLE_MUSIC[byTileset[1]];
   if (theme && FAMILY_MUSIC[theme]) return FAMILY_MUSIC[theme];
