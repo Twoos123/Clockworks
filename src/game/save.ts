@@ -38,7 +38,13 @@ export interface SaveData {
   sprites?: SpriteSave;
   /** Accessories and costumes the knight shows (accessories.ts). */
   appearance?: Appearance;
+  /** Rank, completed missions and prestige (src/game/missions.ts); made on first use. */
+  missions?: MissionProgress;
+  /** Letters in the knight's mailbox (welcome notes, mission rewards). */
+  mail?: { from: string; subject: string; body: string; read: boolean; at: number }[];
 }
+
+import type { MissionProgress } from "./missions";
 
 const KEY = "clyde-web-save";
 

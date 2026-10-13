@@ -200,3 +200,46 @@ body.game .sidebar, body.game .info, body.game #status, body.game #anim, body.ga
 body.game #play, body.game #arsenalBtn, body.game #spawnJelly, body.game .toolbar label.button { display: none; }
 .options-canvas { z-index: 8; }
 #settings { z-index: 9; }
+body.game #clockworks, body.game #arenaBtn { display: none; }
+.gate-row { display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 10px; background: #0d1824; border: 1px solid #2d5574; border-radius: 8px; padding: 6px 8px; margin: 6px 0; }
+.gate-name { display: flex; align-items: center; gap: 6px; color: #f3d36b; font-style: italic; font-weight: 700; }
+.gate-emblem { width: 40px; height: 40px; }
+.gate-lineup { display: grid; grid-template-columns: repeat(29, 1fr); gap: 1px; }
+.gate-cell { display: grid; justify-items: center; gap: 1px; padding: 2px 0; border-radius: 3px; background: #16283a; }
+.gate-cell.tier2 { background: #1d2e1d; } .gate-cell.tier3 { background: #33201a; }
+.gate-cell.first { box-shadow: inset 2px 0 0 #f3d36b; }
+.gate-theme { width: 16px; height: 16px; } .gate-cell > span { height: 16px; }
+.gate-level { width: 22px; height: 22px; }
+.gate-cell small { font-size: 9px; color: #9fb4c8; }
+
+/* the mission board */
+.missions-card { width: min(1040px, calc(100% - 32px)); }
+.missions-card .arsenal-tabs button { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 4px 10px 4px 4px; }
+.missions-card .arsenal-tabs canvas { width: 76px; height: 28px; border-radius: 4px; }
+.mission-rank { margin: 6px 0; }
+.mission-rank > summary { cursor: pointer; font-weight: 700; color: #f3d36b; font-style: italic; padding: 4px 0; }
+.mission-sub { margin: 6px 0 4px; color: #9fc4e6; }
+.mission-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.mission { display: grid; grid-template-columns: 120px 1fr; gap: 10px; background: #0d1824; border: 1px solid #2d5574; border-radius: 8px; padding: 8px; }
+.mission.locked { opacity: 0.5; filter: grayscale(0.6); }
+.mission.complete { border-color: #4f8a4f; }
+.mission.complete .mission-tag { color: #8fd18f; }
+.mission.available { border-color: #c9a642; }
+.mission-art { position: relative; width: 120px; height: 170px; }
+.mission-art canvas { position: absolute; inset: 0; }
+.mission-body { display: grid; gap: 4px; align-content: start; font-size: 12px; }
+.mission-body h3 { margin: 0; color: #f3d36b; font-style: italic; font-size: 15px; }
+.mission-tag { color: #9fb4c8; }
+.mission-summary, .mission-needs, .mission-reward { margin: 0; }
+.mission-needs { color: #e8c38a; }
+.mission-reward { color: #f5c542; }
+.mission-items { display: flex; flex-wrap: wrap; gap: 4px; }
+.mission-item { display: inline-flex; align-items: center; gap: 3px; background: #16283a; border-radius: 4px; padding: 1px 4px 1px 1px; font-size: 11px; }
+.mission-body button { justify-self: start; margin-top: 4px; }
+.mission-dialog { width: min(560px, calc(100% - 32px)); display: grid; gap: 8px; }
+.mission-dialog button { justify-self: end; }
+.mission-brief { display: grid; grid-template-columns: 120px 1fr; gap: 12px; }
+.mission-brief h3 { margin: 0; color: #f3d36b; }
+.mission-rankup { color: #f3d36b; font-weight: 700; font-size: 16px; }
+.game-notice { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); z-index: 8; max-width: min(560px, calc(100% - 32px));
+  background: #12202e; color: #f3d36b; border: 2px solid #c9a642; border-radius: 8px; padding: 10px 14px; font-weight: 600; text-align: center; }
