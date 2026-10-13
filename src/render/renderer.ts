@@ -521,8 +521,15 @@ export class Renderer {
     const dt = Math.min(0.1, Math.max(0, this.time - this.lastTime));
     const visits = new Map<ModelInstance, number>();
     const particles: { emitter: Emitter; matrix: Mat4 }[] = [];
-    const collect = (inst: ModelInstance, placement: Mat4) => {
+    // skel: the nearest articulated ancestor, whose skeleton drives skinned meshes in wrapper
+    // models below it (armour inside compound/conditional wrappers on a knight)
+    const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null) => {
       inst.update(frame);
+      if (inst.model.root) skel = { inst, placement };
+      else if (skel && inst.model.parts.some(p => p.bones)) {
+        inst.boneParent = skel.inst;
+        inst.bonePlacement = skel.placement;
+      }
       if (inst.model.particles?.length) {
         const n = visits.get(inst) ?? 0;
         visits.set(inst, n + 1);
@@ -553,11 +560,7 @@ export class Renderer {
         let at = c.node && inst.world.has(c.node) ? multiply(placement, inst.nodeMatrix(c.node)) : placement;
         const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
         if (bb) at = this.faceCamera(at, bb);
-        if (!c.instance.model.root && inst.model.root && c.instance.model.parts.some(p => p.bones)) {
-          c.instance.boneParent = inst;
-          c.instance.bonePlacement = placement;
-        }
-        collect(c.instance, multiply(at, c.transform));
+        collect(c.instance, multiply(at, c.transform), skel);
       }
     };
     for (const it of items) collect(it.instance, it.matrix);
