@@ -200,6 +200,7 @@ body.game .sidebar, body.game .info, body.game #status, body.game #anim, body.ga
 body.game #play, body.game #arsenalBtn, body.game #spawnJelly, body.game .toolbar label.button { display: none; }
 .options-canvas { z-index: 8; }
 #settings { z-index: 9; }
+body.game #clockworks, body.game #arenaBtn { display: none; }
 
 /* the mission board */
 .missions-card { width: min(1040px, calc(100% - 32px)); }

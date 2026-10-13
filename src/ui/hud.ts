@@ -163,6 +163,8 @@ export class GameHud {
   private target: Component | null = null;
   private targetKey = "";
   private folded = new Map<Component, boolean>();
+  /** Panels the player folded or unfolded by hand (left alone by the automatic folding). */
+  private manual = new Set<Component>();
   private townBuilt: boolean | null = null;
   private hovered: Component | null = null;
   /** Display options: the minimap and the red flash when hit. */
@@ -232,7 +234,7 @@ export class GameHud {
       this.hovered = hit;
     }
     if (!click || !hit || !owner) return null;
-    if (hit.tag === "handle") { this.fold(owner, !this.folded.get(owner)); return "handle"; }
+    if (hit.tag === "handle") { this.manual.add(owner); this.fold(owner, !this.folded.get(owner)); return "handle"; }
     // a menu item's tag sits on its interface host; the clickable part is the inner button
     if (hit.tag === "button") return findHost(owner, hit)?.tag ?? null;
     return hit.tag || null;
@@ -256,7 +258,12 @@ export class GameHud {
     const label = this.minimapUi?.find("floorlabel");
     if (label) label.text = state.floor;
     // the activities panel is open in towns and folded in the Clockworks
-    if (this.activities && this.townBuilt !== state.town) { this.townBuilt = state.town; this.fold(this.activities, !state.town); }
+    if (this.activities && this.townBuilt !== state.town) {
+      this.townBuilt = state.town;
+      this.fold(this.activities, !state.town);
+      const b = this.activities.find("button_haven");
+      if (b) b.text = state.town ? "The Arcade" : "Return to Haven";
+    }
     if (this.objective) {
       const list = this.objective.find("objectives");
       if (list) {
@@ -414,6 +421,14 @@ export class GameHud {
         const cs = pack(this.cooldown);
         render(this.cooldown, g, Math.round((cw - cs.width) / 2), ch - 8 - size.height - 60 + cs.height, this.hooks);
       }
+    }
+    // corner menus fold to their handles when the window is too narrow for them beside the
+    // quickbar (unless the player has opened or folded them by hand)
+    if (this.quickbar && this.menuLeft && this.menuRight) {
+      const qb = this.quickbar.width, wide = (m: Component) => { const was = this.folded.get(m); this.fold(m, false); const w = pack(m).width; this.fold(m, !!was); return w; };
+      const needed = qb + 2 * Math.max(wide(this.menuLeft), wide(this.menuRight)) + 16;
+      const auto = cw < needed;
+      for (const m of [this.menuLeft, this.menuRight]) if (!this.manual.has(m) && !!this.folded.get(m) !== auto) this.fold(m, auto);
     }
     // corner menus: the left one in the lower-left corner, the right one in the lower-right
     if (this.menuLeft) { pack(this.menuLeft); render(this.menuLeft, g, 0, ch, this.hooks); }

@@ -715,7 +715,8 @@ class Viewer {
       case "button_mail": this.openMail(); break;
       case "button_loadout": case "button_gear": case "button_arsenal": void this.toggleArsenal(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
-      case "button_haven": void this.returnToHaven(); break;
+      // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
+      case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
       case "button_missions": void this.missions().toggle(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       case "button_guildhall": case "button_social": void this.goToGuildHall(); break;
@@ -1014,6 +1015,11 @@ class Viewer {
       grid.append(col);
     }
     card.append(grid);
+    // the arena: endless waves on a cached level, a checkpoint every fifth wave
+    const arena = document.createElement("button");
+    arena.textContent = "Arena: endless waves (bank every fifth wave)";
+    arena.onclick = () => { root.hidden = true; this.paused = false; void this.enterArena(); };
+    card.append(arena);
     root.append(card);
     root.hidden = false;
     this.paused = !!this.world;
