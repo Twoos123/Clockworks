@@ -33,6 +33,8 @@ export interface SaveData {
   pocket: [string, number][];
   /** Rank, completed missions and prestige (src/game/missions.ts); made on first use. */
   missions?: MissionProgress;
+  /** Sparks of Life: each revives a knocked-out knight (a fresh knight has three). */
+  sparks?: number;
   /** Letters in the knight's mailbox (welcome notes, mission rewards). */
   mail?: { from: string; subject: string; body: string; read: boolean; at: number }[];
 }

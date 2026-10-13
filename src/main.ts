@@ -22,6 +22,7 @@ import { TitleScreen } from "./ui/title";
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { OptionsScreen } from "./ui/options";
+import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
@@ -32,7 +33,7 @@ import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
-const TOWN = /haven|bazaar|\(|lobby/i;
+const TOWN = /haven|bazaar|lobby|^hall/i;
 /**
  * The order a run takes through the cached levels, after the Clockworks: a stratum of
  * Jigsaw Valley, the terminal rest stop, deeper levels, then the Core terminal whose
@@ -295,6 +296,7 @@ class Viewer {
     };
     $("giveUp").onclick = () => {
       $("defeated").hidden = true;
+      this.reviveScreen?.close();
       this.run = { depth: 29, health: null, floors: 0 };
       // past the last level, descend() rides up to Haven; the floor's loot is lost
       void this.returnToHaven();
@@ -982,6 +984,40 @@ class Viewer {
   }
 
   /** Crowns a revive costs: more the deeper the knight is (towns are free). */
+  private reviveScreen: ReviveScreen | null = null;
+
+  /** The knockout window: use a Spark of Life, or buy one with crowns. */
+  private async openRevive() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    const sparkView = new PortraitView(this.renderer, this.loader, undefined, null);
+    this.reviveScreen ??= new ReviveScreen(this.gui, $<HTMLCanvasElement>("reviveCanvas"), {
+      sparks: () => this.save.sparks ?? 3,
+      price: () => this.reviveCost(),
+      crowns: () => this.save.crowns,
+      use: () => {
+        const n = this.save.sparks ?? 3;
+        if (n <= 0 || !this.world) return false;
+        this.save.sparks = n - 1;
+        writeSave(this.save);
+        this.world.revive();
+        $("defeated").hidden = true;
+        this.uiSound("sound/feedback/ui_confirm.ogg");
+        this.canvas.focus();
+        return true;
+      },
+      buy: () => {
+        const cost = this.reviveCost();
+        if (this.save.crowns < cost) return false;
+        this.save.crowns -= cost;
+        this.save.sparks = (this.save.sparks ?? 3) + 1;
+        writeSave(this.save);
+        return true;
+      },
+      sound: f => this.uiSound(f),
+    }, { view: (c, g, x, y, w, h) => sparkView.draw(c, g, x, y, w, h) });
+    await this.reviveScreen.open();
+  }
+
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
   private async returnToHaven() {
@@ -1536,11 +1572,11 @@ class Viewer {
           this.target[2] + (k.z + 1 - this.target[2]) * f];
         if ($("defeated").hidden === this.world.defeated) {
           $("defeated").hidden = !this.world.defeated;
+          // the game's revive window (Sparks of Life); in town the knight simply gets up
           if (this.world.defeated) {
-            const cost = this.reviveCost();
-            $("reviveInfo").textContent = TOWN.test(this.scene?.name ?? "") ? "" : `Reviving costs ${cost} crowns (you have ${this.save.crowns}).`;
-            ($("revive") as HTMLButtonElement).disabled = this.save.crowns < cost;
-          }
+            if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); $("defeated").hidden = true; }
+            else void this.openRevive();
+          } else this.reviveScreen?.close();
         }
       }
       const eye: Vec3 = [
