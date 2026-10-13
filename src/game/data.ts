@@ -364,7 +364,7 @@ export class GameData {
       // ActorConfig Mobile speed and Monster targetedSpeed both default to 6
       speed: m.speed ?? 6,
       targetedSpeed: m.targetedSpeed ?? 6,
-      health: m.health ?? 100,
+      health: m.health ?? 0,
       healthScale: m.healthScale ?? null,
       defense: m.defense ?? null,
       turnRate: m.turnRate ?? Math.PI,

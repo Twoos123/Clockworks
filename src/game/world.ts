@@ -2441,10 +2441,13 @@ export class World implements LogicHost {
     def.dying = anims.dying ?? anims.Dying ?? anims.death;
     await Promise.all([this.preload(def.idle, def.move, def.activation, def.react, def.dying), this.preloadAttacks(def.attacks)]);
     if (e.destroyed) return;
-    // health is a percentage of the depth-scaled health table
+    // DungeonActorConfig Monster: the depth-scaled health table when it has one (its flat
+    // health is then ignored), else the flat health; times the difficulty's monster health
+    // scale (DungeonCodes Difficulty: easy 0.8, hard 1.25)
     const ctx = this.ctx(0);
-    const base = def.healthScale ? this.data.depth.evaluate(def.healthScale, ctx) : 100;
-    const m = new Monster(await this.instantiate(model, false), def, Math.max(1, Math.round((def.health / 100) * (base || 100))));
+    const base = def.healthScale ? this.data.depth.evaluate(def.healthScale, ctx) : def.health;
+    const scale = this.difficulty === "easy" ? 0.8 : this.difficulty === "hard" ? 1.25 : 1;
+    const m = new Monster(await this.instantiate(model, false), def, Math.max(1, Math.round((base || 100) * scale)));
     m.defense = def.defense ? this.data.depth.defense(def.defense, ctx) : null;
     // the spawn point may sit in a wall or pit; move to the nearest free spot
     // (a prisoner stays in its cage)

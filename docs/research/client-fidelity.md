@@ -90,7 +90,25 @@ duration (`resistFactor`, 2% a point), whether a hit wakes a sleeper, stacking a
 Still ours: a shield taking hits (its damage and the reduced knockback through it), the
 dash's moment of immunity, and how much a hit's reaction interrupts are server code.
 
-## 6. Config defaults the export leaves out (src/game/data.ts)
+## 6. Monster and boss health, boss timings (src/game/world.ts, src/game/bosses.ts)
+
+The client holds no boss code at all (see client-map.md); the bosses' numbers below come
+from their own configs, read the way the client's config classes define them.
+
+| What | Old guess | Now | From |
+|---|---|---|---|
+| Monster health | `health` read as a percent of the health scale (default 100%) | the depth-scaled `healthScale` when the config has one (its flat `health` is then ignored), else the flat `health`; times the difficulty's monster health scale (easy 0.8, hard 1.25) | `DungeonActorConfig$Monster` (health default 0, "ignored when healthScale is set"), `DungeonCodes$Difficulty` |
+| Boss health | Health Base +40 times 3 (Snarbolax), 2.2 / 2.2 / 1 / 2.6 (Jelly stages), 1.2 (Twins), 2.5 / 3 (Vanaduke), 1 (mask) | each boss actor's own health: Snarbolax Health Base +40, Royal Jelly v2 stages +30 and +20, Twins +10, Vanaduke 15000, his mask 5000 | actor.dat boss configs |
+| Snarbolax stun | 6 s | 8 s: the bell runs its handler's ApplyStatus "Stun 3" at ULTIMATE power, maxDuration 8000 ms | actor.dat, status_condition.dat |
+| Twins exposed | 5 s | 7 s ("Monster Attacks/Boss/Roarmulus Twins/Exposed": 7000 ms) | status_condition.dat |
+| Surgebot respawn | 20 s | the scuttle pad's own "Delay", 45 s | the pad config |
+
+Still guessed (nothing in the client or the configs): the bell's range (4.5), how long
+Vanaduke's mask stays wet (5 s), the share of the Snarbolax's health one stun may take,
+the Jelly's rage, and every director's sequencing. The configs' conditions, timers and
+signal names that would decide them are stripped from the export.
+
+## 7. Config defaults the export leaves out (src/game/data.ts)
 
 The export drops fields left at their class default, so the defaults have to match the
 client's classes. Wrong ones were:
