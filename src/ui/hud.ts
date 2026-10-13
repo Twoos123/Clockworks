@@ -7,11 +7,13 @@ import { CONFIG_REF } from "../config/params";
 import type { World } from "../game/world";
 import { buildInterface, loadPseudo, pack, render, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { ScriptRunner } from "./script";
+import { Minimap } from "./minimap";
 
 const STATUS = "ui/hud_v2/interface_status.dat";
 const QUICKBAR = "ui/hud_v2/interface_quickbar.dat";
 const HIT_FLASH = "ui/hud_v2/interface_hitflash.dat";
 const LOW_HEALTH = "ui/hud_v2/interface_lowhealth.dat";
+const MINIMAP = "ui/hud_v2/interface_minimap.dat";
 /** The low-health frame shows below this fraction of maximum health (our choice). */
 const LOW_HEALTH_FRACTION = 0.25;
 /** One health pip (12 px wide in the images) stands for this much health. */
@@ -23,6 +25,8 @@ const ref = (name: string, args: Record<string, unknown> = {}) =>
 
 export interface HudState {
   name: string;
+  /** The minimap's floor label. */
+  floor: string;
   health: number;
   maxHealth: number;
   recentDamage: number;
@@ -35,10 +39,10 @@ export interface HudState {
   statuses: { icon: string; seconds: number }[];
 }
 
-export function hudState(world: World, name: string): HudState {
+export function hudState(world: World, name: string, floor = ""): HudState {
   const k = world.knight;
   return {
-    name, health: k.health, maxHealth: k.maxHealth, recentDamage: k.recentDamage,
+    name, floor, health: k.health, maxHealth: k.maxHealth, recentDamage: k.recentDamage,
     shield: k.shieldHealth, shieldMax: k.shieldMax, shieldBroken: k.shieldBroken > 0, shielding: k.shielding,
     weapons: k.weapons.map((w, i) => ({ icon: w.def.icon, selected: i === k.slot })),
     statuses: k.statuses.map(s => ({ icon: s.def.icon, seconds: Math.ceil(s.remaining) })),
@@ -58,16 +62,24 @@ export class GameHud {
   private low: "off" | "on" | "fading" = "off";
   private runners = new Map<Component, ScriptRunner>();
   private lastHealth = -1;
+  private minimapUi: Component | null = null;
+  readonly minimap: Minimap;
   /** Built debuff icons (ui/health/debuff.dat) by icon and seconds left. */
   private debuffs = new Map<string, Component | null>();
 
-  constructor(private readonly ctx: GuiContext, readonly hooks: RenderHooks = {}) {}
+  constructor(private readonly ctx: GuiContext, readonly hooks: RenderHooks = {}) {
+    this.minimap = new Minimap(ctx);
+    // the map draws over the map background, under the hash marks and gloss (the map layer
+    // spacer has no size of its own)
+    hooks.tagged = { ...(hooks.tagged ?? {}), mapbackground: (_c, g, x, y, w, h) => this.minimap.draw(g, x, y, w, h) };
+  }
 
   /** Starts loading the interfaces; draw() shows them once ready. */
   async init(state: HudState) {
     await Promise.all([this.rebuildStatus(state), this.buildQuickbar(),
       buildInterface(this.ctx, ref(HIT_FLASH)).then(ui => { this.hitFlash = ui; }),
-      buildInterface(this.ctx, ref(LOW_HEALTH)).then(ui => { this.lowHealth = ui; })]);
+      buildInterface(this.ctx, ref(LOW_HEALTH)).then(ui => { this.lowHealth = ui; }),
+      buildInterface(this.ctx, ref(MINIMAP)).then(ui => { this.minimapUi = ui; })]);
   }
 
   private async rebuildStatus(state: HudState) {
@@ -106,6 +118,8 @@ export class GameHud {
     if (this.built !== (state.shielding ? "Blocking" : "Idle")) void this.rebuildStatus(state);
     if (this.status) this.bindStatus(this.status, state);
     if (this.quickbar) this.bindQuickbar(this.quickbar, state);
+    const label = this.minimapUi?.find("floorlabel");
+    if (label) label.text = state.floor;
     // damage: the red screen flash and the health bar's shake, both scripted in the interfaces
     if (this.lastHealth >= 0 && state.health < this.lastHealth) {
       if (this.hitFlash) this.runner(this.hitFlash).runScript(ref("Red Pulse"));
@@ -222,6 +236,11 @@ export class GameHud {
       // the status panel's backing is anchored to the upper-left corner of the screen
       const size = pack(this.status);
       render(this.status, g, 0, size.height, this.hooks);
+    }
+    if (this.minimapUi) {
+      // the minimap sits in the upper-right corner
+      const size = pack(this.minimapUi);
+      render(this.minimapUi, g, cw - size.width, size.height, this.hooks);
     }
     if (this.quickbar) {
       const size = pack(this.quickbar);

@@ -454,6 +454,12 @@ class Viewer {
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   }
 
+  /** The minimap's label: the depth in the Clockworks, or the town's name. */
+  private floorLabel(): string {
+    if (!this.scene) return "";
+    return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase()) : `Depth ${this.run.depth}`;
+  }
+
   /** Opens or closes the arsenal; the world pauses while it is open. */
   private async toggleArsenal() {
     const arsenal = this.ensureArsenal();
@@ -794,7 +800,8 @@ class Viewer {
         this.lastView = view;
         if (this.world && this.hud) {
           const gh = this.gameHud;
-          gh?.update(hudState(this.world, KNIGHT_NAME), dt);
+          gh?.minimap.setWorld(this.world);
+          gh?.update(hudState(this.world, KNIGHT_NAME, this.floorLabel()), dt);
           this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }

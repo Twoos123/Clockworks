@@ -589,6 +589,8 @@ export function pack(c: Component) {
 export interface RenderHooks {
   /** Draws a RenderableView (e.g. the knight portrait) into a rectangle in canvas pixels. */
   view?: (c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => void;
+  /** Draws game content into components with these tags (e.g. the minimap's map layer). */
+  tagged?: Record<string, (c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => void>;
 }
 
 /**
@@ -618,6 +620,8 @@ function renderSelf(c: Component, g: CanvasRenderingContext2D, x: number, y: num
   const s = c.style;
   if (s?.background) drawBackground(g, s.background, x, y, c.width, c.height, c.alpha);
   if (c.kind === "view" && hooks.view) hooks.view(c, g, x, y - c.height, c.width, c.height);
+  const tagHook = c.tag ? hooks.tagged?.[c.tag] : undefined;
+  if (tagHook) tagHook(c, g, x, y - c.height, c.width, c.height);
   if ((c.kind === "label" || c.kind === "button") && s) drawLabel(c, s, g, x, y);
   for (const k of c.children) render(k, g, x, y, hooks);
 }

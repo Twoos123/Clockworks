@@ -214,6 +214,9 @@ export class World implements LogicHost {
     this.audio = opts.audio ?? null;
   }
 
+  /** The level's collision cells (for the minimap). */
+  get collisionMap() { return this.collision; }
+
   ctx(rarity = 0): DepthContext { return { depth: this.depth, rarity, difficulty: this.difficulty }; }
 
   // ---------------------------------------------------------------- setup
