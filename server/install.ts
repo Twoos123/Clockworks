@@ -7,6 +7,7 @@ import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, rea
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join, normalize, sep } from "node:path";
+import { readZipDirectory, readZipEntry, type ZipEntry } from "./zip";
 
 const GAME_DIR = "Spiral Knights";
 const isInstall = (dir: string) => existsSync(join(dir, "rsrc")) && existsSync(join(dir, "rsrc", "config"));
@@ -85,6 +86,44 @@ export function archiveDir(): string {
 }
 
 const SCENE = /^[0-9]+$/;
+/** A message bundle's name: "item", "item-names", "global_de". */
+const BUNDLE = /^[a-z0-9_-]+$/;
+const I18N = "rsrc/i18n/";
+
+/**
+ * The message bundles (rsrc/i18n/*.properties) inside the install's projectx-config.jar. The
+ * jar and its parsed directory are kept until the file changes (a game update).
+ */
+export class BundleJar {
+  private cached: { key: string; zip: Uint8Array; dir: Map<string, ZipEntry> } | null = null;
+  constructor(private readonly jar: () => string | null) {}
+
+  private open() {
+    const file = this.jar();
+    if (!file || !existsSync(file)) return null;
+    const st = statSync(file), key = `${file}|${st.size}|${st.mtimeMs}`;
+    if (this.cached?.key !== key) {
+      const zip = new Uint8Array(readFileSync(file));
+      this.cached = { key, zip, dir: readZipDirectory(zip) };
+    }
+    return this.cached;
+  }
+
+  /** Bundle names, locale variants included ("global", "global_de"). */
+  names(): string[] {
+    const c = this.open();
+    if (!c) return [];
+    return [...c.dir.keys()].filter(n => n.startsWith(I18N) && n.endsWith(".properties"))
+      .map(n => n.slice(I18N.length, -".properties".length)).filter(n => BUNDLE.test(n));
+  }
+
+  /** One bundle's .properties bytes, or null for a bad name or a missing entry. */
+  read(name: string): Uint8Array | null {
+    if (!BUNDLE.test(name)) return null;
+    const c = this.open(), e = c?.dir.get(I18N + name + ".properties");
+    return c && e ? readZipEntry(c.zip, e) : null;
+  }
+}
 
 /** Copies new or updated cached levels from the install into the archive; returns how many. */
 export function syncArchive(install: string | null, archive = archiveDir()): number {
@@ -121,6 +160,7 @@ export function installMiddleware(dir: () => string | null, archive = archiveDir
     }
     return out;
   };
+  const bundles = new BundleJar(() => { const root = dir(); return root ? join(root, "code", "projectx-config.jar") : null; });
   const send = (res: ServerResponse, file: string) => createReadStream(file).on("error", () => { res.statusCode = 404; res.end(); }).pipe(res);
   return (req: IncomingMessage, res: ServerResponse) => {
     const root = dir();
@@ -139,6 +179,21 @@ export function installMiddleware(dir: () => string | null, archive = archiveDir
       const jar = join(root, "code", "projectx-config.jar");
       if (!existsSync(jar)) { res.statusCode = 404; res.end(); return; }
       send(res, jar);
+      return;
+    }
+    // the game's text: message bundles read from the config jar ("/i18n/" lists them)
+    if (url === "/i18n/") {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(bundles.names()));
+      return;
+    }
+    if (url.startsWith("/i18n/")) {
+      const m = /^\/i18n\/([a-z0-9_-]+)\.properties$/.exec(url);
+      let body: Uint8Array | null = null;
+      try { body = m ? bundles.read(m[1]) : null; } catch { body = null; }
+      if (!body) { res.statusCode = 404; res.end(); return; }
+      res.setHeader("content-type", "text/plain; charset=iso-8859-1");
+      res.end(body);
       return;
     }
     // levels: the archive (every level ever cached), refreshed from the install on each listing

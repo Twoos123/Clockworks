@@ -1,15 +1,16 @@
 // Read-only access to the player's own Spiral Knights install. Nothing is uploaded or
 // copied off the machine: files are read in the page, on demand. Exposed: rsrc/ (game
 // data), scenes/ (scenes the server sent this player's client), and exactly one data file
-// from the code/ folder, the colour definitions inside projectx-config.jar. Nothing else in
-// code/ is listed or read, and no class files are ever opened.
+// from the code/ folder, projectx-config.jar, from which only the colour definitions and the
+// message bundles (rsrc/i18n, the game's text) are read. Nothing else in code/ is listed or
+// read, and no class files are ever opened.
 //
 // Sources, in order of preference:
 //  - a directory handle from showDirectoryPicker (Chromium), remembered in IndexedDB
 //  - a FileList from <input webkitdirectory> or a dropped folder (Firefox, Safari)
 //  - the local dev server's /__sk/ route (development only, never in a production build)
 
-import { readJarEntry } from "./java/jar";
+import { JarReader } from "./java/jar";
 
 export interface Vfs {
   /** Human-readable description of the source. */
@@ -26,11 +27,24 @@ export interface Vfs {
   readScene(name: string): Promise<Uint8Array>;
   /** The colour pository (Java-serialized), or null if unavailable. */
   colorDefs(): Promise<Uint8Array | null>;
+  /** Names of the message bundles in the config jar ("global", "item-names", "global_de"). */
+  messageBundles(): Promise<string[]>;
+  /** One message bundle's .properties bytes, or null. */
+  messageBundle(name: string): Promise<Uint8Array | null>;
 }
 
-/** The only file read from code/: a data archive, from which only COLOR_DEFS is extracted. */
+/** The only file read from code/: a data archive, from which only COLOR_DEFS and I18N are read. */
 export const CONFIG_JAR = "code/projectx-config.jar";
 export const COLOR_DEFS = "rsrc/config/media/colordefs.dat";
+export const I18N = "rsrc/i18n/";
+const BUNDLE_NAME = /^[a-z0-9_-]+$/;
+
+/** The message bundles of an opened config jar. */
+const jarBundles = (jar: JarReader | null) => (jar?.names() ?? [])
+  .filter(n => n.startsWith(I18N) && n.endsWith(".properties"))
+  .map(n => n.slice(I18N.length, -".properties".length)).filter(n => BUNDLE_NAME.test(n));
+const jarBundle = async (jar: JarReader | null, name: string) =>
+  jar && BUNDLE_NAME.test(name) ? jar.read(I18N + name + ".properties") : null;
 
 const SCENE_NAME = /^[0-9]+$/;
 
@@ -81,7 +95,11 @@ export class FileListVfs implements Vfs {
   }
 
   async scenes() { return [...this.sceneFiles.keys()]; }
-  async colorDefs() { return this.configJar ? readJarEntry(this.configJar, COLOR_DEFS) : null; }
+  private jar_?: Promise<JarReader | null>;
+  private jar() { return this.jar_ ??= this.configJar ? JarReader.open(this.configJar).catch(() => null) : Promise.resolve(null); }
+  async colorDefs() { return (await this.jar())?.read(COLOR_DEFS) ?? null; }
+  async messageBundles() { return jarBundles(await this.jar()); }
+  async messageBundle(name: string) { return jarBundle(await this.jar(), name); }
   async readScene(name: string) {
     const f = this.sceneFiles.get(name);
     if (!f) throw new VfsError(`Missing scene: ${name}`);
@@ -192,14 +210,22 @@ export class HandleVfs implements Vfs {
     return new Uint8Array(await f.arrayBuffer());
   }
 
-  async colorDefs() {
-    if (this.rsrc === this.root) return null;
-    try {
-      const [dir, file] = CONFIG_JAR.split("/");
-      const jar = await (await (await this.root.getDirectoryHandle(dir)).getFileHandle(file)).getFile();
-      return await readJarEntry(jar, COLOR_DEFS);
-    } catch { return null; }
+  private jar_?: Promise<JarReader | null>;
+  private jar() {
+    return this.jar_ ??= (async () => {
+      if (this.rsrc === this.root) return null;
+      try {
+        const [dir, file] = CONFIG_JAR.split("/");
+        return await JarReader.open(await (await (await this.root.getDirectoryHandle(dir)).getFileHandle(file)).getFile());
+      } catch { return null; }
+    })();
   }
+
+  async colorDefs() {
+    try { return (await (await this.jar())?.read(COLOR_DEFS)) ?? null; } catch { return null; }
+  }
+  async messageBundles() { return jarBundles(await this.jar()); }
+  async messageBundle(name: string) { return jarBundle(await this.jar(), name); }
 }
 
 /** Development-only source served by the Vite plugin in vite.config.ts. */
@@ -227,7 +253,16 @@ export class DevServerVfs implements Vfs {
   }
   async colorDefs() {
     const r = await fetch("/__sk/configjar");
-    return r.ok ? readJarEntry(await r.blob(), COLOR_DEFS) : null;
+    return r.ok ? (await JarReader.open(await r.blob())).read(COLOR_DEFS) : null;
+  }
+  async messageBundles(): Promise<string[]> {
+    const r = await fetch("/__sk/i18n/");
+    return r.ok ? r.json() : [];
+  }
+  async messageBundle(name: string) {
+    if (!BUNDLE_NAME.test(name)) return null;
+    const r = await fetch("/__sk/i18n/" + name + ".properties");
+    return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
   }
   static async available(): Promise<boolean> {
     try { return (await fetch("/__sk/ping")).ok; } catch { return false; }
