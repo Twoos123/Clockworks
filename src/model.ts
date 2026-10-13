@@ -156,8 +156,12 @@ export class ModelLoader {
    * derived models supply), the arguments are applied through the model's parameters first.
    * Results are cached per path and argument set, so identical references share GPU data.
    */
-  load(path: string, ref?: any, depth = 0): Promise<LoadedModel> {
+  load(path: string, ref?: any, depth = 0, chain: string[] = []): Promise<LoadedModel> {
     const key = hasArguments(ref) ? path + "|" + argKey(ref) : path;
+    // a model that (through attachments or particles) contains itself would otherwise wait
+    // on its own pending load forever
+    if (chain.includes(key)) return Promise.reject(new Error(`Model cycle at ${path}`));
+    const inner = [...chain, key];
     let p = this.models.get(key);
     if (!p) {
       p = (async () => {
@@ -166,7 +170,7 @@ export class ModelLoader {
           throw new Error(`${path} is a ${short(String(root?.$class ?? typeof root))}, not a model`);
         }
         root = applyArguments(root, ref);
-        return this.fromImplementation(path, root.implementation, depth, localConfigs(root));
+        return this.fromImplementation(path, root.implementation, depth, localConfigs(root), inner);
       })();
       this.models.set(key, p);
     }
@@ -174,15 +178,16 @@ export class ModelLoader {
   }
 
   /** Loads the model a ConfigReference names, or null if it is not a model file. */
-  async loadRef(ref: any, depth = 0): Promise<LoadedModel | null> {
+  async loadRef(ref: any, depth = 0, chain: string[] = []): Promise<LoadedModel | null> {
     const name: string | undefined = ref?.name;
     if (!name || !name.endsWith(".dat") || depth > 8) return null;
     // editor-only helpers (spawn markers, vertices, gizmos) are never drawn in the game
     if (name.startsWith("editor/")) return null;
-    try { return await this.load(name, ref, depth + 1); } catch { return null; }
+    try { return await this.load(name, ref, depth + 1, chain); } catch { return null; }
   }
 
-  private async fromImplementation(path: string, impl: any, depth: number, local: LocalConfigs): Promise<LoadedModel> {
+  private async fromImplementation(path: string, impl: any, depth: number, local: LocalConfigs,
+    chain: string[]): Promise<LoadedModel> {
     const lib = await this.configs();
     const dir = path.substring(0, path.lastIndexOf("/") + 1);
     const model: LoadedModel = {
@@ -193,7 +198,7 @@ export class ModelLoader {
     // Derived models point at another model; their own arguments were already pushed into
     // impl.model's argument map by the derived config's parameters
     if (impl.$class.endsWith("ModelConfig$Derived")) {
-      const base = await this.loadRef(impl.model, depth);
+      const base = await this.loadRef(impl.model, depth, chain);
       if (base) return { ...base, path, kind: `Derived → ${base.kind}` };
       model.skipped.push(`Derived reference ${impl.model?.name ?? "?"} (config-bundle reference)`);
       return model;
@@ -202,7 +207,7 @@ export class ModelLoader {
     // Compound models place several component models
     if (impl.$class.endsWith("CompoundConfig")) {
       for (const c of impl.models ?? []) {
-        const m = await this.loadRef(c.model, depth);
+        const m = await this.loadRef(c.model, depth, chain);
         if (m) model.attachments.push({ node: c.node ?? "", transform: readTransform(c.transform), model: m });
       }
       return model;
@@ -211,7 +216,7 @@ export class ModelLoader {
     // Schemed models pick a variant per render scheme (quality level); show the first one
     if (impl.$class.endsWith("ModelConfig$Schemed")) {
       for (const sm of impl.models ?? []) {
-        const m = await this.loadRef(sm.model, depth);
+        const m = await this.loadRef(sm.model, depth, chain);
         if (m) return { ...m, path, kind: `Schemed → ${m.kind}` };
       }
       model.skipped.push("Schemed (no file-backed variant)");
@@ -220,13 +225,13 @@ export class ModelLoader {
 
     // Conditional models choose a case from runtime expressions; show the default case
     if (impl.$class.endsWith("ConditionalConfig")) {
-      const m = await this.loadRef(impl.defaultModel, depth);
+      const m = await this.loadRef(impl.defaultModel, depth, chain);
       if (m) {
         model.attachments.push({ node: "", transform: readTransform(impl.defaultTransform), model: m });
         return model;
       }
       for (const c of impl.cases ?? []) {
-        const cm = await this.loadRef(c.model, depth);
+        const cm = await this.loadRef(c.model, depth, chain);
         if (cm) { model.attachments.push({ node: "", transform: readTransform(c.transform), model: cm }); return model; }
       }
       model.skipped.push("Conditional (no file-backed case)");
@@ -236,7 +241,7 @@ export class ModelLoader {
     if (impl.$class.endsWith("ParticleSystemConfig")) {
       model.particles = readParticleLayers(impl, ref => lib.resolve(ref, null, local),
         impl.$class.endsWith("MetaParticleSystemConfig"));
-      for (const layer of model.particles) if (layer.modelRef) layer.model = await this.loadRef(layer.modelRef, depth);
+      for (const layer of model.particles) if (layer.modelRef) layer.model = await this.loadRef(layer.modelRef, depth, chain);
       if (model.particles.length === 0) model.skipped.push(model.kind);
       return model;
     }
@@ -269,7 +274,7 @@ export class ModelLoader {
     model.bounds ??= boundsOf(impl.skin?.bounds) ?? boundsOf(impl.meshes?.bounds);
 
     for (const a of impl.attachments ?? []) {
-      const m = await this.loadRef(a.model, depth);
+      const m = await this.loadRef(a.model, depth, chain);
       if (m) model.attachments.push({ node: a.node ?? "", transform: readTransform(a.transform ?? IDENTITY_TRANSFORM), model: m });
     }
     for (const am of impl.animationMappings ?? []) {
