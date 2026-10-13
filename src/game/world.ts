@@ -1,5 +1,6 @@
-// The game world for play mode: a knight with a loadout of weapons, monsters spawned from the
-// scene's spawn markers when the knight walks into their trigger areas, blocks and
+// The game world for play mode: a knight with a loadout of weapons, the level's own logic
+// (Tudey handlers on scene entries and actors: spawners, triggers, doors, switches, waves),
+// monsters, props (doors, switches, blocks, keys, pickups, the elevator), and
 // breakables from startup markers, melee and projectile combat with the attack data from
 // the install, depth-scaled damage against defence, and transient effects.
 
@@ -12,6 +13,9 @@ import type { CollisionMap } from "./collision";
 import { dealt, mainType, TYPE_COLORS } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
+import { Entity, Logic, type LogicHost } from "./logic";
+import { Prop, propKind } from "./props";
+import { intersects } from "./shapes";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -45,6 +49,8 @@ export interface KnightInput {
   aim: [number, number] | null;
   /** A weapon slot to switch to this frame, or null. */
   weaponSlot?: number | null;
+  /** The action key went down this frame (pick up, drop, use, talk). */
+  interact?: boolean;
 }
 
 export interface Floater { x: number; y: number; z: number; text: string; color: string; age: number }
@@ -120,6 +126,8 @@ export class Knight extends Actor {
 
 export class Monster extends Actor {
   readonly team = "monster";
+  /** The monster's logic actor (tags such as its wave, handlers). */
+  entity: Entity | null = null;
   radius: number;
   state: "spawning" | "idle" | "chase" | "attack" | "dying" = "spawning";
   stateTime = 0;
@@ -129,14 +137,6 @@ export class Monster extends Actor {
     super(instance, def.scale);
     this.radius = def.radius;
     this.health = this.maxHealth = health;
-  }
-}
-
-class Block {
-  constructor(readonly id: number, readonly instance: ModelInstance, readonly x: number, readonly y: number,
-    readonly z: number, readonly heading: number, public health: number, readonly breakable: boolean, readonly deathFx?: any) {}
-  matrix(): Mat4 {
-    return compose([this.x, this.y, this.z], [0, 0, Math.sin(this.heading / 2), Math.cos(this.heading / 2)], 1);
   }
 }
 
@@ -169,19 +169,22 @@ export interface WorldOptions {
   audio?: AudioSystem | null;
 }
 
-export class World {
+export class World implements LogicHost {
   knight!: Knight;
   readonly monsters: Monster[] = [];
-  readonly blocks: Block[] = [];
+  readonly props: Prop[] = [];
+  logic!: Logic;
+  knightEntity!: Entity;
+  /** Called when the knight takes the elevator at the end of the level. */
+  onNextFloor: (() => void) | null = null;
+  /** True once the level's exit elevator has been used. */
+  finished = false;
   readonly effects: Effect[] = [];
   readonly projectiles: Projectile[] = [];
   readonly floaters: Floater[] = [];
   readonly data: GameData;
   private readonly clips = new Map<string, Promise<AnimationClip | null>>();
   private readonly ready = new Map<string, AnimationClip | null>();
-  private readonly firedTriggers = new Set<number>();
-  private readonly activatedTags = new Set<string>();
-  private readonly spawned = new Set<number>();
   private readonly projectileDefs = new Map<string, Promise<{ def: ProjectileDef; model: LoadedModel | null } | null>>();
   private nextId = 1;
   killCount = 0;
@@ -261,7 +264,285 @@ export class World {
       ...weapons.map(w => this.preloadAttacks([...w.attacks, w.chargedAttack, w.incompleteChargedAttack, w.cooldownAttack])),
     ]);
     this.play(knight, "character/pc/idle.dat");
-    await this.spawnStartupActors();
+    await this.startLogic();
+  }
+
+  /** Builds the level logic from the scene's entries and starts it (EntryLogic startup). */
+  private async startLogic() {
+    await this.data.preload("config/actor.dat", "config/spawn_table.dat", "config/parameterized_handler.dat");
+    this.logic = new Logic(this, {
+      handlerRef: ref => this.data.resolveSync("config/parameterized_handler.dat", ref, "handler")?.handlers ?? [],
+    });
+    const k = this.knight;
+    const ke = new Entity(true, "knight");
+    ke.collisionFlags = 4;
+    ke.mobile = true;
+    ke.shapeConfig = { $class: "ShapeConfig$Circle", radius: KNIGHT_RADIUS };
+    ke.game = { isPawn: true };
+    ke.x = k.x; ke.y = k.y;
+    this.knightEntity = ke;
+    this.logic.startActor(ke);
+    const props: [Entity, any][] = [];
+    for (const le of this.scene.logic) {
+      const e = new Entity(false, le.name);
+      e.x = le.x; e.y = le.y; e.rotation = le.rotation;
+      e.fixedShape = le.shape;
+      e.tags = le.tags;
+      this.logic.addEntry(e, le.handlers);
+      if (le.actor) props.push([e, le.actor]);
+    }
+    this.logic.startEntries();
+    // stateful and elevator props spawn their actors after their own handlers start
+    for (const [e, actor] of props) this.logic.spawn(actor, e.x, e.y, e.rotation, e, e);
+  }
+
+  // ---------------------------------------------------------------- logic host
+
+  /** LogicHost: creates the game object for an actor config (monster, prop, projectile). */
+  createActor(ref: any, x: number, y: number, rotation: number): Entity | null {
+    const cfg = this.data.resolveSync("config/actor.dat", ref, "actor");
+    if (!cfg) return null;
+    const e = new Entity(true, ref?.name ?? "");
+    e.x = x; e.y = y; e.rotation = rotation;
+    e.tags = tagList(cfg.tags);
+    e.handlerConfigs = cfg.handlers ?? [];
+    e.shapeConfig = cfg.shape ?? null;
+    e.collisionFlags = cfg.collisionFlags ?? 1;
+    const k = String(cfg.$class ?? "").split("$").pop();
+    // inert monsters (corpses such as a dead gremlin: no collision, effectively unkillable)
+    // are scenery; they do not hold their wave open
+    if (k === "Monster" && cfg.collisionFlags === 0 && (cfg.health ?? 0) >= 99999) {
+      e.tags = [];
+      e.handlerConfigs = [];
+      this.createProp(e, { ...cfg, $class: "generic", model: cfg.sprite?.model });
+      return e;
+    }
+    if (k === "Monster" || k === "ZMonster" || k === "Agent") {
+      e.mobile = true;
+      void this.spawnMonster(ref, e);
+    } else if (k === "Bullet" || k === "Bomb") {
+      void this.spawnProjectileAt(ref, x, y, rotation, "monster", this.ctx(0));
+    } else {
+      this.createProp(e, cfg);
+    }
+    return e;
+  }
+
+  actorDestroyed(e: Entity) {
+    const g = e.game;
+    if (g instanceof Prop) this.removeProp(g, true);
+    else if (g instanceof Monster && g.state !== "dying") { g.state = "dying"; g.stateTime = 0; }
+  }
+
+  fireEffect(_ref: any, _x: number, _y: number, _rotation: number) {
+    // EffectConfigs drive client visuals and sounds; not modelled yet
+  }
+
+  /** Spiral Knights' own actions (DungeonActionConfig and friends). */
+  gameAction(cfg: any, source: Entity, activator: Entity | null, logic: Logic): boolean | undefined {
+    const k = String(cfg.$class ?? "").split("$").pop();
+    if (cfg.$condition) return true;
+    switch (k) {
+      case "ActivateMonster": case "TableSpawn": case "TableSpawnPerMember": {
+        const table = cfg.spawnTable ?? cfg.table;
+        const ref = table ? this.data.spawnActorSync(table, this.tier()) : null;
+        if (!ref) return false;
+        const at = cfg.location ? logic.resolveTarget(cfg.location, source, activator) : [source];
+        for (const t of at) logic.spawn(ref, t.x, t.y, t.rotation, source, activator);
+        return true;
+      }
+      case "SpawnPrespawned": case "TaggedSpawnActor":
+        if (cfg.actor) logic.spawn(cfg.actor, source.x, source.y, source.rotation, source, activator);
+        return true;
+      case "NextFloor":
+        this.finishLevel();
+        return true;
+      case "Heal": case "DepthScaleHeal": case "DepthHeal": {
+        const amount = k === "Heal" ? (cfg.current ?? 20) : this.data.depth.evaluate(cfg.depthScale, this.ctx(0)) || 20;
+        for (const t of cfg.target ? logic.resolveTarget(cfg.target, source, activator) : [activator]) {
+          if (t === this.knightEntity) this.healKnight(amount);
+        }
+        return true;
+      }
+      case "DamageTarget": case "DamageTargetFromPoint": case "DamageRegion": case "DamageRegionFromPoint": {
+        const amounts = this.amounts(cfg.damage, this.ctx(0));
+        const targets = cfg.target ? logic.resolveTarget(cfg.target, source, activator) : activator ? [activator] : [];
+        for (const t of targets) {
+          if (t === this.knightEntity) this.damageKnight(amounts, 0.5, source.x, source.y);
+          else if (t.game instanceof Monster) this.damageMonster(t.game, amounts, 0.5, source.x, source.y);
+          else if (t.game instanceof Prop) this.damageProp(t.game, dealt(amounts, null));
+        }
+        return true;
+      }
+      default:
+        return undefined;
+    }
+  }
+
+  /** Spawn tables have tiers by depth (1 to 8, 9 to 17, 18 and below). */
+  private tier() { return this.depth >= 18 ? 3 : this.depth >= 9 ? 2 : 1; }
+
+  private healKnight(amount: number) {
+    const k = this.knight;
+    if (k.dead) return;
+    k.health = Math.min(k.maxHealth, k.health + amount);
+    this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: `+${Math.round(amount)}`, color: "#7bd88f", age: 0 });
+  }
+
+  private finishLevel() {
+    if (this.finished) return;
+    this.finished = true;
+    this.onNextFloor?.();
+  }
+
+  // ---------------------------------------------------------------- props
+
+  private createProp(e: Entity, cfg: any) {
+    const kind = propKind(cfg);
+    const p = new Prop(kind, e, cfg);
+    e.game = p;
+    p.z = this.collision.groundZ(e.x, e.y);
+    if (kind === "door") p.open = !!cfg.open;
+    if (kind === "block") {
+      p.health = p.maxHealth = cfg.health ?? 0;
+      p.breakable = p.health > 0 && !/Unbreakable/i.test(e.name);
+    }
+    (e.game as any).onSignal = (name: string) => this.propSignal(p, name);
+    this.props.push(p);
+    this.updatePropCollision(p);
+    const model = cfg.sprite?.model ?? cfg.model;
+    if (model) void this.loader.loadRef(model).then(async m => {
+      if (!m || !this.props.includes(p)) return;
+      p.instance = await this.renderer.instantiate(m);
+      this.showPropState(p);
+    });
+  }
+
+  /** Doors and blocks block movement while closed or standing. */
+  private updatePropCollision(p: Prop) {
+    const solid = (p.kind === "door" && !p.open) || (p.kind === "block" && (p.cfg.collisionFlags ?? 1) !== 0 && String(p.cfg.$class).split("$").pop() !== "GhostlinkBlock")
+      || (p.kind === "generic" && ((p.cfg.collisionFlags ?? 1) & 1) !== 0 && !!p.cfg.shape);
+    if (solid && p.collisionId === null) {
+      const sh = p.cfg.shape;
+      const w = (sh?.width ?? (sh?.radius ? sh.radius * 2 : 1)) / 2, h = (sh?.height ?? (sh?.radius ? sh.radius * 2 : 1)) / 2;
+      const c = Math.abs(Math.cos(p.entity.rotation)), s2 = Math.abs(Math.sin(p.entity.rotation));
+      p.collisionId = this.nextId++;
+      this.collision.addBox(p.collisionId, p.x, p.y, w * c + h * s2, w * s2 + h * c, 1);
+    } else if (!solid && p.collisionId !== null) {
+      this.collision.remove(p.collisionId);
+      p.collisionId = null;
+    }
+  }
+
+  /** Plays the prop's state animation (door open or closed, switch up or down). */
+  private showPropState(p: Prop, changed = false) {
+    if (!p.instance) return;
+    const st = p.states;
+    let anim: any = null, loop = true;
+    if (p.kind === "door") {
+      anim = changed ? st[p.open ? 2 : 0] : st[p.open ? 3 : 1];
+      loop = !changed;
+    } else if (p.kind === "switch") anim = st[p.pressed ? 1 : 0];
+    const clip = anim ? this.clip(anim) : null;
+    if (clip) p.instance.play(clip, { loop, blend: 0.05 });
+    else if (anim) void this.preload(anim).then(() => this.showPropState(p, changed));
+  }
+
+  /** Doors open and close on signals; anything else listens through its handlers only. */
+  private propSignal(p: Prop, name: string) {
+    if (p.kind !== "door") return;
+    const open = name === "open" ? true : name === "close" ? false : name === "toggle" ? !p.open : p.open;
+    if (open === p.open) return;
+    p.open = open;
+    this.updatePropCollision(p);
+    this.showPropState(p, true);
+  }
+
+  private removeProp(p: Prop, effect: boolean) {
+    const i = this.props.indexOf(p);
+    if (i < 0) return;
+    this.props.splice(i, 1);
+    if (p.collisionId !== null) { this.collision.remove(p.collisionId); p.collisionId = null; }
+    const fx = p.cfg.sprite?.destructionTransient;
+    if (effect && fx?.name) this.spawnEffect(fx, p.matrix(), 2);
+  }
+
+  private damageProp(p: Prop, amount: number) {
+    if (!p.breakable || p.entity.destroyed) return;
+    this.logic.damaged(p.entity, this.knightEntity);
+    p.health -= amount;
+    if (p.health <= 0) this.logic.destroy(p.entity, this.knightEntity);
+  }
+
+  /** Per-tick prop behaviour: switches pressed underfoot, pickups, carried keys, the elevator. */
+  private updateProps(dt: number, interact: boolean) {
+    const k = this.knight, ke = this.knightEntity;
+    const kshape = { k: "circle" as const, x: k.x, y: k.y, r: KNIGHT_RADIUS };
+    const touching = (p: Prop) => { const s = p.entity.shape(); return !!s && intersects(s, kshape); };
+    let interacted = false;
+    for (const p of [...this.props]) {
+      if (p.instance) p.instance.time += dt;
+      switch (p.kind) {
+        case "switch": {
+          const on = touching(p) || this.monsters.some(m => m.state !== "dying" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + 0.4);
+          const oneTime = /One-Time/i.test(p.entity.name);
+          if (on !== p.pressed && (!oneTime || on)) {
+            p.pressed = on;
+            this.showPropState(p);
+            // a switch runs the action for the state it enters (Switch stateActions)
+            const act = p.cfg.stateActions?.[on ? 1 : 0];
+            if (act) this.logic.execute(act, p.entity, ke);
+          }
+          break;
+        }
+        case "pickup":
+          if (!k.dead && touching(p)) {
+            const item = String(p.cfg.pickupAction?.item?.name ?? "");
+            if (/Health/i.test(item)) this.healKnight(k.maxHealth * 0.5);
+            const fx = p.cfg.sprite?.pickupTransient;
+            if (fx?.name) this.spawnEffect(fx, p.matrix(), 2);
+            this.logic.destroy(p.entity, ke);
+          }
+          break;
+        case "lift":
+          if (p.carried) {
+            p.entity.x = k.x; p.entity.y = k.y; p.z = k.z + 1.9;
+          } else if (interact && !interacted && !this.props.some(o => o.carried) && Math.hypot(p.x - k.x, p.y - k.y) < 1.2) {
+            p.carried = true;
+            interacted = true;
+          }
+          break;
+        case "elevator":
+          if (!k.dead && touching(p)) {
+            p.standTime += dt;
+            if (p.standTime > 1.5 && !this.finished) this.finishLevel();
+          } else p.standTime = 0;
+          break;
+      }
+    }
+    if (!interact || interacted) return;
+    // the action key: use a door with a carried key, drop a carried object, or interact
+    const carried = this.props.find(p => p.carried);
+    const near = this.props.filter(p => p !== carried && Math.hypot(p.x - (k.x + Math.cos(k.heading) * 0.7), p.y - (k.y + Math.sin(k.heading) * 0.7)) < 1.6)
+      .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y));
+    const door = near.find(p => p.kind === "door" && !p.open);
+    if (door && carried && carried.cfg.actionableSignal && carried.cfg.actionableSignal === door.cfg.actionableSignal) {
+      // a carried key with the door's signal unlocks it and is used up
+      this.logic.signal(door.entity, carried.entity, door.cfg.actionableSignal);
+      this.propSignal(door, "open");
+      carried.carried = false;
+      this.logic.destroy(carried.entity, ke);
+      return;
+    }
+    if (carried) {
+      carried.carried = false;
+      carried.entity.x = k.x + Math.cos(k.heading) * 0.8;
+      carried.entity.y = k.y + Math.sin(k.heading) * 0.8;
+      carried.z = this.collision.groundZ(carried.x, carried.y);
+      return;
+    }
+    const target = near.find(p => p.entity.handlers.some(h => h.kind === "Interaction"));
+    if (target) this.logic.interact(target.entity, ke);
   }
 
   /** Depth-scaled defence and shield health from the knight's gear. */
@@ -276,26 +557,6 @@ export class World {
       k.shieldHealth = Math.min(k.shieldHealth, k.shieldMax);
       if (k.shieldHealth <= 1) k.shieldHealth = k.shieldMax;
       k.shieldDefense = k.shield.defense ? this.data.depth.defense(k.shield.defense, sctx) : null;
-    }
-  }
-
-  private async spawnStartupActors() {
-    for (const s of this.scene.startupActors) {
-      const def = await this.data.resolve("config/actor.dat", s.actor, "actor").catch(() => null);
-      const modelRef = def?.sprite?.model;
-      if (!modelRef) continue;
-      // doors need trigger logic; keep them open and out of the way for now
-      if (String(s.actor.name).startsWith("Door/")) continue;
-      const model = await this.loader.loadRef(modelRef);
-      if (!model) continue;
-      const id = this.nextId++;
-      const z = this.collision.groundZ(s.x, s.y);
-      const breakable = (def.health ?? 0) > 0 && !/Unbreakable/i.test(s.actor.name);
-      const block = new Block(id, await this.renderer.instantiate(model), s.x, s.y, z, s.heading, def.health ?? 100, breakable,
-        def.sprite?.destructionTransient);
-      this.blocks.push(block);
-      const w = (s.shape?.width ?? 1) / 2, h = (s.shape?.height ?? s.shape?.width ?? 1) / 2;
-      if ((def.collisionFlags ?? 1) !== 0) this.collision.addBox(id, s.x, s.y, w, h, 1);
     }
   }
 
@@ -328,8 +589,14 @@ export class World {
 
   update(dt: number, input: KnightInput) {
     this.updateKnight(dt, input);
-    this.checkTriggers();
     for (const m of this.monsters) this.updateMonster(m, dt);
+    this.updateProps(dt, !!input.interact && !this.knight.dead);
+    // the logic sees actors where the game has moved them
+    const ke = this.knightEntity;
+    ke.x = this.knight.x; ke.y = this.knight.y; ke.rotation = this.knight.heading;
+    ke.collisionFlags = this.knight.dead ? 0 : 4;
+    for (const m of this.monsters) if (m.entity) { m.entity.x = m.x; m.entity.y = m.y; m.entity.rotation = m.heading; }
+    this.logic.tick(dt * 1000);
     this.separate();
     this.updateProjectiles(dt);
     this.runEvents();
@@ -660,8 +927,8 @@ export class World {
         if (m.state === "dying" || m.state === "spawning" || !hits(m.x, m.y, m.radius)) continue;
         this.damageMonster(m, amounts, def.knockback, a.x, a.y);
       }
-      for (const b of [...this.blocks]) {
-        if (b.breakable && hits(b.x, b.y, 0.45)) this.damageBlock(b, dealt(amounts, null));
+      for (const p of [...this.props]) {
+        if (p.breakable && hits(p.x, p.y, 0.45)) this.damageProp(p, dealt(amounts, null));
       }
     } else if (!this.knight.dead && hits(this.knight.x, this.knight.y, this.knight.radius)) {
       this.damageKnight(amounts, def.knockback, a.x, a.y);
@@ -702,6 +969,15 @@ export class World {
     }
   }
 
+  /** A bullet or bomb a logic action spawns at a point (monster bullets, traps). */
+  private async spawnProjectileAt(ref: any, x: number, y: number, heading: number, team: Team, ctx: DepthContext) {
+    const loaded = await this.projectileDef(ref);
+    if (!loaded) return;
+    const instance = loaded.model ? await this.renderer.instantiate(loaded.model) : null;
+    const z = this.collision.groundZ(x, y) + loaded.def.height;
+    this.projectiles.push(new Projectile(loaded.def, instance, team, x, y, z, heading, ctx));
+  }
+
   private updateProjectiles(dt: number) {
     for (const p of this.projectiles) {
       if (p.done) continue;
@@ -732,7 +1008,7 @@ export class World {
     const r = p.def.radius;
     if (p.team === "knight") {
       if (this.monsters.some(m => m.state !== "dying" && m.state !== "spawning" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + r)) return true;
-      return this.blocks.some(b => b.breakable && Math.hypot(b.x - p.x, b.y - p.y) < 0.5 + r);
+      return this.props.some(b => b.breakable && Math.hypot(b.x - p.x, b.y - p.y) < 0.5 + r);
     }
     const k = this.knight;
     return !k.dead && Math.hypot(k.x - p.x, k.y - p.y) < k.radius + r;
@@ -749,7 +1025,7 @@ export class World {
         if (m.state === "dying" || m.state === "spawning" || Math.hypot(m.x - p.x, m.y - p.y) > r + m.radius) continue;
         this.damageMonster(m, amounts, d.knockback * 0.25, p.x - Math.cos(p.heading) * 0.01, p.y - Math.sin(p.heading) * 0.01);
       }
-      for (const b of [...this.blocks]) if (b.breakable && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.5) this.damageBlock(b, dealt(amounts, null));
+      for (const b of [...this.props]) if (b.breakable && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.5) this.damageProp(b, dealt(amounts, null));
     } else {
       const k = this.knight;
       if (!k.dead && Math.hypot(k.x - p.x, k.y - p.y) <= r + k.radius) this.damageKnight(amounts, d.knockback * 0.25, p.x, p.y);
@@ -776,19 +1052,11 @@ export class World {
       m.stateTime = 0;
       m.attack = null;
       this.killCount++;
+      if (m.entity) this.logic.destroy(m.entity, this.knightEntity);
       if (m.def.deathFx) this.spawnEffect(m.def.deathFx, compose([m.x, m.y, m.z], [0, 0, 0, 1], m.scale), 2);
     } else if (m.state === "idle") {
       m.state = "chase";
     }
-  }
-
-  private damageBlock(b: Block, amount: number) {
-    b.health -= amount;
-    if (b.health > 0) return;
-    this.collision.remove(b.id);
-    this.blocks.splice(this.blocks.indexOf(b), 1);
-    const fx = b.deathFx?.name ? b.deathFx : undefined;
-    if (fx) this.spawnEffect(fx, b.matrix(), 2);
   }
 
   private damageKnight(amounts: Amounts, knockback: number, fx: number, fy: number) {
@@ -840,48 +1108,32 @@ export class World {
 
   // ---------------------------------------------------------------- monsters
 
-  private checkTriggers() {
-    const k = this.knight;
-    this.scene.triggers.forEach((t, i) => {
-      if (this.firedTriggers.has(i) || !pointInPoly(k.x, k.y, t.poly)) return;
-      this.firedTriggers.add(i);
-      for (const tag of t.tags) this.activate(tag);
-    });
-    // spawn points no trigger refers to wake when the knight comes near
-    this.scene.spawns.forEach((s, i) => {
-      if (this.spawned.has(i)) return;
-      const tagged = this.scene.triggers.some(t => t.tags.includes(s.tag));
-      if (!tagged && Math.hypot(s.x - k.x, s.y - k.y) < AGGRO_RANGE) { this.spawned.add(i); this.spawnAt(s.table, s.x, s.y, s.heading); }
-    });
+  /** Spawns a monster from a spawn table (or an actor reference) at a point, through the logic. */
+  spawnAt(table: any, x: number, y: number, heading = 0) {
+    const ref = table?.name?.startsWith("Character/") ? table : this.data.spawnActorSync(table, this.tier());
+    if (ref) this.logic.spawn(ref, x, y, heading, this.knightEntity, this.knightEntity);
   }
 
-  private activate(tag: string) {
-    if (this.activatedTags.has(tag)) return;
-    this.activatedTags.add(tag);
-    this.scene.spawns.forEach((s, i) => {
-      if (s.tag !== tag || this.spawned.has(i)) return;
-      this.spawned.add(i);
-      this.spawnAt(s.table, s.x, s.y, s.heading);
-    });
-  }
-
-  /** Spawns a monster from a spawn table (or an actor reference) at a point. */
-  async spawnAt(table: any, x: number, y: number, heading = 0) {
-    const actorRef = table?.name?.startsWith("Character/") ? table : await this.data.spawnActor(table);
-    if (!actorRef) return;
-    const def = await this.data.monster(actorRef);
-    if (!def) return;
+  /** Loads a monster's definition and model for a logic actor that has been spawned. */
+  private async spawnMonster(ref: any, e: Entity) {
+    const def = await this.data.monster(ref);
+    if (!def || e.destroyed) return;
     const model = await this.loader.loadRef(def.model);
-    if (!model) return;
+    if (!model || e.destroyed) return;
     await Promise.all([this.preload(def.idle, def.move, def.activation), this.preloadAttacks(def.attacks)]);
+    if (e.destroyed) return;
     // health is a percentage of the depth-scaled health table
     const ctx = this.ctx(0);
     const base = def.healthScale ? this.data.depth.evaluate(def.healthScale, ctx) : 100;
     const m = new Monster(await this.renderer.instantiate(model), def, Math.max(1, Math.round((def.health / 100) * (base || 100))));
     m.defense = def.defense ? this.data.depth.defense(def.defense, ctx) : null;
-    m.x = m.homeX = x; m.y = m.homeY = y;
-    m.z = this.collision.groundZ(x, y);
-    m.heading = heading;
+    // the spawn point may sit in a wall or pit; move to the nearest free spot
+    const spot = this.collision.collides(e.x, e.y, def.radius, MONSTER_MASK) ? this.collision.findSpawn(e.x, e.y, def.radius, MONSTER_MASK) : null;
+    m.x = m.homeX = spot?.[0] ?? e.x; m.y = m.homeY = spot?.[1] ?? e.y;
+    m.z = this.collision.groundZ(m.x, m.y);
+    m.heading = e.rotation;
+    m.entity = e;
+    e.game = m;
     this.play(m, def.activation ?? def.idle, { loop: !def.activation });
     this.monsters.push(m);
   }
@@ -1043,7 +1295,7 @@ export class World {
       }
       out.push({ instance: m.instance, matrix });
     }
-    for (const b of this.blocks) out.push({ instance: b.instance, matrix: b.matrix() });
+    for (const p of this.props) if (p.instance) out.push({ instance: p.instance, matrix: p.matrix() });
     for (const p of this.projectiles) if (p.instance && !p.done) out.push({ instance: p.instance, matrix: p.matrix() });
     for (const e of this.effects) if (e.instance) out.push({ instance: e.instance, matrix: e.follow ? e.follow.matrix() : e.matrix });
     return out;
@@ -1053,18 +1305,16 @@ export class World {
   get liveMonsters() { return this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning"); }
 }
 
+/** TagConfig: its tags plus the chain of derived tag configs. */
+function tagList(t: any, depth = 0): string[] {
+  if (!t || depth > 8) return [];
+  return [...((t.tags ?? []) as any[]).filter((x): x is string => typeof x === "string" && x !== ""), ...tagList(t.derived, depth + 1)];
+}
+
 /** Cache key for an animation path or reference (arguments included). */
 function clipKey(p: string | any): string {
   return typeof p === "string" ? p : p.name + JSON.stringify(p.arguments?.entries ?? [], (k, v) => (k === "$outer" ? undefined : v));
 }
 
-function pointInPoly(x: number, y: number, poly: [number, number][]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, yi] = poly[i], [xj, yj] = poly[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
 
 export type { LoadedModel, Vec3 };

@@ -106,6 +106,7 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 .defeated { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(40, 0, 0, 0.45); }
 .defeated-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 20px 28px; text-align: center; }
 .defeated-card h2 { margin: 0 0 14px; font-size: 18px; }
+.cleared { background: rgba(0, 30, 50, 0.45); }
 .hint-bar { bottom: auto; top: 56px; left: 50%; transform: translateX(-50%); }
 /* while playing, the game's HUD owns the screen: viewer controls move to the lower right */
 .playing .info, .playing #anim, .playing #pause, .playing #reset, .playing #status { display: none; }

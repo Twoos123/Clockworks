@@ -141,10 +141,16 @@ class Viewer {
   private gameHud: GameHud | null = null;
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
+  /** Scenes in the install's cache, by name. */
+  private sceneList: { id: string; name: string }[] = [];
+  /** The current run through the Clockworks: depth, and the knight's health between floors. */
+  private run = { depth: 1, health: null as number | null, floors: 0 };
   private attackPressed = false;
   private attackHeld = false;
   /** A weapon slot picked with the number keys, applied on the next update. */
   private weaponSlot: number | null = null;
+  /** The action key (F) went down since the last update. */
+  private interactPressed = false;
   private shieldHeld = false;
   /** Mouse position over the canvas in CSS pixels, for aiming. */
   private mouse: [number, number] | null = null;
@@ -179,7 +185,12 @@ class Viewer {
     $("pause").onclick = () => { this.paused = !this.paused; $("pause").textContent = this.paused ? "Play" : "Pause"; };
     $("reset").onclick = () => { this.dist = this.home.dist; this.target = [...this.home.target]; this.az = -0.6; this.el = 0.35; };
     this.setupCamera();
-    $("play").onclick = () => (this.world ? this.stopPlaying() : this.startPlaying());
+    $("play").onclick = () => {
+      if (this.world) { this.stopPlaying(); return; }
+      this.run = { depth: 1, health: null, floors: 0 };
+      void this.startPlaying();
+    };
+    $("descend").onclick = () => void this.descend();
     $("revive").onclick = () => { this.world?.revive(); $("defeated").hidden = true; this.canvas.focus(); };
     $("spawnJelly").onclick = () => {
       const k = this.world?.knight;
@@ -194,6 +205,7 @@ class Viewer {
       if (!this.world || typing()) return;
       if (e.key === "Escape") { this.stopPlaying(); return; }
       if (/^[1-9]$/.test(e.key)) this.weaponSlot = Number(e.key) - 1;
+      if (e.key.toLowerCase() === "f" && !e.repeat) this.interactPressed = true;
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
@@ -245,6 +257,7 @@ class Viewer {
     }));
     const ul = $("scenes");
     const found = named.filter((s): s is { id: string; name: string } => s !== null);
+    this.sceneList = found;
     ul.replaceChildren(...found.sort((a, b) => a.name.localeCompare(b.name)).map(s => {
       const li = document.createElement("li");
       li.textContent = s.name;
@@ -343,13 +356,17 @@ class Viewer {
   private async startPlaying() {
     if (!this.scene || this.world) return;
     const { min, max } = this.scene.bounds;
-    const spawn = this.scene.collision.findSpawn((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, 1 / 3, 43);
+    // knights arrive on the level's start platform, else near the middle
+    const [sx, sy] = this.scene.start ?? [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2];
+    const spawn = this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
     this.audio ??= new AudioSystem(this.vfs, this.loader);
     this.audio.unlock();
-    const world = new World(this.loader, this.renderer, this.scene, this.scene.collision, { audio: this.audio });
+    const world = new World(this.loader, this.renderer, this.scene, this.scene.collision, { audio: this.audio, depth: this.run.depth });
+    world.onNextFloor = () => this.floorCleared();
     await world.start(spawn);
+    if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the scene's music (a weighted pick from its mix) and ambient loops
     const music = this.environment.music;
     if (music?.files.length) {
@@ -387,6 +404,7 @@ class Viewer {
     this.audio?.stopAmbience();
     this.hud?.clear();
     $("defeated").hidden = true;
+    $("floorDone").hidden = true;
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
@@ -410,6 +428,32 @@ class Viewer {
     const t = (gz - a[2]) / (b[2] - a[2]);
     if (!isFinite(t)) return null;
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  }
+
+  /** The knight reached the exit elevator: offer the next floor. */
+  private floorCleared() {
+    if (!this.world) return;
+    this.run.health = this.world.knight.health;
+    this.run.floors++;
+    $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
+    $("floorInfo").textContent = `${this.world.killCount} monsters defeated on this floor.`;
+    $("floorDone").hidden = false;
+  }
+
+  /**
+   * Takes the elevator: the next dungeon level in the cache, one depth deeper. The cache holds
+   * only levels this account has visited, so the run cycles through those.
+   */
+  private async descend() {
+    $("floorDone").hidden = true;
+    const dungeons = this.sceneList.filter(s => !/haven|bazaar|town|\(|lobby|arcade/i.test(s.name));
+    if (!dungeons.length || !this.scene) return;
+    const i = dungeons.findIndex(s => s.id === this.scene!.id);
+    const next = dungeons[(i + 1) % dungeons.length];
+    this.run.depth++;
+    this.stopPlaying();
+    await this.selectScene(next.id);
+    await this.startPlaying();
   }
 
   /** WASD or arrows, relative to where the camera looks. */
@@ -622,8 +666,10 @@ class Viewer {
           this.world.update(dt, {
             move: [mv.x, mv.y], attackDown: this.attackPressed, attackHeld: this.attackHeld,
             shield: this.shieldHeld || this.keys.has("shift"), aim: this.aimPoint(), weaponSlot: this.weaponSlot,
+            interact: this.interactPressed,
           });
           this.weaponSlot = null;
+          this.interactPressed = false;
         }
         this.attackPressed = false;
         // Q and E turn the camera; it follows the knight smoothly

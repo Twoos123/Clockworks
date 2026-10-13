@@ -8,6 +8,7 @@
 import { applyArguments, getArg } from "../config/params";
 import type { ModelLoader } from "../model";
 import { DepthScales } from "./depth";
+import { resolveRef } from "./logic";
 
 const kind = (o: any) => (o?.$class ?? "").substring((o?.$class ?? "").lastIndexOf("$") + 1);
 
@@ -153,6 +154,7 @@ export interface ProjectileDef {
 
 export class GameData {
   private libs = new Map<string, Promise<Map<string, any>>>();
+  private loaded = new Map<string, Map<string, any>>();
   readonly depth: DepthScales;
   constructor(private readonly loader: ModelLoader) {
     this.depth = new DepthScales(loader);
@@ -168,6 +170,40 @@ export class GameData {
       this.libs.set(file, p);
     }
     return p;
+  }
+
+  /** Loads config libraries so the synchronous lookups below can use them. */
+  async preload(...files: string[]) {
+    for (const f of files) this.loaded.set(f, await this.library(f));
+  }
+
+  /** resolve() for a preloaded library, synchronously (game logic spawns immediately). */
+  resolveSync(file: string, ref: any, field: string): any | null {
+    const lib = this.loaded.get(file);
+    return lib ? resolveRef(lib, ref, field) : null;
+  }
+
+  /** A library config by name, without arguments applied (preloaded libraries only). */
+  config(file: string, name: string): any | null { return this.loaded.get(file)?.get(name) ?? null; }
+
+  /** spawnActor() for a preloaded spawn table library. */
+  spawnActorSync(tableRef: any, tier = 1): any | null {
+    const lib = this.loaded.get("config/spawn_table.dat");
+    if (!lib) return null;
+    let ref = tableRef;
+    for (let i = 0; i < 12 && ref?.name; i++) {
+      if (ref.name.startsWith("Character/")) return ref;
+      const base = lib.get(ref.name);
+      if (!base) return null;
+      const cfg = applyArguments(base, ref);
+      const next = cfg.base ?? cfg.implementation?.table;
+      const tiered = getArg(next, `Tier ${tier}`) ?? getArg(next, "Tier 1");
+      if (tiered && (tiered as any).name) return tiered;
+      const actor = findActorRef(cfg);
+      if (actor) return actor;
+      ref = next;
+    }
+    return null;
   }
 
   /** Follows Derived implementations (and DerivedConfig bases) applying arguments. */

@@ -7,6 +7,7 @@ import { importBinary } from "./export/BinaryImport";
 import { compose, toMatrix, readTransform, type Mat4 } from "./math";
 import { inflate, type LoadedModel, type ModelLoader } from "./model";
 import { CollisionMap } from "./game/collision";
+import { shapeFromConfig, type Shape } from "./game/shapes";
 
 export interface SceneObject {
   model: LoadedModel;
@@ -19,6 +20,24 @@ export interface SpawnPoint { x: number; y: number; heading: number; table: any;
 export interface TriggerArea { poly: [number, number][]; tags: string[] }
 /** An actor a marker spawns at startup (blocks, breakables, doors, pads). */
 export interface StartupActor { x: number; y: number; heading: number; actor: any; shape: any }
+/**
+ * A scene entry that takes part in the game logic: a placeable or area with handlers or tags
+ * (TudeySceneModel entries as EntryLogic sees them).
+ */
+export interface LogicEntry {
+  id: number;
+  name: string;
+  x: number;
+  y: number;
+  /** Placeables: the Z rotation minus a quarter turn (EntryLogic); areas: 0. */
+  rotation: number;
+  /** World-space shape: a placeable's ShapeConfig placed by its transform, or an area polygon. */
+  shape: Shape | null;
+  tags: string[];
+  handlers: any[];
+  /** StatefulProp and ElevatorProp placeables spawn this actor once the level starts. */
+  actor?: any;
+}
 
 export interface LoadedScene {
   id: string;
@@ -33,6 +52,9 @@ export interface LoadedScene {
   spawns: SpawnPoint[];
   triggers: TriggerArea[];
   startupActors: StartupActor[];
+  logic: LogicEntry[];
+  /** Where knights arrive: the start elevator platform, when the level has one. */
+  start: [number, number] | null;
 }
 
 // TudeySceneMetrics: elevation_scale defaults to 0.5 world units per elevation step
@@ -55,6 +77,12 @@ export function prettySceneName(raw: string): string {
   if (!m) return raw || "(unnamed)";
   const base = m[1].replace(/_/g, " ");
   return m[2] ? `${base} (${m[2]})` : base;
+}
+
+/** TagConfig: its tags plus the chain of derived tag configs. */
+function tagList(t: any, depth = 0): string[] {
+  if (!t || depth > 8) return [];
+  return [...((t.tags ?? []) as any[]).filter((x): x is string => typeof x === "string" && x !== ""), ...tagList(t.derived, depth + 1)];
 }
 
 export class SceneLoader {
@@ -104,10 +132,20 @@ export class SceneLoader {
     const objects: SceneObject[] = [];
     const collision = new CollisionMap();
     const spawns: SpawnPoint[] = [], triggers: TriggerArea[] = [], startupActors: StartupActor[] = [];
+    const logic: LogicEntry[] = [];
+    let start: [number, number] | null = null;
     for (const e of s.entries ?? []) {
       if (!e.$class.endsWith("AreaEntry") || !e.vertices?.length) continue;
       const tags = collectSignalTags(e.area);
       if (tags.length) triggers.push({ poly: e.vertices.map((v: any) => [v.x ?? 0, v.y ?? 0]), tags });
+      const area = await this.resolveImpl("config/area.dat", e.area, "area");
+      const atags = tagList(area?.tags);
+      if (area && (area.handlers?.length || atags.length)) {
+        const pts: [number, number][] = e.vertices.map((v: any) => [v.x ?? 0, v.y ?? 0]);
+        const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length, cy = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+        logic.push({ id: e.id ?? 0, name: e.area?.name ?? "area", x: cx, y: cy, rotation: 0,
+          shape: pts.length === 1 ? { k: "point", x: cx, y: cy } : { k: "poly", pts }, tags: atags, handlers: area.handlers ?? [] });
+      }
     }
     const stats = { tiles: 0, placeables: 0, furniture: 0, markers: 0, unresolved: 0, uniqueModels: 0 };
     const min: [number, number] = [Infinity, Infinity], max: [number, number] = [-Infinity, -Infinity];
@@ -147,6 +185,21 @@ export class SceneLoader {
       if (!e.$class.endsWith("PlaceableEntry")) continue;
       const impl = await this.resolveImpl("config/placeable.dat", e.placeable, "placeable");
       if (!impl) { stats.unresolved++; continue; }
+      if (/Elevator\/Start Platform/.test(e.placeable?.name ?? "") && !start) {
+        const t0 = readTransform(e.transform);
+        start = [t0.t[0], t0.t[1]];
+      }
+      {
+        const ptags = tagList(impl.tags);
+        const actor = impl.actor?.name && /StatefulProp|ElevatorProp/.test(impl.$class) ? impl.actor : undefined;
+        if (impl.handlers?.length || ptags.length || actor) {
+          const t = readTransform(e.transform);
+          const rotZ = 2 * Math.atan2(t.r[2], t.r[3]);
+          const rotation = Math.atan2(Math.sin(rotZ - Math.PI / 2), Math.cos(rotZ - Math.PI / 2));
+          logic.push({ id: e.id ?? 0, name: e.placeable?.name ?? "placeable", x: t.t[0], y: t.t[1], rotation,
+            shape: impl.shape ? shapeFromConfig(impl.shape, t.t[0], t.t[1], rotZ, t.s) : null, tags: ptags, handlers: impl.handlers ?? [], actor });
+        }
+      }
       if (HIDDEN.test(impl.$class)) {
         stats.markers++;
         const t = readTransform(e.transform);
@@ -186,7 +239,7 @@ export class SceneLoader {
     }
     stats.uniqueModels = unique.size;
     const globals = (s.entries ?? []).filter((e: any) => e.$class.endsWith("GlobalEntry")).map((e: any) => e.sceneGlobal);
-    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision, spawns, triggers, startupActors };
+    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision, spawns, triggers, startupActors, logic, start };
   }
 }
 
