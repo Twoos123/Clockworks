@@ -15,6 +15,11 @@ const MONSTER_MASK = 1 | 2 | 8 | 32;
 const AGGRO_RANGE = 10, LEASH_RANGE = 18;
 const STARTER_WEAPON = "Weapon/Sword/Proto Sword";
 const STARTER_SHIELD = "Gear/Shield/Proto Shield";
+/**
+ * Assumed lunge for knight swings whose AttackConfig omits impulseReceived (the class default
+ * lives in game code, not data); the data's explicit combo lunges are 1.25 to 2.5 units.
+ */
+const DEFAULT_SWING_IMPULSE = { forward: 1, side: 0, delay: 0, duration: 150 };
 
 export interface KnightInput {
   /** Desired movement direction in world space. */
@@ -40,7 +45,9 @@ abstract class Actor {
   dead = false;
   /** Knockback velocity, decaying. */
   kx = 0; ky = 0;
-  attack: { def: AttackDef; phase: Phase; t: number; hit: boolean } | null = null;
+  attack: { def: AttackDef; phase: Phase; t: number; hit: boolean; lunged: boolean } | null = null;
+  /** Lunge from an attack's impulse: velocity and remaining seconds. */
+  lunge = { vx: 0, vy: 0, t: 0 };
   /** Nodes animated by the upper-body overlay (knights); null plays attacks whole-body. */
   upperBody: Set<string> | null = null;
   abstract radius: number;
@@ -248,8 +255,8 @@ export class World {
       else if (k.attack) k.buffered = true;
     }
 
+    this.applyLunge(k, dt, KNIGHT_MASK);
     if (k.attack) {
-      k.turnToward(aimAngle, 22, dt);
       this.advanceAttack(k, dt, () => {
         if (k.buffered && k.chain + 1 < k.attacks.length) { this.knightSwing(k.chain + 1, aimAngle); return true; }
         return false;
@@ -275,13 +282,21 @@ export class World {
       }
     }
 
-    // movement: slower while attacking, charging or shielding
+    // no walking during a swing: the swing's own lunge moves the knight. After the clear
+    // window (or any time in an interruptable follow-through) moving cancels the swing.
     const [mx, my] = input.move;
     const len = Math.hypot(mx, my);
-    const factor = k.attack ? 0.55 : k.charge !== null ? 0.5 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? -0.5) : 1;
+    if (k.attack) {
+      const at = k.attack;
+      const canCancel = at.phase === "end" && (at.def.interruptable || at.t * 1000 >= at.def.clear);
+      if (!(canCancel && len > 0.01)) return;
+      k.attack = null;
+      k.chain = 0;
+    }
+    const factor = k.charge !== null ? 0.5 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? -0.5) : 1;
     if (len > 0.01) {
       this.move(k, (mx / len) * KNIGHT_SPEED * factor * dt, (my / len) * KNIGHT_SPEED * factor * dt, KNIGHT_MASK);
-      if (!k.attack && k.charge === null && !k.shielding) k.turnToward(Math.atan2(my, mx), 16, dt);
+      if (k.charge === null && !k.shielding) k.turnToward(Math.atan2(my, mx), 16, dt);
       else if (k.shielding) k.turnToward(aimAngle, 12, dt);
       this.play(k, "character/pc/run_forward.dat", { speed: Math.max(0.5, factor) });
     } else {
@@ -331,19 +346,27 @@ export class World {
   private shieldLoading = false;
 
   private startAttack(a: Actor, def: AttackDef) {
-    a.attack = { def, phase: "start", t: 0, hit: false };
+    a.attack = { def, phase: "start", t: 0, hit: false, lunged: false };
     if (def.start) this.animate(a, def.start, def.startSpeed);
     else this.enterFire(a);
   }
 
-  /** One-shot attack animation: upper-body overlay for actors that have one, else whole body. */
+  /** One-shot whole-body attack animation (the knight steps into its swings). */
   private animate(a: Actor, path: string, speed: number) {
-    if (a.upperBody) this.overlay(a, path, false, speed);
-    else this.play(a, path, { loop: false, speed, blend: 0.06 });
+    a.instance.overlay = null;
+    this.play(a, path, { loop: false, speed, blend: 0.06 });
   }
 
   private animDone(a: Actor) {
-    return a.upperBody ? a.instance.overlayFinished || !a.instance.overlay : a.instance.finished;
+    return a.instance.finished;
+  }
+
+  /** Moves an actor along an active lunge. */
+  private applyLunge(a: Actor, dt: number, mask: number) {
+    if (a.lunge.t <= 0) return;
+    const step = Math.min(dt, a.lunge.t);
+    a.lunge.t -= step;
+    this.move(a, a.lunge.vx * step, a.lunge.vy * step, mask);
   }
 
   private enterFire(a: Actor) {
@@ -366,6 +389,14 @@ export class World {
     at.t += dt;
     if (at.phase === "start" && (this.animDone(a) || !at.def.start || at.t > 1.5)) this.enterFire(a);
     else if (at.phase === "fire") {
+      // the attack's impulse carries the attacker forward (each combo swing is a lunge);
+      // knight swings whose config omits it take a short default step
+      const imp = at.def.impulse ?? (a === this.knight ? DEFAULT_SWING_IMPULSE : null);
+      if (imp && !at.lunged && at.t * 1000 >= imp.delay) {
+        at.lunged = true;
+        const dur = Math.max(0.05, imp.duration / 1000), c = Math.cos(a.heading), sn = Math.sin(a.heading);
+        a.lunge = { vx: (imp.forward * c - imp.side * sn) / dur, vy: (imp.forward * sn + imp.side * c) / dur, t: dur };
+      }
       if (!at.hit && at.t * 1000 >= at.def.delay) { at.hit = true; this.resolveHit(a, at.def); }
       if (this.animDone(a) || !at.def.fire || at.t > 1.5) {
         if (chain?.()) return;
@@ -526,6 +557,7 @@ export class World {
     m.cooldown -= dt;
     if (m.state === "dying") return;
     this.applyKnockback(m, dt, MONSTER_MASK);
+    this.applyLunge(m, dt, MONSTER_MASK);
     const k = this.knight;
     const dx = k.x - m.x, dy = k.y - m.y, dist = Math.hypot(dx, dy);
     const turn = (m.def.turnRate * Math.PI) / 180;

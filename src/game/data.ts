@@ -36,6 +36,14 @@ export interface AttackDef {
   knockback: number;
   /** Particle model for the swing trail, from the fire animation's "Swing" argument. */
   swing?: any;
+  /** Whether the attacker may cancel the follow-through by moving. */
+  interruptable: boolean;
+  /**
+   * Movement the attack gives the attacker (ImpulseConfig$ItemImpulse "impulseReceived"):
+   * units along its facing, spread over `duration` ms starting `delay` ms into the fire phase.
+   * Null when the config omits it (the class default is not in the data).
+   */
+  impulse: { forward: number; side: number; delay: number; duration: number } | null;
 }
 
 export interface MonsterDef {
@@ -123,6 +131,11 @@ export class GameData {
       shape: readShape(shape),
       knockback: kb?.translation?.x ?? 0.5,
       swing: getArg(a.fire, "Swing"),
+      interruptable: !!a.interruptable,
+      impulse: a.impulseReceived ? {
+        forward: a.impulseReceived.translation?.x ?? 0, side: a.impulseReceived.translation?.y ?? 0,
+        delay: a.impulseReceived.delay ?? 0, duration: a.impulseReceived.duration ?? 150,
+      } : null,
     };
   }
 
