@@ -36,7 +36,7 @@ be done fully, with the reason.
 - [x] HUD from the full-screen mockup (menus, objective, activities, target, dash cooldown)
 - [x] GUI widgets: Slider, ComboBox, ScrollPane, TabbedPane, TextField, List, interaction
 - [x] Real options screen (`ui/options`) bound to the settings
-- [ ] Real arsenal / loadout / forge / shop screens (agent: arsenal UI)
+- [x] Real arsenal / loadout / forge / shop / backpack screens (the game's own interfaces)
 - [x] Message keys shown as readable English
 
 ## Also done or in progress

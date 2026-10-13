@@ -12,15 +12,13 @@ import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
-import { Arsenal } from "./ui/arsenal";
 import { knightName, loadSave, shopTier, writeSave, type SaveData } from "./game/save";
 import { ECONOMY_FILES, Economy } from "./game/economy";
 import { Places } from "./ui/places";
-import type { ShopMode } from "./ui/arsenal";
+import { GameScreens } from "./ui/screens";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
-import { openWardrobe } from "./ui/wardrobe";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen } from "./ui/elevator";
 import { MusicPlayer } from "./game/musicplayer";
@@ -69,11 +67,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // ---------------------------------------------------------------- choosing the install
 
 async function start() {
-  if (GAME) {
-    document.title = "Spiral Knights";
-    document.querySelector("#welcome h1")!.textContent = "Spiral Knights";
-    document.querySelector("#welcome .card p")!.textContent =
-      "A single-player browser port of Spiral Knights that plays from your own game install. Nothing is uploaded or downloaded: the game's files stay on your computer.";
+  if (!GAME) {
+    document.title = "Clyde Web Viewer";
+    document.querySelector("#welcome h1")!.textContent = "Clyde Web Viewer";
+    $("welcomeIntro").textContent = "A browser viewer for models built with Three Rings' open-source Clyde engine. " +
+      "It reads models straight from your own game install. Files stay on your computer and are never uploaded.";
   }
   // Wire every control before any async work, so a folder picked immediately is not lost.
   $("pick").onclick = async () => {
@@ -114,7 +112,18 @@ async function start() {
       await open(() => new HandleVfs(saved).init());
     };
   }
-  if (location.hash.includes("dev=1") && !$("dev").hidden) await open(async () => new DevServerVfs());
+  if (location.hash.includes("dev=1") && !$("dev").hidden) return void await open(async () => new DevServerVfs());
+  if (GAME) {
+    // the game never asks for its install: the local server (npm start, or the dev server)
+    // finds it and serves it; without one the page explains how to start the game
+    if (!$("dev").hidden) return void await open(async () => new DevServerVfs());
+    $("welcome").querySelector(".actions")!.remove();
+    $("welcome").querySelectorAll(".hint").forEach(h => h.remove());
+    $("welcomeIntro").innerHTML = "Spiral Knights wasn't found on this computer.<br><br>Start the game with <code>npm start</code>: " +
+      "it finds your install (Steam or the standalone installer) by itself. If the game is somewhere unusual, " +
+      "set <code>SK_DIR</code> to its folder first.";
+  }
+  $("welcome").classList.add("ready");
 }
 
 function showWelcomeError(msg: string) {
@@ -197,7 +206,6 @@ class Viewer {
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
   private save: SaveData = loadSave();
-  private arsenal: Arsenal | null = null;
   /** The guild hall and furniture, the Ready Room and knight creation (src/ui/places.ts). */
   private readonly places: Places;
   /** The battle sprite, accessories and costumes (game/outfit.ts); missions call outfit.setSprite. */
@@ -287,7 +295,7 @@ class Viewer {
       void this.startPlaying();
     };
     // the run's menu buttons click with the game's button sound
-    for (const id of ["descend", "deeper", "revive", "giveUp", "clockworks", "arenaBtn"]) {
+    for (const id of ["descend", "deeper", "revive", "giveUp"]) {
       $(id).addEventListener("click", () => this.uiSound(id === "giveUp" ? "sound/feedback/ui_dismiss.ogg" : "sound/feedback/button_press.ogg"));
     }
     $("descend").onclick = () => void this.descend();
@@ -296,8 +304,6 @@ class Viewer {
       if (this.gate) { $("floorDone").hidden = true; this.paused = false; this.gate = null; void this.returnToHaven(); return; }
       void this.descend(true);
     };
-    $("clockworks").onclick = () => this.openGates();
-    $("arenaBtn").onclick = () => void this.enterArena();
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
     // reviving costs crowns from the bank (the game spends energy); giving up returns to town
     $("revive").onclick = () => {
@@ -330,7 +336,7 @@ class Viewer {
       if (this.places.key(e)) { e.preventDefault(); return; }
       // Esc opens the options menu (and closes whatever window is open)
       if (e.key === "Escape") {
-        if (this.arsenal?.isOpen) { this.arsenal.close(); return; }
+        if (this.itemScreens?.escape()) return;
         if (this.settings?.isOpen) this.settings.close();
         else if (this.options?.isOpen) this.options.close();
         else { this.paused = true; void this.openOptions(); }
@@ -354,6 +360,7 @@ class Viewer {
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       if (b("arsenal") && !e.repeat) void this.toggleArsenal();
+      if (b("backpack") && !e.repeat) void this.ensureScreens().toggleBackpack();
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
@@ -644,13 +651,10 @@ class Viewer {
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
       { audio: this.audio, depth: this.run.depth, arena: this.arenaMode && !TOWN.test(this.scene.name) });
     world.onArenaCheckpoint = wave => this.arenaCheckpoint(wave);
-    this.arsenal?.close();
+    this.itemScreens?.closeAll();
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
-    const town = TOWN.test(this.scene.name);
-    $("clockworks").hidden = !town;
-    $("arenaBtn").hidden = !town;
     world.color = this.save.color;
     world.gear = this.save.gear;
     if (this.eco) world.economy = this.eco;
@@ -691,7 +695,6 @@ class Viewer {
     } });
     void this.gameHud.init(hudState(world, knightName(this.save))).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
-    if (import.meta.env.DEV) openWardrobe(this.outfit, () => this.world, () => this.save, () => writeSave(this.save));
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
@@ -717,8 +720,6 @@ class Viewer {
     this.hud?.clear();
     $("defeated").hidden = true;
     $("floorDone").hidden = true;
-    $("clockworks").hidden = true;
-    $("arenaBtn").hidden = true;
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
@@ -770,12 +771,34 @@ class Viewer {
     return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase()) : `Depth ${this.run.depth}`;
   }
 
-  /** Opens or closes the arsenal; the world pauses while it is open. */
-  private async toggleArsenal(tab?: "craft" | "weapons") {
-    const arsenal = this.ensureArsenal();
-    if (arsenal.isOpen) { arsenal.close(); this.paused = false; this.canvas.focus(); return; }
-    this.paused = !!this.world;
-    await arsenal.open(this.save.loadout, null, tab);
+  private itemScreens: GameScreens | null = null;
+  private previewView: { key: string; view: PortraitView } | null = null;
+
+  /** The game's item windows: arsenal, forge, shops, backpack (src/ui/screens.ts). */
+  private ensureScreens() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.itemScreens ??= new GameScreens({
+      gui: this.gui, colors: this.renderer.colors, eco: () => this.economy(),
+      data: () => this.world?.data ?? new GameData(this.loader),
+      save: () => this.save, sound: f => this.uiSound(f),
+      write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); },
+      paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
+      arsenalClosed: () => this.places.arsenalClosed(),
+      // the equipment window's knight preview
+      view: (c, g, x, y, w, h) => {
+        const ref = this.world?.portraitRef();
+        if (!ref) return;
+        const key = JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v));
+        if (this.previewView?.key !== key) this.previewView = { key, view: new PortraitView(this.renderer, this.loader, ref) };
+        this.previewView.view.draw(c, g, x, y, w, h);
+      },
+    });
+  }
+
+  /** Opens or closes the arsenal (or the forge); the world pauses while it is open. */
+  private async toggleArsenal(tab?: "craft") {
+    const screens = this.ensureScreens();
+    await (tab === "craft" ? screens.toggleForge() : screens.toggleArsenal());
   }
 
   /** Applies the options menu's settings to audio, rendering, the HUD and input. */
@@ -818,7 +841,8 @@ class Viewer {
       case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
       case "button_feed": this.openFeed(); break;
       case "button_mail": this.openMail(); break;
-      case "button_loadout": case "button_gear": case "button_arsenal": void this.toggleArsenal(); break;
+      case "button_loadout": case "button_gear": void this.toggleArsenal(); break;
+      case "button_arsenal": void this.ensureScreens().toggleBackpack(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
@@ -848,8 +872,8 @@ class Viewer {
       restart: async () => { this.stopPlaying(); await this.startPlaying(); },
       world: () => this.world,
       camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; },
-      openArsenal: async () => { if (!this.arsenal?.isOpen) await this.toggleArsenal(); },
-      arsenalOpen: () => !!this.arsenal?.isOpen,
+      openArsenal: async () => { if (!this.itemScreens?.arsenal.isOpen) await this.toggleArsenal(); },
+      arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
       colors: () => this.renderer.colors,
       returnToHaven: () => void this.returnToHaven(),
       pause: on => { this.paused = on && !!this.world; },
@@ -966,85 +990,6 @@ class Viewer {
     this.audio.ui(file);
   }
 
-  private ensureArsenal() {
-    if (!this.gui) this.gui = new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    this.arsenal ??= new Arsenal($("arsenal"), this.world?.data ?? new GameData(this.loader), this.gui,
-      l => { this.save.loadout = l; writeSave(this.save); },
-      () => ({ crowns: this.save.crowns, heat: this.save.heat }),
-      // owned gear, plus the recipe items whose recipes are learned
-      () => new Set([...this.save.owned, ...(this.eco?.recipes().filter(r => r.item && this.save.recipes.includes(r.name)).map(r => r.item!) ?? [])]),
-      (name, cost) => {
-        if (!this.eco?.buy(this.save, name, cost)) return false;
-        if (this.world) this.world.pocket = this.save.pocket;
-        writeSave(this.save);
-        return true;
-      });
-    if (!this.eco) void this.economy().then(() => this.arsenal?.refresh());
-    this.arsenal.onClose = () => { this.paused = false; this.canvas.focus(); this.places.arsenalClosed(); };
-    this.arsenal.sound = file => this.uiSound(file);
-    this.arsenal.describe = name => {
-      const g = this.save.gear[name], eco = this.eco;
-      if (!eco) return name.split("/").pop()!;
-      const lv = eco.info(name)?.heatable ? ` · lv ${g?.level ?? 1}` : "";
-      return eco.displayName(name, g) + lv;
-    };
-    // crafting: what each recipe needs and costs (src/game/economy.ts)
-    this.arsenal.crafting = {
-      list: () => {
-        const eco = this.eco;
-        if (!eco) return [];
-        const w = this.save, owned = new Set(w.owned);
-        return eco.recipes().filter(r => eco.info(r.output)?.icon && !owned.has(r.output) && (!r.base || owned.has(r.base)))
-          .map(r => ({
-            output: r.output, rarity: r.rarity, ok: eco.canCraft(w, r),
-            lines: [
-              w.recipes.includes(r.name) ? "recipe known" : `recipe: buy for ${r.item ? eco.price(r.item) : "?"} cr`,
-              ...(r.base ? [`${r.base.split("/").pop()} lv ${eco.level(w, r.base)}/${r.baseLevel}`] : []),
-              ...r.materials.map(([n, k]) => `${n.split("/").pop()} ${w.materials[n] ?? 0}/${k}`),
-              `${r.crowns} cr`,
-            ],
-          }));
-      },
-      craftable: () => new Set(this.eco?.recipes().map(r => r.output) ?? []),
-      craft: output => {
-        const r = this.eco?.recipeFor(output);
-        const made = r ? this.eco!.craft(this.save, r) : null;
-        if (!made) return false;
-        writeSave(this.save);
-        return true;
-      },
-    };
-    this.arsenal.selling = {
-      list: () => {
-        const eco = this.eco;
-        if (!eco) return [];
-        const gear = this.save.owned.filter(n => eco.canSell(this.save, n))
-          .map(n => ({ name: n, price: eco.sellPrice(n), label: eco.displayName(n, this.save.gear[n]) }));
-        const mats = Object.entries(this.save.materials).filter(([n, c]) => c > 0 && eco.sellPrice(n) > 0)
-          .map(([n, c]) => ({ name: n, price: eco.sellPrice(n), label: `${n.split("/").pop()} ×${c}` }));
-        return [...gear, ...mats];
-      },
-      sell: name => {
-        const paid = this.eco?.sell(this.save, name) ?? 0;
-        if (paid > 0) writeSave(this.save);
-        return paid > 0;
-      },
-    };
-    this.arsenal.color = this.save.color;
-    this.arsenal.onColor = print => { this.save.color = print; writeSave(this.save); };
-    // the personal colour class (the default print's class) and its named colours
-    void this.renderer.colors.then(pos => {
-      const cls = pos?.classes.get(this.save.color >> 8);
-      if (!pos || !cls || !this.arsenal) return;
-      this.arsenal.colors = [...cls.colors.values()].map(c => {
-        const z = pos.byPrint((cls.classId << 8) | c.colorId);
-        return { print: (cls.classId << 8) | c.colorId, name: c.name, rgb: z ? z.colorizedRoot() : [128, 128, 128] as [number, number, number] };
-      });
-      this.arsenal.refresh();
-    });
-    return this.arsenal;
-  }
-
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
   private async openShop(keeper: string) {
     this.paused = true;
@@ -1057,10 +1002,7 @@ class Viewer {
     const kp = eco.keeper(keeper, { tier, maxRarity });
     // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
     const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
-    const TAB: Record<string, ShopMode["tabs"][number]> = { sword: "weapons", handgun: "weapons", bomb: "weapons", shield: "shield", armor: "armor",
-      helm: "helmet", trinket: "trinket", vitapod: "vitapod", recipe: "recipe", pickup: "pickup" };
-    const tabs = [...new Set(kp.categories.map(c => TAB[c]).filter(Boolean))];
-    await this.ensureArsenal().open(this.save.loadout, { title: kp.title, tabs, maxRarity: kp.maxRarity, stock });
+    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity);
   }
 
   /** The economy over the install's configs (prices, levels, variants, recipes). */
