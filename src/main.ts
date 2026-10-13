@@ -26,7 +26,7 @@ import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
@@ -955,7 +955,26 @@ class Viewer {
   /** The cached levels in run order. */
   // ------------------------------------------------------------------ the Arcade and its gates
 
-  /** The Arcade's gate board: today's four gates and their strata. */
+  private iconUrls = new Map<string, Promise<string>>();
+  /** An install image as a URL for HTML panels (cached). */
+  private iconUrl(path: string): Promise<string> {
+    let p = this.iconUrls.get(path);
+    if (!p) this.iconUrls.set(path, p = this.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => ""));
+    return p;
+  }
+  private img(path: string, cls: string, title = "") {
+    const im = document.createElement("img");
+    im.className = cls;
+    if (title) im.title = title;
+    void this.iconUrl(path).then(u => { if (u) im.src = u; });
+    return im;
+  }
+
+  /**
+   * The Arcade's gate board: today's four gates, each with its emblem and the lineup of its
+   * floors as the game draws it, with the level icons (rsrc/ui/icon/map) under each stratum's
+   * theme icon (rsrc/ui/icon/theme).
+   */
   private openGates() {
     const root = $("gates");
     root.replaceChildren();
@@ -967,35 +986,47 @@ class Viewer {
     h.textContent = "The Arcade";
     const close = document.createElement("button");
     close.textContent = "Close";
-    close.onclick = () => { root.hidden = true; this.paused = false; };
+    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
     head.append(h, close);
     card.append(head);
     const note = document.createElement("p");
     note.className = "settings-note";
-    note.textContent = "Choose a gate. Each runs from depth 1 to the Core at depth 29 through three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
+    note.textContent = "Today's gates. Each runs from the Arcade to the Core in three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
     card.append(note);
-    const grid = document.createElement("div");
-    grid.className = "gates-grid";
     for (const g of arcadeGates()) {
-      const col = document.createElement("div");
-      col.className = "gate";
-      const t = document.createElement("h3");
-      t.textContent = g.name;
-      col.append(t);
-      for (const s of g.strata) {
-        const row = document.createElement("div");
-        row.className = "gate-stratum tier" + s.tier;
-        row.textContent = `${s.first}-${s.last} · ${s.theme} · ${s.style.name}${s.boss ? " · " + BOSSES[s.boss].name : ""}`;
-        col.append(row);
+      const row = document.createElement("div");
+      row.className = "gate-row";
+      const name = document.createElement("div");
+      name.className = "gate-name";
+      const emblem = this.img(`ui/icon/gate/${g.emblem}.png`, "gate-emblem");
+      emblem.style.filter = "hue-rotate(-100deg) saturate(0.9)";
+      name.append(emblem, document.createTextNode(g.name));
+      const lineup = document.createElement("div");
+      lineup.className = "gate-lineup";
+      const floors = gateFloors(g);
+      for (const f of floors.slice(1)) {
+        const cell = document.createElement("div");
+        cell.className = `gate-cell tier${f.tier}` + (f.stratum && f.depth === f.stratum.first ? " first" : "");
+        const theme = f.stratum && f.kind !== "terminal" && f.kind !== "subtown" ? f.stratum.theme.toLowerCase() : "";
+        if (f.stratum && f.depth === f.stratum.first) cell.append(this.img(`ui/icon/theme/${theme || "unk"}.png`, "gate-theme", f.stratum.theme));
+        else cell.append(document.createElement("span"));
+        const icon = this.img(`ui/icon/map/${floorIcon(f)}.png`, "gate-level", `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`);
+        // the icons are colourisation masks (magenta); tint them by the stratum's theme
+        const hue = f.kind === "terminal" || f.kind === "subtown" || f.kind === "core" ? 200 : THEME_HUES[f.stratum?.theme ?? ""] ?? 200;
+        icon.style.filter = `hue-rotate(${hue - 300}deg) saturate(0.85)`;
+        cell.append(icon);
+        const d = document.createElement("small");
+        d.textContent = String(f.depth);
+        cell.append(d);
+        lineup.append(cell);
       }
       const go = document.createElement("button");
       go.className = "primary";
       go.textContent = "Enter";
       go.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_confirm.ogg"); void this.enterGate(g); };
-      col.append(go);
-      grid.append(col);
+      row.append(name, lineup, go);
+      card.append(row);
     }
-    card.append(grid);
     // the arena: endless waves on a cached level, a checkpoint every fifth wave
     const arena = document.createElement("button");
     arena.textContent = "Arena: endless waves (bank every fifth wave)";
@@ -1450,6 +1481,9 @@ class Viewer {
 }
 
 start();
+
+/** Hues the gate lineup tints its level icons with, by stratum theme. */
+const THEME_HUES: Record<string, number> = { Fire: 5, Freeze: 190, Poison: 110, Shock: 52, Beast: 30, Construct: 215, Fiend: 280, Gremlin: 22, Slime: 135, Undead: 165 };
 
 /** The scenes cache, for genTheme's availability check (set once scenes are listed). */
 let genScenes: { id: string; name: string }[] | null = null;
