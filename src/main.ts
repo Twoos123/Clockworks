@@ -28,6 +28,8 @@ import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
 import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
+import { rankLabel, tierLock } from "./game/missions";
+import { MissionBoard, notice, progressOf } from "./ui/missions";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|\(|lobby/i;
@@ -207,6 +209,8 @@ class Viewer {
   private genNames = new Map<string, string>();
   /** The boss of the floor being played, if any. */
   private bossFloor: BossKey | null = null;
+  /** The mission board (src/ui/missions.ts), made on first use. */
+  private missionBoard: MissionBoard | null = null;
   /** Arena mode: waves on a cached level instead of its own wiring. */
   private arenaMode = false;
   private attackPressed = false;
@@ -731,10 +735,22 @@ class Viewer {
       case "button_forge": void this.toggleArsenal("craft"); break;
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
+      case "button_missions": void this.missions().toggle(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       case "button_guildhall": case "button_social": void this.goToGuildHall(); break;
       default: break;
     }
+  }
+
+  private missions(): MissionBoard {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.missionBoard ??= new MissionBoard({
+      data: this.world?.data ?? new GameData(this.loader), gui: this.gui,
+      save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
+      pause: on => { this.paused = on && !!this.world; },
+      startRun: (g, floors) => void this.enterGate(g, floors),
+      openGates: () => this.openGates(),
+    });
   }
 
   /** A simple window in the options' style (news and mail). */
@@ -918,6 +934,9 @@ class Viewer {
       $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
       $("deeper").textContent = "Return to Haven";
       $("deeper").hidden = !next;
+      // an Arcade stratum cleared counts for prestige gate missions of its theme
+      const here = this.floors[this.run.depth], s = here?.stratum;
+      if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
       const last = this.nextLevel() === null;
       $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
@@ -1105,13 +1124,14 @@ class Viewer {
   }
 
   /** Starts a gate at depth 1. */
-  private async enterGate(g: Gate) {
+  private async enterGate(g: Gate, floors = gateFloors(g)) {
     this.gate = g;
     this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name };
     this.usedScenes.clear();
-    this.floors = gateFloors(g);
+    this.floors = floors;
     this.arenaMode = false;
-    this.run = { depth: 0, health: null, floors: 0 };
+    // the descent starts above the first floor (a mission's floors start deeper)
+    this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
     await this.descend();
   }
 
@@ -1142,7 +1162,7 @@ class Viewer {
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
     const id = `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
-    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} (${s.theme})`);
+    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   private usedScenes = new Set<string>();
@@ -1206,7 +1226,15 @@ class Viewer {
       // the gate's next floor (after the Core's terminal, back to Haven)
       const f = this.floors[this.run.depth + 1];
       this.stopPlaying();
-      if (!f) { this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven(); return; }
+      if (!f) {
+        const id = this.gate.id;
+        this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven();
+        this.missionBoard?.runFinished(id);
+        return;
+      }
+      // deeper tiers need rank (missions take the knight to their own depth)
+      const lock = this.gate.id.startsWith("mission:") ? null : tierLock(f.tier, progressOf(this.save));
+      if (lock) { this.gate = null; await this.returnToHaven(); notice(lock); return; }
       const sc = this.floorScene(f);
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
@@ -1544,7 +1572,7 @@ class Viewer {
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext() }, dt);
+          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
           this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }
