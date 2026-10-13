@@ -437,6 +437,33 @@ function computePreferred(c: Component, whint: number, hhint: number): { width: 
     }
     return { width: Math.max(0, whint), height: Math.max(0, hhint) };
   }
+  if (lk === "Table") {
+    const m = tableMetrics(c, whint);
+    const rows = m.rows.length;
+    return { width: sum(m.cols) + (m.cols.length - 1) * (c.layout.columnGap ?? 0), height: sum(m.rows) + Math.max(0, rows - 1) * (c.layout.rowGap ?? 0) };
+  }
+  if (lk === "Border") {
+    // BorderLayout.computePreferredSize
+    const hgap = c.layout.horizontalGap ?? 0, vgap = c.layout.verticalGap ?? 0, at = borderParts(c);
+    let w = 0, h = 0, horiz = 0, vert = 0;
+    for (const k of [at.SOUTH, at.NORTH]) {
+      if (!k?.visible) continue;
+      const s = preferredSize(k, whint, -1);
+      w = Math.max(w, s.width); h += s.height; vert++;
+      if (hhint > 0) hhint -= s.height + vgap;
+    }
+    let cw = 0, ch = 0;
+    for (const k of [at.EAST, at.WEST]) {
+      if (!k?.visible) continue;
+      const s = preferredSize(k, -1, hhint);
+      cw += s.width; ch = Math.max(ch, s.height); horiz++;
+      if (whint > 0) whint -= s.width + hgap;
+    }
+    if (at.CENTER?.visible) { const s = preferredSize(at.CENTER, whint, hhint); cw += s.width; ch = Math.max(ch, s.height); horiz++; }
+    cw += Math.max(horiz - 1, 0) * hgap;
+    if (ch > 0) vert++;
+    return { width: Math.max(w, cw), height: h + ch + Math.max(vert - 1, 0) * vgap };
+  }
   if (lk === "HorizontalGroup" || lk === "VerticalGroup") {
     const g = group(c.layout), hz = lk === "HorizontalGroup";
     const info = dimens(c, g, hz, whint, hhint);
@@ -528,6 +555,17 @@ export function layout(c: Component) {
       }
     } else if (lk === "HorizontalGroup" || lk === "VerticalGroup") {
       layoutGroup(c, group(c.layout), lk === "HorizontalGroup", ins, bw, bh, set);
+    } else if (lk === "Table") {
+      layoutTable(c, ins, bw, set);
+    } else if (lk === "Border") {
+      // BorderLayout.layoutContainer
+      const hgap = c.layout.horizontalGap ?? 0, vgap = c.layout.verticalGap ?? 0, at = borderParts(c);
+      let x = ins.left, y = ins.bottom, w = bw, h = bh;
+      if (at.SOUTH?.visible) { const s = preferredSize(at.SOUTH, w, -1); set(at.SOUTH, x, y, w, s.height); y += s.height + vgap; h -= s.height + vgap; }
+      if (at.NORTH?.visible) { const s = preferredSize(at.NORTH, w, -1); set(at.NORTH, x, c.height - ins.top - s.height, w, s.height); h -= s.height + vgap; }
+      if (at.WEST?.visible) { const s = preferredSize(at.WEST, -1, -1); set(at.WEST, x, y, s.width, h); x += s.width + hgap; w -= s.width + hgap; }
+      if (at.EAST?.visible) { const s = preferredSize(at.EAST, -1, -1); set(at.EAST, c.width - ins.right - s.width, y, s.width, h); w -= s.width + hgap; }
+      if (at.CENTER?.visible) set(at.CENTER, x, y, w, h);
     }
   }
   for (const k of c.children) if (k.visible) layout(k);
@@ -770,5 +808,70 @@ function drawLabel(c: Component, s: Style, g: CanvasRenderingContext2D, bx: numb
     g.fillText(line, lx, base);
     g.shadowBlur = 0;
     top += text.lineHeight + text.grow * 2 + s.lineSpacing;
+  }
+}
+
+const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+
+/** A BorderLayout's components by location (LayoutConfig.Border.Child.location, CENTER by default). */
+function borderParts(c: Component): Partial<Record<"NORTH" | "SOUTH" | "EAST" | "WEST" | "CENTER", Component>> {
+  const out: Partial<Record<string, Component>> = {};
+  for (const k of c.children) {
+    const loc = enumName(k.constraints?.location, "CENTER");
+    if (loc !== "IGNORE") out[loc] = k;
+  }
+  return out;
+}
+
+/** TableLayout.computeMetrics: column widths and row heights from the children's preferred sizes. */
+function tableMetrics(c: Component, whint: number) {
+  const ncols = Math.max(1, c.layout.columns ?? 1);
+  const kids = c.children.filter(k => k.visible);
+  const nrows = Math.ceil(kids.length / ncols);
+  const cols = new Array(ncols).fill(0), rows = new Array(nrows).fill(0);
+  const sizes = new Map<Component, { width: number; height: number }>();
+  let maxrh = 0;
+  kids.forEach((k, i) => {
+    const s = preferredSize(k, whint, -1);
+    sizes.set(k, s);
+    const r = Math.floor(i / ncols), col = i % ncols;
+    rows[r] = Math.max(rows[r], s.height); maxrh = Math.max(maxrh, s.height);
+    cols[col] = Math.max(cols[col], s.width);
+  });
+  if (c.layout.equalRows) rows.fill(maxrh);
+  return { cols, rows, sizes, kids };
+}
+
+/** TableLayout.layoutContainer (Clyde's coordinates run upward from the bottom). */
+function layoutTable(c: Component, ins: Insets, availwid: number, set: Setter) {
+  const L = c.layout, rowgap = L.rowGap ?? 0, colgap = L.columnGap ?? 0;
+  const m = tableMetrics(c, availwid);
+  const halign = enumName(L.horizontalAlignment, "LEFT"), valign = enumName(L.verticalAlignment, "TOP");
+  if (halign === "STRETCH" && sum(m.cols) > 0) {
+    // every column grows in proportion to its natural width
+    const natural = sum(m.cols), avail = c.width - horiz(ins) - natural - colgap * (m.cols.length - 1);
+    let used = 0;
+    m.cols.forEach((w, i) => { const adj = Math.trunc(w * avail / natural); m.cols[i] += adj; used += adj; });
+    m.cols[0] += avail - used;
+  }
+  const totw = sum(m.cols) + (m.cols.length - 1) * colgap, toth = sum(m.rows) + Math.max(0, m.rows.length - 1) * rowgap;
+  let sx = ins.left;
+  if (halign === "RIGHT") sx += c.width - horiz(ins) - totw;
+  else if (halign === "CENTER") sx += Math.trunc((c.width - horiz(ins) - totw) / 2);
+  let y = ins.bottom + toth;
+  if (valign === "CENTER") y += Math.trunc((c.height - vert(ins) - toth) / 2);
+  else if (valign === "TOP") y = c.height - ins.top;
+  let row = 0, col = 0, x = sx;
+  for (const k of m.kids) {
+    const width = Math.min(m.cols[col], availwid), height = m.rows[row];
+    let xo = 0, yo = 0, cw = width, ch = height;
+    if (L.centerChildren) {
+      const d = m.sizes.get(k)!;
+      if (d.width < width) { xo = Math.trunc((width - d.width) / 2); cw = d.width; }
+      if (d.height < height) { yo = Math.trunc((height - d.height) / 2); ch = d.height; }
+    }
+    set(k, x + xo, y - height + yo, cw, ch);
+    x += m.cols[col] + colgap;
+    if (++col === m.cols.length) { y -= height + rowgap; row++; col = 0; x = sx; }
   }
 }
