@@ -1147,7 +1147,8 @@ class Viewer {
         icon.className = "gate-level";
         icon.title = `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`;
         // tiers above the knight's rank show the lock, as the game's map does
-        void this.levelIcon(`ui/icon/map/${floorIcon(f)}.png`).then(u => { if (u) icon.src = u; });
+        const locked = tierLock(f.tier, progressOf(this.save)) !== null;
+        void this.levelIcon(`ui/icon/map/${floorIcon(f)}.png`, locked).then(u => { if (u) icon.src = u; });
         cell.append(icon);
         const d = document.createElement("small");
         d.textContent = String(f.depth);
