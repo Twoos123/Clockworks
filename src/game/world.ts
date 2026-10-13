@@ -1138,12 +1138,27 @@ export class World implements LogicHost {
     this.monsters.push(m);
   }
 
+  /** Bullet ranges (speed times fuse), filled in as projectile definitions load. */
+  private ranges = new Map<any, number>();
+
   /** How far an attack reaches: its hit shape, or for a projectile its travel distance. */
   private reach(a: AttackDef): number {
     if (a.shape) return a.shape.forward + Math.max(a.shape.halfLength, a.shape.radius) * 0.8;
+    const known = this.ranges.get(a);
+    if (known !== undefined) return known;
+    this.ranges.set(a, 6);
+    if (a.spawn) void this.projectileDef(a.spawn.actor).then(l => {
+      if (l) this.ranges.set(a, l.def.kind === "Bomb" ? Math.max(1.5, l.def.regionRadius) : Math.max(2, (l.def.speed * l.def.fuse) / 1000 * 0.85));
+    });
     return 6;
   }
 
+  /**
+   * Monster AI. The game's own AI lives in closed code and configs this port does not read,
+   * so this one follows the data: a monster with no speed is a turret that turns at its
+   * turn rate and fires once it faces the knight; one whose attacks are all ranged keeps
+   * its distance and fires; anything else closes in and uses whichever attack reaches.
+   */
   private updateMonster(m: Monster, dt: number) {
     m.instance.time += dt;
     m.stateTime += dt;
@@ -1152,14 +1167,17 @@ export class World implements LogicHost {
     this.applyKnockback(m, dt, MONSTER_MASK);
     this.applyLunge(m, dt, MONSTER_MASK);
     const k = this.knight;
-    const dx = k.x - m.x, dy = k.y - m.y, dist = Math.hypot(dx, dy);
-    const turn = (m.def.turnRate * Math.PI) / 180;
+    const dx = k.x - m.x, dy = k.y - m.y, dist = Math.hypot(dx, dy) || 1e-3;
+    // turnRate is radians per second (a jelly's 174.5 is 10,000 degrees: instant)
+    const turn = m.def.turnRate;
 
     if (m.state === "spawning") {
       if (m.instance.finished || m.stateTime > 1.2) { m.state = "idle"; this.play(m, m.def.idle); }
       return;
     }
     if (m.attack) {
+      // slow turners keep tracking the knight while winding up
+      if (m.attack.phase === "start" && turn < 6) m.turnToward(Math.atan2(dy, dx), turn, dt);
       this.advanceAttack(m, dt);
       if (!m.attack) m.state = "chase";
       return;
@@ -1172,22 +1190,30 @@ export class World implements LogicHost {
     }
     if (dist > LEASH_RANGE) { m.state = "idle"; return; }
 
-    // the attack to use: a melee attack in reach, else a ranged one, else the first
-    const inReach = m.def.attacks.filter(a => dist - k.radius <= this.reach(a));
-    const attack = inReach.find(a => a.shape) ?? inReach[0] ?? m.def.attacks.find(a => a.shape) ?? m.def.attacks[0];
-    const reach = attack ? this.reach(attack) : 1;
     const want = Math.atan2(dy, dx);
     m.turnToward(want, turn, dt);
-    if (attack && dist - k.radius <= reach && m.cooldown <= 0) {
-      m.heading = want;
+    const facing = Math.abs(Math.atan2(Math.sin(want - m.heading), Math.cos(want - m.heading)));
+    const gap = dist - k.radius - m.radius;
+    const melee = m.def.attacks.filter(a => a.shape), ranged = m.def.attacks.filter(a => !a.shape);
+    const usable = m.def.attacks.filter(a => gap <= this.reach(a));
+    // prefer a melee attack in reach, then a ranged one
+    const attack = usable.find(a => a.shape) ?? usable[0] ?? null;
+    if (attack && m.cooldown <= 0 && facing < (turn < 6 ? 0.25 : 0.6)) {
+      if (turn >= 6) m.heading = want;
       m.state = "attack";
       this.startAttack(m, attack);
-      m.cooldown = attack.rearm / 1000 + 0.8 + Math.random();
+      m.cooldown = attack.rearm / 1000 + (attack.shape ? 0.6 : 0.9) + Math.random() * 0.8;
       return;
     }
-    if (dist - k.radius > reach * 0.8) {
-      const sp = m.def.targetedSpeed;
-      this.move(m, (dx / dist) * sp * dt, (dy / dist) * sp * dt, MONSTER_MASK);
+    const sp = m.def.targetedSpeed;
+    if (sp <= 0) { this.play(m, m.def.idle); return; }
+    // ranged-only monsters hold a middle distance; others close to melee range
+    const keep = !melee.length && ranged.length ? Math.min(...ranged.map(a => this.reach(a))) * 0.6 : (melee.length ? this.reach(melee[0]) * 0.7 : 1);
+    let mx = 0, my = 0;
+    if (gap > keep) { mx = dx / dist; my = dy / dist; }
+    else if (!melee.length && gap < keep * 0.5) { mx = -dx / dist; my = -dy / dist; }
+    if (mx || my) {
+      this.move(m, mx * sp * dt, my * sp * dt, MONSTER_MASK);
       this.play(m, m.def.move ?? m.def.idle, { speed: sp / Math.max(0.5, m.def.moveSpeed) });
     } else {
       this.play(m, m.def.idle);
@@ -1196,7 +1222,8 @@ export class World implements LogicHost {
 
   /** Keeps actors from overlapping each other. */
   private separate() {
-    const actors: Actor[] = [this.knight, ...this.monsters.filter(m => m.state !== "dying")];
+    // stationary monsters (turrets) are not pushed around
+    const actors: Actor[] = [this.knight, ...this.monsters.filter(m => m.state !== "dying" && m.def.targetedSpeed > 0)];
     for (let i = 0; i < actors.length; i++) {
       for (let j = i + 1; j < actors.length; j++) {
         const a = actors[i], b = actors[j];
