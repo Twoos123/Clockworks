@@ -7,7 +7,7 @@ import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environ
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { GuiContext } from "./ui/gui";
+import { buildInterface, GuiContext, pack, render as renderGui } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -1002,6 +1002,31 @@ class Viewer {
     if (!p) this.iconUrls.set(path, p = this.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => ""));
     return p;
   }
+  private levelIcons = new Map<string, Promise<string>>();
+  /**
+   * A gate lineup icon drawn through the game's own ui/adventureboard/parts/map_levelicon.dat
+   * (its colourisation turns the mask images purple and light blue), as an image URL.
+   */
+  private levelIcon(path: string, locked = false): Promise<string> {
+    const key = path + (locked ? "|locked" : "");
+    let p = this.levelIcons.get(key);
+    if (!p) {
+      p = (async () => {
+        this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+        const ui = await buildInterface(this.gui, { $class: "com.threerings.config.ConfigReference", name: "ui/adventureboard/parts/map_levelicon.dat",
+          arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Icon", path], ["Locked", !locked], ["You are Here", false], ["Friend Here", false]] } });
+        if (!ui) return "";
+        const size = pack(ui);
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, size.width); c.height = Math.max(1, size.height);
+        renderGui(ui, c.getContext("2d")!, 0, size.height, {});
+        return c.toDataURL();
+      })().catch(() => "");
+      this.levelIcons.set(key, p);
+    }
+    return p;
+  }
+
   private img(path: string, cls: string, title = "") {
     const im = document.createElement("img");
     im.className = cls;
@@ -1050,10 +1075,11 @@ class Viewer {
         const theme = f.stratum && f.kind !== "terminal" && f.kind !== "subtown" ? f.stratum.theme.toLowerCase() : "";
         if (f.stratum && f.depth === f.stratum.first) cell.append(this.img(`ui/icon/theme/${theme || "unk"}.png`, "gate-theme", f.stratum.theme));
         else cell.append(document.createElement("span"));
-        const icon = this.img(`ui/icon/map/${floorIcon(f)}.png`, "gate-level", `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`);
-        // the icons are colourisation masks (magenta); tint them by the stratum's theme
-        const hue = f.kind === "terminal" || f.kind === "subtown" || f.kind === "core" ? 200 : THEME_HUES[f.stratum?.theme ?? ""] ?? 200;
-        icon.style.filter = `hue-rotate(${hue - 300}deg) saturate(0.85)`;
+        const icon = document.createElement("img");
+        icon.className = "gate-level";
+        icon.title = `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`;
+        // tiers above the knight's rank show the lock, as the game's map does
+        void this.levelIcon(`ui/icon/map/${floorIcon(f)}.png`).then(u => { if (u) icon.src = u; });
         cell.append(icon);
         const d = document.createElement("small");
         d.textContent = String(f.depth);
@@ -1529,9 +1555,6 @@ class Viewer {
 }
 
 start();
-
-/** Hues the gate lineup tints its level icons with, by stratum theme. */
-const THEME_HUES: Record<string, number> = { Fire: 5, Freeze: 190, Poison: 110, Shock: 52, Beast: 30, Construct: 215, Fiend: 280, Gremlin: 22, Slime: 135, Undead: 165 };
 
 /** The scenes cache, for genTheme's availability check (set once scenes are listed). */
 let genScenes: { id: string; name: string }[] | null = null;
