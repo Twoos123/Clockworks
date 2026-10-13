@@ -1,10 +1,13 @@
 // Gameplay definitions read from the install's config libraries: monsters (config/actor.dat),
-// attacks (config/attack.dat), weapons (config/item.dat) and spawn tables
-// (config/spawn_table.dat). The classes these use are game-specific, so their meaning is
-// inferred from the data; field names follow what the exported configs contain.
+// attacks (config/attack.dat), weapons and gear (config/item.dat), projectiles (bullets and
+// bombs, also actors) and spawn tables (config/spawn_table.dat). The classes these use are
+// game-specific, so their meaning is inferred from the data; field names follow what the
+// exported configs contain. Damage stays as the raw DamageConfig, evaluated against depth
+// and defence when it lands (see combat.ts).
 
 import { applyArguments, getArg } from "../config/params";
 import type { ModelLoader } from "../model";
+import { DepthScales } from "./depth";
 
 const kind = (o: any) => (o?.$class ?? "").substring((o?.$class ?? "").lastIndexOf("$") + 1);
 
@@ -26,13 +29,15 @@ export interface AttackDef {
   startSpeed: number;
   fireSpeed: number;
   endSpeed: number;
-  /** Milliseconds after firing until the attacker may move or chain (clear), land, rearm. */
+  /** Milliseconds after firing until the attacker may move or chain (clear), and rearm. */
   clear: number;
   rearm: number;
-  damage: number;
-  /** Delay in ms after the fire animation starts before damage is applied. */
+  /** The DamageConfig of the attack's hit (melee) or null. */
+  damage: any;
+  /** Delay in ms after the fire animation starts before the hit or spawn. */
   delay: number;
-  shape: DamageShape;
+  /** Melee hit shape, when the attack strikes directly. */
+  shape: DamageShape | null;
   knockback: number;
   /** Particle model for the swing trail, from the fire animation's "Swing" argument. */
   swing?: any;
@@ -41,9 +46,10 @@ export interface AttackDef {
   /**
    * Movement the attack gives the attacker (ImpulseConfig$ItemImpulse "impulseReceived"):
    * units along its facing, spread over `duration` ms starting `delay` ms into the fire phase.
-   * Null when the config omits it (the class default is not in the data).
    */
   impulse: { forward: number; side: number; delay: number; duration: number } | null;
+  /** An actor the attack spawns (a bullet or bomb), with its spread in radians. */
+  spawn: { actor: any; variance: number; rotation: number } | null;
 }
 
 export interface MonsterDef {
@@ -53,7 +59,10 @@ export interface MonsterDef {
   radius: number;
   speed: number;
   targetedSpeed: number;
+  /** Health as a percentage of the depth-scaled health table, and that table. */
   health: number;
+  healthScale: any;
+  defense: any;
   turnRate: number;
   idle?: string;
   move?: string;
@@ -63,17 +72,37 @@ export interface MonsterDef {
   hitFx?: any;
   deathFx?: any;
   collisionFlags: number;
+  /** Handlers such as loot drops. */
+  handlers: any[];
 }
+
+export type WeaponKind = "Sword" | "Handgun" | "Bomb" | "Other";
 
 export interface WeaponDef {
   name: string;
+  kind: WeaponKind;
   model: any;
   attacks: AttackDef[];
   /** Milliseconds of holding the attack button to fully charge. */
   chargeTime: number;
   chargedAttack: AttackDef | null;
+  /** Released before full charge (bombs drop a small one). */
+  incompleteChargedAttack: AttackDef | null;
   /** The inventory icon (IconConfig), shown in the HUD's weapon slots. */
   icon: any;
+  /** Star rating, 0 to 5; picks the depth-scale column for damage. */
+  rarity: number;
+  /** Attacks before the cooldown attack (a gun's clip); 0 for no limit. */
+  maxChain: number;
+  /** Milliseconds without firing after which a partly used chain restores. */
+  chainCooldown: number;
+  /** Played when the chain is spent: a gun's reload. */
+  cooldownAttack: AttackDef | null;
+  /** Movement speed factor while attacking, or null when attacks root the knight. */
+  attackingSpeed: number | null;
+  /** Auto-aim: distance and half-angle (degrees) within which attacks snap to a target. */
+  targetingDist: number;
+  targetingAngle: number;
 }
 
 export interface ShieldDef {
@@ -91,11 +120,42 @@ export interface ShieldDef {
   /** Milliseconds after a hit before the shield starts to regenerate. */
   hitTime: number;
   breakEffect: any;
+  healthScale: any;
+  defense: any;
+  rarity: number;
+}
+
+export interface ArmorDef { name: string; defense: any; rarity: number }
+
+/** A bullet or bomb actor (DungeonActorConfig$Bullet or $Bomb). */
+export interface ProjectileDef {
+  name: string;
+  kind: "Bullet" | "Bomb";
+  model: any;
+  /** Units per second; 0 for bombs. */
+  speed: number;
+  /** Milliseconds until a bullet fizzles or a bomb detonates. */
+  fuse: number;
+  radius: number;
+  /** Spawn offset from the attacker (forward, side) and height above the ground. */
+  offset: [number, number];
+  height: number;
+  collisionMask: number;
+  /** DamageRegionFromPoint: damage, radius and knockback impulse. */
+  damage: any;
+  regionRadius: number;
+  knockback: number;
+  /** Played where a bullet hits or a bomb goes off; a bullet that runs out fizzles. */
+  hitFx: any;
+  fizzleFx: any;
 }
 
 export class GameData {
   private libs = new Map<string, Promise<Map<string, any>>>();
-  constructor(private readonly loader: ModelLoader) {}
+  readonly depth: DepthScales;
+  constructor(private readonly loader: ModelLoader) {
+    this.depth = new DepthScales(loader);
+  }
 
   private library(file: string) {
     let p = this.libs.get(file);
@@ -128,17 +188,17 @@ export class GameData {
     const a = await this.resolve("config/attack.dat", ref, "attack");
     if (!a || kind(a) !== "Original") return null;
     const fire = (a.fireRefs ?? []).find((f: any) => f?.ref)?.ref;
-    const damage = getArg(fire, "Damage");
-    const shape = getArg(fire, "Shape") as any;
     const kb = getArg(fire, "Knock-Back") as any;
+    const actor = (getArg(fire, "Actor") ?? getArg(fire, "Bullet")) as any;
+    const shapeArg = getArg(fire, "Shape");
     return {
       name: ref?.name ?? "",
       start: a.start?.name, fire: a.fire?.name, end: a.end?.name,
       startSpeed: a.startSpeed ?? 1, fireSpeed: a.fireSpeed ?? 1, endSpeed: a.endSpeed ?? 1,
       clear: a.clear ?? 400, rearm: a.rearm ?? 300,
-      damage: damageAmount(damage),
+      damage: getArg(fire, "Damage") ?? null,
       delay: Number(getArg(fire, "Delay") ?? 0),
-      shape: readShape(shape),
+      shape: actor?.name && !shapeArg ? null : readShape(shapeArg),
       knockback: kb?.translation?.x ?? 0.5,
       swing: getArg(a.fire, "Swing"),
       interruptable: !!a.interruptable,
@@ -146,18 +206,23 @@ export class GameData {
         forward: a.impulseReceived.translation?.x ?? 0, side: a.impulseReceived.translation?.y ?? 0,
         delay: a.impulseReceived.delay ?? 0, duration: a.impulseReceived.duration ?? 150,
       } : null,
+      spawn: actor?.name ? { actor, variance: Number(getArg(fire, "Rotation Variance") ?? 0), rotation: Number(getArg(fire, "Rotation") ?? 0) } : null,
     };
+  }
+
+  private async attacks(refs: any[] | undefined): Promise<AttackDef[]> {
+    const out: AttackDef[] = [];
+    for (const r of refs ?? []) {
+      const def = r?.ref ? await this.attack(r.ref) : null;
+      if (def) out.push(def);
+    }
+    return out;
   }
 
   async monster(ref: any): Promise<MonsterDef | null> {
     const m = await this.resolve("config/actor.dat", ref, "actor");
     if (!m || !m.sprite?.model) return null;
     const sprite = m.sprite;
-    const attacks: AttackDef[] = [];
-    for (const r of m.attacks ?? []) {
-      const def = r?.ref ? await this.attack(r.ref) : null;
-      if (def) attacks.push(def);
-    }
     const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : undefined);
     return {
       name: ref?.name ?? "",
@@ -167,35 +232,76 @@ export class GameData {
       speed: m.speed ?? 2,
       targetedSpeed: m.targetedSpeed ?? m.speed ?? 2,
       health: m.health ?? 100,
+      healthScale: m.healthScale ?? null,
+      defense: m.defense ?? null,
       turnRate: m.turnRate ?? 180,
       idle: (sprite.targetedIdles ?? sprite.idles)?.[0]?.animation?.name,
       move: (sprite.targetedMovements ?? sprite.movements)?.[0]?.animation?.name,
       moveSpeed: (sprite.targetedMovements ?? sprite.movements)?.[0]?.speed ?? 2,
       activation: sprite.activation?.name,
-      attacks,
+      attacks: await this.attacks(m.attacks),
       hitFx: transient(sprite.hitTransient),
       deathFx: transient(sprite.destructionTransient),
       collisionFlags: m.collisionFlags ?? 8,
+      handlers: m.handlers ?? [],
     };
   }
 
   async weapon(name: string): Promise<WeaponDef | null> {
     const w = await this.resolve("config/item.dat", { name }, "item");
     if (!w?.model) return null;
-    const attacks: AttackDef[] = [];
-    for (const r of w.attacks ?? []) {
-      const def = r?.ref ? await this.attack(r.ref) : null;
-      if (def) attacks.push(def);
-    }
-    const chargedAttack = w.chargedAttack ? await this.attack(w.chargedAttack) : null;
-    return { name, model: w.model, attacks, chargeTime: w.chargeTime ?? 2000, chargedAttack, icon: w.icon ?? null };
+    const k = kind(w);
+    return {
+      name, model: w.model,
+      kind: k === "Sword" ? "Sword" : k === "Handgun" || k === "SwingingHandgun" ? "Handgun" : k === "Bomb" ? "Bomb" : "Other",
+      attacks: await this.attacks(w.attacks),
+      chargeTime: w.chargeTime ?? 2000,
+      chargedAttack: w.chargedAttack ? await this.attack(w.chargedAttack) : null,
+      incompleteChargedAttack: w.incompleteChargedAttack ? await this.attack(w.incompleteChargedAttack) : null,
+      icon: w.icon ?? null,
+      rarity: w.rarity ?? 0,
+      maxChain: w.maxChain ?? 0,
+      chainCooldown: w.chainCooldown ?? 0,
+      cooldownAttack: w.cooldownAttack ? await this.attack(w.cooldownAttack) : null,
+      attackingSpeed: w.attackingSpeed ?? null,
+      targetingDist: w.targetingDist ?? 0,
+      targetingAngle: w.targetingAngle ?? 0,
+    };
   }
 
   async shield(name: string): Promise<ShieldDef | null> {
     const s = await this.resolve("config/item.dat", { name }, "item");
     if (!s?.model) return null;
     return { name, model: s.model, effect: s.effect, defendingSpeed: s.defendingSpeed ?? -0.5, icon: s.icon ?? null,
-      regenTime: s.regenTime ?? 6000, breakTime: s.breakTime ?? 8000, hitTime: s.hitTime ?? 3000, breakEffect: s.breakEffect };
+      regenTime: s.regenTime ?? 6000, breakTime: s.breakTime ?? 8000, hitTime: s.hitTime ?? 3000, breakEffect: s.breakEffect,
+      healthScale: s.healthScale ?? null, defense: s.defense ?? null, rarity: s.rarity ?? 0 };
+  }
+
+  async armor(name: string): Promise<ArmorDef | null> {
+    const a = await this.resolve("config/item.dat", { name }, "item");
+    return a ? { name, defense: a.defense ?? null, rarity: a.rarity ?? 0 } : null;
+  }
+
+  /** A bullet or bomb actor, with the spawning attack's arguments applied. */
+  async projectile(ref: any): Promise<ProjectileDef | null> {
+    const p = await this.resolve("config/actor.dat", ref, "actor");
+    const k = kind(p);
+    if (k !== "Bullet" && k !== "Bomb") return null;
+    const det = p.detonationAction;
+    const region = det?.region?.shape;
+    const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : null);
+    return {
+      name: ref?.name ?? "", kind: k, model: p.model ?? null,
+      speed: p.speed ?? 0, fuse: p.fuse ?? (k === "Bomb" ? 2000 : 500),
+      radius: p.shape?.radius ?? 0.2,
+      offset: [p.offset?.x ?? 0.5, p.offset?.y ?? 0], height: p.height ?? (k === "Bomb" ? 0 : 1),
+      collisionMask: p.collisionMask ?? 1,
+      damage: det?.damage ?? null,
+      regionRadius: region?.radius ?? (k === "Bomb" ? 2 : 0.5),
+      knockback: det?.impulseDealt?.translation?.x ?? 1,
+      hitFx: transient(p.sprite?.destructionTransient),
+      fizzleFx: transient(p.sprite?.fizzleTransient),
+    };
   }
 
   /**
@@ -227,16 +333,6 @@ function findActorRef(o: any, depth = 0): any | null {
   if (o.$map) { for (const [, v] of o.entries) { const r = findActorRef(v, depth + 1); if (r) return r; } return null; }
   for (const k of Object.keys(o)) { if (k === "$outer") continue; const r = findActorRef(o[k], depth + 1); if (r) return r; }
   return null;
-}
-
-function damageAmount(d: any): number {
-  switch (kind(d)) {
-    case "Normal": case "Piercing": case "Elemental": case "Shadow": return d.amount ?? 20;
-    case "Compound": return (d.damages ?? []).reduce((s: number, x: any) => s + damageAmount(x), 0) || 20;
-    // depth-scaled damage depends on dungeon depth tables; use a tier-1 baseline
-    case "DepthScale": case "DepthScaleMulti": return d.majorReact ? 45 : 30;
-    default: return 20;
-  }
 }
 
 function readShape(s: any): DamageShape {

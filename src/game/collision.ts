@@ -107,12 +107,13 @@ export class CollisionMap {
   }
 
   /** Whether a circle at (x, y) with radius r hits anything matching mask. */
-  collides(x: number, y: number, r: number, mask: number): boolean {
+  /** `walking` treats cells without a floor as blocked (drops); projectiles fly over them. */
+  collides(x: number, y: number, r: number, mask: number, walking = true): boolean {
     for (let cy = Math.floor(y - r); cy <= Math.floor(y + r); cy++) {
       for (let cx = Math.floor(x - r); cx <= Math.floor(x + r); cx++) {
         const c = this.cell(cx, cy);
         // outside the map, or no floor and nothing else: treat as a drop, which blocks walking
-        const blocked = !c || (c.flags & mask) !== 0 || !c.floor;
+        const blocked = c ? (c.flags & mask) !== 0 || (walking && !c.floor) : walking;
         if (!blocked) continue;
         const nx = Math.max(cx, Math.min(x, cx + 1)), ny = Math.max(cy, Math.min(y, cy + 1));
         if ((nx - x) ** 2 + (ny - y) ** 2 < r * r) return true;

@@ -141,6 +141,8 @@ class Viewer {
   private gui: GuiContext | null = null;
   private attackPressed = false;
   private attackHeld = false;
+  /** A weapon slot picked with the number keys, applied on the next update. */
+  private weaponSlot: number | null = null;
   private shieldHeld = false;
   /** Mouse position over the canvas in CSS pixels, for aiming. */
   private mouse: [number, number] | null = null;
@@ -189,6 +191,7 @@ class Viewer {
     addEventListener("keydown", e => {
       if (!this.world || typing()) return;
       if (e.key === "Escape") { this.stopPlaying(); return; }
+      if (/^[1-9]$/.test(e.key)) this.weaponSlot = Number(e.key) - 1;
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
@@ -603,8 +606,9 @@ class Viewer {
         if (!this.paused) {
           this.world.update(dt, {
             move: [mv.x, mv.y], attackDown: this.attackPressed, attackHeld: this.attackHeld,
-            shield: this.shieldHeld || this.keys.has("shift"), aim: this.aimPoint(),
+            shield: this.shieldHeld || this.keys.has("shift"), aim: this.aimPoint(), weaponSlot: this.weaponSlot,
           });
+          this.weaponSlot = null;
         }
         this.attackPressed = false;
         // Q and E turn the camera; it follows the knight smoothly

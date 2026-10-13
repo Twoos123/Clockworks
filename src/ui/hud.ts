@@ -38,7 +38,7 @@ export function hudState(world: World, name: string): HudState {
   return {
     name, health: k.health, maxHealth: k.maxHealth, recentDamage: k.recentDamage,
     shield: k.shieldHealth, shieldMax: k.shieldMax, shieldBroken: k.shieldBroken > 0, shielding: k.shielding,
-    weapons: k.weapon ? [{ icon: k.weapon.icon, selected: true }] : [],
+    weapons: k.weapons.map((w, i) => ({ icon: w.def.icon, selected: i === k.slot })),
   };
 }
 
