@@ -532,6 +532,27 @@ class Viewer {
         return true;
       });
     this.arsenal.onClose = () => { this.paused = false; this.canvas.focus(); };
+    this.arsenal.crafting = {
+      materials: () => this.save.materials,
+      level: name => this.save.owned.includes(name) ? (/^Weapon\//.test(name) ? weaponLevel(this.save.weaponHeat[name] ?? 0) : 10) : 0,
+      crowns: () => this.save.crowns,
+      craft: r => {
+        if (this.save.crowns < r.cost || r.materials.some(([n, k]) => (this.save.materials[n] ?? 0) < k)) return false;
+        this.save.crowns -= r.cost;
+        for (const [n, k] of r.materials) this.save.materials[n] -= k;
+        if (r.consumes) {
+          // the base item becomes the new one, wherever it was equipped
+          this.save.owned = this.save.owned.filter(o => o !== r.consumes);
+          const l = this.save.loadout;
+          l.weapons = l.weapons.map(w => (w === r.consumes ? r.output : w));
+          for (const slot of ["shield", "armor", "helmet"] as const) if (l[slot] === r.consumes) l[slot] = r.output;
+          if (this.save.weaponHeat[r.consumes] !== undefined) this.save.weaponHeat[r.output] = 0;
+        }
+        this.save.owned.push(r.output);
+        writeSave(this.save);
+        return true;
+      },
+    };
     this.arsenal.color = this.save.color;
     this.arsenal.onColor = print => { this.save.color = print; writeSave(this.save); };
     // the personal colour class (the default print's class) and its named colours

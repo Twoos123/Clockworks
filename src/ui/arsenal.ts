@@ -6,13 +6,24 @@ import type { GameData } from "../game/data";
 import { price, type Loadout } from "../game/save";
 import type { GuiContext } from "./gui";
 
-type Tab = "weapons" | "shield" | "armor" | "helmet";
+type Tab = "weapons" | "shield" | "armor" | "helmet" | "craft";
 const TABS: { id: Tab; label: string; test: RegExp }[] = [
   { id: "weapons", label: "Weapons", test: /^Weapon\/(Sword|Handgun|Bomb)\// },
   { id: "shield", label: "Shields", test: /^Gear\/Shield\// },
   { id: "armor", label: "Armour", test: /^Gear\/Armor\// },
   { id: "helmet", label: "Helmets", test: /^Gear\/Helm\// },
+  { id: "craft", label: "Craft", test: /^$/ },
 ];
+
+/** What crafting needs from the player's save. */
+export interface CraftHooks {
+  materials(): Record<string, number>;
+  /** An owned item's level (weapons level with heat), 0 when not owned. */
+  level(name: string): number;
+  crowns(): number;
+  /** Spends the inputs and adds the output; returns false if something was missing. */
+  craft(recipe: { output: string; materials: [string, number][]; consumes: string | null; cost: number }): boolean;
+}
 const SKIP = /\/Parts\/|\/Dev\/|\(Dev\)|\bTEST\b|\/Test\/|PvP|\(Test\)|Tutorial|Promo/;
 
 interface Entry { name: string; label: string; kind: string; rarity: number; icon: any }
@@ -30,6 +41,9 @@ export class Arsenal {
   colors: { print: number; name: string; rgb: [number, number, number] }[] = [];
   color = 257;
   onColor: ((print: number) => void) | null = null;
+
+  /** Set to enable the Craft tab. */
+  crafting: CraftHooks | null = null;
 
   constructor(private readonly root: HTMLElement, private readonly data: GameData, private readonly gui: GuiContext,
     private readonly onChange: (l: Loadout) => void, private readonly bank: () => { crowns: number; heat: number },
@@ -75,7 +89,7 @@ export class Arsenal {
 
   private equipped(e: Entry): boolean {
     const l = this.loadout;
-    return this.tab === "weapons" ? l.weapons.includes(e.name) : l[this.tab] === e.name;
+    return this.tab === "weapons" ? l.weapons.includes(e.name) : this.tab !== "craft" && l[this.tab] === e.name;
   }
 
   private toggle(e: Entry) {
@@ -84,8 +98,9 @@ export class Arsenal {
       const i = l.weapons.indexOf(e.name);
       if (i >= 0) { if (l.weapons.length > 1) l.weapons.splice(i, 1); }
       else { if (l.weapons.length >= 3) l.weapons.shift(); l.weapons.push(e.name); }
-    } else {
-      l[this.tab] = l[this.tab] === e.name && this.tab !== "shield" ? "" : e.name;
+    } else if (this.tab !== "craft") {
+      const slot = this.tab;
+      l[slot] = l[slot] === e.name && slot !== "shield" ? "" : e.name;
     }
     this.onChange({ ...l, weapons: [...l.weapons] });
     this.render();
@@ -103,7 +118,7 @@ export class Arsenal {
     close.onclick = () => this.close();
     head.append(title, money, close);
     const tabs = el("div", "arsenal-tabs");
-    for (const t of TABS.filter(t => !this.shop || this.shop.tabs.includes(t.id))) {
+    for (const t of TABS.filter(t => this.shop ? this.shop.tabs.includes(t.id) : t.id !== "craft" || !!this.crafting)) {
       const b = el("button", t.id === this.tab ? "active" : "", t.label);
       b.onclick = () => { this.tab = t.id; this.render(); };
       tabs.append(b);
@@ -115,8 +130,9 @@ export class Arsenal {
     search.oninput = () => { this.filter = search.value; this.fillGrid(grid); };
     tabs.append(search);
     const summary = el("div", "arsenal-summary", this.summary());
-    if (!this.shop && this.colors.length) {
-      const row = el("div", "arsenal-colors");
+    let colorRow: HTMLElement | null = null;
+    if (!this.shop && this.colors.length && this.tab !== "craft") {
+      const row = colorRow = el("div", "arsenal-colors");
       row.append(el("span", "", "Colour"));
       for (const c of this.colors) {
         const b = el("button", "swatch" + (c.print === this.color ? " active" : ""));
@@ -125,15 +141,74 @@ export class Arsenal {
         b.onclick = () => { this.color = c.print; this.onColor?.(c.print); this.render(); };
         row.append(b);
       }
-      card.append(row);
     }
     const grid = el("div", "arsenal-grid");
-    card.append(head, tabs, summary, grid);
+    card.append(head, tabs, summary, ...(colorRow ? [colorRow] : []), grid);
     r.append(card);
     this.fillGrid(grid);
   }
 
+  /** The recipe library (config/recipe.dat): ingredients and the item each makes. */
+  private async recipes(): Promise<Recipe[]> {
+    await this.data.preload("config/recipe.dat");
+    const lib = this.data.library_("config/recipe.dat");
+    const cached = RECIPE_CACHE.get(lib);
+    if (cached) return cached;
+    const out: Recipe[] = [];
+    for (const name of lib.keys()) {
+      const r = this.data.resolveSync("config/recipe.dat", { name }, "recipe");
+      const output = r?.item?.name;
+      if (!output || SKIP.test(output)) continue;
+      const item = this.data.resolveSync("config/item.dat", { name: output }, "item");
+      if (!item?.icon) continue;
+      const materials: [string, number][] = [];
+      let consumes: string | null = null, level = 0;
+      for (const ing of r.ingredients ?? []) {
+        const k = String(ing?.$class ?? "").split("$").pop();
+        if (k === "LevelItem" && ing.item?.name) { consumes = ing.item.name; level = ing.level ?? 0; }
+        else if (ing?.item?.name) materials.push([ing.item.name, ing.count ?? 1]);
+      }
+      out.push({ name, output, label: output.split("/").pop()!, rarity: item.rarity ?? 0, icon: item.icon, materials, consumes, level,
+        cost: Math.round(price(item.rarity ?? 0) / 2) });
+    }
+    out.sort((a, b) => a.rarity - b.rarity || a.label.localeCompare(b.label));
+    RECIPE_CACHE.set(lib, out);
+    return out;
+  }
+
+  private async fillCraft(grid: HTMLElement) {
+    const c = this.crafting;
+    if (!c) return;
+    const owned = this.owned(), mats = c.materials(), q = this.filter.toLowerCase();
+    const list = (await this.recipes()).filter(r => !owned.has(r.output) && (!q || r.label.toLowerCase().includes(q))
+      // show recipes the knight could work toward: its base item owned, or no base item
+      && (!r.consumes || owned.has(r.consumes)));
+    grid.replaceChildren();
+    if (!list.length) { grid.append(el("p", "arsenal-summary", "Nothing to craft yet: recipes upgrade gear you own, using materials from the Clockworks.")); return; }
+    for (const r of list.slice(0, 200)) {
+      const have = (n: string) => mats[n] ?? 0;
+      const ok = r.materials.every(([n, k]) => have(n) >= k) && (!r.consumes || c.level(r.consumes) >= r.level) && c.crowns() >= r.cost;
+      const tile = el("button", "arsenal-item craft" + (ok ? " equipped" : ""));
+      const cv = document.createElement("canvas");
+      cv.width = cv.height = 48;
+      void this.gui.icon(r.icon).then(im => {
+        if (!im) return;
+        const g = cv.getContext("2d")!, s = Math.min(48 / im.width, 48 / im.height);
+        g.drawImage(im.source, (48 - im.width * s) / 2, (48 - im.height * s) / 2, im.width * s, im.height * s);
+      });
+      const lines = [
+        ...(r.consumes ? [`${r.consumes.split("/").pop()} lv ${c.level(r.consumes)}/${r.level}`] : []),
+        ...r.materials.map(([n, k]) => `${n.split("/").pop()} ${have(n)}/${k}`),
+        `${r.cost} cr`,
+      ];
+      tile.append(cv, el("span", "arsenal-name", r.label), el("span", "arsenal-stars", "★".repeat(r.rarity)), el("span", "craft-needs", lines.join("\n")));
+      tile.onclick = () => { if (ok && c.craft({ output: r.output, materials: r.materials, consumes: r.consumes, cost: r.cost })) this.render(); };
+      grid.append(tile);
+    }
+  }
+
   private summary(): string {
+    if (this.tab === "craft") return "Recipes from the game's recipe library. Crafting uses the materials and the base item (which must be levelled with heat).";
     if (this.shop) return `Stock up to ${this.shop.maxRarity}★. Bought items go to your arsenal; owned items show a tick.`;
     const l = this.loadout, last = (n: string) => n ? n.split("/").pop() : "default";
     return `Equipped: ${l.weapons.map(last).join(", ")} · ${last(l.shield)} · ${last(l.armor)} · ${last(l.helmet)}. Changes apply on the next floor.`;
@@ -141,6 +216,7 @@ export class Arsenal {
 
   private fillGrid(grid: HTMLElement) {
     grid.replaceChildren();
+    if (this.tab === "craft") { void this.fillCraft(grid); return; }
     const q = this.filter.toLowerCase();
     const owned = this.owned();
     let shown = 0;
@@ -171,6 +247,11 @@ export class Arsenal {
     }
   }
 }
+
+interface Recipe { name: string; output: string; label: string; rarity: number; icon: any;
+  materials: [string, number][]; consumes: string | null; level: number; cost: number }
+
+const RECIPE_CACHE = new WeakMap<object, Recipe[]>();
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
