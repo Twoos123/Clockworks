@@ -11,6 +11,9 @@ import { GuiContext } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
+import { Arsenal } from "./ui/arsenal";
+import { loadSave, writeSave, type SaveData } from "./game/save";
+import { GameData } from "./game/data";
 
 /** The name shown on the HUD name plate. */
 const KNIGHT_NAME = "Knight";
@@ -141,6 +144,8 @@ class Viewer {
   private gameHud: GameHud | null = null;
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
+  private save: SaveData = loadSave();
+  private arsenal: Arsenal | null = null;
   /** Scenes in the install's cache, by name. */
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
@@ -191,6 +196,7 @@ class Viewer {
       void this.startPlaying();
     };
     $("descend").onclick = () => void this.descend();
+    $("arsenalBtn").onclick = () => void this.toggleArsenal();
     $("revive").onclick = () => { this.world?.revive(); $("defeated").hidden = true; this.canvas.focus(); };
     $("spawnJelly").onclick = () => {
       const k = this.world?.knight;
@@ -206,6 +212,7 @@ class Viewer {
       if (e.key === "Escape") { this.stopPlaying(); return; }
       if (/^[1-9]$/.test(e.key)) this.weaponSlot = Number(e.key) - 1;
       if (e.key.toLowerCase() === "f" && !e.repeat) this.interactPressed = true;
+      if (e.key.toLowerCase() === "i" && !e.repeat) void this.toggleArsenal();
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
@@ -364,8 +371,9 @@ class Viewer {
     this.audio ??= new AudioSystem(this.vfs, this.loader);
     this.audio.unlock();
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision, { audio: this.audio, depth: this.run.depth });
+    this.arsenal?.close();
     world.onNextFloor = () => this.floorCleared();
-    await world.start(spawn);
+    await world.start(spawn, this.save.loadout);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the scene's music (a weighted pick from its mix) and ambient loops
     const music = this.environment.music;
@@ -379,7 +387,7 @@ class Viewer {
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    const portrait = new PortraitView(this.renderer, this.loader);
+    const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
     this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => portrait.draw(c, g, x, y, w, h) });
     void this.gameHud.init(hudState(world, KNIGHT_NAME)).catch(e => console.warn("HUD failed to load", e));
@@ -430,13 +438,30 @@ class Viewer {
     return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   }
 
+  /** Opens or closes the arsenal; the world pauses while it is open. */
+  private async toggleArsenal() {
+    if (!this.gui) this.gui = new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    this.arsenal ??= new Arsenal($("arsenal"), this.world?.data ?? new GameData(this.loader), this.gui,
+      l => { this.save.loadout = l; writeSave(this.save); },
+      () => ({ crowns: this.save.crowns, heat: this.save.heat }));
+    if (this.arsenal.isOpen) { this.arsenal.close(); this.paused = false; this.canvas.focus(); return; }
+    this.paused = !!this.world;
+    await this.arsenal.open(this.save.loadout);
+  }
+
   /** The knight reached the exit elevator: offer the next floor. */
   private floorCleared() {
     if (!this.world) return;
+    // bank what the floor gave
+    const l = this.world.loot;
+    this.save.crowns += l.crowns;
+    this.save.heat += l.heat;
+    for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
+    this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
+    writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
     $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
-    const l = this.world.loot;
     const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
     $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} other pickups.`;
     $("floorDone").hidden = false;

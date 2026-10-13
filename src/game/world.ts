@@ -17,6 +17,7 @@ import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind } from "./props";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
+import { DEFAULT_LOADOUT, type Loadout as GearLoadout } from "./save";
 import { StatusConditions, type ActiveStatus } from "./status";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
@@ -241,24 +242,39 @@ export class World implements LogicHost {
   }
 
   /** The knight's body with one weapon in hand ("Weapon" attaches at bone_weapon_r). */
-  private async knightInstance(weapon: WeaponDef | null, shield: ShieldDef | null) {
+  private async knightInstance(weapon: WeaponDef | null, shield: ShieldDef | null, armor: ArmorDef[] = []) {
     const args: [string, any][] = [];
     if (weapon) args.push(["Weapon", weapon.model]);
     if (shield) args.push(["Shield", shield.model]);
+    // armour and helmet attach through the body model's "Armor" and "Helmet" parameters
+    for (const a of armor) if (a.model) args.push([a.slot === "helmet" ? "Helmet" : "Armor", a.model]);
     const ref: any = { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
     return this.renderer.instantiate(await this.loader.load("character/pc/model.dat", ref));
   }
 
-  async start(at: [number, number], weaponNames = STARTER_WEAPONS) {
+  /** The knight's body model as worn (armour and helmet, no weapon), for the HUD portrait. */
+  portraitRef(): any {
+    const args: [string, any][] = [];
+    for (const a of this.knight?.armor ?? []) if (a.model) args.push([a.slot === "helmet" ? "Helmet" : "Armor", a.model]);
+    return { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
+  }
+
+  async start(at: [number, number], gear: GearLoadout = DEFAULT_LOADOUT) {
     await this.data.depth.ready();
-    const shield = await this.data.shield(STARTER_SHIELD);
-    const weapons = (await Promise.all(weaponNames.map(n => this.data.weapon(n)))).filter((w): w is WeaponDef => !!w);
-    const loadouts: Loadout[] = await Promise.all(weapons.map(async def => ({ def, instance: await this.knightInstance(def, shield) })));
-    const knight = new Knight(loadouts[0]?.instance ?? await this.knightInstance(null, shield));
+    const shield = await this.data.shield(gear.shield || STARTER_SHIELD);
+    const weapons = (await Promise.all((gear.weapons.length ? gear.weapons : STARTER_WEAPONS).map(n => this.data.weapon(n))))
+      .filter((w): w is WeaponDef => !!w);
+    // armour and helmet: the equipped items, else the proto parts (the body model's defaults)
+    const armorNames = [gear.armor || STARTER_ARMOR[0], gear.helmet || STARTER_ARMOR[1]];
+    const armor = (await Promise.all(armorNames.map(n => this.data.armor(n)))).filter((a): a is ArmorDef => !!a);
+    armor.forEach((a, i) => { a.slot = i === 0 ? "armor" : "helmet"; if (!(i === 0 ? gear.armor : gear.helmet)) a.model = null; });
+    const loadouts: Loadout[] = await Promise.all(weapons.map(async def => ({ def, instance: await this.knightInstance(def, shield, armor) })));
+    const knight = new Knight(loadouts[0]?.instance ?? await this.knightInstance(null, shield, armor));
     knight.weapons = loadouts;
     knight.shield = shield;
-    knight.armor = (await Promise.all(STARTER_ARMOR.map(n => this.data.armor(n)))).filter((a): a is ArmorDef => !!a);
+    knight.armor = armor;
     this.updateKnightStats(knight);
     knight.health = knight.maxHealth;
     // the upper body: spine and everything above it (arms, head, weapon and shield bones)

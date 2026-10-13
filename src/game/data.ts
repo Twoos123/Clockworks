@@ -127,7 +127,15 @@ export interface ShieldDef {
   rarity: number;
 }
 
-export interface ArmorDef { name: string; defense: any; rarity: number }
+export interface ArmorDef {
+  name: string;
+  defense: any;
+  rarity: number;
+  /** The model the knight wears, or null to keep the body model's default. */
+  model: any;
+  icon: any;
+  slot?: "armor" | "helmet";
+}
 
 /** A bullet or bomb actor (DungeonActorConfig$Bullet or $Bomb). */
 export interface ProjectileDef {
@@ -321,7 +329,7 @@ export class GameData {
 
   async armor(name: string): Promise<ArmorDef | null> {
     const a = await this.resolve("config/item.dat", { name }, "item");
-    return a ? { name, defense: a.defense ?? null, rarity: a.rarity ?? 0 } : null;
+    return a ? { name, defense: a.defense ?? null, rarity: a.rarity ?? 0, model: a.model ?? null, icon: a.icon ?? null } : null;
   }
 
   /** A bullet or bomb actor, with the spawning attack's arguments applied. */
