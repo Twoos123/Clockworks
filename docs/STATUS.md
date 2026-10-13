@@ -8,8 +8,11 @@ A single-player loop runs in the browser, built from the install's own data:
 
 1. **Haven.** The town loads from the scenes cache. Shopkeepers stand in the bazaar and sell
    gear for crowns.
-2. **Arsenal.** Every weapon, shield, armour and helmet is available with its icon, plus a
-   personal colour.
+2. **Arsenal.** The game's own arsenal and equipment windows (`ui/arsenal`, `ui/status`):
+   owned gear by category with icons, stars and heat levels, the game's item tooltips, sockets
+   for helmet, armour, shield, two trinkets, three weapons and the vitapod, the knight
+   preview, and the personal colour. B opens the backpack (`ui/inventory`): pocket items and
+   materials.
 3. **Runs.** Enter the Clockworks from town. Each cached combat level is followed by a
    newly generated floor of its theme, one depth per floor. The Core's elevator returns to
    Haven; "go deeper" past the end keeps generating floors.
@@ -33,8 +36,10 @@ A single-player loop runs in the browser, built from the install's own data:
 7. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
    deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
    boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
-8. **Crafting.** Recipes from `config/recipe.dat` turn materials, crowns and a levelled base
-   item into the next item.
+8. **Crafting.** The game's forge (`ui/forge`, K): recipes from `config/recipe.dat` turn
+   materials, crowns and a levelled base item into the next item, with the forging animation
+   played by the interface's own scripts. Shops use the game's vendor and cart windows
+   (`ui/shop`).
 9. **Saving.** The browser keeps:
    - loadout, owned items and colour;
    - banked crowns, heat and materials;
@@ -45,7 +50,7 @@ A single-player loop runs in the browser, built from the install's own data:
 
 | Area | What is in |
 |---|---|
-| Rendering | Every model and cached scene; library materials, colours, lights, fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
+| Rendering | Every model and cached scene; library materials (two texture units), colours, lights (scene directional plus point, spot and directional influences, nearest eight per object), fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
 | Knight | Gear from the arsenal, personal colour, idle, run, hurt, death, dash; keyboard and mouse or gamepad |
 | Weapons | Swords (combos with lunges, charge), guns (clips, reload, charge shots, auto-aim), bombs (charge, fuse, blast), from item and attack data |
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
@@ -68,6 +73,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
 | Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
 | Ready Room | `rsrc/world/readyroom/scene.dat` with the arsenal open; the knight changes into a new loadout when it closes |
+| Level checklist | `src/game/levels.ts`: 366 server-side levels (Clockworks sets, bosses, Shadow Lairs, danger, rank, expansion and event missions, towns, PvP) with where to get each and a scene-name pattern; `npm run levels` prints collected/missing from the archive and cache; the options window's Levels tab shows the counts (docs/research/levels.md) |
 | Knight creation | On a fresh save: `rsrc/world/createknight/scene.dat`, a name (shown on the HUD name plate), personal colour, and the zero-star Spiral helmets and armours in their seven trims |
 
 ## What is still missing
@@ -93,8 +99,14 @@ A single-player loop runs in the browser, built from the install's own data:
    is modelled (`save.heatAmplifier`, double heat) but cannot be bought. Minerals carry no
    energy in the data; they bank as materials and sell for nothing (their uses, sprite food
    and gate themes, are not modelled).
-5. **Boss levels.** Bosses run their own handlers in the Arena. Their scripted arenas (the
-   Jelly Palace, Snarbolax's bells) are server-streamed levels this cache lacks.
+5. **Boss levels.** The four Clockworks bosses have their own arena floors (`src/game/bosses.ts`):
+   the Royal Jelly's stage chain with polyps, minis it absorbs and its rage; the Snarbolax,
+   hurt only while a Beast Bell's ring has it stunned; the Roarmulus Twins, exposed only by
+   each other's rockets (pressure plates raise a blast wall); Lord Vanaduke's three body
+   stages and two burning masks, put out with water pots. The fights' server logic is not in
+   the client data (conditions, timers and signal names are stripped), so a director per boss
+   runs it, written from the configs and the wiki's fight descriptions. The arena layouts are
+   our own (the real levels are server-streamed).
 6. **Guilds and PvP.** Missions are in (below), but their own levels and dialogue are
    server data: dungeon missions play as themed generated floors, briefings show our summary.
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).

@@ -11,7 +11,7 @@ import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
 import type { CollisionMap } from "./collision";
 import { dealt, mainType, TYPE_COLORS } from "./combat";
-import { GameData, type ArmorDef, type AttackDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
+import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
 import { addItemBonuses, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
@@ -88,7 +88,12 @@ abstract class Actor {
   dead = false;
   /** Knockback velocity, decaying. */
   kx = 0; ky = 0;
-  attack: { def: AttackDef; phase: Phase; t: number; hit: boolean; lunged: boolean; overlay: boolean; touched?: Set<Actor> } | null = null;
+  /**
+   * The attack under way: its phase and time in it, seconds since it fired (its fire actions
+   * go off at their delays, a burst running on into the follow-through), which have fired,
+   * whether the lunge started, and whether it plays on the upper body only.
+   */
+  attack: { def: AttackDef; phase: Phase; t: number; ft: number; fired: Set<number>; lunged: boolean; overlay: boolean; touched?: Set<Actor> } | null = null;
   /** Lunge from an attack's impulse: velocity and remaining seconds. */
   lunge = { vx: 0, vy: 0, t: 0 };
   /** Nodes animated by the upper-body overlay (knights); null plays attacks whole-body. */
@@ -148,6 +153,8 @@ export class Knight extends Actor {
   dashCooldown = 0;
   /** Mid-dash (the lunge carries the knight). */
   dashing = false;
+  /** Seconds left staggering from a major hit (no moving or attacking). */
+  stagger = 0;
   /** Health lost recently, shown on the HUD as a damage segment that drains away. */
   recentDamage = 0;
   sinceDamage = 1e9;
@@ -175,6 +182,14 @@ export class Monster extends Actor {
   path: [number, number][] | null = null;
   pathAge = 0;
   homeX = 0; homeY = 0;
+  /** Seconds left following a path after getting stuck on the straight line. */
+  stuck = 0;
+  /** A lichen colony's size (its "Size" argument, 1 to 21), or 0 for anything else. */
+  size = 0;
+  /** The lichen this one is merging with. */
+  mergeWith: Monster | null = null;
+  /** Moved and made to attack by a boss director rather than the AI. */
+  scripted = false;
   constructor(instance: ModelInstance, readonly def: MonsterDef, health: number) {
     super(instance, def.scale);
     this.radius = def.radius;
@@ -186,6 +201,8 @@ export class Monster extends Actor {
 class Projectile {
   age = 0;
   done = false;
+  /** The monster that fired it, if any. */
+  owner: Monster | null = null;
   constructor(readonly def: ProjectileDef, readonly instance: ModelInstance | null, readonly team: Team,
     public x: number, public y: number, public z: number, readonly heading: number, readonly ctx: DepthContext) {}
   matrix(): Mat4 {
@@ -202,6 +219,25 @@ interface Effect {
   follow?: Actor;
   /** ScriptedConfig: its actions, the time so far and the next action to run. */
   script?: { actions: { time: number; action: any }[]; loop: number; t: number; next: number };
+}
+
+/**
+ * A scripted boss fight (src/game/bosses.ts). The bosses' own fight logic is server code the
+ * client data leaves out, so a director runs it: the world asks it each tick and when
+ * something is hit.
+ */
+export interface BossDirector {
+  update(dt: number): void;
+  /** Damage about to be dealt to a monster; returns what it takes (0: immune). */
+  damage?(m: Monster, dmg: number): number;
+  /** The attacks the AI may choose for a monster (null: all of them). */
+  attacks?(m: Monster): AttackDef[] | null;
+  /** A knight's blow or shot struck a prop that answers to damage (a bell). */
+  struck?(p: Prop): void;
+  /** A monster's bullet moved; true destroys it there. */
+  bullet?(x: number, y: number, heading: number, owner: Monster | null): boolean;
+  /** The knight put down a carried object; true when the fight used it up. */
+  dropped?(p: Prop): boolean;
 }
 
 export interface WorldOptions {
@@ -278,6 +314,8 @@ export class World implements LogicHost {
   /** Prism beams drawn (model instances along each segment). */
   private beamItems: { instance: ModelInstance; matrix: Mat4 }[] = [];
   private beamGen = 0;
+  /** The boss fight being played, if any. */
+  boss: BossDirector | null = null;
 
   constructor(private readonly loader: ModelLoader, private readonly renderer: Renderer,
     private readonly scene: LoadedScene, private readonly collision: CollisionMap, opts: WorldOptions = {}) {
@@ -377,7 +415,7 @@ export class World implements LogicHost {
     const list = attacks.filter((a): a is AttackDef => !!a);
     await Promise.all([
       this.preload(...list.flatMap(a => [a.start, a.fire, a.end])),
-      ...list.filter(a => a.spawn).map(a => this.projectileDef(a.spawn!.actor)),
+      ...list.flatMap(a => a.fires).filter(f => f.spawn).map(f => this.projectileDef(f.spawn!.actor)),
     ]);
   }
 
@@ -402,7 +440,7 @@ export class World implements LogicHost {
     for (const a of armor) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
     const ref: any = { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
-    return this.renderer.instantiate(await this.loader.load("character/pc/model.dat", ref));
+    return this.instantiate(await this.loader.load("character/pc/model.dat", ref), false);
   }
 
   /** Costumes and accessories the knight shows (accessories.ts); set before start or through redress. */
@@ -486,10 +524,10 @@ export class World implements LogicHost {
     knight.z = this.collision.groundZ(at[0], at[1]);
     this.knight = knight;
     await Promise.all([
-      this.preload("character/pc/idle.dat", "character/pc/hurt_soft.dat",
+      this.preload("character/pc/idle.dat", "character/pc/hurt_soft.dat", "character/pc/hurt_hard.dat",
         ...["forward", "backward", "left", "right"].flatMap(d => [`character/pc/run_${d}.dat`, `character/pc/walk_${d}.dat`]),
         ...["001", "002", "003", "004", "005"].map(n => `character/pc/idle/default/${n}.dat`),
-        "character/pc/dead.dat", "character/pc/blend_shield.dat", "character/pc/shield_hit.dat", ...Object.values(CHARGE_ANIMS)),
+        "character/pc/dead.dat", "character/pc/death.dat", "character/pc/blend_shield.dat", "character/pc/shield_hit.dat", ...Object.values(CHARGE_ANIMS)),
       ...weapons.map(w => this.preloadAttacks([...w.attacks, w.chargedAttack, w.incompleteChargedAttack, w.cooldownAttack])),
       this.preloadAttacks([shield?.bash]),
       this.preload("character/pc/dodge/dodge_fire.dat", "character/pc/dodge/dodge_end.dat"),
@@ -580,7 +618,7 @@ export class World implements LogicHost {
   actorDestroyed(e: Entity) {
     const g = e.game;
     if (g instanceof Prop) this.removeProp(g, true);
-    else if (g instanceof Monster && g.state !== "dying") { g.state = "dying"; g.stateTime = 0; }
+    else if (g instanceof Monster && g.state !== "dying") this.startDying(g);
   }
 
   /**
@@ -813,6 +851,7 @@ export class World implements LogicHost {
     e.game = p;
     p.z = this.collision.groundZ(e.x, e.y);
     if (kind === "door") p.open = !!cfg.open;
+    if (kind === "switch" && cfg.collisionMask === 0 && (cfg.handlers ?? []).some((h: any) => /\$Damage$/.test(h?.$class ?? ""))) p.strikable = true;
     if (kind === "block") {
       // no block config sets health, so the closed code's default applies: counted here in
       // hits (treasure boxes and mineral nodes take a few, crates one)
@@ -839,7 +878,8 @@ export class World implements LogicHost {
       p.trapStrikes = !!fire;
       if (cfg.interval) p.trapPeriod = 3 * cfg.interval / 1000;
     }
-    this.objects.setup(p);
+    // dungeon objects (objects.ts) take their hits themselves, gun blocks included
+    if (this.objects.setup(p)) p.strikable = false;
     (e.game as any).onSignal = (name: string) => this.propSignal(p, name);
     this.props.push(p);
     this.updatePropCollision(p);
@@ -849,7 +889,7 @@ export class World implements LogicHost {
       const alt = m ? null : standInModel(p);
       if (alt) m = await this.loader.loadRef(alt).catch(() => null);
       if (!m || !this.props.includes(p)) return;
-      p.instance = await this.renderer.instantiate(m);
+      p.instance = await this.instantiate(m);
       this.showPropState(p);
     });
   }
@@ -907,8 +947,8 @@ export class World implements LogicHost {
     }
     const clip = anim ? this.clip(anim) : null;
     if (clip) p.instance.play(clip, { loop, blend: 0.05 });
-    // (a clip the install lacks is not asked for again)
-    else if (anim) void this.preload(anim).then(() => { if (this.clip(anim)) this.showPropState(p, changed); });
+    // wait for the clip once (a clip that failed to load stays null: no retry)
+    else if (anim && !this.ready.has(clipKey(anim))) void this.preload(anim).then(() => { if (this.ready.get(clipKey(anim))) this.showPropState(p, changed); });
   }
 
   /** Doors open and close on signals; anything else listens through its handlers only. */
@@ -1050,6 +1090,24 @@ export class World implements LogicHost {
     if (p.health <= 0) this.logic.destroy(p.entity, this.knightEntity);
   }
 
+  /**
+   * A blow rings a strikable switch (a Beast Bell): its Damage handler runs, and unless it is
+   * cooling down (the Cooldown parameter its handler's condition carries) it swings into its
+   * second state, running that state's action, and settles back once the cooldown passes.
+   */
+  strikeProp(p: Prop) {
+    if (p.entity.destroyed) return;
+    this.logic.damaged(p.entity, this.knightEntity);
+    if (this.clock < p.cooldownUntil) return;
+    const cooldown = Number(p.cfg.handlers?.find((h: any) => /\$Damage$/.test(h?.$class ?? ""))?.action?.condition?.time ?? 8000);
+    p.cooldownUntil = this.clock + cooldown / 1000;
+    p.pressed = true;
+    this.showPropState(p);
+    const act = p.cfg.stateActions?.[1];
+    if (act) this.logic.execute(act, p.entity, this.knightEntity);
+    this.boss?.struck?.(p);
+  }
+
   /** Per-tick prop behaviour: switches pressed underfoot, pickups, carried keys, the elevator. */
   private updateProps(dt: number, interact: boolean) {
     const k = this.knight, ke = this.knightEntity;
@@ -1057,11 +1115,15 @@ export class World implements LogicHost {
     const touching = (p: Prop) => { const s = p.entity.shape(); return !!s && intersects(s, kshape); };
     let interacted = false;
     for (const p of [...this.props]) {
-      if (p.instance) p.instance.time += dt;
+      if (p.instance) p.instance.advance(dt);
       switch (p.kind) {
         case "switch": {
           // hit switches (emitters, gun blocks, cages) are not stood on
           if (p.obj) break;
+          if (p.strikable) {
+            if (p.pressed && this.clock >= p.cooldownUntil) { p.pressed = false; this.showPropState(p); }
+            break;
+          }
           // party platforms answer to the party (knights) only, and stay down once pressed
           const party = /Party Platform/i.test(p.entity.name);
           const on = touching(p) || (!party && this.monsters.some(m => m.state !== "dying" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + 0.4));
@@ -1137,6 +1199,7 @@ export class World implements LogicHost {
       carried.entity.x = k.x + Math.cos(k.heading) * 0.8;
       carried.entity.y = k.y + Math.sin(k.heading) * 0.8;
       carried.z = this.collision.groundZ(carried.x, carried.y);
+      if (this.boss?.dropped?.(carried)) this.logic.destroy(carried.entity, ke);
       return;
     }
     const target = near.find(p => p.entity.handlers.some(h => h.kind === "Interaction"));
@@ -1233,6 +1296,44 @@ export class World implements LogicHost {
 
   // ---------------------------------------------------------------- animation helpers
 
+  /**
+   * Makes a model instance and starts the automatic animations of its parts (a weapon's idle
+   * spin, a bomb's wobble, a flag on a prop); `self` includes the instance's own, which an
+   * actor's idle replaces anyway.
+   */
+  private async instantiate(model: LoadedModel, self = true): Promise<ModelInstance> {
+    const inst = await this.renderer.instantiate(model);
+    for (const d of inst.descendants()) {
+      if ((d === inst && !self) || !d.model.root || d.clip) continue;
+      const auto = d.model.autoAnimations[0];
+      if (!auto) continue;
+      this.clip(auto);
+      const c = await this.clips.get(clipKey(auto));
+      if (c && !d.clip) d.play(c, { loop: c.loop, blend: 0 });
+    }
+    return inst;
+  }
+
+  /** The weapon's own model inside the knight's (where its "ks_" animations play). */
+  private weaponModel(k: Knight): ModelInstance | null {
+    for (const d of k.instance.descendants()) {
+      const a = d.model.animations;
+      if (d !== k.instance && d.model.root && (a.ks_attack || a.ks_charge || a.ks_default)) return d;
+    }
+    return null;
+  }
+
+  /** Plays one of the weapon model's named animations (ks_attack, ks_charge, ks_default). */
+  private weaponAnim(k: Knight, name: string, loop = false): boolean {
+    const w = this.weaponModel(k);
+    const ref = w?.model.animations[name];
+    if (!w || !ref) return false;
+    const c = this.clip(ref);
+    if (c) w.play(c, { loop, blend: 0.05 });
+    else void this.preload(ref);
+    return true;
+  }
+
   private play(a: Actor, path: string | any | undefined, opts: { loop?: boolean; speed?: number; blend?: number } = {}) {
     const c = this.clip(path);
     if (c) a.instance.play(c, opts);
@@ -1261,12 +1362,14 @@ export class World implements LogicHost {
     this.logic.tick(dt * 1000);
     for (const d of [...this.delayed]) if ((d.t -= dt) <= 0) { this.delayed.splice(this.delayed.indexOf(d), 1); d.run(); }
     if (this.arena) this.updateArena(dt);
+    this.boss?.update(dt);
     this.separate();
     this.updateProjectiles(dt);
     this.runEvents();
     this.shake = Math.max(0, this.shake - dt * 2);
     for (const e of this.effects) {
       e.life -= dt;
+      e.instance?.advance(dt);
       const sc = e.script;
       if (sc) {
         sc.t += dt;
@@ -1279,7 +1382,7 @@ export class World implements LogicHost {
     for (let i = this.floaters.length - 1; i >= 0; i--) if (this.floaters[i].age > 1.2) this.floaters.splice(i, 1);
     for (let i = this.monsters.length - 1; i >= 0; i--) {
       const m = this.monsters[i];
-      if (m.state === "dying" && m.stateTime > 0.6) this.monsters.splice(i, 1);
+      if (m.state === "dying" && m.stateTime > this.deathLength(m)) this.monsters.splice(i, 1);
     }
   }
 
@@ -1342,7 +1445,7 @@ export class World implements LogicHost {
    */
   private updateKnight(dt: number, input: KnightInput) {
     const k = this.knight;
-    k.instance.time += dt;
+    k.instance.advance(dt);
     if (k.instance.overlay) k.instance.overlay.time += dt;
     k.invulnerable -= dt;
     k.hurtTime -= dt;
@@ -1354,6 +1457,7 @@ export class World implements LogicHost {
     k.dashCooldown -= dt;
     if (k.dead) { k.instance.overlay = null; this.setShieldEffect(false); return; }
     this.applyKnockback(k, dt, KNIGHT_MASK);
+    if (k.stagger > 0) { k.stagger -= dt; k.shielding = false; this.setShieldEffect(false); return; }
     if (this.tickStatuses(k, dt)) {
       // frozen, asleep or mid-spasm: no moving or attacking
       k.shielding = false;
@@ -1469,8 +1573,10 @@ export class World implements LogicHost {
 
     // upper body: shield pose when defending, nothing otherwise
     if (!k.attack && k.charge === null) {
-      if (k.shielding) this.overlay(k, "character/pc/blend_shield.dat", true);
-      else if (k.instance.overlay && k.hurtTime <= 0) k.instance.overlay = null;
+      const o = k.instance.overlay;
+      const hit = o?.clip.path === "character/pc/shield_hit.dat" && !k.instance.overlayFinished;
+      if (k.shielding && !hit) this.overlay(k, "character/pc/blend_shield.dat", true);
+      else if (!k.shielding && k.instance.overlay && k.hurtTime <= 0) k.instance.overlay = null;
     }
   }
 
@@ -1552,7 +1658,7 @@ export class World implements LogicHost {
       this.shieldLoading = true;
       this.loader.loadRef(k.shield.effect).then(async m => {
         if (m && this.knight.shielding) {
-          this.shieldFx = { instance: await this.renderer.instantiate(m), matrix: k.matrix(), life: 1e9, follow: k };
+          this.shieldFx = { instance: await this.instantiate(m), matrix: k.matrix(), life: 1e9, follow: k };
           this.effects.push(this.shieldFx);
         }
       }).finally(() => { this.shieldLoading = false; });
@@ -1564,7 +1670,9 @@ export class World implements LogicHost {
   private shieldLoading = false;
 
   private startAttack(a: Actor, def: AttackDef, overlay = false) {
-    a.attack = { def, phase: "start", t: 0, hit: false, lunged: false, overlay: overlay && !!a.upperBody };
+    // an attack the config marks as not blended (a gun's charged shot, a sword swing) plays on
+    // the whole body even for a weapon that otherwise fires on the move
+    a.attack = { def, phase: "start", t: 0, ft: 0, fired: new Set(), lunged: false, overlay: overlay && def.blended && !!a.upperBody };
     if (def.start) this.animate(a, def.start, def.startSpeed);
     else this.enterFire(a);
   }
@@ -1600,7 +1708,14 @@ export class World implements LogicHost {
     const at = a.attack!;
     at.phase = "fire";
     at.t = 0;
+    at.ft = 0;
     if (at.def.fire) this.animate(a, at.def.fire, at.def.fireSpeed);
+    // the weapon's own model plays its attack (a flintlock's hammer, a diskgun's claws)
+    if (a === this.knight) {
+      const k = this.knight;
+      const charged = at.def === k.weapon?.chargedAttack;
+      if (!(charged && this.weaponAnim(k, "ks_charge_attack"))) this.weaponAnim(k, "ks_attack");
+    }
     if (at.def.swing) {
       const ref = at.def.swing.$class?.endsWith("SpawnTransient") ? at.def.swing.model : at.def.swing;
       this.spawnEffect(ref, a.matrix(), 0.7, a);
@@ -1615,6 +1730,7 @@ export class World implements LogicHost {
     const at = a.attack!;
     dt *= this.attackRate(a);
     at.t += dt;
+    if (at.phase !== "start") { at.ft += dt; this.runFires(a, at); }
     if (at.phase === "start" && (this.animDone(a) || !at.def.start || at.t > 1.5)) this.enterFire(a);
     else if (at.phase === "fire") {
       // the attack's impulse carries the attacker (each sword swing is a lunge; some gun
@@ -1626,11 +1742,6 @@ export class World implements LogicHost {
         a.lunge = { vx: (imp.forward * c - imp.side * sn) / dur, vy: (imp.forward * sn + imp.side * c) / dur, t: dur };
       }
       if (at.def.contact && a.lunge.t > 0) this.contactHits(a, at);
-      if (!at.hit && at.t * 1000 >= at.def.delay) {
-        at.hit = true;
-        if (at.def.spawn) this.spawnProjectile(a, at.def);
-        else if (at.def.shape) this.resolveHit(a, at.def);
-      }
       if (this.animDone(a) || !at.def.fire || at.t > 1.5) {
         if (chain?.()) return;
         at.phase = "end";
@@ -1641,6 +1752,7 @@ export class World implements LogicHost {
       if (chain && at.t * 1000 < Math.max(at.def.clear, 150) && chain()) return;
       if (this.animDone(a) || !at.def.end || at.t > 1.5) {
         a.attack = null;
+        if (a === this.knight) this.weaponAnim(this.knight, "ks_default", true);
         // rearm: the cooldown before a new attack (long after a combo's last swing)
         if (a === this.knight) {
           this.knight.chain = 0;
@@ -1648,6 +1760,19 @@ export class World implements LogicHost {
           this.knight.rearm = at.def.rearm / 1000;
         }
       }
+    }
+  }
+
+  /** Fires each of the attack's fire actions whose delay has passed: a hit or a spawn. */
+  private runFires(a: Actor, at: NonNullable<Actor["attack"]>) {
+    const fires = at.def.fires;
+    for (let i = 0; i < fires.length; i++) {
+      const f = fires[i];
+      if (at.fired.has(i) || at.ft * 1000 < f.delay) continue;
+      at.fired.add(i);
+      if (f.spawn) void this.spawnProjectile(a, f.spawn);
+      else if (f.shape) this.resolveHit(a, f);
+      else if (/Merge$/.test(f.name ?? "") && a instanceof Monster && a.mergeWith) this.mergeLichens(a, a.mergeWith);
     }
   }
 
@@ -1677,7 +1802,7 @@ export class World implements LogicHost {
   }
 
   /** Applies an attack's damage shape in front of the attacker. */
-  private resolveHit(a: Actor, def: AttackDef) {
+  private resolveHit(a: Actor, def: FireDef) {
     const shape = def.shape!;
     const c = Math.cos(a.heading), s = Math.sin(a.heading);
     const hits = (tx: number, ty: number, r: number) => {
@@ -1694,6 +1819,7 @@ export class World implements LogicHost {
       }
       if (a === this.knight) for (const p of [...this.props]) {
         if (p.struck && hits(p.x, p.y, 0.45)) this.damageProp(p, dealt(amounts, null));
+        else if (p.strikable && hits(p.x, p.y, 0.6)) this.strikeProp(p);
       }
     } else if (!this.knight.dead && hits(this.knight.x, this.knight.y, this.knight.radius)) {
       this.damageKnight(amounts, def.knockback, a.x, a.y);
@@ -1709,6 +1835,8 @@ export class World implements LogicHost {
     const walk = (d: any, depth = 0) => {
       if (!d || depth > 6) return;
       const k = String(d.$class ?? "").split("$").pop();
+      // a "major react" hit (charged attacks, heavy blows) knocks a knight off its feet
+      if (d.majorReact) (a as any).major = true;
       if ((k === "Status" || k === "ExclusiveStatus") && d.statusCondition) statuses.push(d.statusCondition);
       else if (k === "Compound") for (const x of d.damages ?? []) walk(x, depth + 1);
     };
@@ -1741,7 +1869,7 @@ export class World implements LogicHost {
     if (sprite?.model) {
       void this.loader.loadRef(sprite.model).then(async m => {
         if (!m || !target.statuses.includes(st)) return;
-        const fx: Effect = { instance: await this.renderer.instantiate(m), matrix: target.matrix(), life: 1e9, follow: target };
+        const fx: Effect = { instance: await this.instantiate(m), matrix: target.matrix(), life: 1e9, follow: target };
         st.fx = fx;
         this.effects.push(fx);
       });
@@ -1848,8 +1976,7 @@ export class World implements LogicHost {
   // ---------------------------------------------------------------- projectiles
 
   /** Spawns an attack's bullet or bomb in front of the attacker. */
-  private async spawnProjectile(a: Actor, def: AttackDef) {
-    const spawn = def.spawn!;
+  private async spawnProjectile(a: Actor, spawn: NonNullable<FireDef["spawn"]>) {
     const loaded = await this.projectileDef(spawn.actor);
     if (!loaded) return;
     const p = loaded.def;
@@ -1858,10 +1985,12 @@ export class World implements LogicHost {
     let x = a.x + p.offset[0] * c - p.offset[1] * s, y = a.y + p.offset[0] * s + p.offset[1] * c;
     // bombs drop at the knight's feet; a bullet starting inside a wall fizzles at once
     if (p.kind === "Bomb") { x = a.x + c * 0.4; y = a.y + s * 0.4; }
-    const instance = loaded.model ? await this.renderer.instantiate(loaded.model) : null;
+    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
     const z = this.collision.groundZ(x, y) + p.height;
     const proj = new Projectile(p, instance, a.team, x, y, z, heading, this.attackerCtx(a));
+    if (a instanceof Monster) proj.owner = a;
     this.projectiles.push(proj);
+    if (loaded.model) this.startScripts(loaded.model, proj.matrix(), p.fuse / 1000);
     // point blank: a target between the attacker and the muzzle is hit at once
     if (p.kind === "Bullet") {
       for (let i = 1; i <= 4 && !proj.done; i++) {
@@ -1876,16 +2005,18 @@ export class World implements LogicHost {
   private async spawnProjectileAt(ref: any, x: number, y: number, heading: number, team: Team, ctx: DepthContext) {
     const loaded = await this.projectileDef(ref);
     if (!loaded) return;
-    const instance = loaded.model ? await this.renderer.instantiate(loaded.model) : null;
+    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
     const z = this.collision.groundZ(x, y) + loaded.def.height;
-    this.projectiles.push(new Projectile(loaded.def, instance, team, x, y, z, heading, ctx));
+    const proj = new Projectile(loaded.def, instance, team, x, y, z, heading, ctx);
+    this.projectiles.push(proj);
+    if (loaded.model) this.startScripts(loaded.model, proj.matrix(), loaded.def.fuse / 1000);
   }
 
   private updateProjectiles(dt: number) {
     for (const p of this.projectiles) {
       if (p.done) continue;
       p.age += dt;
-      p.instance && (p.instance.time += dt);
+      p.instance?.advance(dt);
       const d = p.def;
       if (d.kind === "Bullet") {
         const steps = Math.max(1, Math.ceil((d.speed * dt) / Math.max(0.1, d.radius)));
@@ -1894,6 +2025,7 @@ export class World implements LogicHost {
           p.y += (Math.sin(p.heading) * d.speed * dt) / steps;
           const hit = this.projectileTarget(p);
           if (hit) this.detonate(p, true);
+          else if (p.team === "monster" && this.boss?.bullet?.(p.x, p.y, p.heading, p.owner)) this.detonate(p, true);
           // walls only (tile flag 1 and 128 in the bullet's mask); pits (flag 2) are flown over
           else if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false)) this.detonate(p, true);
         }
@@ -1909,6 +2041,7 @@ export class World implements LogicHost {
   /** Whether a bullet touches something it can hit. */
   private projectileTarget(p: Projectile): boolean {
     const r = p.def.radius;
+
     const k = this.knight;
     if (p.team === "knight" || p.team === "hazard") {
       if (this.monsters.some(m => m.state !== "dying" && m.state !== "spawning" && !m.passive && !m.ally && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + r)) return true;
@@ -1922,6 +2055,21 @@ export class World implements LogicHost {
   private detonate(p: Projectile, bullet: boolean) {
     p.done = true;
     const d = p.def, r = d.regionRadius;
+    if (d.actions.length) {
+      const at = new Entity(false, d.name);
+      at.x = p.x; at.y = p.y; at.rotation = p.heading;
+      at.fixedShape = { k: "circle", x: p.x, y: p.y, r };
+      // the logic's damage actions strike monsters, so a monster's bomb leaves them out (its
+      // region below is what hurts the knight)
+      for (const act of d.actions) {
+        if (p.team !== "knight" && /\$Damage[A-Za-z]*$/.test(String(act.$class))) continue;
+        this.logic.execute(act, at, p.team === "knight" ? this.knightEntity : at);
+      }
+    }
+    if (d.harmless) {
+      if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, this.collision.groundZ(p.x, p.y)], [0, 0, 0, 1], 1), 2);
+      return;
+    }
     const amounts = this.amounts(d.damage, p.ctx);
     if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, bullet ? p.z : this.collision.groundZ(p.x, p.y)], [0, 0, Math.sin(p.heading / 2), Math.cos(p.heading / 2)], 1), 2);
     if (p.team === "knight" || p.team === "hazard") {
@@ -1929,7 +2077,10 @@ export class World implements LogicHost {
         if (m.state === "dying" || m.state === "spawning" || Math.hypot(m.x - p.x, m.y - p.y) > r + m.radius) continue;
         this.damageMonster(m, amounts, d.knockback * 0.25, p.x - Math.cos(p.heading) * 0.01, p.y - Math.sin(p.heading) * 0.01);
       }
-      for (const b of [...this.props]) if (b.struck && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.5) this.damageProp(b, dealt(amounts, null), p.team === "hazard" ? 1 : 2);
+      for (const b of [...this.props]) {
+        if (b.struck && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.5) this.damageProp(b, dealt(amounts, null), p.team === "hazard" ? 1 : 2);
+        else if (b.strikable && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.6) this.strikeProp(b);
+      }
       const k = this.knight;
       if (p.team === "hazard" && !k.dead && Math.hypot(k.x - p.x, k.y - p.y) <= r + k.radius) this.damageKnight(amounts, d.knockback * 0.25, p.x, p.y);
     } else {
@@ -1969,21 +2120,29 @@ export class World implements LogicHost {
     // gear bonuses against the monster's family (the family is its folder: Monster/Slime/...)
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(m.entity?.name ?? "")?.[1]?.toLowerCase();
     const bonus = fam ? (amounts as any).tagged?.[`fam_${fam}`] ?? 0 : 0;
-    const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m)) * (1 + bonus) * (0.95 + Math.random() * 0.1)));
+    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m)) * (1 + bonus) * (0.95 + Math.random() * 0.1)));
+    if (this.boss?.damage) {
+      dmg = Math.round(this.boss.damage(m, dmg));
+      if (dmg <= 0) {
+        // shrugged off: a grey tick and barely a nudge
+        this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.2, text: "0", color: "#9aa0a6", age: 0 });
+        this.knock(m, fx, fy, knockback * 0.2);
+        return;
+      }
+    }
     this.hitStatuses(m, amounts);
     // a big enough hit interrupts the monster (minReactPercent of its health)
-    if (dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning") {
+    if (dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning" && m.health > dmg) {
       m.attack = null;
       m.reacting = m.def.reactTime / 1000;
+      if (m.def.react) this.play(m, m.def.react, { loop: false, blend: 0.05 });
     }
     m.health -= dmg;
     this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.2, text: String(dmg), color: TYPE_COLORS[mainType(amounts)], age: 0 });
     this.knock(m, fx, fy, knockback);
     if (m.def.hitFx) this.spawnEffect(m.def.hitFx, compose([m.x, m.y, m.z + 0.5], [0, 0, 0, 1], 1), 0.8);
     if (m.health <= 0) {
-      m.state = "dying";
-      m.stateTime = 0;
-      m.attack = null;
+      this.startDying(m);
       this.killCount++;
       if (m.entity) this.logic.destroy(m.entity, this.knightEntity);
       for (const st of [...m.statuses]) this.endStatus(m, st);
@@ -1991,6 +2150,20 @@ export class World implements LogicHost {
     } else if (m.state === "idle") {
       m.state = "chase";
     }
+  }
+
+  /** A monster's death: its model's dying animation, held for the config's death time. */
+  private startDying(m: Monster) {
+    m.state = "dying";
+    m.stateTime = 0;
+    m.attack = null;
+    m.reacting = 0;
+    if (m.def.dying) this.play(m, m.def.dying, { loop: false, blend: 0.05 });
+  }
+
+  /** Seconds a dead monster stays: its dying animation's time, or a short shrink. */
+  private deathLength(m: Monster) {
+    return m.def.dying ? Math.max(0.5, Math.min(4, m.def.deathTime / 1000)) : 0.6;
   }
 
   private damageKnight(amounts: Amounts, knockback: number, fx: number, fy: number) {
@@ -2023,6 +2196,13 @@ export class World implements LogicHost {
     this.knock(k, fx, fy, knockback);
     if (k.health <= 0) {
       this.knockOut();
+    } else if ((amounts as any).major && this.clip("character/pc/hurt_hard.dat")) {
+      // a major hit staggers the whole body, interrupting an attack or a charge
+      k.attack = null;
+      k.charge = null;
+      k.instance.overlay = null;
+      this.play(k, "character/pc/hurt_hard.dat", { loop: false, blend: 0.05 });
+      k.stagger = k.hurtTime = k.instance.duration;
     } else if (!k.attack) {
       k.hurtTime = 0.35;
       k.charge = null;
@@ -2038,7 +2218,8 @@ export class World implements LogicHost {
     k.charge = null;
     this.defeated = true;
     for (const st of [...k.statuses]) this.endStatus(k, st);
-    this.play(k, "character/pc/dead.dat", { loop: false, blend: 0.1 });
+    // the fall (death.dat ends lying down, and holds there)
+    this.play(k, this.clip("character/pc/death.dat") ? "character/pc/death.dat" : "character/pc/dead.dat", { loop: false, blend: 0.1 });
   }
 
   revive() {
@@ -2049,6 +2230,66 @@ export class World implements LogicHost {
     k.invulnerable = 2;
     this.play(k, "character/pc/idle.dat");
   }
+
+  // ---------------------------------------------------------------- for boss directors
+
+  /** Makes a monster start one of its attacks now (facing as it is). */
+  monsterAttack(m: Monster, def: AttackDef) {
+    if (m.state === "dying") return;
+    m.state = "attack";
+    this.startAttack(m, def);
+  }
+
+  /** Plays an animation on a monster (a reference or path). */
+  playOn(m: Monster, anim: any, loop = false, speed = 1) {
+    void this.preload(anim).then(() => { if (m.state !== "dying") this.play(m, anim, { loop, speed, blend: 0.1 }); });
+  }
+
+  /** Swaps a monster's model (a sprite flag model: shielded, wet, exposed). */
+  async setModel(m: Monster, ref: any) {
+    const model = await this.loader.loadRef(ref).catch(() => null);
+    if (!model || m.state === "dying") return;
+    const inst = await this.renderer.instantiate(model);
+    if ((m.state as string) === "dying") return;
+    m.instance = inst;
+    this.play(m, m.def.idle, { loop: true });
+  }
+
+  /** Heals a monster (absorbed minions), with the heal floater. */
+  healMonster(m: Monster, amount: number) {
+    if (m.state === "dying" || amount <= 0) return;
+    const before = m.health;
+    m.health = Math.min(m.maxHealth, m.health + amount);
+    if (m.health > before) this.floaters.push({ x: m.x, y: m.y, z: m.z + 2, text: `+${Math.round(m.health - before)}`, color: "#7bd88f", age: 0 });
+  }
+
+  /** Deals a DamageConfig to the knight from a point (beams and hazards a director runs). */
+  hurtKnight(damage: any, fromX: number, fromY: number, knockback = 0.5) {
+    this.damageKnight(this.amounts(damage, this.ctx(0)), knockback, fromX, fromY);
+  }
+
+  /** Depth-scaled value of a table (health, heal) at this floor's depth. */
+  depthValue(ref: any): number { return this.data.depth.evaluate(ref, this.ctx(0)); }
+
+  /** A transient model at a point (a ConfigReference or path). */
+  effectAt(ref: any, x: number, y: number, life = 2, scale = 1) {
+    void this.spawnEffect(typeof ref === "string" ? { name: ref } : ref, compose([x, y, this.collision.groundZ(x, y)], [0, 0, 0, 1], scale), life);
+  }
+
+  /** A line of text over a point. */
+  say(x: number, y: number, text: string, color = "#ffd84d") {
+    this.floaters.push({ x, y, z: this.collision.groundZ(x, y) + 2.5, text, color, age: 0 });
+  }
+
+  /** Spawns a spawn table's results (loot, minions) at a point, through the logic. */
+  tableSpawn(table: any, x: number, y: number) {
+    const at = new Entity(false, "loot");
+    at.x = x; at.y = y;
+    this.gameAction({ $class: "projectx.dungeon.config.DungeonActionConfig$TableSpawn", spawnTable: table }, at, this.knightEntity, this.logic);
+  }
+
+  /** World seconds so far. */
+  get time() { return this.clock; }
 
   // ---------------------------------------------------------------- monsters
 
@@ -2064,12 +2305,16 @@ export class World implements LogicHost {
     if (!def || e.destroyed) return;
     const model = await this.loader.loadRef(def.model);
     if (!model || e.destroyed) return;
-    await Promise.all([this.preload(def.idle, def.move, def.activation), this.preloadAttacks(def.attacks)]);
+    // hit reactions and deaths are the model's own "reacting" and "dying" animations
+    const anims = model.animations;
+    def.react = anims.reacting ?? anims.reacting_knockback ?? anims.Reacting;
+    def.dying = anims.dying ?? anims.Dying ?? anims.death;
+    await Promise.all([this.preload(def.idle, def.move, def.activation, def.react, def.dying), this.preloadAttacks(def.attacks)]);
     if (e.destroyed) return;
     // health is a percentage of the depth-scaled health table
     const ctx = this.ctx(0);
     const base = def.healthScale ? this.data.depth.evaluate(def.healthScale, ctx) : 100;
-    const m = new Monster(await this.renderer.instantiate(model), def, Math.max(1, Math.round((def.health / 100) * (base || 100))));
+    const m = new Monster(await this.instantiate(model, false), def, Math.max(1, Math.round((def.health / 100) * (base || 100))));
     m.defense = def.defense ? this.data.depth.defense(def.defense, ctx) : null;
     // the spawn point may sit in a wall or pit; move to the nearest free spot
     // (a prisoner stays in its cage)
@@ -2082,6 +2327,7 @@ export class World implements LogicHost {
     m.captive = m.ally && isCaptive(e.name);
     if (def.creationFx) this.spawnEffect(def.creationFx, m.matrix(), 2);
     e.game = m;
+    m.size = lichenSize(ref);
     this.play(m, def.activation ?? def.idle, { loop: !def.activation });
     this.monsters.push(m);
   }
@@ -2108,7 +2354,7 @@ export class World implements LogicHost {
    * its distance and fires; anything else closes in and uses whichever attack reaches.
    */
   private updateMonster(m: Monster, dt: number) {
-    m.instance.time += dt;
+    m.instance.advance(dt);
     m.stateTime += dt;
     m.cooldown -= dt;
     if (m.state === "dying") return;
@@ -2117,6 +2363,11 @@ export class World implements LogicHost {
     if (this.tickStatuses(m, dt)) return;
     if (m.reacting > 0) { m.reacting -= dt; return; }
     if (m.passive) { if (m.state !== "spawning") this.play(m, m.def.idle); m.state = m.state === "spawning" && m.stateTime < 1.2 ? m.state : "idle"; return; }
+    if (m.scripted) {
+      if (m.state === "spawning" && (m.instance.finished || m.stateTime > 1.2)) m.state = "idle";
+      if (m.attack) { this.advanceAttack(m, dt); if (!m.attack) { m.state = "idle"; this.play(m, m.def.idle); } }
+      return;
+    }
     // allies fight the nearest monster, else follow the knight
     const k: Actor = m.ally ? (this.allyTarget(m) ?? this.knight) : this.knight;
     const follow = m.ally && k === this.knight;
@@ -2131,12 +2382,20 @@ export class World implements LogicHost {
     if (m.attack) {
       // slow turners keep tracking the knight while winding up
       if (m.attack.phase === "start" && turn < 6) m.turnToward(Math.atan2(dy, dx), turn, dt);
+      const was = m.attack.def;
       this.advanceAttack(m, dt);
-      if (!m.attack) m.state = "chase";
+      if (!m.attack) {
+        m.state = "chase";
+        // a Chain attack leads straight into another of the monster's attacks
+        const next = was.chainTo !== null ? m.def.attacks[was.chainTo] : null;
+        if (next && next !== was) { m.state = "attack"; this.startAttack(m, next); }
+        else if (was.chainTo !== null && next === was) m.cooldown = Math.max(m.cooldown, 0.5);
+      }
       return;
     }
     // a cloaked knight (the Maskeraith's Shadow Cloak) is lost to the monsters
     if (!m.ally && (k.dead || this.companion?.hidesKnight())) { m.state = "idle"; this.play(m, m.def.idle); return; }
+    if (m.size && this.lichenMerge(m)) return;
 
     if (m.state === "idle") {
       if (dist < AGGRO_RANGE) m.state = "chase";
@@ -2148,8 +2407,13 @@ export class World implements LogicHost {
     m.turnToward(want, turn, dt);
     const facing = Math.abs(Math.atan2(Math.sin(want - m.heading), Math.cos(want - m.heading)));
     const gap = dist - k.radius - m.radius;
-    const melee = m.def.attacks.filter(a => a.shape), ranged = m.def.attacks.filter(a => !a.shape);
-    const usable = m.def.attacks.filter(a => gap <= this.reach(a));
+    // attacks on the knight (a boss director may choose them; a lichen's merge is for its own
+    // kind; a chain's later links follow the first)
+    const pool = this.boss?.attacks?.(m) ?? m.def.attacks;
+    const free = pool.filter(a => !/Merge$/.test(a.name)), linked = chainedTo(m.def.attacks);
+    const own = free.some(a => !linked.has(a)) ? free.filter(a => !linked.has(a)) : free;
+    const melee = own.filter(a => a.shape), ranged = own.filter(a => !a.shape);
+    const usable = own.filter(a => gap <= this.reach(a));
     // prefer a melee attack in reach, then a ranged one
     const attack = usable.find(a => a.shape) ?? usable[0] ?? null;
     if (!follow && attack && m.cooldown <= 0 && facing < (turn < 6 ? 0.25 : 0.6)) {
@@ -2167,7 +2431,8 @@ export class World implements LogicHost {
     if (gap > keep) {
       // straight at the knight when the way is clear, else along an A* path around walls
       m.pathAge -= dt;
-      if (this.collision.clearLine(m.x, m.y, k.x, k.y, m.radius * 0.8, MONSTER_MASK)) m.path = null;
+      m.stuck -= dt;
+      if (m.stuck <= 0 && this.collision.clearLine(m.x, m.y, k.x, k.y, m.radius * 0.8, MONSTER_MASK)) m.path = null;
       else if (!m.path || m.pathAge <= 0) {
         m.path = this.collision.findPath(m.x, m.y, k.x, k.y, m.radius * 0.8, MONSTER_MASK);
         m.pathAge = 0.6 + Math.random() * 0.4;
@@ -2180,7 +2445,14 @@ export class World implements LogicHost {
     }
     else if (!melee.length && gap < keep * 0.5) { mx = -dx / dist; my = -dy / dist; }
     if (mx || my) {
+      const ox = m.x, oy = m.y;
       this.move(m, mx * sp * dt, my * sp * dt, MONSTER_MASK);
+      // blocked (a ledge or rail the straight line slips past): path around it for a while
+      if (Math.hypot(m.x - ox, m.y - oy) < sp * dt * 0.25 && m.stuck <= 0) {
+        m.path = this.collision.findPath(m.x, m.y, k.x, k.y, m.radius, MONSTER_MASK);
+        m.pathAge = 1;
+        m.stuck = 1.5;
+      }
       this.play(m, m.def.move ?? m.def.idle, { speed: sp / Math.max(0.5, m.def.moveSpeed) });
     } else {
       this.play(m, m.def.idle);
@@ -2196,6 +2468,63 @@ export class World implements LogicHost {
       if (d < bd && Math.hypot(o.x - this.knight.x, o.y - this.knight.y) < 14) { bd = d; best = o; }
     }
     return best;
+  }
+
+  /**
+   * Lichens fuse: two colonies side by side, neither busy, and one turns to the other and
+   * plays its merge attack while the other waits. Returns true while this one is merging.
+   */
+  private lichenMerge(m: Monster): boolean {
+    const o = m.mergeWith;
+    if (o) {
+      // the partner waits for the initiator's merge; anything interrupting it calls it off
+      const busy = (x: Monster) => x.attack && /Merge$/.test(x.attack.def.name);
+      if (o.state === "dying" || !this.monsters.includes(o) || o.mergeWith !== m || (!busy(m) && !busy(o))) {
+        m.mergeWith = null;
+        if (o.mergeWith === m) o.mergeWith = null;
+        return false;
+      }
+      this.play(m, m.def.idle);
+      return true;
+    }
+    if (m.cooldown > 0 || m.reacting > 0 || m.size >= 21) return false;
+    const merge = m.def.attacks.find(a => /Merge$/.test(a.name));
+    if (!merge) return false;
+    const other = this.monsters.find(x => x !== m && x.size && x.size < 21 && !x.mergeWith && !x.attack && x.reacting <= 0
+      && x.state !== "dying" && x.state !== "spawning" && x.statuses.length === 0
+      && Math.hypot(x.x - m.x, x.y - m.y) < m.radius + x.radius + 0.5);
+    if (!other) return false;
+    m.mergeWith = other; other.mergeWith = m;
+    m.heading = Math.atan2(other.y - m.y, other.x - m.x);
+    m.state = "attack";
+    this.startAttack(m, merge);
+    m.cooldown = merge.rearm / 1000 + 1;
+    return true;
+  }
+
+  /**
+   * The merge lands: both colonies leave without a death (no loot), and the survivor's merge
+   * handler (its SignalStart action, Spawn Lichen Colony) runs at the midpoint for the
+   * combined size, capped at the largest; the case for a size is matched by position, since
+   * the export dropped the switch's case values (sizes 2 to 21 in order).
+   */
+  private mergeLichens(m: Monster, o: Monster) {
+    m.mergeWith = o.mergeWith = null;
+    if (o.state === "dying" || !this.monsters.includes(o)) return;
+    const size = Math.min(21, m.size + o.size);
+    const handler = (m.def.handlers ?? []).find(h => /\$SignalStart$/.test(String(h?.$class)) && !h.name);
+    const fireRef = findFireAction(handler?.action);
+    const fa = fireRef ? this.data.resolveSync("config/fire_action.dat", fireRef, "action") : null;
+    const sw = findSwitch(fa?.action);
+    const act = sw ? (sw.cases?.[size - 2]?.action ?? sw.defaultAction) : null;
+    const at = new Entity(false, "lichen merge");
+    at.x = (m.x + o.x) / 2; at.y = (m.y + o.y) / 2; at.rotation = m.heading;
+    for (const x of [m, o]) {
+      const i = this.monsters.indexOf(x);
+      if (i >= 0) this.monsters.splice(i, 1);
+      if (x.entity) this.logic.vanish(x.entity);
+    }
+    if (act) this.logic.execute(act, at, m.entity ?? at);
   }
 
   /** Keeps actors from overlapping each other. */
@@ -2219,9 +2548,19 @@ export class World implements LogicHost {
   private async spawnEffect(ref: any, matrix: Mat4, life: number, follow?: Actor) {
     const model = await this.loader.loadRef(ref).catch(() => null);
     if (!model) return;
-    // scripted models (alone or inside compounds) have no geometry: they run their timed
-    // actions, then end (looping ones live as long as the effect)
-    const startScripts = (m: LoadedModel, local: Mat4, depth: number) => {
+    this.startScripts(model, matrix, life, follow);
+    if (model.script) return;
+    const instance = await this.instantiate(model);
+    this.effects.push({ instance, matrix, life, follow });
+  }
+
+  /**
+   * Scripted models (alone or inside compounds: a bomb's drop sound, an explosion's blasts
+   * and camera shake) have no geometry: they run their timed actions, then end (looping
+   * ones live as long as the effect).
+   */
+  private startScripts(model: LoadedModel, matrix: Mat4, life: number, follow?: Actor) {
+    const start = (m: LoadedModel, local: Mat4, depth: number) => {
       if (depth > 6) return;
       if (m.script) {
         const sc = m.script;
@@ -2231,13 +2570,10 @@ export class World implements LogicHost {
       }
       for (const a of m.attachments) {
         const t = a.transform;
-        startScripts(a.model, multiply(local, t.matrix ?? compose(t.t, t.r, t.s)), depth + 1);
+        start(a.model, multiply(local, t.matrix ?? compose(t.t, t.r, t.s)), depth + 1);
       }
     };
-    startScripts(model, compose([0, 0, 0], [0, 0, 0, 1], 1), 0);
-    if (model.script) return;
-    const instance = await this.renderer.instantiate(model);
-    this.effects.push({ instance, matrix, life, follow });
+    start(model, compose([0, 0, 0], [0, 0, 0, 1], 1), 0);
   }
 
   /**
@@ -2294,8 +2630,9 @@ export class World implements LogicHost {
     for (const m of this.monsters) {
       let matrix = m.matrix();
       if (m.state === "dying") {
-        // shrink away while the death effect plays
-        const s = Math.max(0.01, 1 - m.stateTime / 0.5);
+        // shrink away while the death effect plays (after the dying animation, when it has one)
+        const len = this.deathLength(m), fade = m.def.dying ? 0.3 : 0.5;
+        const s = Math.max(0.01, Math.min(1, (len - m.stateTime) / fade));
         matrix = compose([m.x, m.y, m.z], [0, 0, Math.sin((m.heading + Math.PI / 2) / 2), Math.cos((m.heading + Math.PI / 2) / 2)], m.scale * s);
       }
       out.push({ instance: m.instance, matrix });
@@ -2318,6 +2655,41 @@ export class World implements LogicHost {
 
   /** Living monsters, for health bars. */
   get liveMonsters() { return this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive && !m.ally); }
+}
+
+/** Attacks that only follow another (the later links of Chain attacks). */
+function chainedTo(list: AttackDef[]): Set<AttackDef> {
+  const out = new Set<AttackDef>();
+  for (const a of list) { const n = a.chainTo !== null ? list[a.chainTo] : undefined; if (n && n !== a) out.add(n); }
+  return out;
+}
+
+/** The first FireAction reference inside an action tree. */
+function findFireAction(a: any, depth = 0): any | null {
+  if (!a || depth > 8) return null;
+  if (String(a.$class).endsWith("$FireAction")) return a.fireAction ?? null;
+  for (const x of [a.action, ...(a.actions ?? [])]) { const r = findFireAction(x, depth + 1); if (r) return r; }
+  return null;
+}
+
+/** The first ExpressionSwitch inside an action tree. */
+function findSwitch(a: any, depth = 0): any | null {
+  if (!a || depth > 8) return null;
+  if (String(a.$class).endsWith("$ExpressionSwitch")) return a;
+  for (const x of [a.action, ...(a.actions ?? [])]) { const r = findSwitch(x, depth + 1); if (r) return r; }
+  return null;
+}
+
+/**
+ * A lichen colony's size: its reference's "Size" argument, else the smallest of its kind
+ * (Lichen Colony sizes 1 to 9, Large 10 to 15, Giant 16 to 21). Zero for other monsters.
+ */
+function lichenSize(ref: any): number {
+  const name = String(ref?.name ?? "");
+  if (!/Lichen Colony$/.test(name)) return 0;
+  const arg = (ref?.arguments?.entries as [string, unknown][] | undefined)?.find(([k]) => k === "Size")?.[1];
+  const n = Number(arg);
+  return Number.isFinite(n) && n > 0 ? n : /Giant/.test(name) ? 16 : /Large/.test(name) ? 10 : 1;
 }
 
 /** TagConfig: its tags plus the chain of derived tag configs. */

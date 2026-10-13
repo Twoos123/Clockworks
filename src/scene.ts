@@ -5,7 +5,7 @@
 import { applyArguments } from "./config/params";
 import { importBinary } from "./export/BinaryImport";
 import { compose, toMatrix, readTransform, type Mat4 } from "./math";
-import { inflate, type LoadedModel, type ModelLoader } from "./model";
+import { editorOnly, inflate, type LoadedModel, type ModelLoader } from "./model";
 import { CollisionMap } from "./game/collision";
 import { shapeFromConfig, type Shape } from "./game/shapes";
 
@@ -263,7 +263,7 @@ export class SceneLoader {
     let done = 0;
     const unique = new Set<LoadedModel>();
     for (const job of jobs) {
-      if (job.ref?.name?.startsWith("editor/")) { stats.markers++; continue; }
+      if (editorOnly(job.ref?.name ?? "")) { stats.markers++; continue; }
       const model = await this.loader.loadRef(job.ref);
       if (model) { objects.push({ model, matrix: job.matrix }); unique.add(model); } else stats.unresolved++;
       if (++done % 200 === 0) onProgress?.(done, jobs.length);

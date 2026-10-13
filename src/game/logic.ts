@@ -168,6 +168,18 @@ export class Logic {
     this.removals.push(e);
   }
 
+  /**
+   * Removes an actor without its shutdown handlers (no loot, no death actions): two lichens
+   * that fuse leave the field as one new colony, not as two kills.
+   */
+  vanish(e: Entity) {
+    if (!e.isActor || e.destroyed) return;
+    e.destroyed = true;
+    // its handlers stop listening (sensors, timers, observers) without their shutdown actions
+    for (const h of e.handlers) this.shutdown(h, e, false, true);
+    this.removals.push(e);
+  }
+
   private remove(e: Entity) {
     if (e.removed) return;
     e.removed = true;
@@ -261,10 +273,10 @@ export class Logic {
     }
   }
 
-  private shutdown(h: Handler, activator: Entity, endScene: boolean) {
+  private shutdown(h: Handler, activator: Entity, endScene: boolean, silent = false) {
     switch (h.kind) {
-      case "Shutdown": if (!endScene) this.run(h.cfg.action, h.source, activator); break;
-      case "Reference": for (const c of h.children ?? []) this.shutdown(c, activator, endScene); break;
+      case "Shutdown": if (!endScene && !silent) this.run(h.cfg.action, h.source, activator); break;
+      case "Reference": for (const c of h.children ?? []) this.shutdown(c, activator, endScene, silent); break;
       case "Tick": this.tickers.delete(h); break;
       case "Timer": case "WarnTimer":
         if (h.timer) h.timer.cancelled = true;
@@ -283,12 +295,12 @@ export class Logic {
     const cfg = h.cfg;
     switch (h.kind) {
       case "Signal":
-        if (!nameMatches(cfg.name, name) || this.ts < (h.min ?? 0)) return;
+        if (!nameMatches(cfg.name, name, h.source) || this.ts < (h.min ?? 0)) return;
         this.run(cfg.action, h.source, source);
         h.min = Math.round(this.ts + (cfg.refractoryPeriod ?? 0) * 1000);
         break;
       case "SignalStart": case "SignalStop":
-        if (nameMatches(cfg.name, name)) this.activate(h, source);
+        if (nameMatches(cfg.name, name, h.source)) this.activate(h, source);
         break;
       case "Reference": for (const c of h.children ?? []) this.handleSignal(c, source, name); break;
     }
@@ -720,9 +732,12 @@ const CASE_ORDERS = [
 /**
  * Signal handler name matching. Clyde matches exactly, but the game's data leaves the name
  * unset on the handlers its triggers wake with "activate" (spawn markers, one-time actions),
- * so an unset name accepts "activate" and the empty name.
+ * so an unset name accepts "activate" and the empty name. Monsters are different: their unnamed
+ * handlers answer a signal the game itself sends (a lichen's merge), never the triggers' "activate",
+ * so on a mobile actor an unset name accepts only the empty name.
  */
-function nameMatches(want: string | undefined, name: string) {
+function nameMatches(want: string | undefined, name: string, owner?: Entity) {
+  if (want == null && owner?.isActor && owner.mobile) return name === "";
   return want == null ? name === "" || name === "activate" : want === name;
 }
 

@@ -97,4 +97,3 @@ healing totems (danger rooms, arena halls), gun blocks and explosive blocks agai
   energy price, the fuse actor delay, ally immortality.
 - Ghost blocks fade their chain; the task's "phase in and out" is not what the data or the wiki
   describe.
-- Point and spot lights: the entries are emitted, but the renderer has directional lights only.

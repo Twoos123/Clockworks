@@ -204,7 +204,7 @@ export class HandleVfs implements Vfs {
 
 /** Development-only source served by the Vite plugin in vite.config.ts. */
 export class DevServerVfs implements Vfs {
-  readonly label = "local install (dev server)";
+  readonly label = "local install";
   async list(): Promise<string[]> {
     const r = await fetch("/__sk/list");
     if (!r.ok) throw new VfsError("Dev server has no install configured.");
@@ -230,7 +230,6 @@ export class DevServerVfs implements Vfs {
     return r.ok ? readJarEntry(await r.blob(), COLOR_DEFS) : null;
   }
   static async available(): Promise<boolean> {
-    if (!import.meta.env.DEV) return false;
     try { return (await fetch("/__sk/ping")).ok; } catch { return false; }
   }
 }
