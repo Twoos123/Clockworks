@@ -393,6 +393,9 @@ export class Logic {
     if (cfg && !cfg.$class && typeof cfg.name === "string") cfg = { ...cfg, $class: "com.threerings.tudey.config.ActionConfig$Signal" };
     // ...and one with an actor is the default SpawnActor
     else if (cfg && !cfg.$class && cfg.actor?.name) cfg = { ...cfg, $class: "com.threerings.tudey.config.ActionConfig$SpawnActor" };
+    // ...and one with a portal and a scene id is the game's scene change (a town's exits);
+    // the game handles it, so it goes to the host under a name of our own
+    else if (cfg && !cfg.$class && cfg.portal && cfg.sceneId !== undefined) return this.host.gameAction({ ...cfg, $class: "ScenePortal" }, source, activator, this) ?? true;
     if (!cfg?.$class) return true;
     const k = kind(cfg);
     if (!pkg(cfg).includes("tudey.config.ActionConfig")) {

@@ -7,7 +7,7 @@ import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environ
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { buildInterface, GuiContext, pack, render as renderGui } from "./ui/gui";
+import { GuiContext } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -22,6 +22,7 @@ import { Outfit } from "./game/outfit";
 import { openWardrobe } from "./ui/wardrobe";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen } from "./ui/elevator";
+import { GateBoard } from "./ui/gates";
 import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
@@ -34,7 +35,7 @@ import { generateLevel, type TileInfo } from "./gen/level";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, floorIcon, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
@@ -647,6 +648,9 @@ class Viewer {
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
+    // Haven's north exit leads to the Arcade, which the scenes cache lacks: walking into it
+    // brings up the Arcade's gate board
+    world.onPortal = tags => { if (tags.some(t => /arcade/i.test(t)) && !this.gate) this.openGates(); };
     const town = TOWN.test(this.scene.name);
     $("clockworks").hidden = !town;
     $("arenaBtn").hidden = !town;
@@ -1175,114 +1179,28 @@ class Viewer {
   /** The cached levels in run order. */
   // ------------------------------------------------------------------ the Arcade and its gates
 
-  private iconUrls = new Map<string, Promise<string>>();
-  /** An install image as a URL for HTML panels (cached). */
-  private iconUrl(path: string): Promise<string> {
-    let p = this.iconUrls.get(path);
-    if (!p) this.iconUrls.set(path, p = this.vfs.blob(path).then(b => URL.createObjectURL(b)).catch(() => ""));
-    return p;
-  }
-  private levelIcons = new Map<string, Promise<string>>();
-  /**
-   * A gate lineup icon drawn through the game's own ui/adventureboard/parts/map_levelicon.dat
-   * (its colourisation turns the mask images purple and light blue), as an image URL.
-   */
-  private levelIcon(path: string, locked = false): Promise<string> {
-    const key = path + (locked ? "|locked" : "");
-    let p = this.levelIcons.get(key);
-    if (!p) {
-      p = (async () => {
-        this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-        const ui = await buildInterface(this.gui, { $class: "com.threerings.config.ConfigReference", name: "ui/adventureboard/parts/map_levelicon.dat",
-          arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Icon", path], ["Locked", !locked], ["You are Here", false], ["Friend Here", false]] } });
-        if (!ui) return "";
-        const size = pack(ui);
-        const c = document.createElement("canvas");
-        c.width = Math.max(1, size.width); c.height = Math.max(1, size.height);
-        renderGui(ui, c.getContext("2d")!, 0, size.height, {});
-        return c.toDataURL();
-      })().catch(() => "");
-      this.levelIcons.set(key, p);
-    }
-    return p;
-  }
-
-  private img(path: string, cls: string, title = "") {
-    const im = document.createElement("img");
-    im.className = cls;
-    if (title) im.title = title;
-    void this.iconUrl(path).then(u => { if (u) im.src = u; });
-    return im;
+  private gateBoard_: GateBoard | null = null;
+  /** The Arcade's gate board (the game's adventure board, src/ui/gates.ts). */
+  get gateBoard(): GateBoard {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    return this.gateBoard_ ??= new GateBoard(this.gui, {
+      sound: f => this.uiSound(f),
+      closed: () => { this.paused = false; this.canvas.focus(); },
+      gates: () => arcadeGates(),
+      progress: () => progressOf(this.save),
+      enter: g => void this.enterGate(g),
+      arena: () => void this.enterArena(),
+      missions: () => void this.missions().open(),
+    });
   }
 
   /**
-   * The Arcade's gate board: today's four gates, each with its emblem and the lineup of its
-   * floors as the game draws it, with the level icons (rsrc/ui/icon/map) under each stratum's
-   * theme icon (rsrc/ui/icon/theme).
+   * The Arcade's gate board: today's four gates and the Arena, each gate's lineup on the
+   * map with its level and theme icons, as the game's adventure board draws them.
    */
   private openGates() {
-    const root = $("gates");
-    root.replaceChildren();
-    const card = document.createElement("div");
-    card.className = "settings-card gates-card";
-    const head = document.createElement("div");
-    head.className = "settings-head";
-    const h = document.createElement("h2");
-    h.textContent = "The Arcade";
-    const close = document.createElement("button");
-    close.textContent = "Close";
-    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
-    head.append(h, close);
-    card.append(head);
-    const note = document.createElement("p");
-    note.className = "settings-note";
-    note.textContent = "Today's gates. Each runs from the Arcade to the Core in three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
-    card.append(note);
-    for (const g of arcadeGates()) {
-      const row = document.createElement("div");
-      row.className = "gate-row";
-      const name = document.createElement("div");
-      name.className = "gate-name";
-      const emblem = this.img(`ui/icon/gate/${g.emblem}.png`, "gate-emblem");
-      emblem.style.filter = "hue-rotate(-100deg) saturate(0.9)";
-      name.append(emblem, document.createTextNode(g.name));
-      const lineup = document.createElement("div");
-      lineup.className = "gate-lineup";
-      const floors = gateFloors(g);
-      for (const f of floors.slice(1)) {
-        const cell = document.createElement("div");
-        cell.className = `gate-cell tier${f.tier}` + (f.stratum && f.depth === f.stratum.first ? " first" : "");
-        const theme = f.stratum && f.kind !== "terminal" && f.kind !== "subtown" ? f.stratum.theme.toLowerCase() : "";
-        if (f.stratum && f.depth === f.stratum.first) cell.append(this.img(`ui/icon/theme/${theme || "unk"}.png`, "gate-theme", f.stratum.theme));
-        else cell.append(document.createElement("span"));
-        const icon = document.createElement("img");
-        icon.className = "gate-level";
-        icon.title = `Depth ${f.depth}: ${f.name}${f.stratum ? " (" + f.stratum.theme + ")" : ""}`;
-        // tiers above the knight's rank show the lock, as the game's map does
-        const locked = tierLock(f.tier, progressOf(this.save)) !== null;
-        void this.levelIcon(`ui/icon/map/${floorIcon(f)}.png`, locked).then(u => { if (u) icon.src = u; });
-        cell.append(icon);
-        const d = document.createElement("small");
-        d.textContent = String(f.depth);
-        cell.append(d);
-        lineup.append(cell);
-      }
-      const go = document.createElement("button");
-      go.className = "primary";
-      go.textContent = "Enter";
-      go.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_confirm.ogg"); void this.enterGate(g); };
-      row.append(name, lineup, go);
-      card.append(row);
-    }
-    // the arena: endless waves on a cached level, a checkpoint every fifth wave
-    const arena = document.createElement("button");
-    arena.textContent = "Arena: endless waves (bank every fifth wave)";
-    arena.onclick = () => { root.hidden = true; this.paused = false; void this.enterArena(); };
-    card.append(arena);
-    root.append(card);
-    root.hidden = false;
     this.paused = !!this.world;
-    this.uiSound("sound/feedback/ui_open.ogg");
+    void this.gateBoard.open();
   }
 
   /** Starts a gate at depth 1. */

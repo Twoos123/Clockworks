@@ -219,6 +219,8 @@ export class World implements LogicHost {
   onNextFloor: (() => void) | null = null;
   /** Called when a shopkeeper opens their shop (the NPC's name says what it sells). */
   onOpenShop: ((keeper: string) => void) | null = null;
+  /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
+  onPortal: ((tags: string[], sceneId: number, portal: string) => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
   /**
@@ -515,6 +517,10 @@ export class World implements LogicHost {
     const k = String(cfg.$class ?? "").split("$").pop();
     if (cfg.$condition) return true;
     switch (k) {
+      case "ScenePortal":
+        // a town exit the knight walked into: the game decides where it leads
+        if (activator === this.knightEntity && !this.knight.dead) this.onPortal?.(source.tags ?? [], Number(cfg.sceneId), String(cfg.portal?.tag ?? ""));
+        return true;
       case "ActivateMonster": case "TableSpawn": case "TableSpawnPerMember": {
         const table = cfg.spawnTable ?? cfg.table;
         if (!table) return false;
