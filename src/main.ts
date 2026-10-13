@@ -16,6 +16,7 @@ import { Arsenal } from "./ui/arsenal";
 import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
 import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
+import { generateLevel, type TileInfo } from "./gen/level";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|\(|lobby/i;
@@ -26,6 +27,15 @@ const TOWN = /haven|bazaar|\(|lobby/i;
  */
 const RUN_ORDER = ["jigsaw valley emerald axis", "jigsaw valley perimeter promenade", "jigsaw valley the jade tangle",
   "terminal 1", "emberlight", "dark halls finale", "terminal core"];
+
+/** Themes generated floors are learned from: cached levels whose names match, and a label. */
+const THEMES: { key: string; test: RegExp; label: string }[] = [
+  { key: "valley", test: /^jigsaw valley/i, label: "Jigsaw Valley" },
+  { key: "clockworks", test: /^(terminal 1|emberlight|terminal core)/i, label: "Clockwork Tunnels" },
+];
+const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
+/** Generated floor ids: "gen:<theme>:<seed>". */
+const GEN = /^gen:([a-z]+):(\d+)$/;
 
 /** The name shown on the HUD name plate. */
 const KNIGHT_NAME = "Knight";
@@ -336,6 +346,33 @@ class Viewer {
     return p;
   }
 
+  private tileInfos = new Map<string, TileInfo>();
+
+  /**
+   * Builds a generated floor: learns the theme's tiling from its cached levels and paints a
+   * new layout with their spawners, treasure and elevators (src/gen).
+   */
+  private async generatedRoot(id: string): Promise<any> {
+    const [, key, seed] = GEN.exec(id)!;
+    const theme = THEMES.find(t => t.key === key)!;
+    const ids = this.sceneList.filter(s => theme.test.test(s.name)).map(s => s.id);
+    const sources = await Promise.all(ids.map(async sid => ({ id: sid, root: await this.sceneLoader.parse(await this.vfs.readScene(sid)) })));
+    // resolve every tile the sources use first; the generator asks synchronously
+    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
+    for (const s of sources) {
+      for (const m of (s.root.tileConfigs?.items ?? s.root.tileConfigs ?? []) as any[]) {
+        const k = refKey(m?.tile);
+        if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
+      }
+    }
+    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
+    // spawners and treasure from every cached combat level, for themes whose levels spawn
+    // their monsters another way
+    const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
+    const pool = (await Promise.all(others.map(async sid => (await this.sceneLoader.parse(await this.vfs.readScene(sid))).entries ?? []))).flat();
+    return generateLevel(sources, info, Number(seed), `${theme.label} · new floor`, pool);
+  }
+
   private async selectScene(id: string) {
     const token = ++this.loadToken;
     this.status("Loading scene " + id + "...");
@@ -344,7 +381,10 @@ class Viewer {
     history.replaceState(null, "", "#scene=" + id);
     const t0 = performance.now();
     try {
-      const scene = await this.sceneLoader.load(id, await this.vfs.readScene(id), (done, total) => {
+      const progress = (done: number, total: number) => {
+        if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
+      };
+      const scene = GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), (done, total) => {
         if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
       });
       const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
@@ -668,8 +708,22 @@ class Viewer {
     return levels;
   }
 
+  /**
+   * The run: each cached combat level followed by a generated floor of its theme (a new
+   * layout every run), ending at the Core.
+   */
+  private runPlan(): { id: string; name: string }[] {
+    const out: { id: string; name: string }[] = [];
+    this.runLevels().forEach((s, i) => {
+      out.push(s);
+      const t = themeOf(s.name);
+      if (t && !/core/i.test(s.name)) out.push({ id: `gen:${t.key}:${(this.save.runs * 97 + i * 13 + 1) >>> 0}`, name: `${t.label} · new floor` });
+    });
+    return out;
+  }
+
   private nextLevel(): { id: string; name: string } | null {
-    const levels = this.runLevels();
+    const levels = this.runPlan();
     if (!this.scene || TOWN.test(this.scene.name)) return levels[0] ?? null;
     const i = levels.findIndex(s => s.id === this.scene!.id);
     return i >= 0 && i + 1 < levels.length ? levels[i + 1] : null;
@@ -684,7 +738,12 @@ class Viewer {
     this.paused = false;
     if (this.arenaMode) { this.arenaMode = false; await this.returnToHaven(); return; }
     let next = this.nextLevel();
-    if (deeper && !next) next = this.runLevels()[0] ?? null;
+    // past the end of the run, deeper floors are generated
+    if (deeper && !next) {
+      const usable = THEMES.filter(t => this.sceneList.some(s => t.test.test(s.name)));
+      const t = usable[Math.floor(Math.random() * usable.length)];
+      next = t ? { id: `gen:${t.key}:${Math.floor(Math.random() * 1e9)}`, name: `${t.label} · new floor` } : this.runLevels()[0] ?? null;
+    }
     this.stopPlaying();
     if (!next) {
       // the run is over: back to town

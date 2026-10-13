@@ -128,7 +128,25 @@ export class SceneLoader {
   }
 
   async load(id: string, data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<LoadedScene> {
-    const s: any = (await importBinary(data, inflate)).root;
+    return this.loadRoot(id, (await importBinary(data, inflate)).root, onProgress);
+  }
+
+  /** A scene file's parsed root (TudeySceneModel). */
+  async parse(data: Uint8Array): Promise<any> { return (await importBinary(data, inflate)).root; }
+
+  /**
+   * A tile reference's footprint and whether it is walkable floor (floor flag set and no
+   * collision flags), from config/tile.dat.
+   */
+  async tileInfo(ref: any): Promise<{ width: number; height: number; walkable: boolean }> {
+    const impl = await this.resolveImpl("config/tile.dat", ref, "tile");
+    const flags: ArrayLike<number>[] = impl?.collisionFlags ?? [[1]];
+    const blocked = Array.from(flags as ArrayLike<ArrayLike<number>>).some(row => Array.from(row ?? []).some(f => f !== 0));
+    return { width: impl?.width ?? 1, height: impl?.height ?? 1, walkable: !!impl && ((impl.floorFlags ?? 1) & 1) !== 0 && !blocked };
+  }
+
+  /** Loads a scene from its parsed root (a cached scene, or a generated one). */
+  async loadRoot(id: string, s: any, onProgress?: (done: number, total: number) => void): Promise<LoadedScene> {
     const objects: SceneObject[] = [];
     const collision = new CollisionMap();
     const spawns: SpawnPoint[] = [], triggers: TriggerArea[] = [], startupActors: StartupActor[] = [];
