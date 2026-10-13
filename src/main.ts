@@ -211,7 +211,22 @@ class Viewer {
     $("deeper").onclick = () => void this.descend(true);
     $("clockworks").onclick = () => { this.run = { depth: 0, health: null, floors: 0 }; void this.descend(); };
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
-    $("revive").onclick = () => { this.world?.revive(); $("defeated").hidden = true; this.canvas.focus(); };
+    // reviving costs crowns from the bank (the game spends energy); giving up returns to town
+    $("revive").onclick = () => {
+      const cost = this.reviveCost();
+      if (!this.world || this.save.crowns < cost) return;
+      this.save.crowns -= cost;
+      writeSave(this.save);
+      this.world.revive();
+      $("defeated").hidden = true;
+      this.canvas.focus();
+    };
+    $("giveUp").onclick = () => {
+      $("defeated").hidden = true;
+      this.run = { depth: 29, health: null, floors: 0 };
+      // past the last level, descend() rides up to Haven; the floor's loot is lost
+      void this.returnToHaven();
+    };
     $("spawnJelly").onclick = () => {
       const k = this.world?.knight;
       if (!k) return;
@@ -538,6 +553,18 @@ class Viewer {
   }
 
   /** The run's next level after the current scene, or null when the run is over. */
+  /** Crowns a revive costs: more the deeper the knight is (towns are free). */
+  private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
+
+  private async returnToHaven() {
+    this.stopPlaying();
+    this.run = { depth: 0, health: null, floors: 0 };
+    const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+    if (!haven) return;
+    await this.selectScene(haven.id);
+    await this.startPlaying();
+  }
+
   /** The cached levels in run order. */
   private runLevels(): { id: string; name: string }[] {
     const levels = RUN_ORDER.map(n => this.sceneList.find(s => s.name.toLowerCase().startsWith(n))).filter((s): s is { id: string; name: string } => !!s);
@@ -802,7 +829,14 @@ class Viewer {
         const f = 1 - Math.exp(-dt * 10);
         this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
           this.target[2] + (k.z + 1 - this.target[2]) * f];
-        $("defeated").hidden = !this.world.defeated;
+        if ($("defeated").hidden === this.world.defeated) {
+          $("defeated").hidden = !this.world.defeated;
+          if (this.world.defeated) {
+            const cost = this.reviveCost();
+            $("reviveInfo").textContent = TOWN.test(this.scene?.name ?? "") ? "" : `Reviving costs ${cost} crowns (you have ${this.save.crowns}).`;
+            ($("revive") as HTMLButtonElement).disabled = this.save.crowns < cost;
+          }
+        }
       }
       const eye: Vec3 = [
         this.target[0] + this.dist * Math.cos(this.el) * Math.cos(this.az),
