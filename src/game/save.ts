@@ -33,6 +33,8 @@ export interface SaveData {
   pocket: [string, number][];
   /** Rank, completed missions and prestige (src/game/missions.ts); made on first use. */
   missions?: MissionProgress;
+  /** Letters in the knight's mailbox (welcome notes, mission rewards). */
+  mail?: { from: string; subject: string; body: string; read: boolean; at: number }[];
 }
 
 import type { MissionProgress } from "./missions";

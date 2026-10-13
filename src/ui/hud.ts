@@ -31,11 +31,11 @@ const LABELS: Record<string, string> = {
 };
 /** Menu buttons and the keys shown on their badges. */
 const MENU_KEYS: Record<string, string> = {
-  button_menu: "esc", button_help: "H", button_social: "G", button_gear: "C", button_loadout: "I", button_forge: "K", button_arsenal: "B",
+  button_menu: "esc", button_help: "H", button_social: "G", button_feed: "N", button_mail: "M", button_gear: "C", button_loadout: "I", button_forge: "K", button_arsenal: "B",
 };
 /** Parts with nothing behind them in single player (PvP, parties, trades, mail, news). */
 const HIDDEN = ["button_spare", "button_visithalls", "container_pvp", "button_pvp_spectate", "container_partyfinder",
-  "button_traderequest", "button_partyinvite", "button_partyfound", "button_feed", "button_mail", "panel_div", "notes_div"];
+  "button_traderequest", "button_partyinvite", "button_partyfound", "panel_div", "notes_div"];
 
 /** The monster the knight is fighting, for the target panel. */
 export interface HudTarget { key: string; name: string; health: number; maxHealth: number; family: string; model: any; idle: any }

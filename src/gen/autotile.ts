@@ -164,3 +164,63 @@ export function paint(model: TileModel, cells: Map<string, State>, rand: () => n
   }
   return out;
 }
+
+/** What the remapping and rule-based tiling need to know about a tile config. */
+export interface TileFacts { width: number; height: number; walkable: boolean }
+
+/**
+ * A theme substitution: tiles named "<from>/<suffix>" become "<to>/<suffix>". `alias` rewrites
+ * the suffix first where the two themes name the same piece differently (Castle, Light's
+ * "Rail/02" is Graveyard's "Floor Edge/02").
+ */
+export interface RemapRule { from: string; to: string; alias?: [RegExp, string][] }
+
+const tokens = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+/**
+ * The target-theme tile standing in for a source tile name, or null to keep the source tile:
+ * the same suffix when the target theme has it, else the nearest-named target tile (same
+ * folder first, then shared words and leading characters) with the same walkability and a
+ * single-cell footprint (only single-cell tiles are painted).
+ */
+export function remapName(name: string, rules: RemapRule[], target: Map<string, TileFacts>, source?: TileFacts): string | null {
+  for (const rule of rules) {
+    if (!name.startsWith(rule.from + "/")) continue;
+    let suffix = name.slice(rule.from.length + 1);
+    for (const [re, to] of rule.alias ?? []) suffix = suffix.replace(re, to);
+    const fits = (f: TileFacts) => f.width === 1 && f.height === 1 && (!source || f.walkable === source.walkable);
+    const exact = target.get(rule.to + "/" + suffix);
+    if (exact && fits(exact)) return rule.to + "/" + suffix;
+    const folder = suffix.includes("/") ? suffix.slice(0, suffix.lastIndexOf("/")) : "";
+    const want = new Set(tokens(suffix));
+    let best: string | null = null, bestScore = 0;
+    for (const [n, f] of target) {
+      if (!n.startsWith(rule.to + "/") || !fits(f)) continue;
+      const s = n.slice(rule.to.length + 1);
+      const sf = s.includes("/") ? s.slice(0, s.lastIndexOf("/")) : "";
+      let shared = 0;
+      for (const t of new Set(tokens(s))) if (want.has(t)) shared++;
+      if (shared === 0 && sf !== folder) continue;
+      let prefix = 0;
+      while (prefix < s.length && s[prefix] === suffix[prefix]) prefix++;
+      // the same folder is worth more than any word match; words before leading characters
+      const score = (sf === folder ? 1000 : 0) + shared * 20 + prefix;
+      if (score > bestScore) { bestScore = score; best = n; }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
+/**
+ * A learned model with every tile reference substituted (`map` returns the new name, or null
+ * to keep the tile): the neighbourhoods, rotations and elevations carry over unchanged, so a
+ * theme variant inherits its source's tiling.
+ */
+export function remapModel(model: TileModel, map: (name: string) => string | null): TileModel {
+  const tiles = model.tiles.map(ref => {
+    const n = ref?.name ? map(ref.name) : null;
+    return n ? { ...ref, name: n } : ref;
+  });
+  return { tiles, cases: model.cases, deepEdges: model.deepEdges };
+}

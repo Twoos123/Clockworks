@@ -20,11 +20,13 @@ import { TitleScreen } from "./ui/title";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, loadSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, loadSettings, saveSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { OptionsScreen } from "./ui/options";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, gateFloors, stratumTables, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
@@ -46,7 +48,7 @@ const THEMES: { key: string; test: RegExp; label: string }[] = [
 ];
 const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
 /** Generated floor ids: "gen:<theme>:<seed>". */
-const GEN = /^gen:([a-z]+):(\d+)$/;
+const GEN = /^gen:([a-z-]+):(\d+)$/;
 
 /** The name shown on the HUD name plate. */
 const KNIGHT_NAME = "Knight";
@@ -181,10 +183,10 @@ class Viewer {
   private world: World | null = null;
   private hud: Hud | null = null;
   private gameHud: GameHud | null = null;
-  private readonly options: Settings = loadSettings();
+  private readonly options_: Settings = loadSettings();
   private settings: SettingsMenu | null = null;
   /** The key bound to an action (options menu). */
-  private bound(a: Action) { return this.options.keys[a] ?? ACTIONS[a].key; }
+  private bound(a: Action) { return this.options_.keys[a] ?? ACTIONS[a].key; }
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
   private save: SaveData = loadSave();
@@ -238,7 +240,7 @@ class Viewer {
     this.renderer = new Renderer(this.canvas, vfs);
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
-    this.settings = new SettingsMenu($("settings"), this.options, {
+    this.settings = new SettingsMenu($("settings"), this.options_, {
       changed: () => this.applyOptions(),
       playing: () => !!this.world,
       resume: () => { this.paused = false; this.canvas.focus(); },
@@ -307,10 +309,11 @@ class Viewer {
       if (e.key === "Escape") {
         if (this.arsenal?.isOpen) { this.arsenal.close(); return; }
         if (this.settings?.isOpen) this.settings.close();
-        else { this.paused = true; this.settings?.open(); }
+        else if (this.options?.isOpen) this.options.close();
+        else { this.paused = true; void this.openOptions(); }
         return;
       }
-      if (this.settings?.isOpen) return;
+      if (this.settings?.isOpen || this.options?.isOpen) return;
       const key = e.key.toLowerCase(), b = (a: Action) => key === this.bound(a);
       (["weapon1", "weapon2", "weapon3"] as const).forEach((a, i) => { if (b(a)) this.weaponSlot = i; });
       if (b("cycle") && !e.repeat) { e.preventDefault(); const n = Math.max(1, this.world.knight.weapons.length); this.weaponSlot = (this.world.knight.slot + 1) % n; }
@@ -322,6 +325,8 @@ class Viewer {
       if (b("dash") && !e.repeat) this.dashPressed = true;
       if (b("help") && !e.repeat) $("playHint").hidden = !$("playHint").hidden;
       if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
+      if (key === "n" && !e.repeat) this.openFeed();
+      if (key === "m" && !e.repeat) this.openMail();
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       if (b("arsenal") && !e.repeat) void this.toggleArsenal();
@@ -385,6 +390,7 @@ class Viewer {
       return li;
     }));
     $("scenesBox").hidden = false;
+    genScenes = this.sceneList;
     if (GAME) void this.enterTitle();
   }
 
@@ -396,7 +402,7 @@ class Viewer {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.title ??= new TitleScreen(this.gui, $<HTMLCanvasElement>("titleCanvas"), {
       play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide(); void this.startPlaying(); },
-      options: () => this.settings?.open(),
+      options: () => void this.openOptions(),
       viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
     });
     const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
@@ -431,27 +437,32 @@ class Viewer {
    */
   private async generatedRoot(id: string): Promise<any> {
     const [, key, seed] = GEN.exec(id)!;
-    const theme = THEMES.find(t => t.key === key)!;
-    const ids = this.sceneList.filter(s => theme.test.test(s.name)).map(s => s.id);
-    const sources = await Promise.all(ids.map(async sid => ({ id: sid, root: await this.sceneLoader.parse(await this.vfs.readScene(sid)) })));
-    // resolve every tile the sources use first; the generator asks synchronously
-    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
-    for (const s of sources) {
-      for (const m of (s.root.tileConfigs?.items ?? s.root.tileConfigs ?? []) as any[]) {
-        const k = refKey(m?.tile);
-        if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
-      }
-    }
-    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
+    // the theme's tiling: learned from its cached levels, mirrored from a related theme, or
+    // rule-based (src/gen/themes.ts)
+    const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
+    const level = await themeLevel(key, {
+      scenes: this.sceneList, readRoot,
+      tileNames: () => this.sceneLoader.configNames("config/tile.dat"),
+      tileInfo: ref => this.sceneLoader.tileInfo(ref),
+    });
+    const ids = level.sources.map(s => s.id);
     // spawners and treasure from every cached combat level, for themes whose levels spawn
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
-    const pool = (await Promise.all(others.map(async sid => (await this.sceneLoader.parse(await this.vfs.readScene(sid))).entries ?? []))).flat();
-    const root = generateLevel(sources, info, Number(seed), this.genNames.get(id) ?? `${theme.label} · new floor`, pool);
+    const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
+    const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
+      this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals });
     // a stratum's monsters: every spawner draws from the stratum's spawn tables
     const tables = this.genTables.get(id);
     if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
-    // rooms seal while their waves are fought, as the game's own levels do
+    // rooms seal while their waves are fought, as the game's own levels do (walkability from
+    // the tiles the floor uses)
+    const refKey = (r: any) => JSON.stringify(r, (k, v) => (k === "$outer" ? undefined : v));
+    for (const m of (root.tileConfigs ?? []) as any[]) {
+      const k = refKey(m?.tile);
+      if (m?.tile && !this.tileInfos.has(k)) this.tileInfos.set(k, await this.sceneLoader.tileInfo(m.tile));
+    }
+    const info = (r: any) => this.tileInfos.get(refKey(r)) ?? { width: 1, height: 1, walkable: false };
     const walk = walkableCells(root, info);
     arenaRooms(root, (x, y) => walk.has(x + "," + y));
     return root;
@@ -588,7 +599,7 @@ class Viewer {
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
     this.az = -Math.PI / 2;
-    this.dist = (cam?.distance ?? 10) * 1.35 * this.options.zoom;
+    this.dist = (cam?.distance ?? 10) * 1.35 * this.options_.zoom;
     this.applyOptions();
     $("play").textContent = "Stop playing";
     $("playHint").hidden = true; // the ? button on the HUD (or H) shows the controls
@@ -665,7 +676,7 @@ class Viewer {
 
   /** Applies the options menu's settings to audio, rendering, the HUD and input. */
   private applyOptions() {
-    const o = this.options;
+    const o = this.options_;
     if (this.audio) {
       this.audio.volume = o.masterVolume; this.audio.musicVolume = o.musicVolume;
       this.audio.effectsVolume = o.effectsVolume; this.audio.uiVolume = o.uiVolume; this.audio.muted = o.muted;
@@ -681,6 +692,11 @@ class Viewer {
 
   /** What the HUD shows besides the knight: the objective lines and whether this is a town. */
   private hudContext(): { objectives: string[]; town: boolean } {
+    const f = this.gate ? this.floors[this.run.depth] : null;
+    if (f && (f.kind === "terminal" || f.kind === "subtown" || f.kind === "core")) {
+      return { town: true, objectives: [`${f.name}, depth ${f.depth}: rest, resupply at the Supply Depot, then take the elevator down.`] };
+    }
+    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? BOSSES[f.stratum.boss].name : "the boss"}.`, "The elevator opens when it falls."] };
     const town = !!this.scene && TOWN.test(this.scene.name);
     const a = this.world?.arena;
     const objectives = town ? ["Visit the shops, then enter the Clockworks."]
@@ -695,6 +711,8 @@ class Viewer {
     switch (tag) {
       case "button_menu": this.openSettings(); break;
       case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
+      case "button_feed": this.openFeed(); break;
+      case "button_mail": this.openMail(); break;
       case "button_loadout": case "button_gear": case "button_arsenal": void this.toggleArsenal(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
       case "button_haven": void this.returnToHaven(); break;
@@ -716,6 +734,63 @@ class Viewer {
     });
   }
 
+  /** A simple window in the options' style (news and mail). */
+  private showPanel(title: string, fill: (body: HTMLElement) => void) {
+    const root = $("gates");
+    root.replaceChildren();
+    const card = document.createElement("div");
+    card.className = "settings-card";
+    const head = document.createElement("div");
+    head.className = "settings-head";
+    const h = document.createElement("h2");
+    h.textContent = title;
+    const close = document.createElement("button");
+    close.textContent = "Close";
+    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
+    head.append(h, close);
+    const body = document.createElement("div");
+    body.className = "settings-body";
+    fill(body);
+    card.append(head, body);
+    root.append(card);
+    root.hidden = false;
+    this.paused = !!this.world;
+  }
+
+  /** The news feed: what this port has and lacks (the game's feed came from its servers). */
+  private openFeed() {
+    this.showPanel("News", body => {
+      const items: [string, string][] = [
+        ["The Clockworks are open", "Four gates a day in the Arcade, six strata from depth 1 to 28, terminals, Moorcroft Manor, Emberlight and the Core."],
+        ["Generated floors", "Floors are built from the game's own tiles, spawners, gates and treasure; the real layouts of levels you have not visited are not in the install."],
+        ["Single player", "Parties, trading, PvP and guild chat are online features and are not part of this port."],
+      ];
+      for (const [t, d] of items) {
+        const p = document.createElement("p");
+        p.innerHTML = `<b style="color:#f3d36b">${t}</b><br>${d}`;
+        body.append(p);
+      }
+    });
+  }
+
+  /** The mailbox: letters kept in the save (a welcome note; missions add their rewards here). */
+  private openMail() {
+    const mail = this.save.mail ??= [];
+    if (!mail.length) mail.push({ from: "Spiral HQ", subject: "Welcome to Haven", at: Date.now(), read: false,
+      body: "Welcome, knight. Visit the Bazaar for gear, then take a gate in the Arcade into the Clockworks. Good luck below!" });
+    this.showPanel("Mail", body => {
+      for (const m of [...mail].reverse()) {
+        const d = document.createElement("details");
+        d.className = "settings-row";
+        d.style.display = "block";
+        d.innerHTML = `<summary><b>${m.read ? "" : "● "}${m.subject}</b> <span class="settings-note">from ${m.from}</span></summary><p>${m.body}</p>`;
+        d.ontoggle = () => { if (d.open && !m.read) { m.read = true; writeSave(this.save); } };
+        body.append(d);
+      }
+    });
+    writeSave(this.save);
+  }
+
   /** Your guild hall: the cached hall scene. */
   private async goToGuildHall() {
     const hall = this.sceneList.find(s => /^hall\b/i.test(s.name));
@@ -726,7 +801,24 @@ class Viewer {
   }
 
   /** The settings menu (filled in by the settings module). */
-  private openSettings() { this.settings?.open(); }
+  private openSettings() { this.paused = !!this.world; void this.openOptions(); }
+
+  private options: OptionsScreen | null = null;
+
+  /** The game's own options window (ui/options), bound to our settings. */
+  private async openOptions() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    this.options ??= new OptionsScreen(this.gui, $<HTMLCanvasElement>("optionsCanvas"), this.options_, {
+      changed: () => { saveSettings(this.options_); this.applyOptions(); },
+      advanced: tab => this.settings?.open(tab),
+      returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
+      quit: () => { this.paused = false; this.stopPlaying(); if (GAME) void this.enterTitle(); },
+      closed: () => { if (!this.settings?.isOpen) { this.paused = false; this.canvas.focus(); } },
+      playing: () => !!this.world,
+      sound: f => this.uiSound(f),
+    });
+    await this.options.open();
+  }
 
   /** Plays a UI feedback sound once audio exists (it starts with the first play). */
   private uiSound(file: string) {
@@ -792,7 +884,10 @@ class Viewer {
     const tabs: ShopMode["tabs"] = /sword|gun|bomb|weapon/.test(k) ? ["weapons"] : /armor|helm/.test(k) ? ["armor", "helmet"]
       : /shield/.test(k) ? ["shield", "trinket"] : /trinket|jewel/.test(k) ? ["trinket"] : ["weapons", "shield", "armor", "helmet", "trinket", "vitapod"];
     this.paused = true;
-    await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity: shopTier(this.save) });
+    // in the Clockworks a terminal's Supply Depot stocks gear for its tier
+    const f = this.gate ? this.floors[this.run.depth] : null;
+    const maxRarity = f ? Math.max(shopTier(this.save), tierStars(f.tier)) : shopTier(this.save);
+    await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity });
   }
 
   /** The knight reached the exit elevator: offer the next floor. */
@@ -956,7 +1051,7 @@ class Viewer {
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
     const id = `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
-    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} (${s.theme})`);
+    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   private usedScenes = new Set<string>();
@@ -1036,12 +1131,18 @@ class Viewer {
       await this.selectScene(sc.id);
       await this.startPlaying();
       if (this.bossFloor) this.spawnBoss(this.bossFloor);
+      // terminals and subtowns are safe floors: the knight is healed on arrival
+      if ((f.kind === "terminal" || f.kind === "subtown" || f.kind === "core") && this.world) {
+        this.world.knight.health = this.world.knight.maxHealth;
+        this.run.health = null;
+      }
       return;
     }
     let next = this.nextLevel();
     // past the end of the run, deeper floors are generated
     if (deeper && !next) {
-      const usable = THEMES.filter(t => this.sceneList.some(s => t.test.test(s.name)));
+      // any tileset theme whose source levels are cached (src/gen/themes.ts)
+      const usable = GEN_THEMES.filter(t => themeAvailable(t.key, this.sceneList));
       const t = usable[Math.floor(Math.random() * usable.length)];
       next = t ? { id: `gen:${t.key}:${Math.floor(Math.random() * 1e9)}`, name: `${t.label} · new floor` } : this.runLevels()[0] ?? null;
     }
@@ -1219,7 +1320,7 @@ class Viewer {
     c.addEventListener("pointerdown", e => {
       // clicks on the HUD's menus go to the HUD, not the sword
       if (this.world && this.gameHud && e.button === 0) {
-        const r = c.getBoundingClientRect(), s = this.options.hudScale;
+        const r = c.getBoundingClientRect(), s = this.options_.hudScale;
         const x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s;
         if (this.gameHud.covers(x, y)) {
           const tag = this.gameHud.pointer(x, y, true);
@@ -1250,7 +1351,7 @@ class Viewer {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
       // hovering the HUD's buttons
-      const s = this.options.hudScale;
+      const s = this.options_.hudScale;
       if (this.gameHud) { this.gameHud.pointer(this.mouse[0] / s, this.mouse[1] / s, false); c.style.cursor = this.gameHud.covers(this.mouse[0] / s, this.mouse[1] / s) ? "pointer" : ""; }
     });
     c.addEventListener("pointerup", () => { drag = null; });
@@ -1275,7 +1376,7 @@ class Viewer {
   private frame = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
-    const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1) * this.options.renderScale;
+    const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1) * this.options_.renderScale;
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
     if (this.instance || this.sceneItems) {
@@ -1315,8 +1416,8 @@ class Viewer {
         }
         this.attackPressed = false;
         // Q and E turn the camera; it follows the knight smoothly
-        if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options.cameraSpeed;
-        if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options.cameraSpeed;
+        if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options_.cameraSpeed;
+        if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options_.cameraSpeed;
         const k = this.world.knight;
         const f = 1 - Math.exp(-dt * 10);
         this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
@@ -1346,15 +1447,15 @@ class Viewer {
         // Fog in the game is tuned for a camera about camera.distance from the player; shift it so
         // it is measured around the orbit target instead, and honour the fog toggle.
         let env = this.environment;
-        const fogOn = $<HTMLInputElement>("fog").checked && this.options.fog;
+        const fogOn = $<HTMLInputElement>("fog").checked && this.options_.fog;
         if (env.fog && (!fogOn || env.camera)) {
           const shift = Math.max(0, this.dist - (env.camera?.distance ?? this.dist));
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
         const items = this.world ? [...this.sceneItems, ...this.world.items()] : this.sceneItems;
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
-        if (this.scene && this.options.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
-        if (this.world && this.options.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
+        if (this.scene && this.options_.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
+        if (this.world && this.options_.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;
         this.lastView = view;
         if (this.world && this.hud) {
@@ -1372,10 +1473,13 @@ class Viewer {
 
 start();
 
+/** The scenes cache, for genTheme's availability check (set once scenes are listed). */
+let genScenes: { id: string; name: string }[] | null = null;
+
 /** Generator themes for a floor's tileset (src/gen); unknown tilesets fall back by family. */
 function genTheme(tileset: string): string {
-  const known = THEMES.map(t => t.key);
-  if (known.includes(tileset)) return tileset;
+  const known = GEN_THEMES.map(t => t.key);
+  if (known.includes(tileset) && (!genScenes || themeAvailable(tileset, genScenes))) return tileset;
   if (/^valley/.test(tileset) && known.includes("valley")) return "valley";
   return known.includes("clockworks") ? "clockworks" : known[0];
 }
