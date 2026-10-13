@@ -41,7 +41,12 @@ const gearRef = (name: string) => ({ $class: "com.threerings.config.ConfigRefere
 const DEFAULT_GEAR = { armor: gearRef("item/gear/armor/doublebelt/model.dat"), helmet: gearRef("item/gear/helm/pith/model.dat") };
 
 /** The dash: its numbers live in game code, so these are tuning values. */
-const DASH = { distance: 3.2, time: 0.25, cooldown: 0.9 };
+/**
+ * The knight's dash (Shift + right click): five tiles in a straight line, stopped or deflected
+ * by obstacles, with a moment of immunity when it ends, then a cooldown shown above the
+ * quickbar. Distance from the game's guide; the times are tuning values.
+ */
+export const DASH = { distance: 5, time: 0.3, cooldown: 2, guard: 0.4 };
 const CHARGE_ANIMS: Record<string, string> = {
   Sword: "character/pc/charge_sword_hold.dat", Handgun: "character/pc/charge_pistol_hold.dat",
   Bomb: "character/pc/charge_bomb_hold.dat", Other: "character/pc/charge_sword_hold.dat",
@@ -136,6 +141,8 @@ export class Knight extends Actor {
   shieldBroken = 0;
   /** Seconds until the next dash. */
   dashCooldown = 0;
+  /** Mid-dash (the lunge carries the knight). */
+  dashing = false;
   /** Health lost recently, shown on the HUD as a damage segment that drains away. */
   recentDamage = 0;
   sinceDamage = 1e9;
@@ -1006,16 +1013,26 @@ export class World implements LogicHost {
     // dash: a quick dodge along the movement direction (or facing), briefly untouchable
     if (input.dash && !k.attack && k.charge === null && k.dashCooldown <= 0) {
       const [mx0, my0] = input.move;
+      // a moving knight dashes the way it moves, a standing one the way it faces
       const dir = Math.hypot(mx0, my0) > 0.01 ? Math.atan2(my0, mx0) : k.heading;
       k.heading = dir;
       k.dashCooldown = DASH.cooldown;
-      k.invulnerable = Math.max(k.invulnerable, DASH.time);
+      if (k.shielding) { k.shielding = false; this.setShieldEffect(false); }
       k.lunge = { vx: Math.cos(dir) * DASH.distance / DASH.time, vy: Math.sin(dir) * DASH.distance / DASH.time, t: DASH.time };
       this.play(k, "character/pc/dodge/dodge_fire.dat", { loop: false, blend: 0.04 });
+      void this.spawnEffect({ name: "character/pc/dodge/part_dodge_fire.dat" }, k.matrix(), 1, k);
       k.hurtTime = DASH.time;
+      k.dashing = true;
       return;
     }
-    if (k.lunge.t > 0 && k.dashCooldown > DASH.cooldown - DASH.time) { this.applyLunge(k, dt, KNIGHT_MASK); return; }
+    if (k.dashing) {
+      if (k.lunge.t > 0) { this.applyLunge(k, dt, KNIGHT_MASK); return; }
+      // landing: the end pose, and a moment the monsters cannot touch the knight
+      k.dashing = false;
+      k.invulnerable = Math.max(k.invulnerable, DASH.guard);
+      this.play(k, "character/pc/dodge/dodge_end.dat", { loop: false, blend: 0.05 });
+      k.hurtTime = 0.15;
+    }
     // attack input: bombs (charge-only weapons) start charging on the press
     if (input.attackDown && !k.shielding) {
       if (!k.attack && k.charge === null && k.rearm <= 0) {

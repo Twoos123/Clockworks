@@ -266,6 +266,8 @@ class Viewer {
       if (/^[4-7]$/.test(e.key) && !e.repeat && !this.paused && this.world.useItem(Number(e.key) - 4)) writeSave(this.save);
       if (e.key.toLowerCase() === "f" && !e.repeat) this.interactPressed = true;
       if (e.key === " " && !e.repeat) this.dashPressed = true;
+      // Shift while the shield is up also dashes (right click, then Shift)
+      if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       if (e.key.toLowerCase() === "i" && !e.repeat) void this.toggleArsenal();
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
@@ -917,7 +919,10 @@ class Viewer {
     c.addEventListener("pointerdown", e => {
       if (this.world && (e.button === 0 || e.button === 2)) {
         // play mode: left attacks (hold to charge), right raises the shield
-        if (e.button === 0) { this.attackPressed = true; this.attackHeld = true; } else this.shieldHeld = true;
+        // Shift + right click dashes (the game's default binding); right click alone shields
+        if (e.button === 0) { this.attackPressed = true; this.attackHeld = true; }
+        else if (e.shiftKey) this.dashPressed = true;
+        else this.shieldHeld = true;
         c.setPointerCapture(e.pointerId);
         return;
       }
@@ -985,7 +990,7 @@ class Viewer {
         if (!this.paused) {
           this.world.update(dt, {
             move, attackDown: this.attackPressed || !!pad?.attackDown, attackHeld: this.attackHeld || !!pad?.attackHeld,
-            shield: this.shieldHeld || this.keys.has("shift") || !!pad?.shield, aim, weaponSlot: this.weaponSlot,
+            shield: this.shieldHeld || !!pad?.shield, aim, weaponSlot: this.weaponSlot,
             interact: this.interactPressed || !!pad?.interact, dash: this.dashPressed || !!pad?.dash,
           });
           this.dashPressed = false;

@@ -72,7 +72,9 @@ export class PortraitView {
     if (view.viewNode && inst.world.has(view.viewNode)) {
       cam = invert(multiply(placement, inst.nodeMatrix(view.viewNode)));
     } else {
-      const target: [number, number, number] = [placement[12], placement[13], placement[14]];
+      // OrbitCameraHandler's target stays at the origin; the view model's transform moves the
+      // model, not the camera (the heat flame sits a little left of centre this way)
+      const target: [number, number, number] = [0, 0, 0];
       const az = view.azimuth ?? 0, el = view.elevation ?? Math.PI / 4, dist = view.distance ?? 10;
       // OrbitCameraHandler: azimuth 0 puts the camera south of the target, looking north
       const eye: [number, number, number] = [
