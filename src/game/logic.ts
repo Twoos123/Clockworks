@@ -175,6 +175,8 @@ export class Logic {
   vanish(e: Entity) {
     if (!e.isActor || e.destroyed) return;
     e.destroyed = true;
+    // its handlers stop listening (sensors, timers, observers) without their shutdown actions
+    for (const h of e.handlers) this.shutdown(h, e, false, true);
     this.removals.push(e);
   }
 
@@ -271,10 +273,10 @@ export class Logic {
     }
   }
 
-  private shutdown(h: Handler, activator: Entity, endScene: boolean) {
+  private shutdown(h: Handler, activator: Entity, endScene: boolean, silent = false) {
     switch (h.kind) {
-      case "Shutdown": if (!endScene) this.run(h.cfg.action, h.source, activator); break;
-      case "Reference": for (const c of h.children ?? []) this.shutdown(c, activator, endScene); break;
+      case "Shutdown": if (!endScene && !silent) this.run(h.cfg.action, h.source, activator); break;
+      case "Reference": for (const c of h.children ?? []) this.shutdown(c, activator, endScene, silent); break;
       case "Tick": this.tickers.delete(h); break;
       case "Timer": case "WarnTimer":
         if (h.timer) h.timer.cancelled = true;

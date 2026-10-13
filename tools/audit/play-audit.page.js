@@ -18,6 +18,10 @@
   let input = blank();
   let home = [0, 0];
   let dummy = null;
+  /** The level's own actors when the audit began (doors, switches, the elevator). */
+  let levelActors = null;
+  /** The game action running now (who is dealing damage), for the death log. */
+  let lastAction = null;
 
   function nodeNames(inst, out = new Set()) {
     const walk = n => { out.add(n.name); n.children.forEach(walk); };
@@ -99,8 +103,14 @@
       }
       return orig.apply(this, args);
     });
+    hook(w, "gameAction", function (orig, args) {
+      const [cfg, source, activator] = args;
+      const prev = lastAction;
+      lastAction = { kind: String(cfg?.$class ?? "").split("$").pop(), source: source?.name, sourceTags: source?.tags, activator: activator?.name, level: levelActors?.has(source) ?? null };
+      try { return orig.apply(this, args); } finally { lastAction = prev; }
+    });
     hook(w, "startDying", function (orig, args) {
-      log.deaths.push({ name: args[0].entity?.name, t: log.t, stack: new Error().stack.split("\n").slice(2, 9).map(s => s.trim()).join(" < ") });
+      log.deaths.push({ name: args[0].entity?.name, t: log.t, by: lastAction, stack: new Error().stack.split("\n").slice(2, 9).map(s => s.trim()).join(" < ") });
       return orig.apply(this, args);
     });
     hook(w, "detonate", function (orig, args) {
@@ -146,8 +156,13 @@
   function clearAll(keepDummy) {
     const w = W();
     for (const m of [...w.monsters]) if (!(keepDummy && m === dummy)) removeMonster(m);
-    // every actor the tests left (minions, markers, bullets as actors), with their timers
-    for (const e of [...w.logic.actors]) if (e.isActor && e !== w.knightEntity && !e.fixedShape && !(e.game && e.game.constructor?.name === "Prop") && !(keepDummy && dummy && e === dummy.entity)) w.logic.vanish(e);
+    // every actor the tests left (minions, markers, props such as a boss's hazard zones),
+    // with their timers; the level's own actors stay
+    for (const e of [...w.logic.actors]) {
+      if (!e.isActor || e === w.knightEntity || levelActors?.has(e) || (keepDummy && dummy && e === dummy.entity)) continue;
+      if (e.game && e.game.constructor?.name === "Prop") w.removeProp(e.game, false);
+      w.logic.vanish(e);
+    }
     w.logic.tick(0);
     w.delayed.length = 0;
     w.projectiles.length = 0;
@@ -210,6 +225,7 @@
       }
       v.paused = true;
       install();
+      levelActors = new Set(w.logic.actors.filter(e => !(e.game && e.game.constructor?.name === "Monster")));
       // an open stretch of floor near the start, so monsters have room to come at the knight
       home = w.collision.findSpawn(w.knight.x, w.knight.y, 3, 43) ?? [w.knight.x, w.knight.y];
       // a level with no monsters left over, and a knight that cannot fall
