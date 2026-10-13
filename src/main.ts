@@ -331,6 +331,7 @@ class Viewer {
       // Esc opens the options menu (and closes whatever window is open)
       if (e.key === "Escape") {
         if (this.itemScreens?.escape()) return;
+        if (this.missionBoard?.escape()) return;
         if (this.escapeWindow()) return;
         if (this.options?.isOpen) this.options.close();
         else { this.paused = true; void this.openOptions(); }
