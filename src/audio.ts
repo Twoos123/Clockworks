@@ -184,6 +184,9 @@ export class AudioSystem {
     else if (loop) src.stop(this.ctx.currentTime + delay + 8);
   }
 
+  /** A UI feedback sound (StyleConfig feedbackSound files such as sound/feedback/ui_confirm.ogg). */
+  ui(file: string, gain = 0.8) { void this.clip(file, gain, 1, false, {}, null, 0); }
+
   /** Starts a looping ambient sounder (wind, rain) that plays until stopAmbience. */
   ambient(ref: any) {
     if (!this.ctx || !ref) return;

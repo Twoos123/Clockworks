@@ -56,6 +56,7 @@ export class Arsenal {
     if (shop && !shop.tabs.includes(this.tab)) this.tab = shop.tabs[0];
     await this.data.preload("config/item.dat");
     this.root.hidden = false;
+    this.fb("ui_open");
     this.render();
   }
 
@@ -64,8 +65,11 @@ export class Arsenal {
 
   /** Called when the window closes. */
   onClose: (() => void) | null = null;
+  /** Plays a UI feedback sound (the game's style feedback sounds). */
+  sound: ((file: string) => void) | null = null;
+  private fb(name: string) { this.sound?.(`sound/feedback/${name}.ogg`); }
 
-  close() { this.root.hidden = true; this.onClose?.(); }
+  close() { this.root.hidden = true; this.fb("ui_dismiss"); this.onClose?.(); }
   get isOpen() { return !this.root.hidden; }
 
   private entries(tab: Tab): Entry[] {
@@ -120,7 +124,7 @@ export class Arsenal {
     const tabs = el("div", "arsenal-tabs");
     for (const t of TABS.filter(t => this.shop ? this.shop.tabs.includes(t.id) : t.id !== "craft" || !!this.crafting)) {
       const b = el("button", t.id === this.tab ? "active" : "", t.label);
-      b.onclick = () => { this.tab = t.id; this.render(); };
+      b.onclick = () => { this.tab = t.id; this.fb("ui_dropdown_select"); this.render(); };
       tabs.append(b);
     }
     const search = document.createElement("input");
@@ -138,7 +142,7 @@ export class Arsenal {
         const b = el("button", "swatch" + (c.print === this.color ? " active" : ""));
         b.title = c.name;
         b.style.background = `rgb(${c.rgb.join(",")})`;
-        b.onclick = () => { this.color = c.print; this.onColor?.(c.print); this.render(); };
+        b.onclick = () => { this.color = c.print; this.onColor?.(c.print); this.fb("ui_confirm"); this.render(); };
         row.append(b);
       }
     }
@@ -202,7 +206,7 @@ export class Arsenal {
         `${r.cost} cr`,
       ];
       tile.append(cv, el("span", "arsenal-name", r.label), el("span", "arsenal-stars", "★".repeat(r.rarity)), el("span", "craft-needs", lines.join("\n")));
-      tile.onclick = () => { if (ok && c.craft({ output: r.output, materials: r.materials, consumes: r.consumes, cost: r.cost })) this.render(); };
+      tile.onclick = () => { if (ok && c.craft({ output: r.output, materials: r.materials, consumes: r.consumes, cost: r.cost })) { this.fb("ui_merchant_trade_add"); this.render(); } };
       grid.append(tile);
     }
   }
@@ -241,8 +245,8 @@ export class Arsenal {
         const has = owned.has(e.name), cost = price(e.rarity);
         tile.append(el("span", "arsenal-price", has ? "✓ owned" : `${cost} cr`));
         if (has) tile.classList.add("equipped");
-        tile.onclick = () => { if (!has && this.buy(e.name, cost)) this.render(); };
-      } else tile.onclick = () => this.toggle(e);
+        tile.onclick = () => { if (!has && this.buy(e.name, cost)) { this.fb("ui_merchant_trade_add"); this.render(); } };
+      } else tile.onclick = () => { this.fb("ui_confirm"); this.toggle(e); };
       grid.append(tile);
     }
   }

@@ -211,6 +211,10 @@ class Viewer {
       this.run = { depth: 1, health: null, floors: 0 };
       void this.startPlaying();
     };
+    // the run's menu buttons click with the game's button sound
+    for (const id of ["descend", "deeper", "revive", "giveUp", "clockworks", "arenaBtn"]) {
+      $(id).addEventListener("click", () => this.uiSound(id === "giveUp" ? "sound/feedback/ui_dismiss.ogg" : "sound/feedback/button_press.ogg"));
+    }
     $("descend").onclick = () => void this.descend();
     $("deeper").onclick = () => {
       if (this.arenaMode && this.world?.arena) { $("floorDone").hidden = true; this.paused = false; this.world.continueArena(); return; }
@@ -521,6 +525,13 @@ class Viewer {
     await arsenal.open(this.save.loadout);
   }
 
+  /** Plays a UI feedback sound once audio exists (it starts with the first play). */
+  private uiSound(file: string) {
+    this.audio ??= new AudioSystem(this.vfs, this.loader);
+    this.audio.unlock();
+    this.audio.ui(file);
+  }
+
   private ensureArsenal() {
     if (!this.gui) this.gui = new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.arsenal ??= new Arsenal($("arsenal"), this.world?.data ?? new GameData(this.loader), this.gui,
@@ -535,6 +546,7 @@ class Viewer {
         return true;
       });
     this.arsenal.onClose = () => { this.paused = false; this.canvas.focus(); };
+    this.arsenal.sound = file => this.uiSound(file);
     this.arsenal.crafting = {
       materials: () => this.save.materials,
       level: name => this.save.owned.includes(name) ? (/^Weapon\//.test(name) ? weaponLevel(this.save.weaponHeat[name] ?? 0) : 10) : 0,
