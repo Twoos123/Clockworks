@@ -33,7 +33,9 @@ export class SpawnTables {
   private entry(e: any, ctx: SpawnContext, depth: number): SpawnResult[] {
     if (!e || depth > 24) return [];
     const sub = (x: any) => this.entry(x, ctx, depth + 1);
-    switch (kind(e)) {
+    // parameters fill fields of default entries the export left out, which carry no class
+    const k = e.$class ? kind(e) : e.actor ? "ActorEntry" : e.spawnTable ? "TableEntry" : e.item ? "ItemEntry" : "";
+    switch (k) {
       case "TableEntry": return this.evaluate(e.spawnTable, ctx, depth + 1);
       case "ActorEntry": return e.actor?.name ? [{ actor: e.actor, count: 1 }] : [];
       case "WeightedEntry": case "DepthEntry": case "MissionEntry": case "MultiplyEntry": case "MultiplyByVariableEntry":
