@@ -72,6 +72,8 @@ export class Knight extends Actor {
   invulnerable = 0;
   hurtTime = 0;
   sinceAttack = 0;
+  /** Seconds until a new combo may start (the finished attack's rearm time). */
+  rearm = 0;
   attacks: AttackDef[] = [];
   weapon: WeaponDef | null = null;
   shield: ShieldDef | null = null;
@@ -239,6 +241,7 @@ export class World {
     k.invulnerable -= dt;
     k.hurtTime -= dt;
     k.sinceAttack += dt;
+    k.rearm -= dt;
     if (k.dead) { k.instance.overlay = null; this.setShieldEffect(false); return; }
     this.applyKnockback(k, dt, KNIGHT_MASK);
 
@@ -251,7 +254,7 @@ export class World {
 
     // attack input
     if (input.attackDown && !k.shielding) {
-      if (!k.attack && k.charge === null) this.knightSwing(0, aimAngle);
+      if (!k.attack && k.charge === null && k.rearm <= 0) this.knightSwing(0, aimAngle);
       else if (k.attack) k.buffered = true;
     }
 
@@ -408,7 +411,8 @@ export class World {
       if (chain && at.t * 1000 < at.def.clear && chain()) return;
       if (this.animDone(a) || !at.def.end || at.t > 1.5) {
         a.attack = null;
-        if (a === this.knight) { this.knight.chain = 0; this.knight.instance.overlay = null; }
+        // rearm: the cooldown before a new attack (long after a combo's last swing)
+        if (a === this.knight) { this.knight.chain = 0; this.knight.instance.overlay = null; this.knight.rearm = at.def.rearm / 1000; }
       }
     }
   }
