@@ -193,6 +193,9 @@ class Viewer {
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
+  /** Totals for the current gate run, for the summary when it ends. */
+  private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
+
   /** The gate being descended and its floors by depth (null outside the Clockworks). */
   private gate: Gate | null = null;
   private floors: Floor[] = [];
@@ -886,6 +889,10 @@ class Viewer {
     // equipped weapons absorb the floor's heat
     for (const w of this.save.loadout.weapons) this.save.weaponHeat[w] = (this.save.weaponHeat[w] ?? 0) + l.heat;
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
+    const t = this.runTotals;
+    t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
+    t.materials += [...l.materials.values()].reduce((a, b) => a + b, 0);
+    t.deepest = Math.max(t.deepest, this.run.depth);
     writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
@@ -944,12 +951,30 @@ class Viewer {
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
   private async returnToHaven() {
+    // the end of a gate run: a summary of what it brought home
+    const t = this.runTotals;
+    const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
+    this.gate = null;
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "" };
     this.stopPlaying();
     this.run = { depth: 0, health: null, floors: 0 };
     const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
     if (!haven) return;
     await this.selectScene(haven.id);
     await this.startPlaying();
+    if (summary && summary.deepest > 0) {
+      this.showPanel("Back in Haven", body => {
+        const rows: [string, string][] = [["Gate", summary.gate || "The Clockworks"], ["Deepest depth this run", String(summary.deepest)],
+          ["Deepest depth ever", String(summary.best)], ["Monsters defeated", String(summary.kills)],
+          ["Crowns banked", String(summary.crowns)], ["Heat earned", String(summary.heat)], ["Materials and items", String(summary.materials)]];
+        for (const [k, v] of rows) {
+          const r = document.createElement("div");
+          r.className = "settings-row";
+          r.innerHTML = `<span>${k}</span><b>${v}</b><span></span>`;
+          body.append(r);
+        }
+      });
+    }
   }
 
   /** The cached levels in run order. */
@@ -1041,6 +1066,7 @@ class Viewer {
   /** Starts a gate at depth 1. */
   private async enterGate(g: Gate) {
     this.gate = g;
+    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name };
     this.usedScenes.clear();
     this.floors = gateFloors(g);
     this.arenaMode = false;
