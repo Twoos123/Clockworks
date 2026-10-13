@@ -27,17 +27,27 @@ export function rng(seed: number): () => number {
 
 const center = (r: Room): [number, number] => [Math.floor(r.x + r.w / 2), Math.floor(r.y + r.h / 2)];
 
-export function generateLayout(rand: () => number, opts: { rooms?: number; deepEdges?: boolean } = {}): Layout {
+export interface LayoutOptions {
+  rooms?: number;
+  deepEdges?: boolean;
+  /** Sizes of the first rooms, in order (the rest are random): an arena floor's one big hall. */
+  sizes?: [number, number][];
+  /** Each room grows off the one before it, so the rooms form a chain from the start. */
+  chain?: boolean;
+}
+
+export function generateLayout(rand: () => number, opts: LayoutOptions = {}): Layout {
   const count = opts.rooms ?? 6 + Math.floor(rand() * 3);
   const rooms: Room[] = [];
   const overlaps = (a: Room, b: Room) => a.x - 4 < b.x + b.w && b.x - 4 < a.x + a.w && a.y - 4 < b.y + b.h && b.y - 4 < a.y + a.h;
   // rooms grow outward from the first: each new one sits off a random earlier one
   for (let tries = 0; rooms.length < count && tries < 400; tries++) {
-    const w = 7 + Math.floor(rand() * 6), h = 7 + Math.floor(rand() * 6);
+    const size = opts.sizes?.[rooms.length];
+    const w = size?.[0] ?? 7 + Math.floor(rand() * 6), h = size?.[1] ?? 7 + Math.floor(rand() * 6);
     let r: Room;
     if (!rooms.length) r = { x: 0, y: 0, w, h };
     else {
-      const from = rooms[Math.floor(rand() * rooms.length)];
+      const from = opts.chain ? rooms[rooms.length - 1] : rooms[Math.floor(rand() * rooms.length)];
       const dir = Math.floor(rand() * 4), gap = 4 + Math.floor(rand() * 5);
       const [cx, cy] = center(from);
       r = dir === 0 ? { x: from.x + from.w + gap, y: cy - Math.floor(h / 2) + Math.floor((rand() - 0.5) * 4), w, h }

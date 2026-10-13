@@ -8,8 +8,11 @@ A single-player loop runs in the browser, built from the install's own data:
 
 1. **Haven.** The town loads from the scenes cache. Shopkeepers stand in the bazaar and sell
    gear for crowns.
-2. **Arsenal.** Every weapon, shield, armour and helmet is available with its icon, plus a
-   personal colour.
+2. **Arsenal.** The game's own arsenal and equipment windows (`ui/arsenal`, `ui/status`):
+   owned gear by category with icons, stars and heat levels, the game's item tooltips, sockets
+   for helmet, armour, shield, two trinkets, three weapons and the vitapod, the knight
+   preview, and the personal colour. B opens the backpack (`ui/inventory`): pocket items and
+   materials.
 3. **Runs.** Enter the Clockworks from town. Each cached combat level is followed by a
    newly generated floor of its theme, one depth per floor. The Core's elevator returns to
    Haven; "go deeper" past the end keeps generating floors.
@@ -33,8 +36,10 @@ A single-player loop runs in the browser, built from the install's own data:
 7. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
    deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
    boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
-8. **Crafting.** Recipes from `config/recipe.dat` turn materials, crowns and a levelled base
-   item into the next item.
+8. **Crafting.** The game's forge (`ui/forge`, K): recipes from `config/recipe.dat` turn
+   materials, crowns and a levelled base item into the next item, with the forging animation
+   played by the interface's own scripts. Shops use the game's vendor and cart windows
+   (`ui/shop`).
 9. **Saving.** The browser keeps:
    - loadout, owned items and colour;
    - banked crowns, heat and materials;
@@ -51,7 +56,9 @@ A single-player loop runs in the browser, built from the install's own data:
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
 | Damage | Depth-scaled damage, health and defence from `config/depth_scale.dat`; four damage types; status conditions |
 | Status conditions | Fire, freeze, shock, poison, curse, sleep and stun, with the game's effects and HUD icons |
-| Weapon heat | Weapons absorb heat and level up (1 to 10), raising their damage; the HUD heat meter shows the level |
+| Heat and levels | Equipped weapons, shields, armour and helmets absorb a floor's heat and level 1 to 10 (`item_property.dat` heat by star); level bonuses from `level_table.dat`: damage and charge time on weapons, defence and heart pips on gear |
+| Economy (`src/game/economy.ts`) | Prices and sell prices from `item_property.dat`; Haven keepers, Basil (recipes, per visit) and the Supply Depot (capsules and vials the treasure tables give); selling back; recipes are bought before crafting; crafting costs `recipe_property.dat` crowns, the recipe's materials and the base item at its level; unique variants rolled from `variant_table.dat` on crafted and found gear, stored per item, shown in names and applied |
+| Drops | Materials by depth weight (`item_depth_weight.dat`) and the monster's family tags; rare gear drops; mineral deposits (1, 2, 4 or 6 minerals); crowns and heat by depth on the tables' per-tier curves, coins and embers worth their denominations |
 | Monsters | Data-driven spawns, tiers by depth, loot, a clean-room AI (turrets, ranged spacing, melee), A* pathing around walls |
 | Treasure and blocks | Breakable blocks break after a few hits; treasure boxes spill crowns and items from their damage action |
 | Pocket items | Capsules (health, remedy, buffs, barriers) and vials (thrown, splash damage and status), four slots on keys 4 to 7 |
@@ -60,8 +67,12 @@ A single-player loop runs in the browser, built from the install's own data:
 | UI sounds | The game's style feedback sounds on the arsenal, shops, crafting and run menus |
 | Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
+| Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions (themed floors at their rank's depth, ending in their boss), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
 | HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
+| Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
+| Ready Room | `rsrc/world/readyroom/scene.dat` with the arsenal open; the knight changes into a new loadout when it closes |
+| Knight creation | On a fresh save: `rsrc/world/createknight/scene.dat`, a name (shown on the HUD name plate), personal colour, and the zero-star Spiral helmets and armours in their seven trims |
 
 ## What is still missing
 
@@ -69,18 +80,25 @@ A single-player loop runs in the browser, built from the install's own data:
 
 1. **Level variety.** Generated floors come in the themes the cache has (Jigsaw Valley and
    the Clockwork tunnels). More cached levels would add themes and improve the learned
-   tiling. Generated floors have no puzzles, doors or keys.
+   tiling. Generated floors have the cached levels' puzzles (gold keys, switch gates,
+   block walls, spike runs, secret treasure rooms) and special floors (treasure vaults,
+   danger rooms, arenas): see docs/research/generated-features.md. Rescue camps are missing.
 2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
    code jars, which this project does not read. Names come from config paths instead.
-3. **Shop catalogues and prices** are server-side. The shops sell from the item library at
-   tuning prices.
+3. **Shop catalogues** are server-side (`config/catalog.dat` ships empty). Prices are the
+   game's own (`item_property.dat`); each keeper sells every item of its kind in the star
+   range its place allows, and Basil picks twelve recipes per visit.
 
 **Systems**
 
-4. **Energy.** Revives cost crowns rather than energy.
+4. **Energy.** Revives cost crowns rather than energy. The heat amplifier (an Energy item)
+   is modelled (`save.heatAmplifier`, double heat) but cannot be bought. Minerals carry no
+   energy in the data; they bank as materials and sell for nothing (their uses, sprite food
+   and gate themes, are not modelled).
 5. **Boss levels.** Bosses run their own handlers in the Arena. Their scripted arenas (the
    Jelly Palace, Snarbolax's bells) are server-streamed levels this cache lacks.
-6. **Missions, guilds and PvP.**
+6. **Guilds and PvP.** Missions are in (below), but their own levels and dialogue are
+   server data: dungeon missions play as themed generated floors, briefings show our summary.
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).
 
 **Fidelity**
@@ -88,7 +106,11 @@ A single-player loop runs in the browser, built from the install's own data:
 8. **Monster AI** is clean-room. The game's AI and attack selection are closed code.
 9. **Damage formula and several numbers are tuning values:**
    - knight health, the defence formula, status chance and power levels;
-   - prices, the dash.
+   - the dash;
+   - the heat curve between an item's baseHeat (first level) and maxHeat (level 10) is
+     geometric, and 1-star items' maxHeat (a class default) is taken as 2500;
+   - level damage bonuses with a startDepth (2-5 star weapons) apply from that depth;
+     DefenseIncrease is read as percent of the item's defence.
 10. **Unread defaults.** The export drops default-valued fields, and some game defaults
     differ from upstream Clyde. The logic infers implicit objects and treats unnamed signal
     handlers as hearing "activate". A few ExpressionSwitch case values are matched by

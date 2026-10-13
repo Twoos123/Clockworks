@@ -90,6 +90,9 @@ export class SceneLoader {
 
   constructor(private readonly loader: ModelLoader) {}
 
+  /** The config names in a library file (e.g. config/tile.dat). */
+  async configNames(file: string): Promise<string[]> { return [...(await this.library(file)).keys()]; }
+
   private library(file: string): Promise<Map<string, any>> {
     let p = this.libs.get(file);
     if (!p) {
@@ -125,6 +128,16 @@ export class SceneLoader {
     if (item.placeable) return (await this.resolveImpl("config/placeable.dat", item.placeable, "placeable"))?.model;
     if (item.actor) return (await this.resolveImpl("config/actor.dat", item.actor, "actor"))?.sprite?.model;
     return null;
+  }
+
+  /**
+   * A furniture item as a Furni Placer shows it: the item's FurniConfig (footprint, shape,
+   * collision) and its loaded model, resolved the way scene furniture is.
+   */
+  async furniture(item: any): Promise<{ impl: any; model: LoadedModel | null }> {
+    const impl = await this.resolveImpl("config/item.dat", item, "item");
+    const ref = await this.furnitureModel(impl);
+    return { impl, model: ref ? await this.loader.loadRef(ref) : null };
   }
 
   async load(id: string, data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<LoadedScene> {

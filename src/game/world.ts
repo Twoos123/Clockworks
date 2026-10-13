@@ -15,11 +15,14 @@ import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef,
 import { zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
 import { addItemBonuses, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
-import { Prop, propKind } from "./props";
+import { Prop, propKind, trapState } from "./props";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
-import { DEFAULT_LOADOUT, levelMultiplier, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
+import { DEFAULT_LOADOUT, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
+import { ECONOMY_FILES, Economy, type GearState, type VariantEffect } from "./economy";
 import { StatusConditions, type ActiveStatus } from "./status";
+import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
+import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -231,8 +234,23 @@ export class World implements LogicHost {
   onOpenShop: ((keeper: string) => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
-  /** What the knight has collected on this floor. */
-  readonly loot = { crowns: 0, heat: 0, materials: new Map<string, number>() };
+  /**
+   * What the knight has collected on this floor: crowns, heat, materials and minerals, and
+   * gear found (with the unique variants it rolled).
+   */
+  readonly loot = { crowns: 0, heat: 0, materials: new Map<string, number>(), items: [] as { name: string; variants: string[] }[] };
+  /** Prices, levels, variants and drops (src/game/economy.ts), once the configs are loaded. */
+  economy: Economy | null = null;
+  /** The save's per-item state (heat, level, variants), by item name. */
+  gear: Record<string, GearState> = {};
+  /** Monster family tags of the floor's theme, for treasure that has no monster to name one. */
+  themeTags: string[] = [];
+  /** Per weapon: its level's and variants' damage, charge, attack speed and family damage. */
+  private weaponBonus = new Map<string, { damage: number; charge: number; attackSpeed: number; tagged: Record<string, number> }>();
+  /** Per armour piece and shield: its level's defence increase (percent). */
+  private defenseLevel = new Map<string, number>();
+  /** Defence from damage type variants on worn gear, evaluated at that item's stars. */
+  private variantDefense: { def: NonNullable<VariantEffect["defense"]>; rarity: number }[] = [];
   /**
    * The pocket: consumables (DungeonItemConfig Capsule and Vial) by item name and count. The
    * array is the save's own, so what is picked up or used stays with the knight.
@@ -324,8 +342,50 @@ export class World implements LogicHost {
     // without equipped ones, the body's own defaults, so they take the personal colour too
     for (const a of armor) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
     const ref: any = { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
-      arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
     return this.instantiate(await this.loader.load("character/pc/model.dat", ref), false);
+  }
+
+  /** Costumes and accessories the knight shows (accessories.ts); set before start or through redress. */
+  dressing: Dressing = NO_DRESSING;
+
+  /** Shows a new dressing: the knight's models are rebuilt with it. */
+  async redress(d: Dressing) {
+    this.dressing = d;
+    const k = this.knight;
+    if (!k) return;
+    const fresh = await Promise.all(k.weapons.map(l => this.knightInstance(l.def, k.shield, k.armor)));
+    fresh.forEach((inst, i) => { k.weapons[i].instance = inst; });
+    const cur = k.weapons[k.slot]?.instance ?? await this.knightInstance(null, k.shield, k.armor);
+    cur.time = k.instance.time;
+    k.instance = cur;
+    k.upperBody = cur.subtree("Bip01 Spine");
+    this.play(k, "character/pc/idle.dat");
+  }
+
+  /** The battle sprite following the knight (sprites.ts), or null. */
+  companion: SpriteCompanion | null = null;
+
+  /** What a battle sprite needs from the world. */
+  spriteWorld(): SpriteWorld {
+    const actor = (t: SpriteTarget) => t as unknown as Actor;
+    return {
+      data: this.data, loader: this.loader, renderer: this.renderer,
+      knight: () => this.knight,
+      monsters: () => this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive),
+      clip: r => this.clip(r),
+      preload: (...r) => this.preload(...r),
+      groundZ: (x, y) => this.collision.groundZ(x, y),
+      blocked: (x, y, r) => this.collision.collides(x, y, r, 0x81, false),
+      ctx: rarity => this.ctx(rarity),
+      evaluate: (ref, ctx) => this.data.depth.evaluate(ref, ctx),
+      damage: (t, damage, ctx, kb, fx, fy) => { if (t instanceof Monster) this.damageMonster(t, this.amounts(damage, ctx), kb, fx, fy); },
+      applyStatus: (t, ref, ctx, chance) => this.applyStatus(actor(t), ref, ctx, chance),
+      heal: n => this.healKnight(n),
+      effect: (ref, matrix, life, follow) => void this.spawnEffect(ref, matrix, life, follow ? this.knight : undefined),
+      events: (inst, matrix) => { if (inst.events.length) for (const a of inst.events.splice(0)) this.modelAction(a, matrix); },
+      floater: (x, y, z, text, color) => this.floaters.push({ x, y, z, text, color, age: 0 }),
+    };
   }
 
   /** The knight's body model as worn (armour and helmet, no weapon), for the HUD portrait. */
@@ -333,7 +393,7 @@ export class World implements LogicHost {
     const args: [string, any][] = [["Colorization", this.color]];
     for (const a of this.knight?.armor ?? []) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
     return { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
-      arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } };
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
   }
 
   async start(at: [number, number], gear: GearLoadout = DEFAULT_LOADOUT) {
@@ -351,10 +411,12 @@ export class World implements LogicHost {
     knight.shield = shield;
     knight.armor = armor;
     // gear bonuses (global modifiers and status resists) from everything worn
-    await this.data.preload("config/item.dat");
+    await this.data.preload("config/item.dat", ...ECONOMY_FILES);
+    this.economy ??= new Economy(f => this.data.library_(f));
     for (const n of [gear.armor, gear.helmet, gear.shield, ...(gear.trinkets ?? []), gear.vitapod]) {
       if (n) addItemBonuses(knight.bonuses, this.data.resolveSync("config/item.dat", { name: n }, "item"));
     }
+    this.applyGearState(knight, weapons, [gear.armor, gear.helmet, gear.shield, ...(gear.trinkets ?? []), gear.vitapod]);
     const vita = gear.vitapod ? this.data.resolveSync("config/item.dat", { name: gear.vitapod }, "item") : null;
     this.vitapod = vita ? { icon: vita.icon ?? null, count: Number(vita.count ?? 1) } : null;
     this.updateKnightStats(knight);
@@ -381,7 +443,14 @@ export class World implements LogicHost {
   private async startLogic() {
     await this.data.preload("config/actor.dat", "config/spawn_table.dat", "config/parameterized_handler.dat",
       "config/fire_action.dat", "config/item.dat");
-    this.tables = new SpawnTables(this.data.library_("config/spawn_table.dat"));
+    const eco = this.economy;
+    this.tables = new SpawnTables(this.data.library_("config/spawn_table.dat"), eco ? {
+      autoItem: (type, dw, ctx) => eco.autoItem(type, dw, ctx),
+      rarity: name => eco.info(name)?.rarity ?? 0,
+      depthWeight: (dw, r, d) => eco.depthWeight(dw, r, d),
+    } : null);
+    // the drop pools are built once, before the first drop
+    if (eco) for (const t of ["MATERIAL", "GEAR"]) eco.autoItems(t);
     await this.data.preload("config/status_condition.dat");
     this.conditions = new StatusConditions(this.data.library_("config/status_condition.dat"), this.data.depth);
     this.logic = new Logic(this, {
@@ -465,7 +534,7 @@ export class World implements LogicHost {
         const at = cfg.location ? logic.resolveTarget(cfg.location, source, activator) : [source];
         let any = false;
         for (const t of at) {
-          const results = this.tables.evaluate(table, { depth: this.depth, tier: this.tier(), difficulty: this.difficulty });
+          const results = this.tables.evaluate(table, { depth: this.depth, tier: this.tier(), difficulty: this.difficulty, tags: this.sourceTags(source) });
           for (const r of results) {
             for (let n = 0; n < r.count; n++) {
               // several results scatter a little around the spawn point
@@ -594,7 +663,19 @@ export class World implements LogicHost {
   continueArena() { if (this.arena) this.arena.timer = 2; }
 
   /** Spawn tables have tiers by depth (1 to 8, 9 to 17, 18 and below). */
-  private tier() { return this.depth >= 18 ? 3 : this.depth >= 9 ? 2 : 1; }
+  /** The Clockworks tier of the current depth (tier 2 starts at Moorcroft Manor, depth 8). */
+  private tier() { return this.depth >= 18 ? 3 : this.depth >= 8 ? 2 : 1; }
+
+  /**
+   * Tags a drop's source carries: a monster's family (its config folder, Monster/Slime/...,
+   * as fam_slime) and its actor tags; other sources (treasure, blocks) take the floor's theme.
+   */
+  private sourceTags(source: Entity): string[] {
+    const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(source.name ?? "")?.[1]?.toLowerCase();
+    const own = (source.tags ?? []).filter(t => t.startsWith("fam_"));
+    if (fam) return [...new Set([`fam_${fam}`, ...own])];
+    return own.length ? own : this.themeTags;
+  }
 
   private healKnight(amount: number) {
     const k = this.knight;
@@ -608,8 +689,20 @@ export class World implements LogicHost {
     this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: `+${Math.round(amount)}`, color: "#7bd88f", age: 0 });
   }
 
+  /** While true the exit elevator does not run (a boss floor until the boss falls). */
+  exitLocked: (() => boolean) | null = null;
+  private lockNotice = -10;
+
   private finishLevel() {
     if (this.finished) return;
+    if (this.exitLocked?.()) {
+      if (this.clock - this.lockNotice > 3) {
+        this.lockNotice = this.clock;
+        const k = this.knight;
+        this.floaters.push({ x: k.x, y: k.y, z: k.z + 2.2, text: "Defeat the boss to use the elevator", color: "#ff9a9a", age: 0 });
+      }
+      return;
+    }
     this.finished = true;
     this.onNextFloor?.();
   }
@@ -629,6 +722,18 @@ export class World implements LogicHost {
       p.health = p.maxHealth = cfg.health ?? (/Treasure|Mineral|Gathering/.test(e.name) ? 3 : 1);
       p.hits = cfg.health === undefined;
       p.breakable = !/Unbreakable|Hedgehog|Echo/i.test(e.name) && cls !== "GhostlinkBlock" && cls !== "DamageMirrorBlock";
+    }
+    if (kind === "trap") {
+      // the intersection handler fires "Traps and Hazards/Trap, floor" with the plate's size;
+      // its damage is the first tier's (the tiers are picked by closed conditions)
+      const fire = (cfg.handlers ?? []).map((h: any) => h?.action?.action?.fireAction ?? h?.action?.fireAction).find(Boolean);
+      const size = String((fire?.arguments?.entries as [string, any][] | undefined)?.find(([k]) => k === "Damage Size")?.[1] ?? "1x1");
+      const [w, h] = size.split("x").map(Number);
+      p.trapHalf = Math.max(w || 1, h || 1) / 2;
+      p.trapB = cfg.cycle?.name === "B" || /"B"/.test(JSON.stringify(cfg.cycle ?? ""));
+      const fa = fire ? this.data.resolveSync("config/fire_action.dat", fire, "action") : null;
+      const first = (fa?.action ?? fa)?.actions?.[0]?.action?.actions?.[0];
+      p.trapDamage = first?.damage ?? null;
     }
     (e.game as any).onSignal = (name: string) => this.propSignal(p, name);
     this.props.push(p);
@@ -666,7 +771,10 @@ export class World implements LogicHost {
       anim = changed ? st[p.open ? 2 : 0] : st[p.open ? 3 : 1];
       loop = !changed;
     } else if (p.kind === "switch") anim = st[p.pressed ? 1 : 0];
-    else {
+    else if (p.kind === "trap") {
+      anim = st[p.trapState] ?? null;
+      loop = false;
+    } else {
       // townsfolk and other animated actors stand in their (weighted) idle animation
       const idles: any[] = p.cfg.sprite?.idles ?? [];
       anim = idles.length ? idles.reduce((a, b) => ((b.weight ?? 1) > (a.weight ?? 1) ? b : a)).animation : null;
@@ -704,13 +812,20 @@ export class World implements LogicHost {
     const name = String(ref?.name ?? p.entity.name);
     const item = ref ? this.data.resolveSync("config/item.dat", ref, "item") : null;
     const num = (...keys: string[]) => { for (const k of keys) if (typeof item?.[k] === "number") return item[k]; return null; };
+    // coins and embers are worth their denomination in the valued tables (Treasure/Crowns/Value/Base)
+    const coin = this.tables?.coinValue(p.entity.name) ?? 0;
     if (/Health|Heart/i.test(name)) this.healKnight(num("health", "amount") ?? this.knight.maxHealth * 0.25);
-    else if (/Crown/i.test(name)) {
-      const v = num("value", "amount", "crowns") ?? (/Gold/i.test(name) ? 10 : /Silver/i.test(name) ? 5 : 1);
+    else if (/Crown|Slime Coin/i.test(name)) {
+      const v = coin || num("value", "amount", "crowns") || 1;
       this.loot.crowns += v;
       this.floaters.push({ x: p.x, y: p.y, z: p.z + 1, text: `+${v} cr`, color: "#ffd84d", age: 0 });
-    } else if (/Heat/i.test(name)) this.loot.heat += num("heat", "amount", "value") ?? 1;
-    else this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
+    } else if (/Heat|Ember/i.test(name)) {
+      const v = coin || num("heat", "amount", "value") || 1;
+      this.loot.heat += v;
+      this.floaters.push({ x: p.x, y: p.y, z: p.z + 1, text: `+${v} heat`, color: "#ff9a4d", age: 0 });
+    } else if (ref) this.awardItem(ref, p.x, p.y);
+    // boost orbs are instant buffs (not modelled), not items to bank
+    else if (!/\/Orbs\//.test(name)) this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
   }
 
   /** The item config for a pocket item (capsule or vial), or null for anything else. */
@@ -754,16 +869,37 @@ export class World implements LogicHost {
     return true;
   }
 
-  /** An item from a loot table (materials, gear): added to the floor's tally. */
+  /**
+   * An item from a loot table: capsules and vials go to the pocket, mineral deposits count
+   * their minerals (1, 2, 4 or 6), gear joins the floor's finds with any unique variants it
+   * rolls, and materials add to the tally.
+   */
   private awardItem(item: any, x: number, y: number) {
     const name = String(item.name);
+    const z = this.collision.groundZ(x, y) + 1;
+    const label = name.split("/").pop() ?? name;
     if (this.pocketItem(name)) {
-      const z = this.collision.groundZ(x, y) + 1;
-      if (this.pocketAdd(name)) this.floaters.push({ x, y, z, text: name.split("/").pop() ?? name, color: "#9ff0c0", age: 0 });
+      if (this.pocketAdd(name)) this.floaters.push({ x, y, z, text: label, color: "#9ff0c0", age: 0 });
+      return;
+    }
+    // dungeon vitapod drops ("Always Better") heal a pip per level on the spot
+    const pod = /^Gear\/Dungeon\/Vitapod\/Health \+(\d+)/.exec(name);
+    if (pod) { this.healKnight(10 * Number(pod[1])); this.floaters.push({ x, y, z, text: `+${pod[1]} health`, color: "#ff8a8a", age: 0 }); return; }
+    const eco = this.economy, info = eco?.info(name);
+    const dep = info?.category === "deposit" ? eco!.deposit(name) : null;
+    if (dep) {
+      this.loot.materials.set(dep.mineral, (this.loot.materials.get(dep.mineral) ?? 0) + dep.count);
+      this.floaters.push({ x, y, z, text: `+${dep.count} ${dep.mineral.split("/").pop()}`, color: "#e0a8ff", age: 0 });
+      return;
+    }
+    if (eco && info && (info.heatable || info.category === "trinket")) {
+      const variants = eco.rollVariants(name);
+      this.loot.items.push({ name, variants });
+      this.floaters.push({ x, y, z, text: eco.displayName(name, { heat: 0, level: 1, variants }), color: "#ffe9a0", age: 0 });
       return;
     }
     this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
-    this.floaters.push({ x, y, z: this.collision.groundZ(x, y) + 1, text: name.split("/").pop() ?? name, color: "#c9e6ff", age: 0 });
+    this.floaters.push({ x, y, z, text: label, color: "#c9e6ff", age: 0 });
   }
 
   private damageProp(p: Prop, amount: number) {
@@ -785,8 +921,10 @@ export class World implements LogicHost {
       if (p.instance) p.instance.advance(dt);
       switch (p.kind) {
         case "switch": {
-          const on = touching(p) || this.monsters.some(m => m.state !== "dying" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + 0.4);
-          const oneTime = /One-Time/i.test(p.entity.name);
+          // party platforms answer to the party (knights) only, and stay down once pressed
+          const party = /Party Platform/i.test(p.entity.name);
+          const on = touching(p) || (!party && this.monsters.some(m => m.state !== "dying" && Math.hypot(m.x - p.x, m.y - p.y) < m.radius + 0.4));
+          const oneTime = party || /One-Time/i.test(p.entity.name);
           if (on !== p.pressed && (!oneTime || on)) {
             p.pressed = on;
             this.showPropState(p);
@@ -812,6 +950,15 @@ export class World implements LogicHost {
             interacted = true;
           }
           break;
+        case "trap": {
+          const st = trapState(this.clock, p.trapB);
+          if (st !== p.trapState) { p.trapState = st; this.showPropState(p); }
+          // extended spikes strike a knight standing on the plate
+          if (st === 2 && !k.dead && Math.abs(k.x - p.x) < p.trapHalf + KNIGHT_RADIUS * 0.5 && Math.abs(k.y - p.y) < p.trapHalf + KNIGHT_RADIUS * 0.5) {
+            this.damageKnight(this.amounts(p.trapDamage, this.ctx(0)), 0.5, p.x, p.y);
+          }
+          break;
+        }
         case "elevator":
           if (!k.dead && touching(p)) {
             p.standTime += dt;
@@ -850,10 +997,63 @@ export class World implements LogicHost {
     if (npc?.entity) this.logic.interact(npc.entity, ke);
   }
 
+  /**
+   * Item levels and unique variants of the worn gear: weapons gain their level's damage and
+   * charge time reduction and their variants' family damage, attack speed and charge;
+   * armour, helmets and shields gain their level's defence and health, and their variants'
+   * defences and resistances apply to the knight.
+   */
+  private applyGearState(k: Knight, weapons: WeaponDef[], worn: (string | undefined)[]) {
+    const eco = this.economy;
+    this.weaponBonus.clear();
+    this.defenseLevel.clear();
+    this.variantDefense = [];
+    this.weaponLevels.clear();
+    if (!eco) return;
+    const level = (n: string) => this.gear[n]?.level ?? 1;
+    for (const w of weapons) {
+      const lv = level(w.name), st = eco.levelStats(w.name, lv, this.depth);
+      const b = { damage: st.damage, charge: st.charge, attackSpeed: 0, tagged: {} as Record<string, number> };
+      for (const v of eco.variantEffects(this.gear[w.name]?.variants ?? [])) {
+        if (v.tagged) b.tagged[v.tagged.tag] = (b.tagged[v.tagged.tag] ?? 0) + v.tagged.damage;
+        b.attackSpeed += v.attackSpeed ?? 0;
+        b.charge += v.charge ?? 0;
+        b.damage += v.damage ?? 0;
+      }
+      this.weaponBonus.set(w.name, b);
+      this.weaponLevels.set(w.name, lv);
+    }
+    for (const n of worn) {
+      if (!n) continue;
+      const info = eco.info(n), lv = level(n);
+      if (info?.heatable) {
+        const st = eco.levelStats(n, lv, this.depth);
+        this.defenseLevel.set(n, st.defense);
+        k.bonuses.health += st.health;
+      }
+      for (const v of eco.variantEffects(this.gear[n]?.variants ?? [])) {
+        if (v.defense) this.variantDefense.push({ def: v.defense, rarity: info?.rarity ?? 0 });
+        if (v.resist) for (let bit = 1; bit <= v.resist.mask; bit <<= 1) if (v.resist.mask & bit) k.bonuses.resist[bit] = (k.bonuses.resist[bit] ?? 0) + v.resist.points;
+        if (v.tagged) k.bonuses.tagged[v.tagged.tag] = (k.bonuses.tagged[v.tagged.tag] ?? 0) + v.tagged.damage;
+        k.bonuses.health += v.health ?? 0;
+        k.bonuses.speed += v.speed ?? 0;
+      }
+    }
+  }
+
   /** Depth-scaled defence and shield health from the knight's gear. */
   private updateKnightStats(k: Knight) {
     const d = zeroAmounts();
-    for (const a of k.armor) if (a.defense) this.data.depth.defense(a.defense, this.ctx(a.rarity), d);
+    for (const a of k.armor) {
+      if (!a.defense) continue;
+      const own = this.data.depth.defense(a.defense, this.ctx(a.rarity));
+      const f = 1 + (this.defenseLevel.get(a.name) ?? 0) / 100;
+      for (const t of Object.keys(d) as (keyof Amounts)[]) d[t] += own[t] * f;
+    }
+    for (const { def, rarity } of this.variantDefense) {
+      const t = def.type as keyof Amounts;
+      if (t in d) d[t] += def.depthScale ? this.data.depth.evaluate(def.depthScale, this.ctx(rarity)) : def.amount;
+    }
     k.defense = d;
     // a heart pip in the game is 40 health; here the knight has 100 for the game's 400
     k.maxHealth = KNIGHT_HEALTH + k.bonuses.health / 4;
@@ -863,6 +1063,8 @@ export class World implements LogicHost {
       k.shieldHealth = Math.min(k.shieldHealth, k.shieldMax);
       if (k.shieldHealth <= 1) k.shieldHealth = k.shieldMax;
       k.shieldDefense = k.shield.defense ? this.data.depth.defense(k.shield.defense, sctx) : null;
+      const f = 1 + (this.defenseLevel.get(k.shield.name) ?? 0) / 100;
+      if (k.shieldDefense && f !== 1) for (const t of Object.keys(k.shieldDefense) as (keyof Amounts)[]) k.shieldDefense[t] *= f;
     }
   }
 
@@ -934,6 +1136,7 @@ export class World implements LogicHost {
   update(dt: number, input: KnightInput) {
     this.clock += dt;
     this.updateKnight(dt, input);
+    this.companion?.update(dt);
     for (const m of this.monsters) this.updateMonster(m, dt);
     this.updateProps(dt, !!input.interact && !this.knight.dead);
     // the logic sees actors where the game has moved them
@@ -1116,7 +1319,8 @@ export class World implements LogicHost {
         k.charge += dt;
         this.overlay(k, CHARGE_ANIMS[weapon?.kind ?? "Other"], true);
       } else {
-        const full = k.charge * 1000 >= (weapon?.chargeTime ?? 2000) * Math.max(0.3, 1 - forWeapon(k.bonuses.charge, weapon?.kind));
+        const own = this.weaponBonus.get(weapon?.name ?? "")?.charge ?? 0;
+        const full = k.charge * 1000 >= (weapon?.chargeTime ?? 2000) * Math.max(0.3, 1 - forWeapon(k.bonuses.charge, weapon?.kind) - own);
         k.charge = null;
         k.instance.overlay = null;
         const def = full ? weapon?.chargedAttack : weapon?.incompleteChargedAttack;
@@ -1259,7 +1463,11 @@ export class World implements LogicHost {
 
   /** One-shot attack animation: upper body for walking attacks, else whole body. */
   /** The knight's attack rate from attack speed bonuses for the weapon in hand. */
-  private attackRate(a: Actor) { return a === this.knight ? 1 + forWeapon(this.knight.bonuses.attackSpeed, this.knight.weapon?.kind) : 1; }
+  private attackRate(a: Actor) {
+    if (a !== this.knight) return 1;
+    const w = this.knight.weapon;
+    return 1 + forWeapon(this.knight.bonuses.attackSpeed, w?.kind) + (this.weaponBonus.get(w?.name ?? "")?.attackSpeed ?? 0);
+  }
 
   private animate(a: Actor, path: string | any, speed: number) {
     speed *= this.attackRate(a);
@@ -1369,8 +1577,12 @@ export class World implements LogicHost {
   private attackerCtx(a: Actor): DepthContext {
     if (a !== this.knight) return this.ctx(0);
     const w = this.knight.weapon;
-    return { ...this.ctx(w?.rarity ?? 0), multiplier: levelMultiplier(this.weaponLevels.get(w?.name ?? "") ?? 1) * this.buffDamage(this.knight)
-      * (1 + forWeapon(this.knight.bonuses.damage, w?.kind)), tagged: this.knight.bonuses.tagged };
+    // the weapon's level (level_table.dat) and variants, on top of gear and buffs
+    const own = this.weaponBonus.get(w?.name ?? "");
+    const tagged = { ...this.knight.bonuses.tagged };
+    for (const [t, v] of Object.entries(own?.tagged ?? {})) tagged[t] = (tagged[t] ?? 0) + v;
+    return { ...this.ctx(w?.rarity ?? 0), multiplier: (1 + (own?.damage ?? 0)) * this.buffDamage(this.knight)
+      * (1 + forWeapon(this.knight.bonuses.damage, w?.kind)), tagged };
   }
 
   /** Applies an attack's damage shape in front of the attacker. */
@@ -1735,7 +1947,9 @@ export class World implements LogicHost {
       if (k.shield.breakEffect) this.spawnEffect(k.shield.breakEffect, k.matrix(), 1.5);
       return;
     }
-    const dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k)) * (0.95 + Math.random() * 0.1)));
+    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k)) * (0.95 + Math.random() * 0.1)));
+    // a sprite shield (the Seraphynx's Angelic Aura) takes the hit first
+    if (this.companion) { dmg = Math.round(this.companion.absorb(dmg)); if (dmg <= 0) { k.invulnerable = 0.25; return; } }
     this.hitStatuses(k, amounts);
     const before = k.health;
     k.health = Math.max(0, k.health - dmg);
@@ -1873,7 +2087,8 @@ export class World implements LogicHost {
       }
       return;
     }
-    if (k.dead) { m.state = "idle"; this.play(m, m.def.idle); return; }
+    // a cloaked knight (the Maskeraith's Shadow Cloak) is lost to the monsters
+    if (k.dead || this.companion?.hidesKnight()) { m.state = "idle"; this.play(m, m.def.idle); return; }
     if (m.size && this.lichenMerge(m)) return;
 
     if (m.state === "idle") {
@@ -2104,6 +2319,7 @@ export class World implements LogicHost {
       out.push({ instance: m.instance, matrix });
     }
     for (const p of this.props) if (p.instance) out.push({ instance: p.instance, matrix: p.matrix() });
+    if (this.companion) out.push(...this.companion.items());
     for (const p of this.projectiles) if (p.instance && !p.done) out.push({ instance: p.instance, matrix: p.matrix() });
     for (const e of this.effects) if (e.instance) out.push({ instance: e.instance, matrix: e.follow ? e.follow.matrix() : e.matrix });
     return out;
@@ -2113,6 +2329,7 @@ export class World implements LogicHost {
   shadows(): { x: number; y: number; z: number; r: number }[] {
     const out = [{ x: this.knight.x, y: this.knight.y, z: this.collision.groundZ(this.knight.x, this.knight.y), r: 0.75 }];
     for (const m of this.monsters) if (m.state !== "dying") out.push({ x: m.x, y: m.y, z: this.collision.groundZ(m.x, m.y), r: m.radius * m.scale * 1.7 });
+    if (this.companion) out.push(this.companion.shadow());
     return out;
   }
 

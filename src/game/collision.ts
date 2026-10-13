@@ -63,7 +63,7 @@ export class CollisionMap {
   }
 
   /** A placeable prop with a ShapeConfig, placed by transform. */
-  addProp(impl: any, transform: any) {
+  addProp(impl: any, transform: any, id?: number) {
     const flags = impl.collisionFlags ?? 1;
     if (!flags || !impl.shape) return;
     const t = readTransform(transform);
@@ -73,7 +73,7 @@ export class CollisionMap {
       const kind = shape?.$class?.substring(shape.$class.lastIndexOf("$") + 1);
       if (kind === "Circle" || kind === "Capsule") {
         const r = (shape.radius ?? 1) * s + (kind === "Capsule" ? (shape.length ?? 1) * s / 2 : 0);
-        this.props.push({ flags, kind: "circle", x: x + ox, y: y + oy, r, minX: x + ox - r, minY: y + oy - r, maxX: x + ox + r, maxY: y + oy + r });
+        this.props.push({ id, flags, kind: "circle", x: x + ox, y: y + oy, r, minX: x + ox - r, minY: y + oy - r, maxX: x + ox + r, maxY: y + oy + r });
       } else if (kind === "Rectangle" || kind === "Polygon") {
         // axis-aligned bounds of the rotated shape
         const pts: [number, number][] = kind === "Rectangle"
@@ -83,7 +83,7 @@ export class CollisionMap {
         const c = Math.cos(angle), sn = Math.sin(angle);
         const wp = pts.map(([a, b]) => [x + ox + (a * c - b * sn) * s, y + oy + (a * sn + b * c) * s]);
         const xs = wp.map(p => p[0]), ys = wp.map(p => p[1]);
-        this.props.push({ flags, kind: "box", x, y, r: 0, minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) });
+        this.props.push({ id, flags, kind: "box", x, y, r: 0, minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) });
       } else if (kind === "Compound") {
         for (const ts of shape.shapes ?? []) {
           const tr = ts.transform?.translation;

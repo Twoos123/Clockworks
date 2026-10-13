@@ -24,7 +24,7 @@ export class PortraitView {
 
   constructor(private readonly renderer: Renderer, private readonly loader: ModelLoader,
     /** Overrides the view's model reference (e.g. the knight's current gear). */
-    private readonly modelRef?: any,
+    private modelRef?: any,
     /** The animation the model idles with (a path or reference), or null for none. */
     private readonly idle: any = "character/pc/idle.dat") {}
 
@@ -45,6 +45,9 @@ export class PortraitView {
   }
 
   private last = performance.now();
+
+  /** Shows another model (the knight redressed): it loads on the next draw. */
+  setModelRef(ref: any) { this.modelRef = ref; this.instance = null; }
 
   draw(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
     const now = performance.now(), dt = Math.min(0.1, (now - this.last) / 1000);

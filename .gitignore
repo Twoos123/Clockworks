@@ -4,3 +4,4 @@ dist/
 tools/.scan-*
 .scratch/
 engine-spike/
+.claude/worktrees/

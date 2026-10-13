@@ -19,9 +19,13 @@ export const ACTIONS = {
   item2: { label: "Pocket item 2", key: "5" },
   item3: { label: "Pocket item 3", key: "6" },
   item4: { label: "Pocket item 4", key: "7" },
+  sprite1: { label: "Sprite skill 1", key: "r" },
+  sprite2: { label: "Sprite skill 2", key: "t" },
+  sprite3: { label: "Sprite skill 3", key: "g" },
   cycle: { label: "Next weapon", key: "tab" },
   arsenal: { label: "Arsenal", key: "i" },
   forge: { label: "Forge (crafting)", key: "k" },
+  backpack: { label: "Backpack", key: "b" },
   help: { label: "Controls help", key: "h" },
   turnLeft: { label: "Turn camera left", key: "q" },
   turnRight: { label: "Turn camera right", key: "e" },
@@ -101,7 +105,7 @@ export interface SettingsHooks {
   sound(file: string): void;
 }
 
-type Tab = "game" | "audio" | "graphics" | "interface" | "controls" | "save";
+export type Tab = "game" | "audio" | "graphics" | "interface" | "controls" | "save";
 const TABS: [Tab, string][] = [["game", "Game"], ["audio", "Audio"], ["graphics", "Graphics"], ["interface", "Interface"], ["controls", "Controls"], ["save", "Save data"]];
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = "") => {
@@ -136,7 +140,8 @@ export class SettingsMenu {
 
   get isOpen() { return !this.root.hidden; }
 
-  open() {
+  open(tab?: Tab) {
+    if (tab) this.tab = tab;
     if (!this.isOpen) this.hooks.sound("sound/feedback/ui_open.ogg");
     this.root.hidden = false;
     this.render();
