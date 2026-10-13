@@ -24,7 +24,7 @@
 //   ("Mask Stage N"), immune until a knight douses it with a water pot.
 
 import { State } from "../gen/autotile";
-import { generateLevel, type TileInfo } from "../gen/level";
+import { generateLevel, type LevelOptions } from "../gen/level";
 import type { Layout, Room } from "../gen/layout";
 import type { BossKey } from "./clockworks";
 import type { AttackDef } from "./data";
@@ -52,28 +52,12 @@ const H40 = { $class: REF, name: "Monster/Health/Health Base +40" };
 /** An arena floor plan: a start room, the arena, and the exit room past it. */
 export interface ArenaPlan { start: Room; arena: Room; exit: Room; gates: [number, number][] }
 
-/** Each arena: the generator theme it is painted from, its size and its tiles' look. */
-interface ArenaSpec {
-  theme: "clockworks" | "valley";
-  w: number; h: number;
-  /** Renames the theme's painted tiles to this arena's tileset. */
-  retile?: (name: string, rand: () => number) => string | null;
-}
-
-const pick = <T>(a: T[], rand: () => number) => a[Math.floor(rand() * a.length)];
-/** Clockworks floors and pit edges painted as another tileset's look-alikes. */
-const castleRetile = (set: "Castle" | "Castle, Fire", floors: string[], edges: "Clockworks" | "Clockworks Fire") =>
-  (name: string, rand: () => number): string | null => {
-    if (/^Clockworks\/Floor, (base|catwalk)\/(?!Trim)/.test(name)) return `${set}/Floor/${pick(floors, rand)}`;
-    if (edges !== "Clockworks" && name.startsWith("Clockworks/")) return edges + name.slice("Clockworks".length);
-    return null;
-  };
-
-export const ARENAS: Record<BossKey, ArenaSpec> = {
-  jelly: { theme: "clockworks", w: 22, h: 20, retile: castleRetile("Castle", ["Tile, light A", "Tile, light B", "Tile, light C", "Tile, light D", "Cobblestone 01", "Cobblestone 02"], "Clockworks") },
-  snarbolax: { theme: "valley", w: 20, h: 20, retile: name => name.startsWith("Sky Islands, Day/") ? "Sky Islands, Night/" + name.slice("Sky Islands, Day/".length) : null },
-  twins: { theme: "clockworks", w: 28, h: 13 },
-  vanaduke: { theme: "clockworks", w: 24, h: 22, retile: castleRetile("Castle, Fire", ["Cobblestone 01", "Cobblestone 02", "Cobblestone 03", "Cobblestone 04", "Cobblestone, gold 01"], "Clockworks Fire") },
+/** Each arena's size in cells (its look is the boss level's tileset: BOSSES[key].tileset). */
+export const ARENAS: Record<BossKey, { w: number; h: number }> = {
+  jelly: { w: 22, h: 20 },
+  snarbolax: { w: 20, h: 20 },
+  twins: { w: 28, h: 13 },
+  vanaduke: { w: 24, h: 22 },
 };
 
 /** The floor plan of a boss's arena (fixed per boss, so the fight knows where things are). */
@@ -111,15 +95,16 @@ function planLayout(p: ArenaPlan, deep: boolean): Layout {
 }
 
 /**
- * Builds a boss arena's scene root: the theme's learned tiling over the arena plan (retiled
- * to the boss's tileset), the start platform and exit elevator, Iron Gates in both corridor
+ * Builds a boss arena's scene root: the boss tileset's tiling (src/gen/themes.ts) over the
+ * arena plan, the start platform and exit elevator, Iron Gates in both corridor
  * mouths, and the arena's own props (the Snarbolax's bell, the twins' pressure plates and
  * blast walls).
  */
-export function bossArena(key: BossKey, sources: { id: string; root: any }[], tileInfo: (ref: any) => TileInfo, seed: number,
-  title: string, pool: any[] = []): any {
-  const plan = arenaPlan(key), spec = ARENAS[key];
-  const root = generateLevel(sources, tileInfo, seed, title, pool, { layout: deep => planLayout(plan, deep), encounters: false, retile: spec.retile });
+export function bossArena(key: BossKey, sources: { id: string; root: any }[], seed: number, title: string, pool: any[] = [],
+  theme: Pick<LevelOptions, "model" | "globals"> = {}): any {
+  const plan = arenaPlan(key);
+  const root = generateLevel(sources, () => ({ width: 1, height: 1, walkable: false }), seed, title, pool,
+    { ...theme, layout: deep => planLayout(plan, deep), encounters: false });
   const entries: any[] = root.entries;
   let id = entries.reduce((m, e) => Math.max(m, e.id ?? 0), 0) + 1;
   for (const [x, y] of plan.gates) entries.push(place(id++, GATE, [["Open", true], ["Tag", GATE_TAG]], x, y, 0));
@@ -417,7 +402,8 @@ export class SnarbolaxFight extends BossFight {
     const a = this.arena, k = this.w.knight;
     const cs: [number, number][] = [[a.x + 2.5, a.y + 2.5], [a.x + a.w - 2.5, a.y + 2.5], [a.x + 2.5, a.y + a.h - 2.5], [a.x + a.w - 2.5, a.y + a.h - 2.5]];
     const far = cs.filter(([x, y]) => Math.hypot(x - k.x, y - k.y) > 6);
-    return pick(far.length ? far : cs, Math.random);
+    const list = far.length ? far : cs;
+    return list[Math.floor(Math.random() * list.length)];
   }
 
   protected tick(dt: number) {

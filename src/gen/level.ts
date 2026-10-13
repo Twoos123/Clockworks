@@ -30,14 +30,14 @@ const transform = (x: number, y: number, z: number, heading = 0) => ({
 
 export interface TileInfo { width: number; height: number; walkable: boolean }
 
-/** Options for special floors (boss arenas). */
+/** Options: a theme's ready tiling and globals, and for special floors (boss arenas) a fixed plan. */
 export interface LevelOptions {
+  model?: TileModel;
+  globals?: any[];
   /** A fixed floor plan instead of a generated one (`deep`: the theme's edges run two cells deep). */
   layout?: (deep: boolean) => Layout;
   /** Encounter rooms with spawners and treasure (default true). */
   encounters?: boolean;
-  /** Renames painted tiles (a tileset's look-alike in another theme), or null to keep one. */
-  retile?: (name: string, rand: () => number) => string | null;
 }
 
 /** The learned tiling for a theme, cached by the sources' ids. */
@@ -46,12 +46,15 @@ const models = new Map<string, TileModel>();
 /**
  * Builds a scene root. `sources` are parsed scene roots of one theme; `tileInfo` gives each
  * tile reference's footprint and whether it is walkable floor (resolved from config/tile.dat).
+ * `opts.model` is a ready tiling (a theme's: see src/gen/themes.ts) used instead of learning
+ * from the sources, and `opts.globals` the GlobalEntry records used instead of the first
+ * source's; `sources` may then be empty, the wiring coming from `pool`.
  */
 export function generateLevel(sources: { id: string; root: any }[], tileInfo: (ref: any) => TileInfo, seed: number, title: string,
   pool: any[] = [], opts: LevelOptions = {}): any {
   const rand = rng(seed);
   const key = sources.map(s => s.id).join(",");
-  let model = models.get(key);
+  let model = opts.model ?? models.get(key);
   if (!model) {
     model = learn(sources.map(s => s.root), r => { const t = tileInfo(r); return [t.width, t.height]; }, r => tileInfo(r).walkable);
     models.set(key, model);
@@ -70,10 +73,7 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
     b.values[((p.y & (size - 1)) << granularity) | (p.x & (size - 1))] = (p.tile << 16) | ((p.elev & 0x3fff) << 2) | (p.rot & 3);
   }
   const tiles = { granularity, empty: -1, cells: { entries: [...blocks.values()].map(b => [b.coord, { values: b.values }]) } };
-  const tileConfigs = model.tiles.map(tile => {
-    const name = opts.retile?.(String(tile?.name ?? ""), rand);
-    return { tile: name ? { ...clone(tile), name } : tile };
-  });
+  const tileConfigs = model.tiles.map(tile => ({ tile }));
 
   // --- entries copied from the sources
   const all = sources.flatMap(s => s.root.entries ?? []);
@@ -84,7 +84,8 @@ export function generateLevel(sources: { id: string; root: any }[], tileInfo: (r
   let id = 1;
   const place = (src: any, x: number, y: number, heading = 0, ref = src.placeable) =>
     entries.push({ $class: CLS + "PlaceableEntry", id: id++, placeable: ref, transform: transform(x, y, 0, heading) });
-  for (const g of sources[0].root.entries ?? []) if (g.$class.endsWith("GlobalEntry")) entries.push({ ...clone(g), id: id++ });
+  const globals = opts.globals ?? (sources[0]?.root.entries ?? []).filter((g: any) => g.$class.endsWith("GlobalEntry"));
+  for (const g of globals) entries.push({ ...clone(g), id: id++ });
 
   const mid = (r: Room): [number, number] => [r.x + r.w / 2, r.y + r.h / 2];
   const startPad = placeable(/Elevator\/Start Platform/)[0];
