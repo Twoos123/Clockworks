@@ -29,17 +29,29 @@ export function propKind(cfg: any): PropKind {
 }
 
 /**
- * Floor traps (DungeonActorConfig$Trap, the spike plates): the closed code cycles them through
- * their three sprite states, retracted, warning and extended, and their intersection handler
- * strikes whatever stands on them while extended. Cycle A and cycle B run half a period apart
- * so neighbouring plates alternate. The timings are ours (seconds).
+ * Floor traps (DungeonActorConfig$Trap, the spike plates) cycle through their three sprite
+ * states, retracted, warning and extended, and their intersection handler strikes whatever
+ * stands on them while extended. The cycles are the client's Trap Cycle table: down, warn
+ * and up times and an offset, in units of the trap's `interval` (1000 ms by default). UP and
+ * DOWN stay put. (Down, then warn, then up is our reading of the state order.)
  */
-export const TRAP_CYCLE = { period: 3.2, warning: 1.7, extend: 2.3 };
+export const TRAP_CYCLES: Record<string, [number, number, number, number]> = {
+  A: [3, 1, 4, 0], A2: [3, 1, 4, 2], B: [3, 1, 4, 4], B2: [3, 1, 4, 6],
+  SLOW: [7, 1, 8, 0], QUICK: [1, 1, 2, 0], UP: [0, 0, 0, 0], DOWN: [0, 0, 0, 0],
+  A_SLOW: [7, 1, 8, 0], A2_SLOW: [7, 1, 8, 4], B_SLOW: [7, 1, 8, 8], B2_SLOW: [7, 1, 8, 12],
+  CROSS_A1: [2, 1, 9, 0], CROSS_A2: [2, 1, 9, 1.5], CROSS_MID3: [2, 1, 3, 3], CROSS_A4: [2, 1, 9, 4.5],
+  CROSS_A5: [2, 1, 9, 6], CROSS_B1: [2, 1, 9, 6], CROSS_B2: [2, 1, 9, 7.5], CROSS_B4: [2, 1, 9, 10.5],
+  CROSS_B5: [2, 1, 9, 0],
+};
 export type TrapState = 0 | 1 | 2;
-export function trapState(clock: number, cycleB: boolean, period = TRAP_CYCLE.period): TrapState {
-  const f = period / TRAP_CYCLE.period;
-  const t = ((clock + (cycleB ? period / 2 : 0)) % period + period) % period;
-  return t >= TRAP_CYCLE.extend * f ? 2 : t >= TRAP_CYCLE.warning * f ? 1 : 0;
+/** A trap's state at a clock time (seconds) for its cycle name and interval (seconds). */
+export function trapState(clock: number, cycle = "A", interval = 1): TrapState {
+  if (cycle === "UP") return 2;
+  if (cycle === "DOWN") return 0;
+  const [down, warn, up, offset] = TRAP_CYCLES[cycle] ?? TRAP_CYCLES.A;
+  const period = down + warn + up;
+  const t = (((clock / interval + offset) % period) + period) % period;
+  return t < down ? 0 : t < down + warn ? 1 : 2;
 }
 
 export class Prop {
@@ -80,7 +92,9 @@ export class Prop {
   /** Traps: whether the plate strikes what stands on it (rocket blocks fire instead). */
   trapStrikes = true;
   /** Traps: seconds per cycle (rocket blocks take three Intervals), and switched off. */
-  trapPeriod = TRAP_CYCLE.period;
+  /** Trap cycle name and interval in seconds (DungeonActorConfig Trap: cycle A, 1000 ms). */
+  trapCycle = "A";
+  trapInterval = 1;
   trapOff = false;
   constructor(readonly kind: PropKind, readonly entity: Entity, readonly cfg: any) {}
 

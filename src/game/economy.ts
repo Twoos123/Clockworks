@@ -33,6 +33,7 @@
 import { resolveRef } from "./logic";
 import { itemName, variantText } from "./text";
 import type { DepthContext } from "./depth";
+import { itemValue } from "./bonus";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 const enumName = (v: any, d = "") => String(v?.name ?? v ?? d).split(".").pop()!;
@@ -95,11 +96,13 @@ export interface Recipe {
 }
 
 export interface LevelStats {
-  /** Fraction added to the weapon's damage. */
+  /** Damage bonus that joins the capped bonus pool (RelativeDamageBonus, capped). */
   damage: number;
+  /** Damage bonus applied on its own, uncapped (the level tables' RelativeDamageBonus). */
+  uncapped: number;
   /** Fraction taken off the weapon's charge time. */
   charge: number;
-  /** Percent added to the item's defence. */
+  /** Defence added to each damage type the item defends against (LevelConfig DefenseIncrease). */
   defense: number;
   /** Health in the game's units (a heart pip is 40). */
   health: number;
@@ -111,7 +114,11 @@ export interface VariantEffect {
   /** 1 (low) to 4 (very high). */
   grade: number;
   defense?: { type: string; depthScale: any; amount: number };
-  resist?: { mask: number; points: number };
+  /**
+   * A status resistance. A named level (`scaled`) shrinks with the resistance already held:
+   * round(min(1, 1 - held / 100) * points).
+   */
+  resist?: { mask: number; points: number; scaled?: boolean };
   tagged?: { tag: string; damage: number };
   attackSpeed?: number;
   charge?: number;
@@ -124,16 +131,12 @@ export interface VariantEffect {
 export const GRADES = ["", "Low", "Medium", "High", "Very High"];
 const BONUS_GRADE: Record<string, number> = { LOW: 1, MEDIUM: 2, HIGH: 3, VERY_HIGH: 4, ULTRA: 4, MAXIMUM: 4 };
 // amounts for enum-valued bonuses the configs leave unspelled, from the ones they spell out
-const RESIST = { LOW: 5, MEDIUM: 10, HIGH: 15, MAXIMUM: 25, VERY_HIGH: 25 } as Record<string, number>;
-const TAGGED = { LOW: 0.05, MEDIUM: 0.1, HIGH: 0.15, VERY_HIGH: 0.25 } as Record<string, number>;
-const ASI = { LOW: 0.02, MEDIUM: 0.03, HIGH: 0.05, VERY_HIGH: 0.08 } as Record<string, number>;
-const CTR = { LOW: 0.05, MEDIUM: 0.1, HIGH: 0.15, VERY_HIGH: 0.2 } as Record<string, number>;
-const DAMAGE = { LOW: 0.1, MEDIUM: 0.2, HIGH: 0.3, VERY_HIGH: 0.4 } as Record<string, number>;
-const SPEED = { LOW: 0.05, MEDIUM: 0.1, HIGH: 0.15, VERY_HIGH: 0.2 } as Record<string, number>;
+/** StatusCodes StatusResist: named resist levels (CUSTOM takes the variant's own amount). */
+const RESIST = { LOW: 10, MEDIUM: 20, HIGH: 30, MAXIMUM: 40 } as Record<string, number>;
 /** Item groups (ItemCodes Group) of variant tables' GroupEntry; SWORD is the default. */
 const GROUP: Partial<Record<Category, string>> = { sword: "SWORD", handgun: "HANDGUN", bomb: "BOMB", helm: "HELM", armor: "ARMOR", shield: "SHIELD" };
-/** Star 1's maxHeat is left at the class default; this sits between stars 0 and 2 (FLAG). */
-const DEFAULT_MAX_HEAT = 2500;
+/** LevelItemProps defaults: baseHeat 5, maxHeat 2000 (star 1's props leave maxHeat at it). */
+const DEFAULT_BASE_HEAT = 5, DEFAULT_MAX_HEAT = 2000;
 export const MAX_LEVEL = 10;
 /** The heat amplifier doubles heat (wiki: Heat Amplifier). */
 export const HEAT_AMPLIFIER = 2;
@@ -317,13 +320,12 @@ export class Economy {
 
   /**
    * Total heat needed to reach each level, index 0 = level 1 (always 0) to index 9 = level 10.
-   * The ItemProps give the first step (baseHeat) and the total (maxHeat); the steps between
-   * grow geometrically (the game's curve is server code).
+   * The ItemProps give the first step (baseHeat) and maxHeat; each level costs a fixed step
+   * more than the one before (the client's LevelItem heat series).
    */
   heatTable(name: string): number[] {
     const p = this.info(name)?.props;
-    const base = Math.max(1, p?.baseHeat ?? 10), total = Math.max(base * 9, p?.maxHeat ?? DEFAULT_MAX_HEAT);
-    return heatCurve(base, total);
+    return heatCurve(p?.baseHeat ?? DEFAULT_BASE_HEAT, p?.maxHeat ?? DEFAULT_MAX_HEAT);
   }
 
   /** The level an amount of heat reaches. */
@@ -351,14 +353,16 @@ export class Economy {
   }
 
   /**
-   * Banks a floor's heat: every equipped heatable item absorbs the full amount (the wiki's
-   * Heat page), then levels up. Returns the items that gained levels and their new level.
+   * Banks a floor's heat: the total is shared evenly between the equipped items that can
+   * still take heat (the client's end-of-level report), then they level up. Returns the
+   * items that gained levels and their new level.
    */
   addHeat(w: Wallet, raw: number, now = Date.now()): { name: string; level: number }[] {
-    const heat = this.heatGain(w, raw, now);
+    const items = this.heatedItems(w);
+    const heat = items.length ? this.heatGain(w, raw, now) / items.length : 0;
     const ups: { name: string; level: number }[] = [];
     if (heat <= 0) return ups;
-    for (const n of this.heatedItems(w)) {
+    for (const n of items) {
       const s = w.gear[n] ??= { heat: 0, level: 1, variants: [] };
       s.heat += heat;
       const lv = this.levelUp(w, n);
@@ -409,15 +413,20 @@ export class Economy {
    * start or minimum depth apply from that depth (the tier their stars belong to) down.
    */
   levelStats(name: string, level: number, depth: number): LevelStats {
-    const st: LevelStats = { damage: 0, charge: 0, defense: 0, health: 0 };
+    const st: LevelStats = { damage: 0, uncapped: 0, charge: 0, defense: 0, health: 0 };
     const add = (c: any, d: number) => {
       if (!c || d > 6) return;
       switch (kind(c)) {
         case "Compound": for (const x of c.levels ?? []) add(x, d + 1); break;
-        case "RelativeDamageBonus": if (depth >= (c.startDepth ?? 0)) st.damage += c.damage ?? DAMAGE[enumName(c.bonus, "LOW")] ?? 0; break;
-        case "ChargeTimeReduction": st.charge += c.reduction ?? CTR[enumName(c.bonus, "CUSTOM")] ?? 0; break;
+        case "RelativeDamageBonus":
+          if (depth >= (c.startDepth ?? 0)) {
+            const v = itemValue("DAMAGE", c.bonus, c.positive, c.damage ?? 0);
+            if (c.capped === false) st.uncapped += v; else st.damage += v;
+          }
+          break;
+        case "ChargeTimeReduction": st.charge += itemValue("CHARGE", c.bonus, c.positive, c.reduction ?? 0); break;
         case "DefenseIncrease": st.defense += c.defense ?? 0; break;
-        case "HealthBonus": if (depth >= (c.minDepth ?? 0)) st.health += c.health ?? 0; break;
+        case "HealthBonus": if (depth >= (c.minDepth ?? 0)) st.health += itemValue("HEALTH", c.bonus, c.positive, c.health ?? 40); break;
       }
     };
     for (const c of this.levelConfigs(name, level)) add(c, 0);
@@ -436,19 +445,25 @@ export class Economy {
     const grade = Number(/\s(\d)$/.exec(name)?.[1] ?? 0) || BONUS_GRADE[bonus] || 1;
     const e: VariantEffect = { label, grade };
     switch (k) {
-      case "StatusResist": e.resist = { mask: v.conditionMask ?? 0, points: v.resist ?? RESIST[enumName(v.statusResist, "LOW")] ?? 5 }; break;
+      case "StatusResist": {
+        const named = RESIST[enumName(v.statusResist, "CUSTOM")];
+        e.resist = named !== undefined ? { mask: v.conditionMask ?? 0, points: named, scaled: true } : { mask: v.conditionMask ?? 0, points: v.resist ?? 0 };
+        break;
+      }
       case "DefenseTypeBonus": e.defense = { type: enumName(v.type, "NORMAL"), depthScale: v.depthScale ?? null, amount: v.amount ?? 5 * grade }; break;
-      case "TaggedDamage": e.tagged = { tag: v.tag ?? "", damage: v.damage ?? TAGGED[bonus] ?? 0.05 }; break;
-      case "AttackSpeedChange": e.attackSpeed = v.speed ?? ASI[bonus] ?? 0.02; break;
-      case "ChargeTimeReduction": e.charge = v.reduction ?? CTR[bonus] ?? 0.05; break;
+      // VariantConfig: weapon variants take ItemValueKey steps (CUSTOM: their own amount)
+      case "TaggedDamage": e.tagged = { tag: v.tag ?? "", damage: itemValue("DAMAGE", v.bonus, v.positive, v.damage ?? 0) }; break;
+      case "AttackSpeedChange": e.attackSpeed = itemValue("SPEED", v.bonus, v.positive, v.speed ?? 0); break;
+      case "ChargeTimeReduction": e.charge = itemValue("CHARGE", v.bonus, v.positive, v.reduction ?? 0); break;
       case "HealthBonus": e.health = v.health ?? 40; break;
-      case "SpeedChange": e.speed = v.speed ?? SPEED[bonus] ?? 0.05; break;
+      case "SpeedChange": e.speed = itemValue("SPEED", v.bonus, v.positive, v.speed ?? 0); break;
       case "WeaponClass": {
+        // a LevelConfig for one weapon class (ChargeTimeReduction by default)
         e.weaponClass = enumName(v.weaponClass, "SWORD");
-        const b = v.bonus, bk = kind(b), bg = enumName(b?.bonus, "LOW");
-        if (bk === "ChargeTimeReduction") e.charge = b.reduction ?? CTR[bg];
-        else if (bk === "RelativeDamageBonus") e.damage = b.damage ?? DAMAGE[bg];
-        else if (bk === "AttackSpeedChange") e.attackSpeed = b.speed ?? ASI[bg];
+        const b = v.bonus ?? { $class: "LevelConfig$ChargeTimeReduction" }, bk = kind(b);
+        if (bk === "ChargeTimeReduction") e.charge = itemValue("CHARGE", b.bonus, b.positive, b.reduction ?? 0);
+        else if (bk === "RelativeDamageBonus") e.damage = itemValue("DAMAGE", b.bonus, b.positive, b.damage ?? 0);
+        else if (bk === "AttackSpeedChange") e.attackSpeed = itemValue("SPEED", b.bonus, b.positive, b.speed ?? 0);
         break;
       }
       default: return null;
@@ -667,16 +682,18 @@ export class Economy {
 const generalTable = (c: Category) => (c === "sword" ? "Sword" : c === "handgun" ? "Handgun" : c === "bomb" ? "Bomb" : c === "helm" ? "Helm" : c === "shield" ? "Shield" : "Armor");
 
 /** Cumulative heat thresholds for levels 1-10: first step `base`, steps growing to `total`. */
-export function heatCurve(base: number, total: number): number[] {
-  // steps base * r^k (k = 0..8) summing to total; solve r by bisection
-  const sum = (r: number) => (Math.abs(r - 1) < 1e-9 ? 9 * base : base * (Math.pow(r, 9) - 1) / (r - 1));
-  let lo = 1, hi = 4;
-  if (sum(1) >= total) hi = 1;
-  for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (sum(m) < total) lo = m; else hi = m; }
-  const r = (lo + hi) / 2, out = [0];
-  let acc = 0;
-  for (let k = 0; k < 9; k++) { acc += base * Math.pow(r, k); out.push(Math.round(acc)); }
-  out[9] = Math.round(total);
+/**
+ * Total heat to reach each level (index 0 = level 1, always 0), as the client's LevelItem
+ * computes it: level i+1 to i+2 costs base + i * step, with step = (2 * max / n - 2 * base) /
+ * (n - 1) for n levels, and thresholds truncated to whole heat. The series as the client runs
+ * it reaches level n at base + (n - 2) / n * max, short of maxHeat (its editor's own table,
+ * which sums to maxHeat exactly, uses n - 1 in the step).
+ */
+export function heatCurve(base: number, max: number, levels = MAX_LEVEL): number[] {
+  const step = levels > 1 ? (2 * max / levels - 2 * base) / (levels - 1) : 0;
+  const sum = (l: number) => ((l + 1) * (2 * base + l * step)) / 2;
+  const out = [0];
+  for (let i = 0; i < levels - 1; i++) out.push(Math.trunc(sum(i)));
   return out;
 }
 

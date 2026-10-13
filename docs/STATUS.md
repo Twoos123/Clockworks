@@ -114,14 +114,14 @@ A single-player loop runs in the browser, built from the install's own data:
 
 **Fidelity**
 
-8. **Monster AI** is clean-room. The game's AI and attack selection are closed code.
-9. **Damage formula and several numbers are tuning values:**
-   - knight health, the defence formula, status chance and power levels;
-   - the dash;
-   - the heat curve between an item's baseHeat (first level) and maxHeat (level 10) is
-     geometric, and 1-star items' maxHeat (a class default) is taken as 2500;
-   - level damage bonuses with a startDepth (2-5 star weapons) apply from that depth;
-     DefenseIncrease is read as percent of the item's defence.
+8. **Taken from the client** (docs/research/client-fidelity.md, client-map.md): the damage
+   and defence formula, bonus steps and caps, knight health (200), the heat series and its
+   split between items, status chance and power levels and each condition's defaults,
+   knockback impulses, attack timing, the dash, shield regeneration, config class defaults,
+   monster and boss health, trap cycles.
+9. **Still ours.** The client runs no game logic (it is server code): monster AI, the boss
+   directors' sequencing (bell range, Vanaduke's wet time), how power and resistance turn into
+   a status's duration and chance, freeze breaking, invulnerability windows, forging levels.
 10. **Unread defaults.** The export drops default-valued fields, and some game defaults
     differ from upstream Clyde. The logic infers implicit objects and treats unnamed signal
     handlers as hearing "activate". A few ExpressionSwitch case values are matched by
@@ -135,7 +135,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Model files loaded in the browser | 5,816 of 5,816, no failures |
 | Cached scenes loaded | 12 of 12, zero unresolved references |
 | A full run, Haven to Terminal Core and back | passes (automated) |
-| Unit tests | 15 of 15 |
+| Unit tests | 93 of 93 |
 
 ## Decisions for you
 

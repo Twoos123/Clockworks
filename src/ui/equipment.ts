@@ -715,7 +715,7 @@ export class ArsenalScreen extends GuiScreen {
     const lines: string[] = [];
     if (heatable) {
       const st = eco.levelStats(e.name, lv, Math.max(1, save.bestDepth));
-      if (st.damage) lines.push(`Damage +${Math.round(st.damage * 100)}%`);
+      if (st.damage + st.uncapped) lines.push(`Damage +${Math.round((st.damage + st.uncapped) * 100)}%`);
       if (st.charge) lines.push(`Charge time -${Math.round(st.charge * 100)}%`);
       if (st.defense) lines.push(`Defense +${Math.round(st.defense)}`);
       if (st.health) lines.push(`Health +${Math.round(st.health / 40 * 10) / 10} pips`);
