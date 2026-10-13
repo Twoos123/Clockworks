@@ -320,6 +320,8 @@ class Viewer {
       if (b("dash") && !e.repeat) this.dashPressed = true;
       if (b("help") && !e.repeat) $("playHint").hidden = !$("playHint").hidden;
       if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
+      if (key === "n" && !e.repeat) this.openFeed();
+      if (key === "m" && !e.repeat) this.openMail();
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       if (b("arsenal") && !e.repeat) void this.toggleArsenal();
@@ -698,6 +700,8 @@ class Viewer {
     switch (tag) {
       case "button_menu": this.openSettings(); break;
       case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
+      case "button_feed": this.openFeed(); break;
+      case "button_mail": this.openMail(); break;
       case "button_loadout": case "button_gear": case "button_arsenal": void this.toggleArsenal(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
       case "button_haven": void this.returnToHaven(); break;
@@ -705,6 +709,63 @@ class Viewer {
       case "button_guildhall": case "button_social": void this.goToGuildHall(); break;
       default: break;
     }
+  }
+
+  /** A simple window in the options' style (news and mail). */
+  private showPanel(title: string, fill: (body: HTMLElement) => void) {
+    const root = $("gates");
+    root.replaceChildren();
+    const card = document.createElement("div");
+    card.className = "settings-card";
+    const head = document.createElement("div");
+    head.className = "settings-head";
+    const h = document.createElement("h2");
+    h.textContent = title;
+    const close = document.createElement("button");
+    close.textContent = "Close";
+    close.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_dismiss.ogg"); };
+    head.append(h, close);
+    const body = document.createElement("div");
+    body.className = "settings-body";
+    fill(body);
+    card.append(head, body);
+    root.append(card);
+    root.hidden = false;
+    this.paused = !!this.world;
+  }
+
+  /** The news feed: what this port has and lacks (the game's feed came from its servers). */
+  private openFeed() {
+    this.showPanel("News", body => {
+      const items: [string, string][] = [
+        ["The Clockworks are open", "Four gates a day in the Arcade, six strata from depth 1 to 28, terminals, Moorcroft Manor, Emberlight and the Core."],
+        ["Generated floors", "Floors are built from the game's own tiles, spawners, gates and treasure; the real layouts of levels you have not visited are not in the install."],
+        ["Single player", "Parties, trading, PvP and guild chat are online features and are not part of this port."],
+      ];
+      for (const [t, d] of items) {
+        const p = document.createElement("p");
+        p.innerHTML = `<b style="color:#f3d36b">${t}</b><br>${d}`;
+        body.append(p);
+      }
+    });
+  }
+
+  /** The mailbox: letters kept in the save (a welcome note; missions add their rewards here). */
+  private openMail() {
+    const mail = this.save.mail ??= [];
+    if (!mail.length) mail.push({ from: "Spiral HQ", subject: "Welcome to Haven", at: Date.now(), read: false,
+      body: "Welcome, knight. Visit the Bazaar for gear, then take a gate in the Arcade into the Clockworks. Good luck below!" });
+    this.showPanel("Mail", body => {
+      for (const m of [...mail].reverse()) {
+        const d = document.createElement("details");
+        d.className = "settings-row";
+        d.style.display = "block";
+        d.innerHTML = `<summary><b>${m.read ? "" : "● "}${m.subject}</b> <span class="settings-note">from ${m.from}</span></summary><p>${m.body}</p>`;
+        d.ontoggle = () => { if (d.open && !m.read) { m.read = true; writeSave(this.save); } };
+        body.append(d);
+      }
+    });
+    writeSave(this.save);
   }
 
   /** Your guild hall: the cached hall scene. */
