@@ -152,6 +152,9 @@ export class Monster extends Actor {
   cooldown = 1;
   /** Seconds left in a hit reaction (interrupted, not acting). */
   reacting = 0;
+  /** Waypoints around walls toward the knight, and seconds until they are recomputed. */
+  path: [number, number][] | null = null;
+  pathAge = 0;
   homeX = 0; homeY = 0;
   constructor(instance: ModelInstance, readonly def: MonsterDef, health: number) {
     super(instance, def.scale);
@@ -1616,7 +1619,20 @@ export class World implements LogicHost {
     // ranged-only monsters hold a middle distance; others close to melee range
     const keep = !melee.length && ranged.length ? Math.min(...ranged.map(a => this.reach(a))) * 0.6 : (melee.length ? this.reach(melee[0]) * 0.7 : 1);
     let mx = 0, my = 0;
-    if (gap > keep) { mx = dx / dist; my = dy / dist; }
+    if (gap > keep) {
+      // straight at the knight when the way is clear, else along an A* path around walls
+      m.pathAge -= dt;
+      if (this.collision.clearLine(m.x, m.y, k.x, k.y, m.radius * 0.8, MONSTER_MASK)) m.path = null;
+      else if (!m.path || m.pathAge <= 0) {
+        m.path = this.collision.findPath(m.x, m.y, k.x, k.y, m.radius * 0.8, MONSTER_MASK);
+        m.pathAge = 0.6 + Math.random() * 0.4;
+      }
+      while (m.path?.length && Math.hypot(m.path[0][0] - m.x, m.path[0][1] - m.y) < 0.35) m.path.shift();
+      const [tx, ty] = m.path?.length ? m.path[0] : [k.x, k.y];
+      const tdx = tx - m.x, tdy = ty - m.y, td = Math.hypot(tdx, tdy) || 1;
+      mx = tdx / td; my = tdy / td;
+      if (m.path?.length) m.turnToward(Math.atan2(my, mx), turn, dt);
+    }
     else if (!melee.length && gap < keep * 0.5) { mx = -dx / dist; my = -dy / dist; }
     if (mx || my) {
       this.move(m, mx * sp * dt, my * sp * dt, MONSTER_MASK);

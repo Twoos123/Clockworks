@@ -131,6 +131,64 @@ export class CollisionMap {
     return false;
   }
 
+  /** Whether a circle can travel in a straight line from a to b (sampled every half radius). */
+  clearLine(ax: number, ay: number, bx: number, by: number, r: number, mask: number): boolean {
+    const d = Math.hypot(bx - ax, by - ay), n = Math.max(1, Math.ceil(d / Math.max(0.2, r * 0.75)));
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      if (this.collides(ax + (bx - ax) * t, ay + (by - ay) * t, r, mask)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Grid A* between cell centres (eight directions, no corner cutting), as Tudey's
+   * Pathfinder does over its walkable map. Returns waypoints after the start, or null when no
+   * path is found within `maxNodes` expansions.
+   */
+  findPath(ax: number, ay: number, bx: number, by: number, r: number, mask: number, maxNodes = 1500): [number, number][] | null {
+    const sx = Math.floor(ax), sy = Math.floor(ay), gx = Math.floor(bx), gy = Math.floor(by);
+    const key = (x: number, y: number) => (x + 32768) * 65536 + (y + 32768);
+    const free = new Map<number, boolean>();
+    const walkable = (x: number, y: number) => {
+      const k = key(x, y);
+      let f = free.get(k);
+      if (f === undefined) free.set(k, f = !this.collides(x + 0.5, y + 0.5, r, mask));
+      return f;
+    };
+    const open: { x: number; y: number; g: number; f: number }[] = [{ x: sx, y: sy, g: 0, f: Math.hypot(gx - sx, gy - sy) }];
+    const came = new Map<number, number>(), best = new Map<number, number>([[key(sx, sy), 0]]);
+    let expanded = 0;
+    while (open.length && expanded++ < maxNodes) {
+      let bi = 0;
+      for (let i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
+      const cur = open.splice(bi, 1)[0];
+      if (cur.x === gx && cur.y === gy) {
+        const out: [number, number][] = [];
+        let k = key(cur.x, cur.y);
+        while (came.has(k)) {
+          const x = Math.floor(k / 65536) - 32768, y = (k % 65536) - 32768;
+          out.unshift([x + 0.5, y + 0.5]);
+          k = came.get(k)!;
+        }
+        if (out.length) out[out.length - 1] = [bx, by];
+        return out;
+      }
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        const nx = cur.x + dx, ny = cur.y + dy;
+        if (!walkable(nx, ny)) continue;
+        if (dx && dy && (!walkable(cur.x + dx, cur.y) || !walkable(cur.x, cur.y + dy))) continue;
+        const g = cur.g + (dx && dy ? Math.SQRT2 : 1), k = key(nx, ny);
+        if (g >= (best.get(k) ?? Infinity)) continue;
+        best.set(k, g);
+        came.set(k, key(cur.x, cur.y));
+        open.push({ x: nx, y: ny, g, f: g + Math.hypot(gx - nx, gy - ny) });
+      }
+    }
+    return null;
+  }
+
   /** Ground height under (x, y). */
   groundZ(x: number, y: number): number {
     const c = this.cell(Math.floor(x), Math.floor(y));
