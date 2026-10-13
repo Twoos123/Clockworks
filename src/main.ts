@@ -2,7 +2,9 @@ import { lookAt, perspective, type Vec3 } from "./math";
 import { loadAnimation, ModelLoader, type LoadedModel } from "./model";
 import { Renderer, type ModelInstance } from "./render/renderer";
 import { SceneLoader, sceneName, type LoadedScene } from "./scene";
-import type { Mat4 } from "./math";
+import { ColorPository } from "./colors";
+import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environment";
+import { identity, type Mat4 } from "./math";
 import {
   canPickDirectory, DevServerVfs, FileListVfs, HandleVfs, recallHandle, rememberHandle, VfsError, type Vfs,
 } from "./vfs";
@@ -120,6 +122,8 @@ class Viewer {
   private readonly canvas = $<HTMLCanvasElement>("canvas");
   private instance: ModelInstance | null = null;
   private sceneItems: { instance: ModelInstance; matrix: Mat4 }[] | null = null;
+  private environment: Environment = VIEWER_ENVIRONMENT;
+  private skyboxes: ModelInstance[] = [];
   private readonly sceneLoader: SceneLoader;
   private readonly instances = new Map<LoadedModel, Promise<ModelInstance>>();
   private shares = new Map<ModelInstance, number>();
@@ -135,6 +139,7 @@ class Viewer {
   constructor(private readonly vfs: Vfs, files: string[]) {
     this.loader = new ModelLoader(vfs);
     this.renderer = new Renderer(this.canvas, vfs);
+    this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
     this.listScenes(vfs);
     this.datFiles = files.filter(f => f.endsWith(".dat")).sort();
@@ -220,13 +225,18 @@ class Viewer {
         if (token === this.loadToken) this.status("Loading scene: " + done + " of " + total + " objects");
       });
       const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
+      const env = await loadEnvironment(this.loader, scene.globals);
+      for (const m of env.models) items.push({ instance: await this.instanceOf(m), matrix: identity() });
+      const skyboxes = await Promise.all(env.skyboxes.map(m => this.instanceOf(m)));
       if (token !== this.loadToken) return;
+      this.environment = env;
+      this.skyboxes = skyboxes;
       this.sceneItems = items;
       this.shares = new Map();
       for (const it of items) this.shares.set(it.instance, (this.shares.get(it.instance) ?? 0) + 1);
       this.instance = null;
       this.model = null;
-      this.frameScene(scene);
+      this.frameScene(scene, env);
       const anim = $<HTMLSelectElement>("anim");
       anim.replaceChildren(new Option("Scene animations", ""));
       anim.disabled = true;
@@ -239,7 +249,7 @@ class Viewer {
     }
   }
 
-  private frameScene(scene: LoadedScene) {
+  private frameScene(scene: LoadedScene, env: Environment) {
     const { min, max } = scene.bounds;
     const ok = isFinite(min[0]);
     const cx = ok ? (min[0] + max[0]) / 2 : 0, cy = ok ? (min[1] + max[1]) / 2 : 0;
@@ -247,8 +257,9 @@ class Viewer {
     this.target = [cx, cy, 0];
     this.dist = Math.max(10, extent * 0.55);
     this.home = { dist: this.dist, target: [cx, cy, 0] };
-    this.el = 0.95;
-    this.az = -Math.PI / 2;
+    // the scene's own camera global gives the in-game viewing angle
+    this.el = env.camera?.elevation ?? 0.95;
+    this.az = -Math.PI / 2 + (env.camera?.azimuth ?? 0);
   }
 
   private showSceneInfo(scene: LoadedScene) {
@@ -296,6 +307,8 @@ class Viewer {
       this.model = model;
       this.instance = inst;
       this.sceneItems = null;
+      this.environment = VIEWER_ENVIRONMENT;
+      this.skyboxes = [];
       for (const li of $("scenes").children) li.classList.remove("active");
       this.frameModel(model);
       await this.fillAnimations(model);
@@ -444,7 +457,18 @@ class Viewer {
       ];
       const proj = perspective(0.75, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
       const view = lookAt(eye, this.target, [0, 0, 1]);
-      if (this.sceneItems) this.renderer.drawAll(this.sceneItems, proj, view);
+      if (!this.paused) this.renderer.time += dt;
+      if (this.sceneItems) {
+        // Fog in the game is tuned for a camera about camera.distance from the player; shift it so
+        // it is measured around the orbit target instead, and honour the fog toggle.
+        let env = this.environment;
+        const fogOn = $<HTMLInputElement>("fog").checked;
+        if (env.fog && (!fogOn || env.camera)) {
+          const shift = Math.max(0, this.dist - (env.camera?.distance ?? this.dist));
+          env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
+        }
+        this.renderer.drawAll(this.sceneItems, proj, view, env, this.skyboxes);
+      }
       else this.renderer.draw(this.instance!, proj, view);
     }
     requestAnimationFrame(this.frame);

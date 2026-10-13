@@ -168,6 +168,8 @@ export class ModelLoader {
   async loadRef(ref: any, depth = 0): Promise<LoadedModel | null> {
     const name: string | undefined = ref?.name;
     if (!name || !name.endsWith(".dat") || depth > 8) return null;
+    // editor-only helpers (spawn markers, vertices, gizmos) are never drawn in the game
+    if (name.startsWith("editor/")) return null;
     try { return await this.load(name, ref, depth + 1); } catch { return null; }
   }
 

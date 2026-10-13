@@ -4,15 +4,21 @@
 // overrides, texture environments and texture-coordinate generation.
 
 import { applyArguments, CONFIG_REF, getArg, setArg } from "./params";
+import { transformExpr, type F } from "../expr";
+import { readTransform, toMatrix, type Mat4 } from "../math";
 
 export type Rgba = [number, number, number, number];
 
 export interface TextureUnitState {
   texture: string | null;
+  /** ColorizationConfig objects applied to the image when it is loaded. */
+  colorizations: any[];
   /** Modulate, Replace, Add, Decal, Blend or Combine. */
   env: string;
   rgbScale: number;
   sphereMap: boolean;
+  /** Texture-coordinate transform: static, or animated by a dynamic binding. */
+  transform: F<Mat4> | null;
 }
 
 export interface PassState {
@@ -31,6 +37,8 @@ export interface PassState {
   /** Lights supplied by a light-state override (none means ambient only). */
   overrideLights: number;
   ignoreVertexColors: boolean;
+  /** False when the pass disables fog. */
+  fog: boolean;
   units: TextureUnitState[];
   /** GLSL programs the original pass uses; this renderer emulates them, see renderer.ts. */
   shaders: string[];
@@ -132,23 +140,39 @@ export class ConfigLibrary {
       ambient: light?.$class?.endsWith("$Enabled") ? color(light.globalAmbient ?? { r: 0.2, g: 0.2, b: 0.2, a: 1 }) : null,
       overrideLights: light?.lights?.length ?? 0,
       ignoreVertexColors: !!p.ignoreVertexColors,
-      units: (p.textureState?.units ?? []).map((u: any) => this.unit(u, local)),
+      fog: !p.fogStateOverride?.$class?.endsWith("$Disabled"),
+      units: (p.textureState?.units ?? []).map((u: any, i: number) => this.unit(u, local, bindingFor(p, i))),
       shaders,
     };
   }
 
-  private unit(u: any, local?: LocalConfigs): TextureUnitState {
+  private unit(u: any, local?: LocalConfigs, animated: F<Mat4> | null = null): TextureUnitState {
+    let transform = animated;
+    if (!transform && (u.transform?.translation || u.transform?.rotation || u.transform?.matrix || u.transform?.scale)) {
+      const m = toMatrix(readTransform(u.transform));
+      transform = () => m;
+    }
     const env = u.environment?.$class ?? "Modulate";
     const scale = u.environment?.rgbScale?.name;
     return {
       texture: this.texturePath(u.texture, local),
+      colorizations: this.textureColorizations(u.texture, local),
       env: env.substring(env.lastIndexOf("$") + 1),
       rgbScale: scale === "TWO" ? 2 : scale === "FOUR" ? 4 : 1,
       sphereMap: !!u.coordGenS?.$class?.endsWith("$SphereMap"),
+      transform,
     };
   }
 
   /** Resolves a TextureConfig reference to an image path under rsrc/. */
+  /** The colorizations a TextureConfig reference applies to its image. */
+  textureColorizations(ref: any, local?: LocalConfigs): any[] {
+    const base = ref && (local?.textures.get(ref.name) ?? this.textures.get(ref.name));
+    if (!base) return [];
+    const list = applyArguments(base, ref).implementation?.contents?.colorizations;
+    return Array.isArray(list) ? list.filter(Boolean) : [];
+  }
+
   texturePath(ref: any, local?: LocalConfigs): string | null {
     if (!ref) return null;
     const base = local?.textures.get(ref.name) ?? this.textures.get(ref.name);
@@ -174,7 +198,7 @@ function fallback(name: string, texture: string | null): ResolvedMaterial {
       destBlend: n.includes("additive") ? "ONE" : translucent ? "ONE_MINUS_SRC_ALPHA" : "ZERO",
       alphaFunc: n.includes("masked") ? "GEQUAL" : "ALWAYS", alphaRef: n.includes("masked") ? 0.5 : 0,
       depthFunc: "LEQUAL", depthMask: !translucent, cullFace: "BACK", color: null, lit: true, ambient: null, overrideLights: 0,
-      ignoreVertexColors: false, units: [{ texture, env: "Modulate", rgbScale: 1, sphereMap: false }], shaders: [],
+      ignoreVertexColors: false, fog: true, units: [{ texture, colorizations: [], env: "Modulate", rgbScale: 1, sphereMap: false, transform: null }], shaders: [],
     }],
   };
 }
@@ -186,4 +210,16 @@ export function defaultMaterialRef(tag: string, texture: string) {
   setArg(tex, "File", texture);
   setArg(ref, "Texture", tex);
   return ref;
+}
+
+/** The animated texture transform a pass's dynamic bindings give texture unit `unit`. */
+function bindingFor(pass: any, unit: number): F<Mat4> | null {
+  for (const b of pass.dynamicBindings ?? []) {
+    if (!b.$class?.endsWith("Transform3DBinding")) continue;
+    for (const path of b.paths ?? []) {
+      const m = /states\[14\]\._units\[(\d+)\]\.?transform/.exec(path);
+      if (m && Number(m[1]) === unit) return transformExpr(b.expression);
+    }
+  }
+  return null;
 }

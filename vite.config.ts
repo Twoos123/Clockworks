@@ -32,6 +32,13 @@ function localInstall(): Plugin {
           res.end(JSON.stringify(listing));
           return;
         }
+        if (url === "/configjar") {
+          // the one file served from code/: a data archive the viewer extracts colordefs from
+          const jar = join(SK_DIR, "code", "projectx-config.jar");
+          if (!existsSync(jar)) { res.statusCode = 404; res.end(); return; }
+          createReadStream(jar).pipe(res);
+          return;
+        }
         const scenes = join(SK_DIR, "scenes");
         if (url === "/scenelist") {
           res.setHeader("content-type", "application/json");

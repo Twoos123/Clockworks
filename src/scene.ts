@@ -17,6 +17,8 @@ export interface LoadedScene {
   name: string;
   objects: SceneObject[];
   stats: { tiles: number; placeables: number; markers: number; unresolved: number; uniqueModels: number };
+  /** The scene's GlobalEntry references (lighting, fog, skybox, camera, music...). */
+  globals: any[];
   bounds: { min: [number, number]; max: [number, number] };
 }
 
@@ -131,6 +133,7 @@ export class SceneLoader {
       if (++done % 200 === 0) onProgress?.(done, jobs.length);
     }
     stats.uniqueModels = unique.size;
-    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max } };
+    const globals = (s.entries ?? []).filter((e: any) => e.$class.endsWith("GlobalEntry")).map((e: any) => e.sceneGlobal);
+    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals };
   }
 }

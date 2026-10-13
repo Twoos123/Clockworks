@@ -10,7 +10,9 @@
 // shader or CPU skin deformer) runs in the vertex shader from a bone-matrix texture.
 
 import { identity, invert, multiply, slerp, lerp3, toMatrix, compose, type Mat4, type Transform } from "../math";
-import type { PassState } from "../config/materials";
+import type { PassState, TextureUnitState } from "../config/materials";
+import { VIEWER_ENVIRONMENT, type Environment, type Rgb } from "../environment";
+import { recolorPixels, type ColorPository } from "../colors";
 import type { AnimationClip, ClientArray, LoadedModel, MeshPart, NodeDef } from "../model";
 import type { Vfs } from "../vfs";
 
@@ -23,12 +25,13 @@ layout(location=3) in vec4 a_color;
 layout(location=4) in vec4 a_boneIdx;
 layout(location=5) in vec4 a_boneW;
 layout(location=6) in mat4 a_model; // per instance (locations 6-9)
-uniform mat4 u_proj, u_view;
+uniform mat4 u_proj, u_view, u_texMatrix;
 uniform bool u_skinned, u_sphereMap;
 uniform highp sampler2D u_bones;
 out vec3 v_normal;
 out vec2 v_uv;
 out vec4 v_color;
+out vec3 v_eye;
 mat4 bone(float i) {
   int b = int(i) * 4;
   return mat4(texelFetch(u_bones, ivec2(b, 0), 0), texelFetch(u_bones, ivec2(b + 1, 0), 0),
@@ -53,8 +56,11 @@ void main() {
     float m = 2.0 * sqrt(r.x * r.x + r.y * r.y + (r.z + 1.0) * (r.z + 1.0));
     v_uv = vec2(r.x / m + 0.5, r.y / m + 0.5);
   }
+  v_uv = (u_texMatrix * vec4(v_uv, 0.0, 1.0)).xy;
   v_color = a_color;
-  gl_Position = u_proj * mv * pos;
+  vec4 eye = mv * pos;
+  v_eye = eye.xyz;
+  gl_Position = u_proj * eye;
 }`;
 
 const FS = `#version 300 es
@@ -62,13 +68,18 @@ precision mediump float;
 in vec3 v_normal;
 in vec2 v_uv;
 in vec4 v_color;
+in vec3 v_eye;
 uniform sampler2D u_tex;
 uniform bool u_hasTex, u_lit, u_useVertexColor;
 uniform int u_alphaFunc, u_env;
 uniform float u_alphaRef, u_rgbScale;
 uniform vec4 u_color;
-uniform vec3 u_lightDir, u_ambient;
-uniform float u_diffuse;
+uniform vec3 u_ambient;
+uniform int u_numLights;
+uniform vec3 u_lightDirs[4], u_lightColors[4];
+uniform int u_fogMode; // 0 none, 1 linear, 2 exp, 3 exp2
+uniform vec3 u_fogColor;
+uniform float u_fogStart, u_fogEnd, u_fogDensity;
 out vec4 fragColor;
 bool alphaPasses(float a) {
   switch (u_alphaFunc) {
@@ -85,8 +96,12 @@ bool alphaPasses(float a) {
 void main() {
   vec4 c = u_color * (u_useVertexColor ? v_color : vec4(1.0));
   if (u_lit) {
-    float ndl = max(dot(normalize(v_normal), u_lightDir), 0.0);
-    c.rgb *= u_ambient + vec3(u_diffuse) * ndl;
+    vec3 n = normalize(v_normal), light = u_ambient;
+    for (int i = 0; i < 4; i++) {
+      if (i >= u_numLights) break;
+      light += u_lightColors[i] * max(dot(n, u_lightDirs[i]), 0.0);
+    }
+    c.rgb *= light;
   }
   if (u_hasTex) {
     vec4 t = texture(u_tex, v_uv);
@@ -97,9 +112,18 @@ void main() {
   }
   c.rgb *= u_rgbScale;
   if (!alphaPasses(c.a)) discard;
+  if (u_fogMode > 0) {
+    float d = length(v_eye), f;
+    if (u_fogMode == 1) f = clamp((u_fogEnd - d) / max(u_fogEnd - u_fogStart, 1e-4), 0.0, 1.0);
+    else if (u_fogMode == 2) f = exp(-u_fogDensity * d);
+    else f = exp(-pow(u_fogDensity * d, 2.0));
+    c.rgb = mix(u_fogColor, c.rgb, f);
+  }
   fragColor = c;
 }`;
 
+const FOG_MODES = { linear: 1, exp: 2, exp2: 3 } as const;
+const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const ALPHA_FUNCS = ["ALWAYS", "NEVER", "LESS", "EQUAL", "LEQUAL", "GREATER", "NOTEQUAL", "GEQUAL"];
 const ENVS = ["Modulate", "Replace", "Add", "Decal"];
 const QUEUE_ORDER: Record<string, number> = {
@@ -211,8 +235,9 @@ export class Renderer {
     this.gl = gl;
     this.program = link(gl, VS, FS);
     for (const name of ["u_proj", "u_view", "u_model", "u_skinned", "u_bones", "u_tex", "u_hasTex",
-      "u_lit", "u_alphaRef", "u_lightDir", "u_sphereMap", "u_useVertexColor", "u_alphaFunc", "u_env",
-      "u_rgbScale", "u_color", "u_ambient", "u_diffuse"]) {
+      "u_lit", "u_alphaRef", "u_sphereMap", "u_useVertexColor", "u_alphaFunc", "u_env",
+      "u_rgbScale", "u_color", "u_ambient", "u_numLights", "u_lightDirs", "u_lightColors", "u_fogMode",
+      "u_fogColor", "u_fogStart", "u_fogEnd", "u_fogDensity", "u_texMatrix"]) {
       this.u[name] = gl.getUniformLocation(this.program, name);
     }
     this.boneTex = gl.createTexture()!;
@@ -249,8 +274,8 @@ export class Renderer {
       }
       gl.bindVertexArray(null);
       const textures = await Promise.all(part.material.passes.map(p => {
-        const t = p.units[0]?.texture;
-        return t ? this.texture(t) : Promise.resolve(null);
+        const u = p.units[0];
+        return u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
       inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures });
     }
@@ -281,8 +306,14 @@ export class Renderer {
     return b;
   }
 
-  private texture(path: string): Promise<WebGLTexture | null> {
-    let p = this.textures.get(path);
+  /** Colour definitions used to recolor textures; set once loaded. */
+  colors: Promise<ColorPository | null> = Promise.resolve(null);
+
+  private texture(unit: TextureUnitState): Promise<WebGLTexture | null> {
+    const path = unit.texture!;
+    const key = unit.colorizations.length
+      ? path + "|" + JSON.stringify(unit.colorizations, (k, v) => (k === "$outer" ? undefined : v)) : path;
+    let p = this.textures.get(key);
     if (!p) {
       p = (async () => {
         try {
@@ -290,20 +321,31 @@ export class Renderer {
           const gl = this.gl;
           const t = gl.createTexture()!;
           gl.bindTexture(gl.TEXTURE_2D, t);
-          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+          const pos = unit.colorizations.length ? await this.colors : null;
+          if (pos) {
+            // ImageUtil.recolorImage: shift colours near each class's source colour
+            const canvas = new OffscreenCanvas(bmp.width, bmp.height);
+            const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+            ctx.drawImage(bmp, 0, 0);
+            const img = ctx.getImageData(0, 0, bmp.width, bmp.height);
+            recolorPixels(img.data, unit.colorizations.map(c => pos.resolve(c)));
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+          } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+          }
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
           bmp.close();
-          this.loadedTextures.set(path, t);
+          this.loadedTextures.set(key, t);
           return t;
         } catch {
-          this.loadedTextures.set(path, null);
+          this.loadedTextures.set(key, null);
           return null;
         }
       })();
-      this.textures.set(path, p);
+      this.textures.set(key, p);
     }
     return p;
   }
@@ -319,24 +361,88 @@ export class Renderer {
     this.drawAll([{ instance: root, matrix: identity() }], proj, view);
   }
 
-  /** Draws many placed model instances (instances may be shared between placements). */
-  drawAll(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4) {
-    const frame = ++this.frame;
+  /** Seconds since the renderer started; drives texture animation. */
+  time = 0;
+  private env: Environment = VIEWER_ENVIRONMENT;
+  private sceneAmbient: Rgb = VIEWER_ENVIRONMENT.ambient;
+
+  /**
+   * Draws many placed model instances (instances may be shared between placements), under a
+   * scene environment, with optional skyboxes drawn around the camera first.
+   */
+  drawAll(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4,
+    env: Environment = VIEWER_ENVIRONMENT, skyboxes: ModelInstance[] = []) {
     const gl = this.gl;
     const w = this.canvas.width, h = this.canvas.height;
     gl.viewport(0, 0, w, h);
-    gl.clearColor(0.16, 0.18, 0.22, 1);
+    const bg = env.background ?? [0.16, 0.18, 0.22];
+    gl.clearColor(bg[0], bg[1], bg[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.enable(gl.DEPTH_TEST);
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.u.u_proj, false, proj);
-    gl.uniformMatrix4fv(this.u.u_view, false, view);
-    // light from over the viewer's shoulder, in eye space
-    const l = [0.35, 0.6, 0.72], len = Math.hypot(...l);
-    gl.uniform3f(this.u.u_lightDir, l[0] / len, l[1] / len, l[2] / len);
     gl.uniform1i(this.u.u_tex, 0);
     gl.uniform1i(this.u.u_bones, 1);
     this.stats = { draws: 0, triangles: 0 };
+    this.env = env;
+    this.sceneAmbient = env.ambient;
+    this.setLights(env, view);
+    if (skyboxes.length) {
+      // skyboxes follow the camera: drop the view translation, never write depth
+      const sky = view.slice();
+      sky[12] = sky[13] = sky[14] = 0;
+      gl.uniformMatrix4fv(this.u.u_view, false, sky);
+      this.setFog(null);
+      this.skyboxPass = true;
+      this.drawItems(skyboxes.map(instance => ({ instance, matrix: identity() })));
+      this.skyboxPass = false;
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+    }
+    gl.uniformMatrix4fv(this.u.u_view, false, view);
+    this.setFog(env.fog);
+    this.drawItems(items);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+
+  private skyboxPass = false;
+  private fogOn = false;
+
+  private setLights(env: Environment, view: Mat4) {
+    const gl = this.gl;
+    const n = Math.min(4, env.lights.length);
+    const dirs = new Float32Array(12), colors = new Float32Array(12);
+    for (let i = 0; i < n; i++) {
+      let [x, y, z] = env.lights[i].dir;
+      if (!env.eyeSpace) {
+        // rotate the world-space direction into eye space
+        [x, y, z] = [view[0] * x + view[4] * y + view[8] * z, view[1] * x + view[5] * y + view[9] * z,
+          view[2] * x + view[6] * y + view[10] * z];
+      }
+      const len = Math.hypot(x, y, z) || 1;
+      dirs.set([x / len, y / len, z / len], i * 3);
+      colors.set(env.lights[i].color, i * 3);
+    }
+    gl.uniform1i(this.u.u_numLights, n);
+    gl.uniform3fv(this.u.u_lightDirs, dirs);
+    gl.uniform3fv(this.u.u_lightColors, colors);
+  }
+
+  private setFog(fog: Environment["fog"]) {
+    const gl = this.gl;
+    this.fogOn = !!fog;
+    gl.uniform1i(this.u.u_fogMode, !fog ? 0 : fog.mode === "linear" ? 1 : fog.mode === "exp" ? 2 : 3);
+    if (fog) {
+      gl.uniform3f(this.u.u_fogColor, fog.color[0], fog.color[1], fog.color[2]);
+      gl.uniform1f(this.u.u_fogStart, fog.start);
+      gl.uniform1f(this.u.u_fogEnd, fog.end);
+      gl.uniform1f(this.u.u_fogDensity, fog.density);
+    }
+  }
+
+  private drawItems(items: { instance: ModelInstance; matrix: Mat4 }[]) {
+    const gl = this.gl;
+    const frame = ++this.frame;
 
     // Group placements by mesh part so each part and pass is one instanced draw. A part
     // belongs to one (possibly shared) ModelInstance, so all of its placements share a pose.
@@ -414,9 +520,11 @@ export class Renderer {
     gl.uniform1f(this.u.u_rgbScale, unit?.rgbScale ?? 1);
     gl.uniform1i(this.u.u_lit, pass.lit && hasNormals ? 1 : 0);
     // a light-state override replaces the scene lights: its ambient term plus its own lights
-    const amb = pass.ambient ?? [0.4, 0.4, 0.4, 1];
-    gl.uniform1f(this.u.u_diffuse, pass.ambient && pass.overrideLights === 0 ? 0 : 0.8);
+    const amb = pass.ambient ?? this.sceneAmbient;
     gl.uniform3f(this.u.u_ambient, amb[0], amb[1], amb[2]);
+    gl.uniform1i(this.u.u_numLights, pass.ambient && pass.overrideLights === 0 ? 0 : Math.min(4, this.env.lights.length));
+    if (this.fogOn) gl.uniform1i(this.u.u_fogMode, pass.fog ? FOG_MODES[this.env.fog!.mode] : 0);
+    gl.uniformMatrix4fv(this.u.u_texMatrix, false, unit?.transform ? unit.transform(this.time) : IDENTITY);
     const c = pass.color ?? [1, 1, 1, 1];
     gl.uniform4f(this.u.u_color, c[0], c[1], c[2], c[3]);
     gl.uniform1i(this.u.u_useVertexColor, hasColors && !pass.ignoreVertexColors ? 1 : 0);
@@ -429,7 +537,7 @@ export class Renderer {
       gl.blendFunc(g[pass.srcBlend] ?? gl.ONE, g[pass.destBlend] ?? gl.ZERO);
     }
     gl.depthFunc(g[pass.depthFunc] ?? gl.LEQUAL);
-    gl.depthMask(pass.depthMask);
+    gl.depthMask(pass.depthMask && !this.skyboxPass);
     if (pass.cullFace === "DISABLED") {
       gl.disable(gl.CULL_FACE);
     } else {

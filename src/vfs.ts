@@ -1,12 +1,15 @@
 // Read-only access to the player's own Spiral Knights install. Nothing is uploaded or
-// copied off the machine: files are read in the page, on demand. Only two folders are
-// ever exposed: rsrc/ (game data) and scenes/ (scenes the server sent this player's
-// client). The proprietary code/ folder is never listed or read.
+// copied off the machine: files are read in the page, on demand. Exposed: rsrc/ (game
+// data), scenes/ (scenes the server sent this player's client), and exactly one data file
+// from the code/ folder, the colour definitions inside projectx-config.jar. Nothing else in
+// code/ is listed or read, and no class files are ever opened.
 //
 // Sources, in order of preference:
 //  - a directory handle from showDirectoryPicker (Chromium), remembered in IndexedDB
 //  - a FileList from <input webkitdirectory> or a dropped folder (Firefox, Safari)
 //  - the local dev server's /__sk/ route (development only, never in a production build)
+
+import { readJarEntry } from "./java/jar";
 
 export interface Vfs {
   /** Human-readable description of the source. */
@@ -21,11 +24,18 @@ export interface Vfs {
   scenes(): Promise<string[]>;
   /** Reads one cached scene file. */
   readScene(name: string): Promise<Uint8Array>;
+  /** The colour pository (Java-serialized), or null if unavailable. */
+  colorDefs(): Promise<Uint8Array | null>;
 }
+
+/** The only file read from code/: a data archive, from which only COLOR_DEFS is extracted. */
+export const CONFIG_JAR = "code/projectx-config.jar";
+export const COLOR_DEFS = "rsrc/config/media/colordefs.dat";
 
 const SCENE_NAME = /^[0-9]+$/;
 
 export class VfsError extends Error {}
+
 
 const norm = (p: string) => p.replace(/\\/g, "/").replace(/^\/+/, "");
 
@@ -45,6 +55,7 @@ function rsrcPrefix(paths: string[]): string | null {
 export class FileListVfs implements Vfs {
   private readonly files = new Map<string, File>();
   private readonly sceneFiles = new Map<string, File>();
+  private configJar?: File;
   readonly label: string;
 
   constructor(files: Iterable<[string, File]>, label: string) {
@@ -58,7 +69,9 @@ export class FileListVfs implements Vfs {
       for (const [p, f] of all) this.files.set(p.substring(root.length), f);
     } else {
       for (const [p, f] of all) if (p.startsWith(prefix)) this.files.set(p.substring(prefix.length), f);
-      const scenes = prefix.substring(0, prefix.length - 5) + "scenes/";
+      const install = prefix.substring(0, prefix.length - 5);
+      this.configJar = all.find(([p]) => p === install + CONFIG_JAR)?.[1];
+      const scenes = install + "scenes/";
       for (const [p, f] of all) {
         const name = p.substring(scenes.length);
         if (p.startsWith(scenes) && SCENE_NAME.test(name)) this.sceneFiles.set(name, f);
@@ -68,6 +81,7 @@ export class FileListVfs implements Vfs {
   }
 
   async scenes() { return [...this.sceneFiles.keys()]; }
+  async colorDefs() { return this.configJar ? readJarEntry(this.configJar, COLOR_DEFS) : null; }
   async readScene(name: string) {
     const f = this.sceneFiles.get(name);
     if (!f) throw new VfsError(`Missing scene: ${name}`);
@@ -177,6 +191,15 @@ export class HandleVfs implements Vfs {
     const f = await (await this.scenesDir.getFileHandle(name)).getFile();
     return new Uint8Array(await f.arrayBuffer());
   }
+
+  async colorDefs() {
+    if (this.rsrc === this.root) return null;
+    try {
+      const [dir, file] = CONFIG_JAR.split("/");
+      const jar = await (await (await this.root.getDirectoryHandle(dir)).getFileHandle(file)).getFile();
+      return await readJarEntry(jar, COLOR_DEFS);
+    } catch { return null; }
+  }
 }
 
 /** Development-only source served by the Vite plugin in vite.config.ts. */
@@ -201,6 +224,10 @@ export class DevServerVfs implements Vfs {
     const r = await fetch("/__sk/scenes/" + encodeURIComponent(name));
     if (!r.ok) throw new VfsError(`Missing scene: ${name}`);
     return new Uint8Array(await r.arrayBuffer());
+  }
+  async colorDefs() {
+    const r = await fetch("/__sk/configjar");
+    return r.ok ? readJarEntry(await r.blob(), COLOR_DEFS) : null;
   }
   static async available(): Promise<boolean> {
     if (!import.meta.env.DEV) return false;
