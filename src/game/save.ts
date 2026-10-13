@@ -56,6 +56,68 @@ export interface SaveData {
   knight?: KnightProfile;
   /** The player's guild: name, emblem, vault and hall furniture (src/game/guild.ts). */
   guild?: GuildSave;
+  /** Loadouts saved from the equipment window (its Save Loadout button), newest last. */
+  loadouts?: SavedLoadout[];
+}
+
+/** A named loadout: the gear, the costumes and accessories, and the battle sprite. */
+export interface SavedLoadout {
+  name: string;
+  loadout: Loadout;
+  appearance: Appearance;
+  /** The battle sprite taken along ("" for none). */
+  sprite: string;
+}
+
+/** The game's loadout list holds this many. */
+export const MAX_LOADOUTS = 10;
+
+/** Saved loadouts from a save, repaired. */
+export function normalizeLoadouts(list: unknown): SavedLoadout[] {
+  if (!Array.isArray(list)) return [];
+  const out: SavedLoadout[] = [];
+  for (const l of list) {
+    if (!l || typeof l.name !== "string" || !l.name.trim() || !l.loadout) continue;
+    const g = l.loadout;
+    out.push({
+      name: l.name.trim().slice(0, 24),
+      loadout: {
+        weapons: (Array.isArray(g.weapons) ? g.weapons : []).filter((w: unknown) => typeof w === "string").slice(0, 3),
+        shield: String(g.shield ?? ""), armor: String(g.armor ?? ""), helmet: String(g.helmet ?? ""),
+        trinkets: (Array.isArray(g.trinkets) ? g.trinkets : []).filter((w: unknown) => typeof w === "string").slice(0, 2),
+        vitapod: String(g.vitapod ?? ""),
+      },
+      appearance: normalizeAppearance(l.appearance),
+      sprite: typeof l.sprite === "string" ? l.sprite : "",
+    });
+  }
+  return out.slice(0, MAX_LOADOUTS);
+}
+
+/**
+ * Saves the knight's current loadout under a name: an existing loadout of that name is
+ * replaced, else it is added (false when the list is full).
+ */
+export function saveLoadout(d: SaveData, name: string, sprite: string): boolean {
+  const list = d.loadouts ??= [];
+  const entry: SavedLoadout = { name: name.trim().slice(0, 24), loadout: JSON.parse(JSON.stringify(d.loadout)),
+    appearance: normalizeAppearance(d.appearance), sprite };
+  const i = list.findIndex(l => l.name.toLowerCase() === entry.name.toLowerCase());
+  if (i >= 0) { list[i] = entry; return true; }
+  if (list.length >= MAX_LOADOUTS) return false;
+  list.push(entry);
+  return true;
+}
+
+/** A saved loadout's gear as the knight can wear it now: items no longer owned are left out. */
+export function wearableLoadout(d: SaveData, l: SavedLoadout): Loadout {
+  const owned = new Set(d.owned);
+  const has = (n: string) => !!n && owned.has(n);
+  return {
+    weapons: l.loadout.weapons.filter(has), shield: has(l.loadout.shield) ? l.loadout.shield : "",
+    armor: has(l.loadout.armor) ? l.loadout.armor : "", helmet: has(l.loadout.helmet) ? l.loadout.helmet : "",
+    trinkets: l.loadout.trinkets.filter(has), vitapod: has(l.loadout.vitapod) ? l.loadout.vitapod : "",
+  };
 }
 
 export interface KnightProfile {
@@ -106,6 +168,7 @@ export function loadSave(): SaveData {
         pocket: (d.pocket ?? []).filter(p => Array.isArray(p) && p[1] > 0).slice(0, POCKET_SLOTS),
         sprites: normalizeSpriteSave(d.sprites),
         appearance: normalizeAppearance(d.appearance),
+        loadouts: normalizeLoadouts(d.loadouts),
         owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? []), d.loadout?.vitapod]
           .filter((x): x is string => !!x))],
       };

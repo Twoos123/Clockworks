@@ -1,6 +1,6 @@
 // Glue between the save, the world and the HUD for what the knight brings along besides its
 // gear: the battle sprite (sprites.ts) and the accessories and costumes it shows
-// (accessories.ts). The arsenal, the missions ("Choose Your Sprite") and the dev wardrobe
+// (accessories.ts). The status window (src/ui/equipment.ts) and the missions ("Choose Your Sprite")
 // call these functions; they persist the save and refresh the knight and companion in play.
 
 import type { ModelLoader } from "../model";
@@ -85,6 +85,12 @@ export class Outfit {
 
   /** Battle sprite names (for a picker). */
   async spriteNames() { await this.loadDefs(); return [...this.defs.keys()]; }
+
+  /** Every battle sprite definition, by config name (the status window's sprite page). */
+  async spriteDefs(): Promise<ReadonlyMap<string, SpriteDef>> { await this.loadDefs(); return this.defs; }
+
+  /** The battle sprites the knight has (chosen or given by missions). */
+  ownedSprites(): string[] { return Object.keys(this.save().sprites?.sprites ?? {}); }
 
   /** Puts on an accessory item (or accessory config); false if it is not one. */
   async equipAccessory(name: string): Promise<boolean> {

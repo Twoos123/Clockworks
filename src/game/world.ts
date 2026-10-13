@@ -260,8 +260,13 @@ export class World implements LogicHost {
   private conditions!: StatusConditions;
   /** Called when the knight takes the elevator at the end of the level. */
   onNextFloor: (() => void) | null = null;
-  /** Called when a shopkeeper opens their shop (the NPC's name says what it sells). */
-  onOpenShop: ((keeper: string) => void) | null = null;
+  /**
+   * Called when a shopkeeper opens their shop (the NPC's name says what it sells), with the
+   * keeper's model and the animation it plays while the shop is open (the vendor portrait).
+   */
+  onOpenShop: ((keeper: string, portrait: { ref: any; idle: any } | null) => void) | null = null;
+  /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
+  onPortal: ((tags: string[], sceneId: number, portal: string) => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
   /**
@@ -646,6 +651,10 @@ export class World implements LogicHost {
     const k = String(cfg.$class ?? "").split("$").pop();
     if (cfg.$condition) return true;
     switch (k) {
+      case "ScenePortal":
+        // a town exit the knight walked into: the game decides where it leads
+        if (activator === this.knightEntity && !this.knight.dead) this.onPortal?.(source.tags ?? [], Number(cfg.sceneId), String(cfg.portal?.tag ?? ""));
+        return true;
       case "ActivateMonster": case "TableSpawn": case "TableSpawnPerMember": {
         const table = cfg.spawnTable ?? cfg.table;
         if (!table) return false;
@@ -696,9 +705,14 @@ export class World implements LogicHost {
         }
         return true;
       }
-      case "OpenShop":
-        this.onOpenShop?.(source.name);
+      case "OpenShop": {
+        // the keeper's look: its actor's sprite model, playing the shop's animation (or its idle)
+        const actor = source.isActor ? this.data.resolveSync("config/actor.dat", { name: source.name }, "actor") : null;
+        const model = actor?.sprite?.model ?? null;
+        const idle = cfg.animation ?? actor?.sprite?.idles?.[0]?.animation ?? null;
+        this.onOpenShop?.(source.name, model?.name ? { ref: model, idle } : null);
         return true;
+      }
       case "NextFloor":
         this.finishLevel();
         return true;
@@ -830,7 +844,7 @@ export class World implements LogicHost {
   exitLocked: (() => boolean) | null = null;
   private lockNotice = -10;
 
-  private finishLevel() {
+  private finishLevel(elevator?: Prop) {
     if (this.finished) return;
     if (this.exitLocked?.()) {
       if (this.clock - this.lockNotice > 3) {
@@ -841,7 +855,63 @@ export class World implements LogicHost {
       return;
     }
     this.finished = true;
-    this.onNextFloor?.();
+    const model = elevator ? elevator.instance ?? this.rideModel?.(elevator.x, elevator.y) ?? null : null;
+    if (elevator && model) this.startRide(elevator, model);
+    else this.onNextFloor?.();
+  }
+
+  /**
+   * The exit elevator's ride: the platform plays its activate state, then its going-down state
+   * (Elevator sprite states 2 and 3), with the knight standing on it and sinking with it; the
+   * floor ends when the ride does.
+   */
+  private ride: { p: Prop; inst: ModelInstance; t: number; stage: 0 | 1 | 2; z0: number; base: number | null; at: number } | null = null;
+  /**
+   * The model an elevator actor animates: its sprite is a StatefulEntry, which drives the
+   * scene's own elevator model placed where the actor stands (the game supplies it).
+   */
+  rideModel: ((x: number, y: number) => ModelInstance | null) | null = null;
+  /** True while the knight rides the exit elevator down. */
+  get riding() { return !!this.ride; }
+
+  private startRide(p: Prop, inst: ModelInstance) {
+    const st = p.states;
+    void this.preload(st[2], st[3]);
+    this.ride = { p, inst, t: 0, stage: 0, z0: this.knight.z, base: null, at: 0 };
+    const k = this.knight;
+    k.shielding = false;
+    this.setShieldEffect(false);
+    this.play(k, "character/pc/idle.dat");
+  }
+
+  private updateRide(dt: number) {
+    const r = this.ride!, k = this.knight, p = r.p, inst = r.inst;
+    r.t += dt;
+    k.instance.time += dt;
+    k.invulnerable = Math.max(k.invulnerable, 0.5);
+    // onto the middle of the platform
+    const f = 1 - Math.exp(-dt * 6);
+    k.x += (p.x - k.x) * f; k.y += (p.y - k.y) * f;
+    const st = p.states;
+    if (r.stage === 0) {
+      const clip = this.clip(st[2]);
+      if (clip || r.t > 2) { if (clip) inst.play(clip, { loop: false, blend: 0.05 }); r.stage = 1; r.at = r.t; }
+    } else if (r.stage === 1) {
+      if (inst.finished || r.t - r.at > 1.5) {
+        const clip = this.clip(st[3]);
+        if (clip || r.t - r.at > 3) { if (clip) inst.play(clip, { loop: false, blend: 0.05 }); r.stage = 2; r.at = r.t; }
+      }
+    } else {
+      // the knight goes down with the platform
+      inst.update();
+      const node = inst.world.has("mesh_platform") ? inst.nodeMatrix("mesh_platform")[14] : null;
+      if (node !== null) { r.base ??= node; k.z = r.z0 + (node - r.base); }
+      else k.z = r.z0 - 2 * (r.t - r.at);
+      if (inst.finished || r.t - r.at > 6) {
+        this.ride = null;
+        this.onNextFloor?.();
+      }
+    }
   }
 
   // ---------------------------------------------------------------- props
@@ -1171,7 +1241,7 @@ export class World implements LogicHost {
         case "elevator":
           if (!k.dead && touching(p)) {
             p.standTime += dt;
-            if (p.standTime > 1.5 && !this.finished) this.finishLevel();
+            if (p.standTime > 1.5 && !this.finished) this.finishLevel(p);
           } else p.standTime = 0;
           break;
       }
@@ -1350,7 +1420,7 @@ export class World implements LogicHost {
 
   update(dt: number, input: KnightInput) {
     this.clock += dt;
-    this.updateKnight(dt, input);
+    if (this.ride) this.updateRide(dt); else this.updateKnight(dt, input);
     this.companion?.update(dt);
     for (const m of this.monsters) this.updateMonster(m, dt);
     this.updateProps(dt, !!input.interact && !this.knight.dead);

@@ -23,9 +23,15 @@ export interface ListEntry {
   count?: string;
   /** The tooltip shown while the pill is hovered. */
   tip?: TipSpec;
+  /** Another pill interface in place of the recipe pill (a saved loadout's), with an entryselect button. */
+  ui?: any;
 }
 
-export interface ListGroup { id: string; label: string; icon: string; entries: ListEntry[] }
+export interface ListGroup {
+  id: string; label: string; icon: string; entries: ListEntry[];
+  /** Pills shown while the search field is empty (a long group is narrowed by searching). */
+  limit?: number;
+}
 
 const PILL = "ui/recipes/parts/pill_recipe/interface.dat";
 const HEADER = "ui/recipes/parts/pill_recipe/interface_header.dat";
@@ -47,6 +53,9 @@ export class ItemList {
     this.list = root.find("recipe_list");
     if (this.list) this.list.children = [];
     const field = root.find("searchfield");
+    // the config's "Enter item name..." is the field's text, which the game's code clears; here
+    // it shows as the placeholder while the field is empty, so it is never searched for
+    if (field && field.text && !field.placeholder) { field.placeholder = field.text; field.text = ""; }
     if (field) field.onAction = (c, a) => { if (a === "change" || a === "enter") { this.filter = String(c.text); void this.fill(); } };
     const clear = root.find("clearbutton");
     if (clear) clear.onAction = () => { this.filter = ""; if (field) field.text = ""; this.sound("sound/feedback/ui_dropdown_select.ogg"); void this.fill(); };
@@ -88,6 +97,20 @@ export class ItemList {
   }
 
   private pill(e: ListEntry): Promise<Component | null> {
+    if (e.ui) {
+      const key = e.key + "|" + JSON.stringify(e.ui, (k, v) => (k === "$outer" ? undefined : v));
+      let p = this.cache.get(key);
+      if (!p) {
+        p = buildUi(this.ctx, e.ui).then(c => {
+          // a loadout pill's PvE and PvP tier meters: single player has no tiers
+          const walk = (k: Component) => { if (k.children.some(x => x.tag === "label_pve")) k.visible = false; k.children.forEach(walk); };
+          if (c) walk(c);
+          return c;
+        });
+        this.cache.set(key, p);
+      }
+      return p;
+    }
     const args: Record<string, unknown> = {
       Name: e.label, Rarity: String(Math.max(-1, Math.min(5, e.rarity))), Equipped: e.look ?? "False", Hoverable: true,
       Icon: e.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: e.icon?.colorizations ?? [], Variants: String(Math.min(3, e.variants ?? 0)), Accessory: false,
@@ -124,11 +147,12 @@ export class ItemList {
         rows.push(h);
       }
       if (!open) continue;
-      const pills = await Promise.all(entries.map(e => this.pill(e)));
+      const shown = !q && g.limit && entries.length > g.limit ? entries.slice(0, g.limit) : entries;
+      const pills = await Promise.all(shown.map(e => this.pill(e)));
       if (gen !== this.generation) return;
       pills.forEach((p, i) => {
         if (!p) return;
-        const e = entries[i];
+        const e = shown[i];
         const sel = p.find("entryselect");
         if (sel) { sel.selected = this.selected === e.key; sel.onAction = () => this.pick(e); }
         const count = p.find("itemcount");

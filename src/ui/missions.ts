@@ -1,18 +1,28 @@
-// The mission board: the game's missions (src/game/missions.ts) grouped by rank, with their
-// card images from the install, status, rewards and prestige. The game's mission window is
-// filled in by closed code, so this one is HTML in the style of the options menu and the
-// Arcade's gate board.
+// The mission board: the game's missions (src/game/missions.ts) in the game's own mission
+// window (rsrc/ui/mission/interface.dat), drawn on its own canvas like the other windows.
+// The category buttons pick rank, prestige or operations (expansion) missions; five cards
+// (ui/mission/parts/interface_cards.dat) show at a time with the arrows paging; the chosen
+// card's briefing and mission panes give its summary, status, needs, rewards (the prestige
+// pill and item pills) and the action. A finished mission shows the game's mission complete
+// window (ui/mission/parts/part_missioncomplete.dat) with the rank up line; a conversation
+// mission shows its briefing in the game's confirmation prompt.
 
+import { CONFIG_REF } from "../config/params";
 import type { GameData } from "../game/data";
 import type { Floor, Gate, StratumTheme } from "../game/clockworks";
 import {
   canExchange, completeMission, crownReward, daysUntilActive, exchangeNeeds, freshProgress, isGear, missionRun, missionStatus,
   npcName, parseMissions, rankLabel, rankName, rewardItems, weeklyPrestige, type Ingredient, type Mission, type MissionProgress,
+  type MissionStatus,
 } from "../game/missions";
 import type { SaveData } from "../game/save";
 import { SpawnTables } from "../game/spawntable";
 import { itemName } from "../game/text";
-import type { GuiContext, GuiImage } from "./gui";
+import { buildComponentConfig, Component, type GuiContext, type GuiImage } from "./gui";
+import { notice } from "./notice";
+import { buildUi, GuiScreen, uiRef } from "./screen";
+
+export { notice };
 
 /** What the board needs from the game. */
 export interface MissionHost {
@@ -34,15 +44,28 @@ export interface MissionHost {
 const LIBS = ["config/mission.dat", "config/mission_property.dat", "config/recipe.dat", "config/spawn_table.dat", "config/item.dat"];
 type Tab = "rank" | "prestige" | "operations";
 
-const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = "") => {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text) e.textContent = text;
-  return e;
-};
+const WINDOW = "ui/mission/interface.dat";
+const CARD = "ui/mission/parts/interface_cards.dat";
+const COMPLETE = "ui/mission/parts/part_missioncomplete.dat";
+const RANKUP = "ui/mission/parts/interface_rankup.dat";
+const PRESTIGE_PILL = "ui/mission/parts/interface_prestigepill.dat";
+const PILL = "ui/recipes/parts/pill_recipe/interface.dat";
+const MATERIAL = "ui/recipes/parts/material/interface.dat";
+const PROMPT = "ui/window/confirm_prompt/interface.dat";
+const EMPTY_CARD = "ui/mission/images/cards/empty.png";
+const CROWN = "ui/icon/crown_32.png";
+const BLANK = "ui/icon/inventory/blank.png";
+const PER_PAGE = 5;
+const TABS: [Tab, string][] = [["rank", "btn_rank"], ["prestige", "btn_prestige"], ["operations", "btn_expansion"]];
+const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
+const ref = (name: string) => ({ $class: CONFIG_REF, name });
+
 const label = (name: string) => itemName(name);
 const KIND_LABEL: Record<Mission["kind"], string> = {
   dungeon: "Mission", conversation: "Briefing", exchange: "Exchange", gate: "Arcade gate", "gate-conversation": "Briefing",
+};
+const ACTION: Record<Mission["kind"], string> = {
+  dungeon: "Start", exchange: "Turn In", gate: "To the Arcade", conversation: "Read Briefing", "gate-conversation": "Read Briefing",
 };
 
 /** The knight's mission progress in the save (created on first use). */
@@ -54,24 +77,21 @@ export function progressOf(save: SaveData): MissionProgress {
 }
 
 export class MissionBoard {
-  private readonly root: HTMLElement;
+  private readonly screen: MissionScreen;
   private missions: Mission[] = [];
   private loading: Promise<void> | null = null;
-  private tab: Tab = "rank";
   /** The dungeon mission being played, if any. */
   private active: Mission | null = null;
 
   constructor(private readonly host: MissionHost) {
-    this.root = el("div", "arsenal");
-    this.root.id = "missions";
-    this.root.hidden = true;
-    const gates = document.getElementById("gates");
-    (gates?.parentElement ?? document.body).append(this.root);
+    this.screen = new MissionScreen(host.gui, { sound: f => host.sound(f), closed: () => host.pause(false) }, this);
   }
 
   get list(): readonly Mission[] { return this.missions; }
   get progress(): MissionProgress { return progressOf(this.host.save()); }
-  get isOpen() { return !this.root.hidden; }
+  get isOpen() { return this.screen.isOpen; }
+  /** @internal for the window. */
+  get game() { return this.host; }
 
   load(): Promise<void> {
     this.loading ??= (async () => {
@@ -82,20 +102,25 @@ export class MissionBoard {
   }
 
   async open(tab?: Tab) {
-    if (tab) this.tab = tab;
     await this.load();
-    this.render();
-    this.root.hidden = false;
+    if (tab || !this.screen.isOpen) this.screen.choose(tab ?? this.screen.tab);
     this.host.pause(true);
-    this.host.sound("sound/feedback/ui_open.ogg");
+    await this.screen.open();
   }
 
   close() {
-    this.root.hidden = true;
-    this.host.pause(false);
+    if (this.screen.isOpen) this.screen.close();
+    else this.host.pause(false);
   }
 
   toggle() { if (this.isOpen) this.close(); else void this.open(); }
+
+  /** Escape: closes the topmost dialog, else the board. True when the board took the key. */
+  escape(): boolean {
+    if (!this.isOpen) return false;
+    this.screen.escape();
+    return true;
+  }
 
   // -------------------------------------------------------------------- game hooks
 
@@ -124,7 +149,8 @@ export class MissionBoard {
 
   // -------------------------------------------------------------------- actions
 
-  private start(m: Mission) {
+  /** @internal The chosen card's action. */
+  start(m: Mission) {
     this.host.sound("sound/feedback/ui_confirm.ogg");
     if (m.kind === "dungeon") {
       const { gate, floors } = missionRun(m, this.host.save().runs);
@@ -148,12 +174,12 @@ export class MissionBoard {
       }
       this.finish(m);
     } else {
-      this.briefing(m);
+      void this.screen.briefing(m);
     }
   }
 
-  /** Awards a mission's rewards and prestige, ranks up, and shows what it gave. */
-  private finish(m: Mission) {
+  /** @internal Awards a mission's rewards and prestige, ranks up, and shows what it gave. */
+  finish(m: Mission) {
     const save = this.host.save(), p = progressOf(save);
     const before = rankLabel(p);
     const got = new Map<string, number>();
@@ -176,195 +202,393 @@ export class MissionBoard {
     this.host.write();
     const after = rankLabel(p);
     this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
-    this.dialog(`${m.title}: complete`, card => {
-      card.append(el("p", "settings-note", `+${crowns} crowns · +${m.prestige} prestige${got.size ? "" : " · no items"}`));
-      if (got.size) card.append(this.itemRow([...got].map(([item, count]) => ({ item, count }))));
-      if (after !== before) card.append(el("p", "mission-rankup", `Rank up! ${after}: ${rankName(p.rank)}`));
-    });
+    void (async () => {
+      if (!this.screen.isOpen) { this.host.pause(true); await this.screen.open(); }
+      await this.screen.completed(m, crowns, [...got].map(([item, count]) => ({ item, count })), after !== before ? `${p.rank}-${p.subrank} ${rankName(p.rank)}` : null);
+    })();
   }
 
-  // -------------------------------------------------------------------- rendering
+  /** @internal */
+  needs(m: Mission): Ingredient[] { return exchangeNeeds(m, this.host.data.library_("config/recipe.dat")); }
 
-  private needs(m: Mission): Ingredient[] { return exchangeNeeds(m, this.host.data.library_("config/recipe.dat")); }
-
-  private ownedLevel(name: string): number {
+  /** @internal */
+  ownedLevel(name: string): number {
     const s = this.host.save();
     if (!s.owned.includes(name)) return 0;
     return s.gear[name]?.level ?? 1;
   }
 
-  private render() {
-    const p = this.progress, save = this.host.save();
-    this.root.replaceChildren();
-    const card = el("div", "settings-card gates-card missions-card");
-    const head = el("div", "settings-head");
-    const h = el("h2", "", "Missions");
-    const close = el("button", "", "Close");
-    close.onclick = () => this.close();
-    head.append(h, close);
-    const status = el("p", "settings-note", `${rankLabel(p)} · ${rankName(p.rank)} · ${p.prestige} prestige · ${save.crowns} crowns`);
-    const tabs = el("div", "arsenal-tabs");
-    for (const [id, text, icon] of [["rank", "Rank missions", "rank"], ["prestige", "Prestige (this week)", "prestige"], ["operations", "Operations", "expansion"]] as const) {
-      const b = el("button", this.tab === id ? "active" : "");
-      const cv = this.canvasImage(`ui/mission/images/catagories/${icon}.png`, 76, 28);
-      b.append(cv, document.createTextNode(" " + text));
-      b.onclick = () => { this.tab = id; this.host.sound("sound/feedback/ui_confirm.ogg"); this.render(); };
-      tabs.append(b);
-    }
-    card.append(head, status, tabs);
-    if (this.tab === "rank") this.renderRank(card, p);
-    else if (this.tab === "prestige") this.renderPrestige(card, p);
-    else this.renderGrid(card, this.missions.filter(m => m.cls === "Expansion"), p,
-      "Operations from the game's expansion pack, one per Clockworks tier (tier 2 needs rank 4, tier 3 rank 6).");
-    this.root.append(card);
-  }
-
-  private renderRank(card: HTMLElement, p: MissionProgress) {
-    card.append(el("p", "settings-note", "Complete every mission of your subrank to rank up. Tier 2 of the Clockworks needs rank 4 (Knight), tier 3 rank 6 (Defender)."));
-    const rank = this.missions.filter(m => m.cls === "Rank");
-    for (let r = 1; r <= 10; r++) {
-      const ms = rank.filter(m => m.rank === r);
-      if (!ms.length) continue;
-      const done = ms.filter(m => missionStatus(m, p) === "complete").length;
-      const sec = el("details", "mission-rank");
-      sec.open = r === p.rank;
-      sec.append(el("summary", "", `Rank ${r}: ${rankName(r)} (${done}/${ms.length})`));
-      const subs = [...new Set(ms.map(m => m.subrank))].sort((a, b) => a - b);
-      for (const s of subs) {
-        sec.append(el("h4", "mission-sub", `${r}-${s}`));
-        this.renderGrid(sec, ms.filter(m => m.subrank === s), p);
-      }
-      card.append(sec);
-    }
-  }
-
-  private renderPrestige(card: HTMLElement, p: MissionProgress) {
+  /** @internal The missions of a tab, in board order. */
+  tabMissions(tab: Tab): Mission[] {
+    const p = this.progress;
+    if (tab === "rank") return this.missions.filter(m => m.cls === "Rank").sort((a, b) => a.rank - b.rank || a.subrank - b.subrank);
+    if (tab === "operations") return this.missions.filter(m => m.cls === "Expansion");
     const now = Date.now();
-    const week = weeklyPrestige(this.missions, p, now).sort((a, b) =>
+    return weeklyPrestige(this.missions, p, now).sort((a, b) =>
       (a.schedule ? daysUntilActive(a.schedule, now) : 0) - (b.schedule ? daysUntilActive(b.schedule, now) : 0) || a.path.localeCompare(b.path));
+  }
+
+  /** @internal What a tab says when it has nothing to show. */
+  tabNote(tab: Tab): string {
+    const p = this.progress;
+    if (tab === "rank") return "Complete every mission of your subrank to rank up. Tier 2 of the Clockworks needs rank 4 (Knight), tier 3 rank 6 (Defender).";
+    if (tab === "operations") return "Operations from the game's expansion pack, one per Clockworks tier (tier 2 needs rank 4, tier 3 rank 6).";
     const events = this.missions.filter(m => m.cls === "Prestige" && m.event).length;
-    card.append(el("p", "settings-note", p.rank < 3
+    return p.rank < 3
       ? "Prestige missions open at rank 3. Each runs on its own day of a schedule from the game's data; done missions open again on their next day."
-      : `This week's prestige missions for rank ${p.rank}, from the game's schedules: each is open on its day. ${events} event missions are left out (events are run by the game's servers).`));
-    this.renderGrid(card, week, p);
+      : `This week's prestige missions for rank ${p.rank}, from the game's schedules: each is open on its day. ${events} event missions are left out (events are run by the game's servers).`;
   }
 
-  private renderGrid(parent: HTMLElement, ms: Mission[], p: MissionProgress, note?: string) {
-    if (note) parent.append(el("p", "settings-note", note));
-    const grid = el("div", "mission-grid");
-    if (!ms.length) grid.append(el("p", "settings-note", "No missions here yet."));
-    for (const m of ms) grid.append(this.missionCard(m, p));
-    parent.append(grid);
-  }
+  /** @internal The reward items a mission's tables can give. */
+  rewardsOf(m: Mission) { return m.rewards.flatMap(t => rewardItems(t, this.host.data.library_("config/spawn_table.dat"))); }
 
-  private missionCard(m: Mission, p: MissionProgress): HTMLElement {
-    const now = Date.now();
-    const st = missionStatus(m, p, now);
-    const box = el("div", `mission ${st}`);
-    box.dataset.mission = m.id;
-    const art = el("div", "mission-art");
-    art.append(this.canvasImage(m.cardImage, 120, 170), this.canvasImage("ui/mission/images/cards/frame_up.png", 120, 170, "mission-frame"));
-    const body = el("div", "mission-body");
-    body.append(el("h3", "", m.title));
-    const days = m.schedule ? daysUntilActive(m.schedule, now) : 0;
-    const when = st === "upcoming" ? `opens in ${days} day${days === 1 ? "" : "s"}` : st[0].toUpperCase() + st.slice(1);
-    body.append(el("span", "mission-tag", `${KIND_LABEL[m.kind]} · ${when}`));
-    body.append(el("p", "mission-summary", m.summary));
-    if (m.kind === "exchange") {
-      const save = this.host.save();
-      body.append(el("p", "mission-needs", "Needs: " + this.needs(m).map(g => g.level !== undefined || isGear(g.item)
-        ? `${label(g.item)}${g.level ? ` at level ${g.level}` : ""} (${this.ownedLevel(g.item) ? "owned" : "not owned"})`
-        : `${g.count} ${label(g.item)} (${save.materials[g.item] ?? 0})`).join(", ")));
-    }
-    if (m.needs.length && st === "locked") body.append(el("p", "mission-needs", "After: " + m.needs.map(id => this.missions.find(x => x.id === id)?.title ?? id).join(", ")));
-    const items = m.rewards.flatMap(t => rewardItems(t, this.host.data.library_("config/spawn_table.dat")));
-    body.append(el("p", "mission-reward", `Reward: ${crownReward(m)} crowns · ${m.prestige} prestige`));
-    if (items.length) body.append(this.itemRow(items));
-    if (st === "available") {
-      const go = el("button", "primary", m.kind === "dungeon" ? "Start" : m.kind === "exchange" ? "Turn in" : m.kind === "gate" ? "To the Arcade" : "Read briefing");
-      go.dataset.action = "start";
-      if (m.kind === "exchange") (go as HTMLButtonElement).disabled = !canExchange(this.needs(m), this.host.save().materials, n => this.ownedLevel(n));
-      go.onclick = () => this.start(m);
-      body.append(go);
-    }
-    box.append(art, body);
-    return box;
-  }
-
-  /** Reward items with their inventory icons. */
-  private itemRow(items: { item: string; count: number }[]): HTMLElement {
-    const row = el("div", "mission-items");
-    for (const { item, count } of items.slice(0, 8)) {
-      const cell = el("span", "mission-item");
-      cell.title = item;
-      const cfg = this.host.data.resolveSync("config/item.dat", { name: item }, "item");
-      const cv = document.createElement("canvas");
-      cv.width = cv.height = 32;
-      if (cfg?.icon) void this.host.gui.icon(cfg.icon).then(im => this.draw(cv, im));
-      cell.append(cv, el("span", "", `${count > 1 ? count + "× " : ""}${label(item)}`));
-      row.append(cell);
-    }
-    return row;
-  }
-
-  private canvasImage(file: string | null, w: number, h: number, cls = ""): HTMLCanvasElement {
-    const cv = document.createElement("canvas");
-    cv.width = w; cv.height = h;
-    if (cls) cv.className = cls;
-    if (file) void this.host.gui.image(file).then(im => this.draw(cv, im));
-    return cv;
-  }
-
-  private draw(cv: HTMLCanvasElement, im: GuiImage | null) {
-    if (!im) return;
-    const g = cv.getContext("2d")!, s = Math.min(cv.width / im.width, cv.height / im.height);
-    g.drawImage(im.source as CanvasImageSource, (cv.width - im.width * s) / 2, (cv.height - im.height * s) / 2, im.width * s, im.height * s);
-  }
-
-  /** A conversation mission: the card, who it is with, and our summary. */
-  private briefing(m: Mission) {
-    this.dialog(m.title, card => {
-      const row = el("div", "mission-brief");
-      row.append(this.canvasImage(m.cardImage, 120, 170));
-      const text = el("div", "");
-      const npc = npcName(m);
-      if (npc) text.append(el("h3", "", npc));
-      text.append(el("p", "", m.summary));
-      if (m.npcModel) text.append(el("p", "settings-note", `Model: ${m.npcModel}${m.npcVariant ? ` (${m.npcVariant})` : ""}`));
-      text.append(el("p", "settings-note", `The game's dialogue${m.conversation ? ` (${m.conversation})` : ""} lives in its message bundles, which this port does not read; the summary above is ours.`));
-      row.append(text);
-      card.append(row);
-    }, () => this.finish(m), "Done");
-  }
-
-  /** A small card over the board (results and briefings). */
-  private dialog(title: string, fill: (card: HTMLElement) => void, onOk?: () => void, ok = "OK") {
-    this.root.replaceChildren();
-    const card = el("div", "settings-card mission-dialog");
-    const head = el("div", "settings-head");
-    head.append(el("h2", "", title));
-    card.append(head);
-    fill(card);
-    const b = el("button", "primary", ok);
-    b.dataset.action = "ok";
-    b.onclick = () => { if (onOk) onOk(); else this.render(); };
-    card.append(b);
-    this.root.append(card);
-    this.root.hidden = false;
-    this.host.pause(true);
-  }
+  /** @internal An item's inventory IconConfig. */
+  iconOf(item: string): any { return this.host.data.resolveSync("config/item.dat", { name: item }, "item")?.icon ?? null; }
 }
 
-/** A short notice over the game (rank locks, mission results), gone after a few seconds. */
-export function notice(text: string, seconds = 6) {
-  let n = document.getElementById("notice");
-  if (!n) {
-    n = el("div", "game-notice");
-    n.id = "notice";
-    (document.getElementById("gates")?.parentElement ?? document.body).append(n);
+/** The mission window on its canvas. */
+class MissionScreen extends GuiScreen {
+  tab: Tab = "rank";
+  private page = 0;
+  private chosen: Mission | null = null;
+  private shown: Mission[] = [];
+  private cards = new Map<string, Promise<Component | null>>();
+  private parts = new Map<string, Promise<Component | null>>();
+  private images = new Map<string, GuiImage | null>();
+  private generation = 0;
+  /** The card picture the briefing prompt shows. */
+  private briefed: Mission | null = null;
+
+  constructor(ctx: GuiContext, host: ConstructorParameters<typeof GuiScreen>[1], private readonly board: MissionBoard) {
+    super(ctx, host, "missionsCanvas");
   }
-  n.textContent = text;
-  n.hidden = false;
-  clearTimeout((n as any)._t);
-  (n as any)._t = setTimeout(() => { n!.hidden = true; }, seconds * 1000);
+
+  /** Picks a tab and pages to the knight's current missions. */
+  choose(tab: Tab) {
+    this.tab = tab;
+    const ms = this.board.tabMissions(tab), p = this.board.progress;
+    const at = Math.max(0, ms.findIndex(m => missionStatus(m, p) === "available"));
+    const cur = tab === "rank" ? ms.findIndex(m => m.rank === p.rank) : -1;
+    const i = ms[at] && missionStatus(ms[at], p) === "available" ? at : Math.max(0, cur);
+    this.page = Math.floor(i / PER_PAGE);
+    this.chosen = ms[i] ?? null;
+  }
+
+  protected async build(): Promise<Component | null> {
+    const ui = await this.ui(WINDOW);
+    if (!ui) return null;
+    this.on(ui, "dismiss", () => this.close());
+    for (const [tab, tag] of TABS) {
+      this.on(ui, tag, () => { this.choose(tab); this.host.sound("sound/feedback/ui_dropdown_select.ogg"); void this.refresh(); });
+    }
+    // the Arcade's gates are a board of their own
+    this.on(ui, "btn_arcade", () => { this.close(); this.board.game.openGates(); });
+    this.on(ui, "btn_prev", () => this.turn(-1));
+    this.on(ui, "btn_next", () => this.turn(1));
+    // the intro (shown before a category is picked) and the empty bottom are not used
+    for (const tag of ["top_intro", "bottom_empty", "ui_mission_arc"]) { const c = ui.find(tag); if (c) c.visible = false; }
+    for (const t of ["rank", "prestige", "expansion", "arcade"]) {
+      const n = ui.find(`new_${t}`); if (n) n.visible = false;
+    }
+    // the briefing and mission panes keep their height and scroll what does not fit
+    for (const pane of ui.find("bottom_container")?.children ?? []) if (pane.kind === "scrollpane") pane.preferredSize = { width: -1, height: 236 };
+    this.hooks = {
+      tagged: {
+        brief_image: (c, g, x, y, w, h) => this.drawImage(this.briefed?.cardImage ?? null, g, x, y, w, h, true),
+      },
+    };
+    return ui;
+  }
+
+  private turn(d: number) {
+    const pages = Math.max(1, Math.ceil(this.shown.length / PER_PAGE));
+    const page = Math.max(0, Math.min(pages - 1, this.page + d));
+    if (page === this.page) return;
+    this.page = page;
+    this.chosen = this.shown[page * PER_PAGE] ?? null;
+    this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+    void this.refresh();
+  }
+
+  private image(file: string | null): GuiImage | null {
+    if (!file) return null;
+    if (!this.images.has(file)) {
+      this.images.set(file, null);
+      void this.ctx.image(file).then(im => this.images.set(file, im));
+    }
+    return this.images.get(file) ?? null;
+  }
+
+  private drawImage(file: string | null, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, fit: boolean) {
+    const im = this.image(file);
+    if (!im) return;
+    const s = fit ? Math.min(w / im.width, h / im.height) : 1, iw = im.width * s, ih = im.height * s;
+    g.drawImage(im.source, Math.round(x + (w - iw) / 2), Math.round(y + (h - ih) / 2), Math.round(iw), Math.round(ih));
+  }
+
+  /** Builds (once per arguments) a nested interface. */
+  private part(name: string, args: Record<string, unknown>, key = ""): Promise<Component | null> {
+    const k = name + key + JSON.stringify(args, (kk, v) => (kk === "$outer" ? undefined : v));
+    let p = this.parts.get(k);
+    if (!p) { p = buildUi(this.ctx, uiRef(name, args)); this.parts.set(k, p); }
+    return p;
+  }
+
+  private text(text: string, style = "Briefing Styles/Body"): Promise<Component> {
+    return buildComponentConfig(this.ctx, { $class: COMPONENT + "Label", text, style: ref(style) }, this.root?.local ?? new Map());
+  }
+
+  /** Pills two to a row. */
+  private async table(parts: Promise<Component | null>[]): Promise<Component> {
+    const [t, ...kids] = await Promise.all([buildComponentConfig(this.ctx, { $class: COMPONENT + "Container",
+      layout: { $class: "com.threerings.opengl.gui.config.LayoutConfig$Table", columns: 2, rowGap: 2, columnGap: 4, children: [] } }), ...parts]);
+    t.children = kids.filter((c): c is Component => !!c);
+    for (const c of t.children) c.constraints = null;
+    return t;
+  }
+
+  private async button(text: string, fn: () => void, enabled = true): Promise<Component> {
+    const b = await buildComponentConfig(this.ctx, { $class: COMPONENT + "Button", text, style: ref("Default/Button (Yellow)/Button") }, this.root?.local ?? new Map());
+    b.enabled = enabled;
+    b.onAction = () => fn();
+    return b;
+  }
+
+  /** An item pill: the item's icon and name (and count). */
+  private itemPill(item: string, count: number, key = "") {
+    const icon = this.board.iconOf(item);
+    return this.part(PILL, { Name: `${count > 1 ? count + " " : ""}${label(item)}`, Rarity: "-1", Equipped: "False", Hoverable: true,
+      Icon: icon?.file ?? BLANK, Colorization: icon?.colorizations ?? [], Variants: "0", Accessory: false }, key);
+  }
+
+  private crownPill(crowns: number, key = "") {
+    return this.part(PILL, { Name: `${crowns.toLocaleString("en-US")} Crowns`, Rarity: "-1", Equipped: "False", Hoverable: true,
+      Icon: CROWN, Colorization: [], Variants: "0", Accessory: false }, key);
+  }
+
+  private async prestigePill(prestige: number, key = "") {
+    const c = await this.part(PRESTIGE_PILL, { Hoverable: true, Prestige: String(prestige) }, key);
+    // the pill's name is a message key the game fills in
+    const n = c?.find("entryselect");
+    if (n) n.text = "Prestige";
+    return c;
+  }
+
+  private statusLine(m: Mission, st: MissionStatus): string {
+    if (st === "upcoming") {
+      const days = m.schedule ? daysUntilActive(m.schedule, Date.now()) : 0;
+      return `${KIND_LABEL[m.kind]} · opens in ${days} day${days === 1 ? "" : "s"}`;
+    }
+    return `${KIND_LABEL[m.kind]} · ${st[0].toUpperCase() + st.slice(1)}`;
+  }
+
+  protected async refresh() {
+    const ui = this.root;
+    if (!ui) return;
+    const gen = ++this.generation;
+    const b = this.board, p = b.progress, save = b.game.save();
+    // header: prestige and rank sockets, the rank bar
+    const set = (root: Component, tag: string, text: string) => { const c = root.find(tag); if (c) c.text = text; };
+    set(ui, "prestige", `Prestige: ${p.prestige.toLocaleString("en-US")}`);
+    set(ui, "rank", `Rank: ${p.rank}-${p.subrank}`);
+    const rankUi = ui.find("rank_ui");
+    if (rankUi) this.fillBar(rankUi, p);
+    for (const [tab, tag] of TABS) { const c = ui.find(tag); if (c) c.selected = tab === this.tab; }
+    const arcade = ui.find("btn_arcade");
+    if (arcade) arcade.selected = false;
+    for (const t of ["rank", "expansion", "arcade"]) { const l = ui.find(`locked_${t}`); if (l) l.visible = false; }
+    const lockP = ui.find("locked_prestige");
+    if (lockP) lockP.visible = p.rank < 3;
+
+    // the cards of this page
+    const ms = this.shown = b.tabMissions(this.tab);
+    const pages = Math.max(1, Math.ceil(ms.length / PER_PAGE));
+    this.page = Math.min(this.page, pages - 1);
+    if (this.chosen && !ms.includes(this.chosen)) this.chosen = null;
+    this.chosen ??= ms[this.page * PER_PAGE] ?? null;
+    const prev = ui.find("btn_prev"), next = ui.find("btn_next");
+    if (prev) prev.enabled = this.page > 0;
+    if (next) next.enabled = this.page < pages - 1;
+    const row = ui.find("middle_container");
+    const slice = ms.slice(this.page * PER_PAGE, this.page * PER_PAGE + PER_PAGE);
+    const built = await Promise.all(Array.from({ length: PER_PAGE }, (_, i) => this.card(slice[i] ?? null, i, p)));
+    if (gen !== this.generation) return;
+    if (row) {
+      built.forEach((c, i) => {
+        const at = row.children.findIndex(k => k.tag === `ui_mission_${i}`);
+        if (!c || at < 0) return;
+        c.constraints = row.children[at].constraints;
+        c.tag = `ui_mission_${i}`;
+        row.children[at] = c;
+        const m = slice[i];
+        const btn = c.find(`btn_mission_${i}`);
+        if (btn) {
+          btn.selected = !!m && m === this.chosen;
+          btn.onAction = () => {
+            if (!m) return;
+            this.chosen = m;
+            this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+            void this.refresh();
+          };
+        }
+      });
+    }
+
+    // the briefing and mission panes
+    const m = this.chosen;
+    const brief = ui.find("briefing_container"), mission = ui.find("mission_container");
+    if (brief) {
+      set(brief, "briefing", m ? m.title.toUpperCase() : "BRIEFING");
+      const body = brief.children.find(k => k.kind === "label" && k.tag !== "briefing");
+      if (body) body.text = m ? m.summary + (npcName(m) ? `\n\nWith ${npcName(m)}.` : "") : b.tabNote(this.tab);
+      // the chosen mission's action sits under its briefing
+      brief.children = brief.children.filter(k => k.tag !== "mission_action");
+      const st = m ? missionStatus(m, p) : null;
+      if (m && st === "available") {
+        const ok = m.kind !== "exchange" || canExchange(b.needs(m), save.materials, n => b.ownedLevel(n));
+        const go = await this.button(ACTION[m.kind], () => b.start(m), ok);
+        if (gen !== this.generation) return;
+        go.tag = "mission_action";
+        go.constraints = null;
+        brief.children = [...brief.children, go];
+      }
+    }
+    if (mission) {
+      const head = mission.children[0];
+      // the old card's details (and its action) go at once; the new ones follow when built
+      mission.children = [head];
+      const kids: Promise<Component | null>[] = [];
+      if (m) {
+        const st = missionStatus(m, p);
+        kids.push(this.text(this.statusLine(m, st)));
+        if (m.cls === "Rank") kids.push(this.text(`Rank ${m.rank}-${m.subrank}: ${rankName(m.rank)}`));
+        if (m.needs.length && st === "locked") kids.push(this.text("After: " + m.needs.map(id => b.list.find(x => x.id === id)?.title ?? id).join(", ")));
+        if (m.kind === "exchange") {
+          kids.push(this.text("NEEDS", "Briefing Styles/Header"));
+          for (const g of b.needs(m)) {
+            const gear = g.level !== undefined || isGear(g.item), icon = b.iconOf(g.item);
+            const have = gear ? (b.ownedLevel(g.item) ? 1 : 0) : save.materials[g.item] ?? 0, need = gear ? 1 : g.count;
+            kids.push(this.part(MATERIAL, { Name: `${label(g.item)}${g.level ? ` (level ${g.level})` : ""}`, "Amount Have": String(have),
+              "Amount Needed": String(need), Ready: have >= need, Icon: icon?.file ?? BLANK, Colorization: icon?.colorizations ?? [] }).then(c => {
+              const find = c?.find("find_materials");
+              if (find) find.visible = false;
+              return c;
+            }));
+          }
+        }
+        kids.push(this.text("REWARDS", "Briefing Styles/Header"));
+        kids.push(this.table([this.prestigePill(m.prestige), this.crownPill(crownReward(m)),
+          ...b.rewardsOf(m).slice(0, 8).map(it => this.itemPill(it.item, it.count))]));
+      } else kids.push(this.text("No missions here yet."));
+      const done = (await Promise.all(kids)).filter((c): c is Component => !!c);
+      if (gen !== this.generation) return;
+      for (const c of done) c.constraints = null;
+      mission.children = [head, ...done];
+    }
+  }
+
+  /** A card for a mission (or an empty slot). */
+  private card(m: Mission | null, i: number, p: MissionProgress): Promise<Component | null> {
+    const st = m ? missionStatus(m, p) : "locked";
+    const args = m
+      ? { "Card Image": m.cardImage ?? EMPTY_CARD, Empty: "False", Status: st === "locked" || st === "upcoming" ? "Locked" : "Unlocked", "Button Tag": `btn_mission_${i}` }
+      : { "Card Image": EMPTY_CARD, Empty: "True", Status: "Unlocked", "Button Tag": `btn_mission_${i}` };
+    const key = `${m?.id ?? ""}|${st}|` + JSON.stringify(args);
+    let c = this.cards.get(key);
+    if (!c) {
+      c = buildUi(this.ctx, uiRef(CARD, args)).then(ui => {
+        if (!ui) return null;
+        if (m) {
+          const set = (tag: string, text: string) => { const x = ui.find(tag); if (x) x.text = text; };
+          set("name", m.title);
+          set("rank", m.cls === "Rank" ? `${m.rank}-${m.subrank}` : String(m.rank));
+          const done = ui.find("mission_completed");
+          if (done) done.visible = st === "complete";
+        } else {
+          const rc = ui.find("rank_cont");
+          if (rc) rc.visible = false;
+        }
+        return ui;
+      });
+      this.cards.set(key, c);
+    }
+    return c;
+  }
+
+  /** Fills a rank progress bar (interface_progressbar.dat) with the knight's rank. */
+  private fillBar(bar: Component, p: MissionProgress) {
+    const set = (tag: string, text: string) => { const c = bar.find(tag); if (c) c.text = text; };
+    set("rank_current", String(p.rank));
+    set("rank_next", p.rank < 10 ? String(p.rank + 1) : "");
+    set("rank_title", `${rankName(p.rank).toUpperCase()} ${p.rank}-${p.subrank}`);
+    const ofRank = this.board.list.filter(m => m.cls === "Rank" && m.rank === p.rank);
+    const done = ofRank.filter(m => p.completed.includes(m.id)).length;
+    (bar as any).__fraction = ofRank.length ? done / ofRank.length : 1;
+  }
+
+  protected tick() {
+    // the rank bars fill their backing by the share of the rank's missions done
+    const bars = [this.root?.find("rank_ui"), ...this.overlays.map(o => o.find("prestigebar"))];
+    for (const bar of bars) {
+      const fill = bar?.find("rank_progressbar"), back = bar?.find("progress_backing");
+      if (!fill || !back) continue;
+      const f = (bar as any).__fraction ?? 0, max = Math.max(16, back.width - 8);
+      fill.preferredSize = { width: Math.max(16, Math.round(max * f)), height: fill.preferredSize?.height ?? 26 };
+    }
+  }
+
+  /** The mission complete window: the mission, its rewards, the rank bar and any rank up. */
+  async completed(m: Mission, crowns: number, items: { item: string; count: number }[], rankUp: string | null) {
+    const [win, up] = await Promise.all([buildUi(this.ctx, uiRef(COMPLETE)), rankUp ? buildUi(this.ctx, uiRef(RANKUP)) : null]);
+    if (!win) return;
+    const set = (tag: string, text: string) => { const c = win.find(tag); if (c) c.text = text; };
+    set("title", "Mission Complete");
+    set("name", m.title.toUpperCase());
+    set("objective", m.summary);
+    const rewards = win.find("rewards");
+    if (rewards) {
+      const pills = await Promise.all([this.prestigePill(m.prestige, "done"), this.crownPill(crowns, "done"), ...items.slice(0, 8).map(it => this.itemPill(it.item, it.count, "done"))]);
+      rewards.children = pills.filter((c): c is Component => !!c);
+      for (const c of rewards.children) c.constraints = null;
+    }
+    const bar = win.find("prestigebar");
+    if (bar) this.fillBar(bar, this.board.progress);
+    const line = up?.find("rankup");
+    const box = win.find("window");
+    if (line && box) {
+      line.text = `Rank up! ${rankUp}`;
+      line.constraints = null;
+      box.children.splice(1, 0, line);
+    }
+    const dismiss = win.find("dismiss");
+    if (dismiss) dismiss.onAction = () => { this.overlays = this.overlays.filter(o => o !== win); this.host.sound("sound/feedback/ui_confirm.ogg"); void this.refresh(); };
+    // the window's effects are drawn by the game's particle renderer; not here
+    this.overlays.push(win);
+    await this.refresh();
+  }
+
+  /** A conversation mission's briefing in the game's confirmation prompt; Done completes it. */
+  async briefing(m: Mission) {
+    const o = await buildUi(this.ctx, uiRef(PROMPT));
+    if (!o) return;
+    this.briefed = m;
+    const set = (tag: string, text: string) => { const c = o.find(tag); if (c) c.text = text; };
+    set("title", m.title);
+    const npc = npcName(m);
+    set("prompt", (npc ? `${npc}:\n` : "") + m.summary);
+    const check = o.find("confirm");
+    if (check) check.visible = false;
+    const walk = (c: Component) => {
+      if (c.kind === "spacer" && c.preferredSize?.width === 80 && c.preferredSize?.height === 140) { c.tag = "brief_image"; c.styles = c.styles.map(() => null); }
+      c.children.forEach(walk);
+    };
+    walk(o);
+    const shut = () => { this.overlays = this.overlays.filter(x => x !== o); };
+    this.on(o, "dismiss", shut);
+    const cancel = this.on(o, "cancel", shut);
+    if (cancel) cancel.text = "Cancel";
+    const ok = this.on(o, "accept", () => { shut(); this.board.finish(m); });
+    if (ok) ok.text = "Done";
+    this.overlays.push(o);
+  }
 }
