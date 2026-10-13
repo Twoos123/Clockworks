@@ -12,6 +12,8 @@ export interface CellInfo {
 }
 
 export interface PropShape {
+  /** Set for shapes owned by a game actor, so they can be removed (destroyed blocks). */
+  id?: number;
   flags: number;
   kind: "circle" | "box";
   x: number;
@@ -93,6 +95,15 @@ export class CollisionMap {
       }
     };
     add(impl.shape, 0, 0);
+  }
+
+  /** Adds an axis-aligned box owned by actor `id`. */
+  addBox(id: number, x: number, y: number, halfW: number, halfH: number, flags: number) {
+    this.props.push({ id, flags, kind: "box", x, y, r: 0, minX: x - halfW, minY: y - halfH, maxX: x + halfW, maxY: y + halfH });
+  }
+
+  remove(id: number) {
+    for (let i = this.props.length - 1; i >= 0; i--) if (this.props[i].id === id) this.props.splice(i, 1);
   }
 
   /** Whether a circle at (x, y) with radius r hits anything matching mask. */

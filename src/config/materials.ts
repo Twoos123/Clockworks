@@ -15,6 +15,8 @@ export interface TextureUnitState {
   colorizations: any[];
   /** Whether alpha is premultiplied on load (TextureConfig ImageFile.premultiply, default true). */
   premultiply: boolean;
+  /** GL sampler settings from the TextureConfig (REPEAT / LINEAR_MIPMAP_LINEAR by default). */
+  sampler: { wrapS: string; wrapT: string; minFilter: string; magFilter: string };
   /** Modulate, Replace, Add, Decal, Blend or Combine. */
   env: string;
   rgbScale: number;
@@ -194,6 +196,7 @@ export class ConfigLibrary {
       texture: this.texturePath(u.texture, local),
       colorizations: this.textureColorizations(u.texture, local),
       premultiply: this.texturePremultiply(u.texture, local),
+      sampler: this.textureSampler(u.texture, local),
       env: env.substring(env.lastIndexOf("$") + 1),
       rgbScale: scale === "TWO" ? 2 : scale === "FOUR" ? 4 : 1,
       sphereMap: !!u.coordGenS?.$class?.endsWith("$SphereMap"),
@@ -203,6 +206,15 @@ export class ConfigLibrary {
 
   /** Resolves a TextureConfig reference to an image path under rsrc/. */
   /** The colorizations a TextureConfig reference applies to its image. */
+  textureSampler(ref: any, local?: LocalConfigs) {
+    const base = ref && (local?.textures.get(ref.name) ?? this.textures.get(ref.name));
+    const impl = base ? applyArguments(base, ref).implementation : null;
+    return {
+      wrapS: impl?.wrapS?.name ?? "REPEAT", wrapT: impl?.wrapT?.name ?? "REPEAT",
+      minFilter: impl?.minFilter?.name ?? "LINEAR_MIPMAP_LINEAR", magFilter: impl?.magFilter?.name ?? "LINEAR",
+    };
+  }
+
   texturePremultiply(ref: any, local?: LocalConfigs): boolean {
     const base = ref && (local?.textures.get(ref.name) ?? this.textures.get(ref.name));
     if (!base) return true;
@@ -241,7 +253,8 @@ function fallback(name: string, texture: string | null): ResolvedMaterial {
       destBlend: n.includes("additive") ? "ONE" : translucent ? "ONE_MINUS_SRC_ALPHA" : "ZERO",
       alphaFunc: n.includes("masked") ? "GEQUAL" : "ALWAYS", alphaRef: n.includes("masked") ? 0.5 : 0,
       depthFunc: "LEQUAL", depthMask: !translucent, cullFace: "BACK", color: null, lit: true, ambient: null, overrideLights: 0,
-      ignoreVertexColors: false, fog: true, units: [{ texture, colorizations: [], premultiply: true, env: "Modulate", rgbScale: 1, sphereMap: false, transform: null }], shaders: [],
+      ignoreVertexColors: false, fog: true, units: [{ texture, colorizations: [], premultiply: true,
+        sampler: { wrapS: "REPEAT", wrapT: "REPEAT", minFilter: "LINEAR_MIPMAP_LINEAR", magFilter: "LINEAR" }, env: "Modulate", rgbScale: 1, sphereMap: false, transform: null }], shaders: [],
     }],
   };
 }

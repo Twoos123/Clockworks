@@ -9,7 +9,7 @@
 // Blend, depth and cull state map directly onto WebGL. Skinning (Clyde's "Vertex/Skin"
 // shader or CPU skin deformer) runs in the vertex shader from a bone-matrix texture.
 
-import { identity, invert, multiply, slerp, lerp3, toMatrix, compose, type Mat4, type Transform } from "../math";
+import { identity, invert, multiply, slerp, lerp3, toMatrix, type Mat4, type Transform } from "../math";
 import type { PassState, TextureUnitState } from "../config/materials";
 import { VIEWER_ENVIRONMENT, type Environment, type Rgb } from "../environment";
 import { Emitter } from "../particles";
@@ -178,7 +178,13 @@ export class ModelInstance {
   /** Node name -> current model-space transform. */
   readonly world = new Map<string, Mat4>();
   clip: AnimationClip | null = null;
+  /** Seconds since the current clip started (or since the instance was made). */
   time = 0;
+  /** Playback speed multiplier for the current clip. */
+  speed = 1;
+  /** The clip being faded out, its time when the fade began, and its speed. */
+  private prev: { clip: AnimationClip; time: number; speed: number } | null = null;
+  private blendDuration = 0;
   /** Frame number of the last update, so shared instances update once per frame. */
   private updatedFrame = -1;
 
@@ -194,6 +200,34 @@ export class ModelInstance {
     }
   }
 
+  /**
+   * Starts a clip, cross-fading from the current one over `blend` seconds. Restarting a
+   * looping clip that is already playing does nothing.
+   */
+  play(clip: AnimationClip, opts: { loop?: boolean; speed?: number; blend?: number } = {}) {
+    const loop = opts.loop ?? true;
+    if (this.clip && this.clip.path === clip.path && loop && this.clip.loop) {
+      this.speed = opts.speed ?? this.speed;
+      return;
+    }
+    this.prev = this.clip ? { clip: this.clip, time: this.time, speed: this.speed } : null;
+    this.clip = { ...clip, loop };
+    this.speed = opts.speed ?? 1;
+    this.time = 0;
+    this.blendDuration = opts.blend ?? 0.15;
+  }
+
+  /** Length of the current clip in seconds at its speed. */
+  get duration(): number {
+    const c = this.clip;
+    return c && c.frames.length ? (c.frames.length - 1) / c.rate / this.speed : 0;
+  }
+
+  /** True once a non-looping clip has played to its end. */
+  get finished(): boolean {
+    return !!this.clip && !this.clip.loop && this.time >= this.duration;
+  }
+
   /** Recomputes node transforms for the current animation time. */
   update(frame = -1) {
     if (frame >= 0) {
@@ -201,7 +235,23 @@ export class ModelInstance {
       this.updatedFrame = frame;
     }
     if (!this.model.root) return;
-    const overrides = this.sample();
+    const current = this.clip ? sampleClip(this.clip, this.time * this.speed) : new Map<string, Transform>();
+    let pose = current;
+    if (this.prev && this.time < this.blendDuration) {
+      const w = this.time / this.blendDuration;
+      const old = sampleClip(this.prev.clip, (this.prev.time + this.time) * this.prev.speed);
+      pose = new Map();
+      for (const name of new Set([...old.keys(), ...current.keys()])) {
+        const a = old.get(name) ?? this.bindLocal.get(name), b = current.get(name) ?? this.bindLocal.get(name);
+        if (!a || !b) continue;
+        pose.set(name, a.matrix || b.matrix ? (w < 0.5 ? a : b)
+          : { t: lerp3(a.t, b.t, w), r: slerp(a.r, b.r, w), s: a.s + (b.s - a.s) * w });
+      }
+    } else {
+      this.prev = null;
+    }
+    const overrides = new Map<string, Mat4>();
+    for (const [name, x] of pose) overrides.set(name, toMatrix(x));
     // procedural animations set the target nodes' local transforms outright
     for (const p of this.model.procedurals) {
       const m = p.transform(this.time);
@@ -214,23 +264,6 @@ export class ModelInstance {
       n.children.forEach(c => walk(c, w));
     };
     walk(this.model.root, identity());
-  }
-
-  private sample(): Map<string, Mat4> {
-    const out = new Map<string, Mat4>();
-    const clip = this.clip;
-    if (!clip || clip.frames.length === 0) return out;
-    const n = clip.frames.length;
-    let f = this.time * clip.rate;
-    f = clip.loop ? ((f % n) + n) % n : Math.min(f, n - 1);
-    const i0 = Math.floor(f), i1 = clip.loop ? (i0 + 1) % n : Math.min(i0 + 1, n - 1), t = f - i0;
-    clip.targets.forEach((name, ti) => {
-      const a = clip.frames[i0][ti], b = clip.frames[i1][ti];
-      if (!a) return;
-      if (a.matrix || !b || b.matrix) { out.set(name, toMatrix(a)); return; }
-      out.set(name, compose(lerp3(a.t, b.t, t), slerp(a.r, b.r, t), a.s + (b.s - a.s) * t));
-    });
-    return out;
   }
 
   /** Bone matrices (bone node world * inverse reference) for a skinned part. */
@@ -256,6 +289,23 @@ export class ModelInstance {
   nodeMatrix(node: string): Mat4 {
     return this.world.get(node) ?? identity();
   }
+}
+
+/** Samples a clip's local node transforms at time t (seconds, already speed-scaled). */
+function sampleClip(clip: AnimationClip, time: number): Map<string, Transform> {
+  const out = new Map<string, Transform>();
+  const n = clip.frames.length;
+  if (n === 0) return out;
+  let f = time * clip.rate;
+  f = clip.loop ? ((f % n) + n) % n : Math.max(0, Math.min(f, n - 1));
+  const i0 = Math.floor(f), i1 = clip.loop ? (i0 + 1) % n : Math.min(i0 + 1, n - 1), t = f - i0;
+  clip.targets.forEach((name, ti) => {
+    const a = clip.frames[i0][ti], b = clip.frames[i1][ti];
+    if (!a) return;
+    if (a.matrix || !b || b.matrix) { out.set(name, a); return; }
+    out.set(name, { t: lerp3(a.t, b.t, t), r: slerp(a.r, b.r, t), s: a.s + (b.s - a.s) * t });
+  });
+  return out;
 }
 
 export class Renderer {
@@ -375,14 +425,17 @@ export class Renderer {
 
   private texture(unit: TextureUnitState): Promise<WebGLTexture | null> {
     const path = unit.texture!;
-    const key = (unit.premultiply ? "p:" : "s:") + (unit.colorizations.length
+    const sm = unit.sampler;
+    const key = (unit.premultiply ? "p:" : "s:") + `${sm.wrapS},${sm.wrapT},${sm.minFilter},${sm.magFilter}:` + (unit.colorizations.length
       ? path + "|" + JSON.stringify(unit.colorizations, (k, v) => (k === "$outer" ? undefined : v)) : path);
     let p = this.textures.get(key);
     if (!p) {
       p = (async () => {
         try {
           // Clyde premultiplies alpha on load by default, and its blend states assume it
-          const bmp = await createImageBitmap(await this.vfs.blob(path), { premultiplyAlpha: "none" });
+          // Clyde's Texture.setImage flips images vertically (GL's origin is the bottom row);
+          // WebGL ignores UNPACK_FLIP_Y for ImageBitmaps, so flip while decoding
+          const bmp = await createImageBitmap(await this.vfs.blob(path), { premultiplyAlpha: "none", imageOrientation: "flipY" });
           const gl = this.gl;
           const t = gl.createTexture()!;
           gl.bindTexture(gl.TEXTURE_2D, t);
@@ -403,10 +456,14 @@ export class Renderer {
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
           }
           gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-          gl.generateMipmap(gl.TEXTURE_2D);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
-          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+          // sampler state from the TextureConfig (CLAMP becomes CLAMP_TO_EDGE in WebGL)
+          const g = gl as unknown as Record<string, number>;
+          const wrap = (w: string) => (w === "REPEAT" ? gl.REPEAT : w === "MIRRORED_REPEAT" ? gl.MIRRORED_REPEAT : gl.CLAMP_TO_EDGE);
+          if (sm.minFilter.includes("MIPMAP")) gl.generateMipmap(gl.TEXTURE_2D);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, g[sm.minFilter] ?? gl.LINEAR_MIPMAP_LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, g[sm.magFilter] ?? gl.LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrap(sm.wrapS));
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrap(sm.wrapT));
           bmp.close();
           this.loadedTextures.set(key, t);
           return t;

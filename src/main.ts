@@ -4,8 +4,10 @@ import { Renderer, type ModelInstance } from "./render/renderer";
 import { SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
 import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environment";
-import { identity, type Mat4 } from "./math";
-import { Player } from "./game/player";
+import { identity, multiply as multiplyMat, type Mat4 } from "./math";
+import { World } from "./game/world";
+import { Hud } from "./game/hud";
+import { invert } from "./math";
 import {
   canPickDirectory, DevServerVfs, FileListVfs, HandleVfs, recallHandle, rememberHandle, VfsError, type Vfs,
 } from "./vfs";
@@ -127,7 +129,13 @@ class Viewer {
   private sceneItems: { instance: ModelInstance; matrix: Mat4 }[] | null = null;
   private environment: Environment = VIEWER_ENVIRONMENT;
   private scene: LoadedScene | null = null;
-  private player: Player | null = null;
+  private world: World | null = null;
+  private hud: Hud | null = null;
+  private attackPressed = false;
+  /** Mouse position over the canvas in CSS pixels, for aiming. */
+  private mouse: [number, number] | null = null;
+  private lastProj: Mat4 | null = null;
+  private lastView: Mat4 | null = null;
   private readonly keys = new Set<string>();
   private skyboxes: ModelInstance[] = [];
   private readonly sceneLoader: SceneLoader;
@@ -157,10 +165,19 @@ class Viewer {
     $("pause").onclick = () => { this.paused = !this.paused; $("pause").textContent = this.paused ? "Play" : "Pause"; };
     $("reset").onclick = () => { this.dist = this.home.dist; this.target = [...this.home.target]; this.az = -0.6; this.el = 0.35; };
     this.setupCamera();
-    $("play").onclick = () => (this.player ? this.stopPlaying() : this.startPlaying());
+    $("play").onclick = () => (this.world ? this.stopPlaying() : this.startPlaying());
+    $("revive").onclick = () => { this.world?.revive(); $("defeated").hidden = true; this.canvas.focus(); };
+    $("spawnJelly").onclick = () => {
+      const k = this.world?.knight;
+      if (!k) return;
+      const a = Math.random() * Math.PI * 2;
+      const spot = this.scene!.collision.findSpawn(k.x + Math.cos(a) * 4, k.y + Math.sin(a) * 4, 0.4, 43);
+      if (spot) this.world!.spawnAt({ name: "Character/NPC/Monster/Slime/Jelly/Jelly Cube/Jelly Cube 1" }, spot[0], spot[1]);
+      this.canvas.focus();
+    };
     const typing = () => document.activeElement instanceof HTMLInputElement && document.activeElement.type !== "checkbox";
     addEventListener("keydown", e => {
-      if (!this.player || typing()) return;
+      if (!this.world || typing()) return;
       if (e.key === "Escape") { this.stopPlaying(); return; }
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
@@ -309,12 +326,16 @@ class Viewer {
   }
 
   private async startPlaying() {
-    if (!this.scene || this.player) return;
+    if (!this.scene || this.world) return;
     const { min, max } = this.scene.bounds;
     const spawn = this.scene.collision.findSpawn((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
-    this.player = await Player.create(this.loader, this.renderer, this.scene.collision, spawn);
+    const world = new World(this.loader, this.renderer, this.scene, this.scene.collision);
+    await world.start(spawn);
+    this.world = world;
+    this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
+    $("spawnJelly").hidden = false;
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
@@ -327,11 +348,32 @@ class Viewer {
   }
 
   private stopPlaying() {
-    if (!this.player) return;
-    this.player = null;
+    if (!this.world) return;
+    this.world = null;
+    this.hud?.clear();
+    $("defeated").hidden = true;
+    $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
     $("playHint").hidden = true;
+  }
+
+  /** Where the mouse points on the knight's ground plane, for aiming attacks. */
+  private aimPoint(): [number, number] | null {
+    if (!this.mouse || !this.lastProj || !this.lastView || !this.world) return null;
+    const c = this.canvas;
+    const nx = (this.mouse[0] / c.clientWidth) * 2 - 1, ny = 1 - (this.mouse[1] / c.clientHeight) * 2;
+    const inv = invert(multiplyMat(this.lastProj, this.lastView));
+    const un = (x: number, y: number, z: number) => {
+      const w = inv[3] * x + inv[7] * y + inv[11] * z + inv[15];
+      return [(inv[0] * x + inv[4] * y + inv[8] * z + inv[12]) / w, (inv[1] * x + inv[5] * y + inv[9] * z + inv[13]) / w,
+        (inv[2] * x + inv[6] * y + inv[10] * z + inv[14]) / w];
+    };
+    const a = un(nx, ny, -1), b = un(nx, ny, 1);
+    const gz = this.world.knight.z + 0.5;
+    const t = (gz - a[2]) / (b[2] - a[2]);
+    if (!isFinite(t)) return null;
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
   }
 
   /** WASD or arrows, relative to where the camera looks. */
@@ -487,7 +529,15 @@ class Viewer {
   private setupCamera() {
     const c = this.canvas;
     let drag: { x: number; y: number; button: number } | null = null;
-    c.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, button: e.button }; c.setPointerCapture(e.pointerId); });
+    c.addEventListener("pointerdown", e => {
+      if (this.world && e.button === 0) { this.attackPressed = true; return; }
+      drag = { x: e.clientX, y: e.clientY, button: this.world ? 0 : e.button };
+      c.setPointerCapture(e.pointerId);
+    });
+    c.addEventListener("pointermove", e => {
+      const r = c.getBoundingClientRect();
+      this.mouse = [e.clientX - r.left, e.clientY - r.top];
+    });
     c.addEventListener("pointerup", () => { drag = null; });
     c.addEventListener("contextmenu", e => e.preventDefault());
     c.addEventListener("pointermove", e => {
@@ -519,9 +569,13 @@ class Viewer {
         // shared instances appear in several placements; advance each clock once per frame
         for (const it of this.sceneItems ?? []) it.instance.time += dt / (this.shares.get(it.instance) ?? 1);
       }
-      if (this.player) {
-        if (!this.paused) this.player.update(dt, this.moveInput());
-        this.target = [this.player.x, this.player.y, this.player.z + 1];
+      if (this.world) {
+        const mv = this.moveInput();
+        if (!this.paused) this.world.update(dt, { move: [mv.x, mv.y], attack: this.attackPressed, aim: this.aimPoint() });
+        this.attackPressed = false;
+        const k = this.world.knight;
+        this.target = [k.x, k.y, k.z + 1];
+        $("defeated").hidden = !this.world.defeated;
       }
       const eye: Vec3 = [
         this.target[0] + this.dist * Math.cos(this.el) * Math.cos(this.az),
@@ -540,9 +594,11 @@ class Viewer {
           const shift = Math.max(0, this.dist - (env.camera?.distance ?? this.dist));
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
-        const items = this.player
-          ? [...this.sceneItems, { instance: this.player.instance, matrix: this.player.matrix() }] : this.sceneItems;
+        const items = this.world ? [...this.sceneItems, ...this.world.items()] : this.sceneItems;
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
+        this.lastProj = proj;
+        this.lastView = view;
+        if (this.world && this.hud) this.hud.draw(this.world, proj, view);
       }
       else this.renderer.draw(this.instance!, proj, view);
     }

@@ -13,6 +13,13 @@ export interface SceneObject {
   matrix: Mat4;
 }
 
+/** A monster spawn point (a marker whose action activates a spawn table). */
+export interface SpawnPoint { x: number; y: number; heading: number; table: any; tag: string }
+/** A polygon that sends a signal to tagged entries when the player enters it. */
+export interface TriggerArea { poly: [number, number][]; tags: string[] }
+/** An actor a marker spawns at startup (blocks, breakables, doors, pads). */
+export interface StartupActor { x: number; y: number; heading: number; actor: any; shape: any }
+
 export interface LoadedScene {
   id: string;
   name: string;
@@ -23,6 +30,9 @@ export interface LoadedScene {
   bounds: { min: [number, number]; max: [number, number] };
   /** Tile and prop collision, for walking around. */
   collision: CollisionMap;
+  spawns: SpawnPoint[];
+  triggers: TriggerArea[];
+  startupActors: StartupActor[];
 }
 
 // TudeySceneMetrics: elevation_scale defaults to 0.5 world units per elevation step
@@ -93,6 +103,12 @@ export class SceneLoader {
     const s: any = (await importBinary(data, inflate)).root;
     const objects: SceneObject[] = [];
     const collision = new CollisionMap();
+    const spawns: SpawnPoint[] = [], triggers: TriggerArea[] = [], startupActors: StartupActor[] = [];
+    for (const e of s.entries ?? []) {
+      if (!e.$class.endsWith("AreaEntry") || !e.vertices?.length) continue;
+      const tags = collectSignalTags(e.area);
+      if (tags.length) triggers.push({ poly: e.vertices.map((v: any) => [v.x ?? 0, v.y ?? 0]), tags });
+    }
     const stats = { tiles: 0, placeables: 0, furniture: 0, markers: 0, unresolved: 0, uniqueModels: 0 };
     const min: [number, number] = [Infinity, Infinity], max: [number, number] = [-Infinity, -Infinity];
     const grow = (x: number, y: number) => {
@@ -131,7 +147,19 @@ export class SceneLoader {
       if (!e.$class.endsWith("PlaceableEntry")) continue;
       const impl = await this.resolveImpl("config/placeable.dat", e.placeable, "placeable");
       if (!impl) { stats.unresolved++; continue; }
-      if (HIDDEN.test(impl.$class)) { stats.markers++; continue; }
+      if (HIDDEN.test(impl.$class)) {
+        stats.markers++;
+        const t = readTransform(e.transform);
+        const heading = 2 * Math.atan2(t.r[2], t.r[3]);
+        const table = argOf(e.placeable, "Spawn Table");
+        if (table) spawns.push({ x: t.t[0], y: t.t[1], heading, table, tag: String(argOf(e.placeable, "Spawn Tag") ?? "") });
+        for (const h of impl.handlers ?? []) {
+          if (h?.$class?.endsWith("HandlerConfig$Startup") && h.action?.$class?.endsWith("ActionConfig$SpawnActor") && h.action.actor) {
+            startupActors.push({ x: t.t[0], y: t.t[1], heading, actor: h.action.actor, shape: impl.shape });
+          }
+        }
+        continue;
+      }
       let modelRef = impl.model;
       if (impl.$class.endsWith("$Furni")) {
         // guild furniture: the placeable names a furniture item, whose config gives the model
@@ -158,6 +186,19 @@ export class SceneLoader {
     }
     stats.uniqueModels = unique.size;
     const globals = (s.entries ?? []).filter((e: any) => e.$class.endsWith("GlobalEntry")).map((e: any) => e.sceneGlobal);
-    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision };
+    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision, spawns, triggers, startupActors };
   }
+}
+
+function argOf(ref: any, name: string): unknown {
+  return (ref?.arguments?.entries as [unknown, unknown][] | undefined)?.find(([k]) => k === name)?.[1];
+}
+
+/** Tags targeted by Signal actions anywhere inside an area's config reference. */
+function collectSignalTags(o: any, out: string[] = [], depth = 0): string[] {
+  if (!o || typeof o !== "object" || depth > 12 || ArrayBuffer.isView(o)) return out;
+  if (o.$class?.endsWith("ActionConfig$Signal") && o.target?.tag) out.push(o.target.tag);
+  if (o.$map) for (const [, v] of o.entries) collectSignalTags(v, out, depth + 1);
+  else for (const k of Object.keys(o)) if (k !== "$outer") collectSignalTags(o[k], out, depth + 1);
+  return out;
 }
