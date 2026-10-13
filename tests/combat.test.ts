@@ -1,7 +1,7 @@
 // The damage formula (src/game/combat.ts), as the client's damage summary computes it.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { afterDefense, cappedBonus, dealt, decreaseDamage, increaseDamage, modifyDamage, reduction } from "../src/game/combat.ts";
+import { afterDefense, cappedBonus, dealt, decreaseDamage, impulseShare, increaseDamage, modifyDamage, readKnock, reduction } from "../src/game/combat.ts";
 import { zeroAmounts } from "../src/game/depth.ts";
 import { capValue, itemValue } from "../src/game/bonus.ts";
 
@@ -53,6 +53,19 @@ test("dealt: per type against the same type, bonus first, unblockable untouched"
   near(dealt(amounts({ NORMAL: 100 }), amounts({ NORMAL: 60 }), 0.24), 112 - 30);
   near(dealt(amounts({ UNBLOCKABLE: 30 }), amounts({ NORMAL: 500 })), 30);
   near(dealt(amounts({ NORMAL: 100 }), null), 100);
+});
+
+test("impulses ease out: 2u - u^2 of the distance, three quarters by halfway", () => {
+  near(impulseShare(0, 1), 1);
+  near(impulseShare(0, 0.5), 0.75);
+  near(impulseShare(0.5, 1), 0.25);
+  near(impulseShare(0.9, 2), 0.01);
+  let sum = 0;
+  for (let i = 0; i < 10; i++) sum += impulseShare(i / 10, (i + 1) / 10);
+  near(sum, 1);
+  assert.deepEqual(readKnock({ translation: { x: 2.5, y: 0 }, duration: 300, level: 2 }), { distance: 2.5, duration: 300, level: 2 });
+  assert.deepEqual(readKnock({ translation: { x: 1 } }), { distance: 1, duration: 0, level: 1 });
+  assert.equal(readKnock(null), 0);
 });
 
 test("ItemValueKey: named bonus levels are steps of the key's size, CUSTOM its own amount", () => {

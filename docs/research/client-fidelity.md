@@ -73,7 +73,24 @@ between each min and max (here: linearly, power / 100), how resistances cut chan
 duration (`resistFactor`, 2% a point), whether a hit wakes a sleeper, stacking and the
 `cooloff` immunity.
 
-## 5. Config defaults the export leaves out (src/game/data.ts)
+## 5. Knockback, attacks, shield and dash (src/game/world.ts, src/game/data.ts)
+
+| What | Old guess | Client behaviour | From |
+|---|---|---|---|
+| Knockback motion | a velocity of `3 + 6 x strength` decaying by e^-10t | an impulse: the configured distance over its duration, covered as `T * (2u - u^2)` (speed falls linearly to nothing); a new impulse merges an unfinished one (its remaining distance is added, and it lasts to the later end) | `dungeon/data/actor/Impulse` (step and merge `b`), `Dungeoneer.a(Impulse)`, `Monster.a(Impulse)` |
+| Knockback strength | only the translation, scaled by guesses (bullets and bombs x0.25) | the DamageImpulse's translation, duration and level, unscaled; none when the attack gives no impulse (was 0.5) | `dungeon/config/ImpulseConfig$DamageImpulse` (`translation`, `duration`, `level`) |
+| Who an impulse moves | everyone | targets whose `impulseLevel` (default 1) the impulse's level reaches (turrets and heavy monsters have 20); inference from the field names, the check is server code | `DungeonActorConfig$Monster.impulseLevel`, `ImpulseConfig$DamageImpulse.level` |
+| Impulses while held | kept | dropped while the actor cannot move (frozen, asleep, in a shock spasm) | `Dungeoneer`/`Monster` per-step move: no `canMove`, no impulse |
+| Attack lunges | constant speed, from the fire phase, a 1-unit default lunge for swings without one | the attack's `impulseReceived` only, `delay` from the attack's start (divided by attack speed), over `duration` (divided by status speed when `speedModified`), on the same easing curve | `dungeon/util/i` (dungeoneer advancer: attack impulse) |
+| Attack phases | until each animation ended (1.5 s cap), then `rearm` before the next attack | timers from the AttackConfig: fires `land / startSpeed` after the start, rearmed `rearm / fireSpeed` later, clears `clear / endSpeed` after that; all divided by attack speed; no extra cooldown | `dungeon/config/AttackConfig$Original` (`aC`, `Qh`, `Qg`, `Qf`) |
+| Dash | 5 units in 0.3 s at constant speed, 2 s cooldown | the dodge impulse: 5 units over 625 ms (longer when slowed: 625 / status speed), easing out, along the movement direction or facing; cooldown `dodgeCooldown`, 8000 ms in Character/PC/Level | `dungeon/util/i` (dodge activity 286, inner impulse), `DungeonActorConfig$Dungeoneer.dodgeCooldown` |
+| Shield after breaking | full again when `breakTime` ends | regenerates from empty after `breakTime` | `Dungeoneer.a(Shield, now)`: health = stored + elapsed since the regen start x max / regenTime |
+| Shield bash | at 98% shield health, costs half | only at full shield health; costs `bashHealthPct` (default 0.5) | `dungeon/util/i.RY` (bash needs full health), `AttackConfig$ShieldBash.bashHealthPct` |
+
+Still ours: a shield taking hits (its damage and the reduced knockback through it), the
+dash's moment of immunity, and how much a hit's reaction interrupts are server code.
+
+## 6. Config defaults the export leaves out (src/game/data.ts)
 
 The export drops fields left at their class default, so the defaults have to match the
 client's classes. Wrong ones were:

@@ -7,6 +7,7 @@
 
 import { applyArguments, getArg } from "../config/params";
 import type { ModelLoader } from "../model";
+import { readKnock, type Knock } from "./combat";
 import { DepthScales } from "./depth";
 import { resolveRef } from "./logic";
 
@@ -27,7 +28,7 @@ export interface FireDef {
   delay: number;
   damage: any;
   shape: DamageShape | null;
-  knockback: number;
+  knockback: Knock;
   spawn: { actor: any; variance: number; rotation: number } | null;
   /** The fire action's name (Base/Spawn Actor, a monster's own). */
   name?: string;
@@ -55,7 +56,7 @@ export interface AttackDef {
   delay: number;
   /** Melee hit shape, when the attack strikes directly. */
   shape: DamageShape | null;
-  knockback: number;
+  knockback: Knock;
   /** Particle model for the swing trail, from the fire animation's "Swing" argument. */
   swing?: any;
   /** Whether the attacker may cancel the follow-through by moving. */
@@ -75,7 +76,9 @@ export interface AttackDef {
   /** Every fire action, in order: its delay, melee hit or spawned actor. */
   fires: FireDef[];
   /** Shield bash: damage dealt once to each enemy touched during the attack's charge. */
-  contact: { damage: any; knockback: number } | null;
+  contact: { damage: any; knockback: Knock } | null;
+  /** Shield bash: the share of the shield's health it costs (AttackConfig ShieldBash, 0.5). */
+  bashHealthPct?: number;
 }
 
 export interface MonsterDef {
@@ -199,7 +202,7 @@ export interface ProjectileDef {
   /** The detonation's other logic actions, run where it goes off. */
   actions: any[];
   regionRadius: number;
-  knockback: number;
+  knockback: Knock;
   /** Played where a bullet hits or a bomb goes off; a bullet that runs out fizzles. */
   hitFx: any;
   fizzleFx: any;
@@ -305,7 +308,7 @@ export class GameData {
         if (fa && !fa.action) { fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name }); continue; }
       }
       const shape = !spawn || shapeArg ? readShape(shapeArg) : null;
-      fires.push({ delay, damage: spawn && !shapeArg ? null : damage, shape, knockback: kb?.translation?.x ?? 0.5, spawn, name: fire.name });
+      fires.push({ delay, damage: spawn && !shapeArg ? null : damage, shape, knockback: readKnock(kb), spawn, name: fire.name });
     }
     const primary = fires[0] ?? null;
     return {
@@ -317,7 +320,7 @@ export class GameData {
       damage: primary?.damage ?? null,
       delay: primary?.delay ?? 0,
       shape: primary ? primary.shape : readShape(undefined),
-      knockback: primary?.knockback ?? 0.5,
+      knockback: primary?.knockback ?? 0,
       swing: getArg(a.fire, "Swing"),
       interruptable: !!a.interruptable,
       blended: a.blended !== false,
@@ -328,8 +331,9 @@ export class GameData {
         speedModified: !!a.impulseReceived.speedModified,
       } : null,
       spawn: fires.find(f => f.spawn)?.spawn ?? null,
-      fires: fires.length ? fires : [{ delay: 0, damage: null, shape: readShape(undefined), knockback: 0.5, spawn: null }],
-      contact: contactAction ? { damage: contactAction.damage ?? null, knockback: (contactAction.impulseDealt?.translation?.x ?? 3) / 6 } : null,
+      fires: fires.length ? fires : [{ delay: 0, damage: null, shape: readShape(undefined), knockback: 0, spawn: null }],
+      contact: contactAction ? { damage: contactAction.damage ?? null, knockback: readKnock(contactAction.impulseDealt) } : null,
+      bashHealthPct: kind(a) === "ShieldBash" ? a.bashHealthPct ?? 0.5 : undefined,
     };
   }
 
@@ -444,7 +448,7 @@ export class GameData {
       harmless: !!p.detonationAction && !det,
       actions: acts.filter(a => a !== det && a?.$class),
       regionRadius: region?.radius ?? (k === "Bomb" ? 2 : 0.5),
-      knockback: det?.impulseDealt?.translation?.x ?? 1,
+      knockback: readKnock(det?.impulseDealt),
       hitFx: transient(p.sprite?.destructionTransient),
       fizzleFx: transient(p.sprite?.fizzleTransient),
     };

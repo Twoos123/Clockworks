@@ -92,6 +92,28 @@ export function dealt(attack: Amounts, defense: Amounts | null, bonus = 0): numb
   return total;
 }
 
+/**
+ * A damage impulse (ImpulseConfig DamageImpulse): units of knockback, over how many ms, and
+ * its level (it moves only targets whose impulse level it reaches). A bare number is a
+ * distance with the usual duration.
+ */
+export type Knock = number | { distance: number; duration: number; level: number };
+
+/** An ImpulseConfig as a Knock; none (0) when the config has no impulse. */
+export function readKnock(imp: any): Knock {
+  if (!imp) return 0;
+  return { distance: imp.translation?.x ?? 0, duration: imp.duration ?? 0, level: imp.level ?? 1 };
+}
+
+/**
+ * The share of an impulse's displacement covered between progress u0 and u1 (0 to 1): the
+ * client moves an actor by T * (2u - u^2), so the speed falls linearly to nothing.
+ */
+export function impulseShare(u0: number, u1: number): number {
+  const f = (u: number) => { u = Math.max(0, Math.min(1, u)); return 2 * u - u * u; };
+  return f(u1) - f(u0);
+}
+
 /** The largest damage type in an amount set, for colouring damage numbers. */
 export function mainType(a: Amounts) {
   let best: (typeof DAMAGE_TYPES)[number] = "NORMAL";
