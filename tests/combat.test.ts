@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { afterDefense, cappedBonus, dealt, decreaseDamage, impulseShare, increaseDamage, modifyDamage, readKnock, reduction } from "../src/game/combat.ts";
 import { zeroAmounts } from "../src/game/depth.ts";
 import { capValue, itemValue } from "../src/game/bonus.ts";
+import { trapState } from "../src/game/props.ts";
 
 const near = (a: number, b: number, eps = 1e-3) => assert.ok(Math.abs(a - b) <= eps, `${a} != ${b}`);
 const amounts = (o: Partial<Record<string, number>>) => Object.assign(zeroAmounts(), o);
@@ -66,6 +67,19 @@ test("impulses ease out: 2u - u^2 of the distance, three quarters by halfway", (
   assert.deepEqual(readKnock({ translation: { x: 2.5, y: 0 }, duration: 300, level: 2 }), { distance: 2.5, duration: 300, level: 2 });
   assert.deepEqual(readKnock({ translation: { x: 1 } }), { distance: 1, duration: 0, level: 1 });
   assert.equal(readKnock(null), 0);
+});
+
+test("trap cycles: down, warn, up in interval units, offset", () => {
+  assert.equal(trapState(0, "A", 1), 0);
+  assert.equal(trapState(3.5, "A", 1), 1);
+  assert.equal(trapState(4, "A", 1), 2);
+  assert.equal(trapState(7.9, "A", 1), 2);
+  assert.equal(trapState(8, "A", 1), 0);
+  // B runs four intervals ahead of A: up when A is down
+  assert.equal(trapState(0, "B", 1), 2);
+  assert.equal(trapState(1, "SLOW", 0.5), 0);
+  assert.equal(trapState(123, "UP", 1), 2);
+  assert.equal(trapState(123, "DOWN", 1), 0);
 });
 
 test("ItemValueKey: named bonus levels are steps of the key's size, CUSTOM its own amount", () => {

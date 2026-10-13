@@ -938,6 +938,7 @@ export class World implements LogicHost {
       const [w, h] = size.split("x").map(Number);
       p.trapHalf = Math.max(w || 1, h || 1) / 2;
       p.trapB = cfg.cycle?.name === "B" || /"B"/.test(JSON.stringify(cfg.cycle ?? ""));
+      p.trapCycle = cfg.cycle?.name ?? "A";
       const fa = fire ? this.data.resolveSync("config/fire_action.dat", fire, "action") : null;
       // the tiers' damage (and status infliction) by the floor's tier
       const tiers = (fa?.action ?? fa)?.actions ?? [];
@@ -945,7 +946,7 @@ export class World implements LogicHost {
       p.trapDamage = first?.damage ?? null;
       // rocket and fire blocks fire from their TrapState handler instead of striking the plate
       p.trapStrikes = !!fire;
-      if (cfg.interval) p.trapPeriod = 3 * cfg.interval / 1000;
+      p.trapInterval = (cfg.interval ?? 1000) / 1000;
     }
     // dungeon objects (objects.ts) take their hits themselves, gun blocks included
     if (this.objects.setup(p)) p.strikable = false;
@@ -1223,7 +1224,7 @@ export class World implements LogicHost {
           }
           break;
         case "trap": {
-          const st = p.trapOff ? 0 : trapState(this.clock, p.trapB, p.trapPeriod);
+          const st = p.trapOff ? 0 : trapState(this.clock, p.trapCycle, p.trapInterval);
           if (st !== p.trapState) {
             p.trapState = st;
             this.showPropState(p);
@@ -2553,7 +2554,9 @@ export class World implements LogicHost {
       if (turn >= 6) m.heading = want;
       m.state = "attack";
       this.startAttack(m, attack);
-      m.cooldown = attack.rearm / 1000 + (attack.shape ? 0.6 : 0.9) + Math.random() * 0.8;
+      // TargetActionConfig SimpleAttack: minAttackInterval 1000 ms between attack starts (the
+      // class default; the monsters' behaviour configs are stripped from the export)
+      m.cooldown = 1;
       return;
     }
     const sp = m.def.targetedSpeed * this.statusSpeed(m);

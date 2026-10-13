@@ -108,7 +108,18 @@ Vanaduke's mask stays wet (5 s), the share of the Snarbolax's health one stun ma
 the Jelly's rage, and every director's sequencing. The configs' conditions, timers and
 signal names that would decide them are stripped from the export.
 
-## 7. Config defaults the export leaves out (src/game/data.ts)
+## 7. Monster attack rate and floor traps
+
+| What | Old guess | Now | From |
+|---|---|---|---|
+| Time between a monster's attacks | rearm + 0.6 to 1.7 s, random | 1 s between attack starts: `minAttackInterval` of the default target action (the monsters' own behaviour configs are stripped, so the class default is the best evidence) | `dungeon/config/TargetActionConfig$SimpleAttack` |
+| Floor trap cycle | 3.2 s period, ours, B half a period later | the client's cycle table: down, warn and up times plus an offset, in units of the trap's `interval` (default 1000 ms); A is 3/1/4, B the same 4 intervals later, SLOW 7/1/8, QUICK 1/1/2, the CROSS and _SLOW variants, UP and DOWN fixed | `DungeonActorConfig$Trap$Cycle` |
+
+The client does not run monster AI (monsters are interpolated from the server), and
+behavior.dat ships empty; the AI in world.ts stays ours apart from the class defaults above
+and in section 8.
+
+## 8. Config defaults the export leaves out (src/game/data.ts)
 
 The export drops fields left at their class default, so the defaults have to match the
 client's classes. Wrong ones were:
