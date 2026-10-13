@@ -164,7 +164,7 @@ const VAULT: Palette = {
   wall: [...P(["Prop/Knights/Block - Toughbox", "Prop/Knights/Block - Toughbox, Gear 01", "Prop/Knights/Computer 1, toughbox"]),
     ...P(["Prop/Gremlin/Lockers - tall, 01"], 2)],
   floor: P(["Prop/Knights/Flare", "Prop/Clockworks/Tech/Nut & Bolt/Nut & Bolt, Iron 01", "Prop/Clockworks/Pipes, floor small/Iron, straight x2"]),
-  breakable: ["Dynamic/Block/Breakable/Random/Prize Vault - 50%", "Dynamic/Block/Breakable/Random/Prize Vault - 80%"],
+  breakable: ["Dynamic/Block/Breakable/Random/Prize Vault - 100%, no-ghost"],
   block: "Dynamic/Block/Breakable/Random/Prize Vault, base",
   lamps: P(["Prop/Clockworks/Lamp, tall rail-mounted", "Prop/Castle/Brazier/Brazier, tall"]),
   light: [1, 0.85, 0.5],
@@ -444,6 +444,14 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
   };
   const singleMouth = (i: number) => { const ms = plan.mouths.filter(m => m.room === i); return ms.length === 1 && ms[0].cells.length <= 3 ? ms[0] : null; };
   const neighbourOf = (m: Mouth) => [...plan.comps[m.comp].rooms].find(r => r !== m.room) ?? null;
+  /** A cell for a switch platform in room `i` (3x3 plate): well inside, off the elevator pads. */
+  const platformCell = (i: number): [number, number] | null => {
+    for (const o of [{ margin: 2, avoidCentre: 3 }, { margin: 2 }, { margin: 1 }]) {
+      const c = plan.freeCell(i, rand, (i === plan.start || i === plan.exit) ? o : { margin: o.margin });
+      if (c) return c;
+    }
+    return null;
+  };
 
   const spawner = (name: string, tag: string, wave: string, x: number, y: number, depthOffset = 0) =>
     place("Character/Monster/Generic/Single Spawn", [["Spawn Table", table(name, wave, depthOffset)], ["Spawn Tag", tag], ["Wave Number", wave]],
@@ -492,7 +500,7 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
         const c = plan.freeCell(i, rand, { margin: 1, avoidCentre: i === plan.exit ? 3 : 0 });
         if (!c) break;
         plan.used.add(key(c[0], c[1]));
-        place(rand() < 0.25 ? "Dynamic/Block/Treasure/Rare" : "Dynamic/Block/Treasure/Vault", null, c[0] + 0.5, c[1] + 0.5);
+        place(rand() < 0.25 ? "Dynamic/Block/Treasure/Rare" : "Dynamic/Block/Treasure/Vault - No Baby", null, c[0] + 0.5, c[1] + 0.5);
         mark("treasure", c[0] + 0.5, c[1] + 0.5);
       }
       // prize-vault breakables in clusters (they may hold more)
@@ -504,13 +512,13 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
       }
       const m = singleMouth(i);
       const nb = m ? neighbourOf(m) : null;
-      if (m && nb !== null && i !== plan.exit && !plan.onPath(i)) {
+      const c = m && nb !== null && i !== plan.exit && !plan.onPath(i) ? platformCell(nb) : null;
+      if (m && c) {
         // a vault door opened by a platform in the room before it
         const tag = `feat vault ${++doors}`;
         place("Dynamic/Door/Vault/Trigger 3", [["Open", false], ["Tag", tag]], m.x, m.y, m.rot);
         gate(m, "vault door");
-        const c = plan.freeCell(nb, rand, { margin: 2, avoidCentre: nb === plan.start || nb === plan.exit ? 3 : 0 });
-        if (c) {
+        {
           plan.used.add(key(c[0], c[1]));
           place("Dynamic/Switch/Party Platform/Base", [["Action", compound(signal("open", tag))]], c[0] + 0.5, c[1] + 0.5);
           mark("platform", c[0] + 0.5, c[1] + 0.5);
@@ -605,34 +613,35 @@ export function addFeatures(root: any, opts: FeatureOptions): FeatureReport {
       const m = singleMouth(i);
       const nb = m ? neighbourOf(m) : null;
       if (!m || nb === null || plan.used.has(key(...m.cells[0]))) continue;
+      // the opener first (a gate is only shut when something opens it): a party platform in
+      // the room in front, or a one-time button dropped at start-up on one of several markers
+      // around it (scene 370)
+      const platform = rand() < 0.5 ? platformCell(nb) : null;
+      const near = [nb, ...plan.graph[nb]].filter(r => r !== i && (r === nb || !taken.has(r)));
+      const spots: [number, number][] = [];
+      if (!platform) for (let j = 0; j < 4; j++) {
+        const c = plan.freeCell(pick(near), rand, { margin: 1, avoidCentre: 2 });
+        if (c && !spots.some(s => s[0] === c[0] && s[1] === c[1])) spots.push(c);
+      }
+      if (!platform && !spots.length) continue;
       const tag = `feat secret ${++secrets}`;
       clearRoom(i, true);
       taken.add(i);
       place("Dynamic/Door/Iron Gate/Trigger 3", [["Open", false], ["Tag", tag]], m.x, m.y, m.rot);
       gate(m, "switch gate");
-      if (rand() < 0.5) {
-        // a party platform in the room in front
-        const c = plan.freeCell(nb, rand, { margin: 2, avoidCentre: nb === plan.start || nb === plan.exit ? 3 : 0 });
-        if (c) {
-          plan.used.add(key(c[0], c[1]));
-          place("Dynamic/Switch/Party Platform/Base", [["Action", compound(signal("open", tag))]], c[0] + 0.5, c[1] + 0.5);
-          mark("platform", c[0] + 0.5, c[1] + 0.5);
-        }
+      if (platform) {
+        plan.used.add(key(...platform));
+        place("Dynamic/Switch/Party Platform/Base", [["Action", compound(signal("open", tag))]], platform[0] + 0.5, platform[1] + 0.5);
+        mark("platform", platform[0] + 0.5, platform[1] + 0.5);
       } else {
-        // a one-time button dropped at start-up on one of several markers (scene 370)
         const markers = `feat button ${secrets}`;
-        const near = [nb, ...plan.graph[nb]].filter(r => r !== i && !taken.has(r) || r === nb);
-        let placed = 0;
-        for (let j = 0; j < 4; j++) {
-          const c = plan.freeCell(pick(near), rand, { margin: 1, avoidCentre: 2 });
-          if (!c) continue;
+        for (const c of spots) {
           plan.used.add(key(c[0], c[1]));
           place("Generic Marker", [["Tag", markers]], c[0] + 0.5, c[1] + 0.5);
           mark("button marker", c[0] + 0.5, c[1] + 0.5);
-          placed++;
         }
         const [sx, sy] = plan.centre(nb);
-        if (placed) place("Trigger/Start Up Trigger", [["Actor", ref("Dynamic/Switch/Button/One-Time", [["(On Signal)", "open"], ["(On Tag)", tag], ["Tag", "(Button Tag)"]])],
+        place("Trigger/Start Up Trigger", [["Actor", ref("Dynamic/Switch/Button/One-Time", [["(On Signal)", "open"], ["(On Tag)", tag], ["Tag", "(Button Tag)"]])],
           ["Marker Tag", markers], ["Number", 1]], sx + 0.5, sy - 0.5);
       }
       // the hoard

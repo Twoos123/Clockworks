@@ -605,6 +605,9 @@ export class Logic {
     if (!cfg?.$class) {
       // an implicit default Tagged condition with only its tag set by a parameter
       if (cfg && typeof cfg === "object" && "tag" in cfg) return this.resolveTarget(cfg.target, source, activator).some(t => t.hasTag(cfg.tag ?? ""));
+      // an implicit Random condition with only its probability set by a parameter (a vault
+      // box's "Mimic Chance")
+      if (cfg && typeof cfg === "object" && typeof cfg.probability === "number") return Math.random() < cfg.probability;
       return true;
     }
     const anyAll = (list: Entity[], all: boolean, pred: (e: Entity) => boolean) => {

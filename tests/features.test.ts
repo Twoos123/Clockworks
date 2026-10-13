@@ -37,8 +37,16 @@ test("every generated floor reaches its exit with its puzzles solved, and every 
   const seen = new Set<string>();
   for (const style of ["standard", "danger", "vault", "arena"] as FloorStyle[]) {
     for (let seed = 1; seed <= 40; seed++) {
-      const { report } = floor(style, seed);
+      const { root, report } = floor(style, seed);
       assert.ok(report.reachable, `${style} ${seed}: exit reachable`);
+      // every shut switch gate has its opener: a platform or a start-up button naming its tag
+      for (const e of root.entries as any[]) {
+        const args: [string, any][] = e.placeable?.arguments?.entries ?? [];
+        if (!/\/Door\//.test(e.placeable?.name ?? "") || args.find(([k]) => k === "Open")?.[1] !== false) continue;
+        const tag = JSON.stringify(args.find(([k]) => k === "Tag")?.[1]);
+        assert.ok((root.entries as any[]).some(o => /Party Platform|Start Up Trigger"?$|Start Up Trigger$/.test(o.placeable?.name ?? "")
+          && JSON.stringify(o.placeable.arguments).includes(tag)), `${style} ${seed}: gate ${tag} has an opener`);
+      }
       assert.ok(report.keysReachable, `${style} ${seed}: key reachable`);
       for (const f of report.features) seen.add(f);
     }
