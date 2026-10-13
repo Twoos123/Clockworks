@@ -904,6 +904,7 @@ class Viewer {
         }
         const items = this.world ? [...this.sceneItems, ...this.world.items()] : this.sceneItems;
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
+        if (this.world) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;
         this.lastView = view;
         if (this.world && this.hud) {

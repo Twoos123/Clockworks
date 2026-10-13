@@ -30,6 +30,8 @@ export interface Environment {
   music?: { files: { file: string; weight: number }[]; gain: number } | null;
   /** Looping ambient sounders (wind, rain) heard everywhere in the scene. */
   ambience?: any[];
+  /** Colour and opacity of the round shadows under actors ("Environment/Shadow Color"). */
+  shadow?: [number, number, number, number];
 }
 
 export const VIEWER_ENVIRONMENT: Environment = {
@@ -128,6 +130,10 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
   };
 
   for (const ref of globals) {
+    if (ref?.name === "Environment/Shadow Color") {
+      const c = (ref.arguments?.entries as [string, any][] | undefined)?.find(([k]) => k === "Color")?.[1];
+      if (c) env.shadow = [c.r ?? 0, c.g ?? 0, c.b ?? 0, c.a ?? 0.4];
+    }
     const cfg = resolveGlobal(ref);
     if (!cfg) continue;
     const kind = cfg.$class ?? "";

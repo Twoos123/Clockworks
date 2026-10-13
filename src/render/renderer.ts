@@ -653,6 +653,65 @@ export class Renderer {
     return out;
   }
 
+  private shadowProgram: WebGLProgram | null = null;
+  private shadowVao: WebGLVertexArrayObject | null = null;
+
+  /**
+   * Soft round shadows under actors: a ground-aligned quad per actor with a radial falloff,
+   * blended over the scene without writing depth. Call after drawAll with the same matrices.
+   */
+  drawShadows(list: { x: number; y: number; z: number; r: number }[], proj: Mat4, view: Mat4, color: [number, number, number, number]) {
+    if (!list.length || color[3] <= 0) return;
+    const gl = this.gl;
+    if (!this.shadowProgram) {
+      this.shadowProgram = link(gl, `#version 300 es
+        in vec2 a_pos;
+        uniform mat4 u_pv;
+        uniform vec4 u_shadow; // x, y, z, radius
+        out vec2 v_uv;
+        void main() {
+          v_uv = a_pos;
+          // a little above the ground height: grass and floor tiles have some thickness
+          gl_Position = u_pv * vec4(u_shadow.xy + a_pos * u_shadow.w, u_shadow.z + 0.16, 1.0);
+        }`, `#version 300 es
+        precision mediump float;
+        in vec2 v_uv;
+        uniform vec4 u_color;
+        out vec4 o;
+        void main() {
+          float d = length(v_uv);
+          float a = min(1.0, u_color.a * 1.5) * (1.0 - smoothstep(0.3, 1.0, d));
+          o = vec4(u_color.rgb * a, a);
+        }`);
+      this.shadowVao = gl.createVertexArray();
+      gl.bindVertexArray(this.shadowVao);
+      const b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(this.shadowProgram, "a_pos");
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
+    }
+    const p = this.shadowProgram;
+    gl.useProgram(p);
+    gl.bindVertexArray(this.shadowVao);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniformMatrix4fv(gl.getUniformLocation(p, "u_pv"), false, multiply(proj, view));
+    gl.uniform4fv(gl.getUniformLocation(p, "u_color"), color);
+    const u = gl.getUniformLocation(p, "u_shadow");
+    for (const sh of list) {
+      gl.uniform4f(u, sh.x, sh.y, sh.z, sh.r);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    gl.bindVertexArray(null);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+  }
+
   private skyboxPass = false;
   private fogOn = false;
 

@@ -1734,6 +1734,13 @@ export class World implements LogicHost {
     return out;
   }
 
+  /** Round shadows under the knight and monsters: position on the ground and radius. */
+  shadows(): { x: number; y: number; z: number; r: number }[] {
+    const out = [{ x: this.knight.x, y: this.knight.y, z: this.collision.groundZ(this.knight.x, this.knight.y), r: 0.75 }];
+    for (const m of this.monsters) if (m.state !== "dying") out.push({ x: m.x, y: m.y, z: this.collision.groundZ(m.x, m.y), r: m.radius * m.scale * 1.7 });
+    return out;
+  }
+
   /** Living monsters, for health bars. */
   get liveMonsters() { return this.monsters.filter(m => m.state !== "dying" && m.state !== "spawning" && !m.passive); }
 }
