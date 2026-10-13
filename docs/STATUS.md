@@ -51,7 +51,9 @@ A single-player loop runs in the browser, built from the install's own data:
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
 | Damage | Depth-scaled damage, health and defence from `config/depth_scale.dat`; four damage types; status conditions |
 | Status conditions | Fire, freeze, shock, poison, curse, sleep and stun, with the game's effects and HUD icons |
-| Weapon heat | Weapons absorb heat and level up (1 to 10), raising their damage; the HUD heat meter shows the level |
+| Heat and levels | Equipped weapons, shields, armour and helmets absorb a floor's heat and level 1 to 10 (`item_property.dat` heat by star); level bonuses from `level_table.dat`: damage and charge time on weapons, defence and heart pips on gear |
+| Economy (`src/game/economy.ts`) | Prices and sell prices from `item_property.dat`; Haven keepers, Basil (recipes, per visit) and the Supply Depot (capsules and vials the treasure tables give); selling back; recipes are bought before crafting; crafting costs `recipe_property.dat` crowns, the recipe's materials and the base item at its level; unique variants rolled from `variant_table.dat` on crafted and found gear, stored per item, shown in names and applied |
+| Drops | Materials by depth weight (`item_depth_weight.dat`) and the monster's family tags; rare gear drops; mineral deposits (1, 2, 4 or 6 minerals); crowns and heat by depth on the tables' per-tier curves, coins and embers worth their denominations |
 | Monsters | Data-driven spawns, tiers by depth, loot, a clean-room AI (turrets, ranged spacing, melee), A* pathing around walls |
 | Treasure and blocks | Breakable blocks break after a few hits; treasure boxes spill crowns and items from their damage action |
 | Pocket items | Capsules (health, remedy, buffs, barriers) and vials (thrown, splash damage and status), four slots on keys 4 to 7 |
@@ -72,12 +74,16 @@ A single-player loop runs in the browser, built from the install's own data:
    tiling. Generated floors have no puzzles, doors or keys.
 2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
    code jars, which this project does not read. Names come from config paths instead.
-3. **Shop catalogues and prices** are server-side. The shops sell from the item library at
-   tuning prices.
+3. **Shop catalogues** are server-side (`config/catalog.dat` ships empty). Prices are the
+   game's own (`item_property.dat`); each keeper sells every item of its kind in the star
+   range its place allows, and Basil picks twelve recipes per visit.
 
 **Systems**
 
-4. **Energy.** Revives cost crowns rather than energy.
+4. **Energy.** Revives cost crowns rather than energy. The heat amplifier (an Energy item)
+   is modelled (`save.heatAmplifier`, double heat) but cannot be bought. Minerals carry no
+   energy in the data; they bank as materials and sell for nothing (their uses, sprite food
+   and gate themes, are not modelled).
 5. **Boss levels.** Bosses run their own handlers in the Arena. Their scripted arenas (the
    Jelly Palace, Snarbolax's bells) are server-streamed levels this cache lacks.
 6. **Missions, guilds and PvP.**
@@ -88,7 +94,11 @@ A single-player loop runs in the browser, built from the install's own data:
 8. **Monster AI** is clean-room. The game's AI and attack selection are closed code.
 9. **Damage formula and several numbers are tuning values:**
    - knight health, the defence formula, status chance and power levels;
-   - prices, the dash.
+   - the dash;
+   - the heat curve between an item's baseHeat (first level) and maxHeat (level 10) is
+     geometric, and 1-star items' maxHeat (a class default) is taken as 2500;
+   - level damage bonuses with a startDepth (2-5 star weapons) apply from that depth;
+     DefenseIncrease is read as percent of the item's defence.
 10. **Unread defaults.** The export drops default-valued fields, and some game defaults
     differ from upstream Clyde. The logic infers implicit objects and treats unnamed signal
     handlers as hearing "activate". A few ExpressionSwitch case values are matched by

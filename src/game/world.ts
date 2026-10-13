@@ -752,7 +752,8 @@ export class World implements LogicHost {
       this.loot.heat += v;
       this.floaters.push({ x: p.x, y: p.y, z: p.z + 1, text: `+${v} heat`, color: "#ff9a4d", age: 0 });
     } else if (ref) this.awardItem(ref, p.x, p.y);
-    else this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
+    // boost orbs are instant buffs (not modelled), not items to bank
+    else if (!/\/Orbs\//.test(name)) this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
   }
 
   /** The item config for a pocket item (capsule or vial), or null for anything else. */
@@ -809,6 +810,9 @@ export class World implements LogicHost {
       if (this.pocketAdd(name)) this.floaters.push({ x, y, z, text: label, color: "#9ff0c0", age: 0 });
       return;
     }
+    // dungeon vitapod drops ("Always Better") heal a pip per level on the spot
+    const pod = /^Gear\/Dungeon\/Vitapod\/Health \+(\d+)/.exec(name);
+    if (pod) { this.healKnight(10 * Number(pod[1])); this.floaters.push({ x, y, z, text: `+${pod[1]} health`, color: "#ff8a8a", age: 0 }); return; }
     const eco = this.economy, info = eco?.info(name);
     const dep = info?.category === "deposit" ? eco!.deposit(name) : null;
     if (dep) {

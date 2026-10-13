@@ -41,7 +41,7 @@ const last = (n: string) => n.split("/").pop() ?? n;
 export type Libs = (file: string) => Map<string, any>;
 
 export const ECONOMY_FILES = ["config/item.dat", "config/item_property.dat", "config/level_table.dat", "config/recipe.dat",
-  "config/recipe_property.dat", "config/variant.dat", "config/variant_table.dat", "config/item_depth_weight.dat"];
+  "config/recipe_property.dat", "config/variant.dat", "config/variant_table.dat", "config/item_depth_weight.dat", "config/spawn_table.dat"];
 
 export type Category = "sword" | "handgun" | "bomb" | "shield" | "armor" | "helm" | "trinket" | "vitapod" | "pickup"
   | "material" | "mineral" | "deposit" | "recipe" | "other";
@@ -224,6 +224,7 @@ export class Economy {
       const price = this.price(name);
       if (price <= 0 || !it.icon) continue;
       if (it.category === "recipe" && !this.recipeOfItem(name)) continue;
+      if (it.category === "pickup" && !this.supplies().has(name)) continue;
       out.push({ name, price, rarity: it.rarity, category: it.category });
     }
     out.sort((a, b) => a.category.localeCompare(b.category) || a.rarity - b.rarity || a.name.localeCompare(b.name));
@@ -235,6 +236,25 @@ export class Economy {
       return pick.sort((a, b) => a.rarity - b.rarity || a.name.localeCompare(b.name));
     }
     return out;
+  }
+
+  private supplySet: Set<string> | null = null;
+  /**
+   * The capsules and vials the Clockworks hands out: every pickup item the treasure and
+   * health spawn tables name (health capsules, remedies, vials, barriers), plus the remedy
+   * capsule. Event and premium capsules (turret kits, beacons) are not stocked.
+   */
+  supplies(): Set<string> {
+    if (this.supplySet) return this.supplySet;
+    const out = new Set<string>(["Pickup/Capsule/Remedy Capsule"]);
+    const walk = (o: any, d: number) => {
+      if (!o || typeof o !== "object" || d > 30) return;
+      if (typeof o.name === "string" && /^Pickup\/(Capsule|Vial)\//.test(o.name) && !SKIP.test(o.name)) out.add(o.name);
+      if (o.$map) { for (const [, v] of o.entries ?? []) walk(v, d + 1); return; }
+      for (const k of Object.keys(o)) if (k !== "$outer") walk(o[k], d + 1);
+    };
+    for (const [n, cfg] of this.libs("config/spawn_table.dat")) if (/^Treasure\/(Pickups|Health)\//.test(n)) walk(cfg, 0);
+    return this.supplySet = out;
   }
 
   /**
