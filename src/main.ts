@@ -19,6 +19,8 @@ import { GameData } from "./game/data";
 import { ACTIONS, loadSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { arcadeGates, BOSSES, gateFloors, stratumTables, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { rng } from "./gen/layout";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|\(|lobby/i;
@@ -178,6 +180,15 @@ class Viewer {
   private sceneList: { id: string; name: string }[] = [];
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
   private run = { depth: 1, health: null as number | null, floors: 0 };
+  /** The gate being descended and its floors by depth (null outside the Clockworks). */
+  private gate: Gate | null = null;
+  private floors: Floor[] = [];
+  /** Spawn tables generated floors are re-themed with (by scene id). */
+  private genTables = new Map<string, string[]>();
+  /** Names generated floors show (by scene id). */
+  private genNames = new Map<string, string>();
+  /** The boss of the floor being played, if any. */
+  private bossFloor: BossKey | null = null;
   /** Arena mode: waves on a cached level instead of its own wiring. */
   private arenaMode = false;
   private attackPressed = false;
@@ -244,9 +255,10 @@ class Viewer {
     $("descend").onclick = () => void this.descend();
     $("deeper").onclick = () => {
       if (this.arenaMode && this.world?.arena) { $("floorDone").hidden = true; this.paused = false; this.world.continueArena(); return; }
+      if (this.gate) { $("floorDone").hidden = true; this.paused = false; this.gate = null; void this.returnToHaven(); return; }
       void this.descend(true);
     };
-    $("clockworks").onclick = () => { this.run = { depth: 0, health: null, floors: 0 }; this.arenaMode = false; void this.descend(); };
+    $("clockworks").onclick = () => this.openGates();
     $("arenaBtn").onclick = () => void this.enterArena();
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
     // reviving costs crowns from the bank (the game spends energy); giving up returns to town
@@ -403,7 +415,11 @@ class Viewer {
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
     const pool = (await Promise.all(others.map(async sid => (await this.sceneLoader.parse(await this.vfs.readScene(sid))).entries ?? []))).flat();
-    return generateLevel(sources, info, Number(seed), `${theme.label} · new floor`, pool);
+    const root = generateLevel(sources, info, Number(seed), this.genNames.get(id) ?? `${theme.label} · new floor`, pool);
+    // a stratum's monsters: every spawner draws from the stratum's spawn tables
+    const tables = this.genTables.get(id);
+    if (tables?.length) retheme(root, tables, rng(Number(seed) ^ 0x5bd1e995));
+    return root;
   }
 
   private async selectScene(id: string) {
@@ -494,6 +510,7 @@ class Viewer {
     world.onArenaCheckpoint = wave => this.arenaCheckpoint(wave);
     this.arsenal?.close();
     world.onNextFloor = () => this.floorCleared();
+    world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
     const town = TOWN.test(this.scene.name);
     $("clockworks").hidden = !town;
@@ -745,11 +762,20 @@ class Viewer {
     writeSave(this.save);
     this.run.health = this.world.knight.health;
     this.run.floors++;
-    const last = this.nextLevel() === null;
-    $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
-    $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
-    // past the Core the Clockworks go on: cycle the levels again, deeper
-    $("deeper").hidden = !last || this.run.depth >= 29;
+    if (this.gate) {
+      // in a gate: on to the next depth, or ride back up to Haven with the loot banked
+      const next = this.floors[this.run.depth + 1];
+      $("floorTitle").textContent = `Depth ${this.run.depth} cleared`;
+      $("descend").textContent = next ? `Down to ${next.name} (depth ${next.depth})` : "Ride up to Haven";
+      $("deeper").textContent = "Return to Haven";
+      $("deeper").hidden = !next;
+    } else {
+      const last = this.nextLevel() === null;
+      $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
+      $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
+      // past the Core the Clockworks go on: cycle the levels again, deeper
+      $("deeper").hidden = !last || this.run.depth >= 29;
+    }
     const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
     $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} other pickups.`;
     $("floorDone").hidden = false;
@@ -800,6 +826,109 @@ class Viewer {
   }
 
   /** The cached levels in run order. */
+  // ------------------------------------------------------------------ the Arcade and its gates
+
+  /** The Arcade's gate board: today's four gates and their strata. */
+  private openGates() {
+    const root = $("gates");
+    root.replaceChildren();
+    const card = document.createElement("div");
+    card.className = "settings-card gates-card";
+    const head = document.createElement("div");
+    head.className = "settings-head";
+    const h = document.createElement("h2");
+    h.textContent = "The Arcade";
+    const close = document.createElement("button");
+    close.textContent = "Close";
+    close.onclick = () => { root.hidden = true; this.paused = false; };
+    head.append(h, close);
+    card.append(head);
+    const note = document.createElement("p");
+    note.className = "settings-note";
+    note.textContent = "Choose a gate. Each runs from depth 1 to the Core at depth 29 through three tiers; terminals at depths 4, 13 and 23, Moorcroft Manor at 8, Emberlight at 18.";
+    card.append(note);
+    const grid = document.createElement("div");
+    grid.className = "gates-grid";
+    for (const g of arcadeGates()) {
+      const col = document.createElement("div");
+      col.className = "gate";
+      const t = document.createElement("h3");
+      t.textContent = g.name;
+      col.append(t);
+      for (const s of g.strata) {
+        const row = document.createElement("div");
+        row.className = "gate-stratum tier" + s.tier;
+        row.textContent = `${s.first}-${s.last} · ${s.theme} · ${s.style.name}${s.boss ? " · " + BOSSES[s.boss].name : ""}`;
+        col.append(row);
+      }
+      const go = document.createElement("button");
+      go.className = "primary";
+      go.textContent = "Enter";
+      go.onclick = () => { root.hidden = true; this.paused = false; this.uiSound("sound/feedback/ui_confirm.ogg"); void this.enterGate(g); };
+      col.append(go);
+      grid.append(col);
+    }
+    card.append(grid);
+    root.append(card);
+    root.hidden = false;
+    this.paused = !!this.world;
+    this.uiSound("sound/feedback/ui_open.ogg");
+  }
+
+  /** Starts a gate at depth 1. */
+  private async enterGate(g: Gate) {
+    this.gate = g;
+    this.usedScenes.clear();
+    this.floors = gateFloors(g);
+    this.arenaMode = false;
+    this.run = { depth: 0, health: null, floors: 0 };
+    await this.descend();
+  }
+
+  /**
+   * The scene for a floor of the gate. Terminals, subtowns and the Core use the cached town
+   * scenes; levels use a cached level of the stratum's style when there is one not yet played
+   * this run, else a generated floor painted with the style's tileset and re-themed with the
+   * stratum's monsters. Boss floors are generated arenas with the boss waiting by the exit.
+   */
+  private floorScene(f: Floor): { id: string; name: string } | null {
+    const cached = (re: RegExp) => this.sceneList.find(s => re.test(s.name));
+    if (f.kind === "terminal") return cached(/^terminal 1$/i) ?? null;
+    if (f.kind === "core") return cached(/^terminal core$/i) ?? cached(/^terminal 1$/i) ?? null;
+    if (f.kind === "subtown") return (f.depth === 18 ? cached(/^emberlight$/i) : cached(/^dark halls lobby$/i)) ?? cached(/^terminal 1$/i) ?? null;
+    const s = f.stratum!;
+    if (f.kind === "level" && s.style.cached) {
+      const options = this.sceneList.filter(sc => s.style.cached!.test(sc.name) && !this.usedScenes.has(sc.id));
+      if (options.length && Math.random() < 0.5) { this.usedScenes.add(options[0].id); return options[0]; }
+    }
+    const theme = genTheme(f.tileset);
+    const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
+    const id = `gen:${theme}:${seed}`;
+    this.genTables.set(id, stratumTables(s.theme, rng(seed)));
+    this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} (${s.theme})`);
+    return { id, name: `${f.name} · depth ${f.depth}` };
+  }
+  private usedScenes = new Set<string>();
+
+  /** A boss floor: the boss's actors wait by the exit elevator, which stays shut until they fall. */
+  private spawnBoss(key: BossKey) {
+    const w = this.world, scene = this.scene;
+    if (!w || !scene) return;
+    const exit = scene.logic.find(l => /Elevator\/Next Floor/.test(l.name));
+    const [x, y] = exit ? [exit.x, exit.y] : [w.knight.x + 6, w.knight.y];
+    BOSSES[key].actors.forEach((name, i) => {
+      const spot = scene.collision.findSpawn(x + (i ? 4 : -2), y + 2, 1.5, 43) ?? [x, y];
+      w.spawnAt({ name }, spot[0], spot[1], Math.atan2(w.knight.y - spot[1], w.knight.x - spot[0]));
+    });
+  }
+
+  /** The boss of this floor is still standing. */
+  private bossAlive(): boolean {
+    const w = this.world;
+    if (!w || !this.bossFloor) return false;
+    return w.liveMonsters.some(m => /\/Boss\//.test(m.entity?.name ?? "")) || w.logic.actors.some(e => !e.destroyed && /\/Boss\//.test(e.name) && e.mobile);
+  }
+
   private runLevels(): { id: string; name: string }[] {
     const levels = RUN_ORDER.map(n => this.sceneList.find(s => s.name.toLowerCase().startsWith(n))).filter((s): s is { id: string; name: string } => !!s);
     // levels in the cache that the order does not name come before the Core
@@ -836,6 +965,20 @@ class Viewer {
     $("floorDone").hidden = true;
     this.paused = false;
     if (this.arenaMode) { this.arenaMode = false; await this.returnToHaven(); return; }
+    if (this.gate) {
+      // the gate's next floor (after the Core's terminal, back to Haven)
+      const f = this.floors[this.run.depth + 1];
+      this.stopPlaying();
+      if (!f) { this.gate = null; this.save.runs++; writeSave(this.save); await this.returnToHaven(); return; }
+      const sc = this.floorScene(f);
+      if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
+      this.run.depth = f.depth;
+      this.bossFloor = f.kind === "boss" ? f.stratum!.boss : null;
+      await this.selectScene(sc.id);
+      await this.startPlaying();
+      if (this.bossFloor) this.spawnBoss(this.bossFloor);
+      return;
+    }
     let next = this.nextLevel();
     // past the end of the run, deeper floors are generated
     if (deeper && !next) {
@@ -1167,3 +1310,29 @@ class Viewer {
 }
 
 start();
+
+/** Generator themes for a floor's tileset (src/gen); unknown tilesets fall back by family. */
+function genTheme(tileset: string): string {
+  const known = THEMES.map(t => t.key);
+  if (known.includes(tileset)) return tileset;
+  if (/^valley/.test(tileset) && known.includes("valley")) return "valley";
+  return known.includes("clockworks") ? "clockworks" : known[0];
+}
+
+/** Points every Single Spawn marker of a generated root at the stratum's spawn tables. */
+function retheme(root: any, tables: string[], rand: () => number) {
+  // one table per room (spawners of a room share their Spawn Tag)
+  const byTag = new Map<string, string>();
+  for (const e of root.entries ?? []) {
+    const args: [string, any][] | undefined = e.placeable?.arguments?.entries;
+    if (!args || !/Single Spawn/.test(e.placeable?.name ?? "")) continue;
+    const tag = String(args.find(([k]) => k === "Spawn Tag")?.[1] ?? "");
+    if (!byTag.has(tag)) byTag.set(tag, tables[Math.floor(rand() * tables.length)]);
+    const i = args.findIndex(([k]) => k === "Spawn Table");
+    const old = i >= 0 ? args[i][1] : null;
+    const wave = (old?.arguments?.entries as [string, any][] | undefined)?.find(([k]) => k === "Wave Tag")?.[1] ?? "(Wave Tag)";
+    const table = { $class: "com.threerings.config.ConfigReference", name: byTag.get(tag)!,
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Depth Offset", 0], ["Loot", "Primary"], ["Wave Tag", wave]] } };
+    if (i >= 0) args[i] = ["Spawn Table", table]; else args.push(["Spawn Table", table]);
+  }
+}

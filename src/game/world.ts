@@ -581,7 +581,8 @@ export class World implements LogicHost {
   continueArena() { if (this.arena) this.arena.timer = 2; }
 
   /** Spawn tables have tiers by depth (1 to 8, 9 to 17, 18 and below). */
-  private tier() { return this.depth >= 18 ? 3 : this.depth >= 9 ? 2 : 1; }
+  /** The Clockworks tier of the current depth (tier 2 starts at Moorcroft Manor, depth 8). */
+  private tier() { return this.depth >= 18 ? 3 : this.depth >= 8 ? 2 : 1; }
 
   private healKnight(amount: number) {
     const k = this.knight;
@@ -595,8 +596,20 @@ export class World implements LogicHost {
     this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: `+${Math.round(amount)}`, color: "#7bd88f", age: 0 });
   }
 
+  /** While true the exit elevator does not run (a boss floor until the boss falls). */
+  exitLocked: (() => boolean) | null = null;
+  private lockNotice = -10;
+
   private finishLevel() {
     if (this.finished) return;
+    if (this.exitLocked?.()) {
+      if (this.clock - this.lockNotice > 3) {
+        this.lockNotice = this.clock;
+        const k = this.knight;
+        this.floaters.push({ x: k.x, y: k.y, z: k.z + 2.2, text: "Defeat the boss to use the elevator", color: "#ff9a9a", age: 0 });
+      }
+      return;
+    }
     this.finished = true;
     this.onNextFloor?.();
   }
