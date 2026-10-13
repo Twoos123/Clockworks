@@ -220,6 +220,12 @@ export class Component {
   scripts = new Map<string, any>();
   /** For an interface's host component: actions run when it is added to the screen. */
   addAction: any = null;
+  /** The mouse is over this component (buttons draw their hover style). */
+  hover = false;
+  /** Where render() last drew this component, in canvas pixels (top-left origin). */
+  screen: { x: number; y: number; width: number; height: number } | null = null;
+  /** Which game view draws into this RenderableView (set by the HUD). */
+  viewOwner = "";
   constructor(readonly kind: CompKind, public config: any) {}
 
   get style(): Style | null {
@@ -227,7 +233,7 @@ export class Component {
       const s = this.pseudo.get(this.pseudoClass);
       if (s) return s;
     }
-    return (!this.enabled ? this.styles[2] : null) ?? this.styles[0];
+    return (!this.enabled ? this.styles[2] : this.hover ? this.styles[1] : null) ?? this.styles[0];
   }
   get insets(): Insets { return this.style?.padding ?? ZERO; }
 
@@ -597,8 +603,22 @@ export interface RenderHooks {
  * Draws a laid-out tree. (ox, oy) is the parent's lower-left corner in canvas coordinates
  * (y down), so a Clyde position (x, y) maps to (ox + x, oy - y).
  */
+/**
+ * The deepest visible component under a canvas point, as last rendered (null if none). Only
+ * components passing `accept` are returned; the search prefers later (topmost) children.
+ */
+export function hitTest(c: Component, px: number, py: number, accept: (c: Component) => boolean = () => true): Component | null {
+  if (!c.visible || !c.screen) return null;
+  for (let i = c.children.length - 1; i >= 0; i--) {
+    const r = hitTest(c.children[i], px, py, accept);
+    if (r) return r;
+  }
+  const r = c.screen;
+  return px >= r.x && px < r.x + r.width && py >= r.y && py < r.y + r.height && accept(c) ? c : null;
+}
+
 export function render(c: Component, g: CanvasRenderingContext2D, ox: number, oy: number, hooks: RenderHooks = {}) {
-  if (!c.visible) return;
+  if (!c.visible) { c.screen = null; return; }
   const x = ox + c.x, y = oy - c.y; // y is this component's bottom edge on the canvas
   const o = c.offset;
   if (o && (o.tx || o.ty || o.rotation || o.scale !== 1)) {
@@ -617,6 +637,7 @@ export function render(c: Component, g: CanvasRenderingContext2D, ox: number, oy
 }
 
 function renderSelf(c: Component, g: CanvasRenderingContext2D, x: number, y: number, hooks: RenderHooks) {
+  c.screen = { x, y: y - c.height, width: c.width, height: c.height };
   const s = c.style;
   if (s?.background) drawBackground(g, s.background, x, y, c.width, c.height, c.alpha);
   if (c.kind === "view" && hooks.view) hooks.view(c, g, x, y - c.height, c.width, c.height);

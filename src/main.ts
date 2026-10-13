@@ -16,6 +16,8 @@ import { Arsenal } from "./ui/arsenal";
 import { loadSave, shopTier, weaponLevel, writeSave, type SaveData } from "./game/save";
 import type { ShopMode } from "./ui/arsenal";
 import { GameData } from "./game/data";
+import { ACTIONS, loadSettings, SettingsMenu, type Action, type Settings } from "./ui/settings";
+import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
@@ -164,6 +166,10 @@ class Viewer {
   private world: World | null = null;
   private hud: Hud | null = null;
   private gameHud: GameHud | null = null;
+  private readonly options: Settings = loadSettings();
+  private settings: SettingsMenu | null = null;
+  /** The key bound to an action (options menu). */
+  private bound(a: Action) { return this.options.keys[a] ?? ACTIONS[a].key; }
   private gui: GuiContext | null = null;
   private audio: AudioSystem | null = null;
   private save: SaveData = loadSave();
@@ -206,6 +212,16 @@ class Viewer {
     this.renderer = new Renderer(this.canvas, vfs);
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
+    this.settings = new SettingsMenu($("settings"), this.options, {
+      changed: () => this.applyOptions(),
+      playing: () => !!this.world,
+      resume: () => { this.paused = false; this.canvas.focus(); },
+      returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
+      leave: () => { this.paused = false; this.stopPlaying(); },
+      saveReplaced: d => { this.save = d; },
+      sound: f => this.uiSound(f),
+    });
+    this.applyOptions();
     this.listScenes(vfs);
     this.datFiles = files.filter(f => f.endsWith(".dat")).sort();
     $("sourceLabel").textContent = `${vfs.label} · ${files.length.toLocaleString()} files`;
@@ -260,15 +276,28 @@ class Viewer {
     const typing = () => document.activeElement instanceof HTMLInputElement && document.activeElement.type !== "checkbox";
     addEventListener("keydown", e => {
       if (!this.world || typing()) return;
-      if (e.key === "Escape") { this.stopPlaying(); return; }
-      if (/^[1-3]$/.test(e.key)) this.weaponSlot = Number(e.key) - 1;
-      // 4 to 7 use the pocket items
-      if (/^[4-7]$/.test(e.key) && !e.repeat && !this.paused && this.world.useItem(Number(e.key) - 4)) writeSave(this.save);
-      if (e.key.toLowerCase() === "f" && !e.repeat) this.interactPressed = true;
-      if (e.key === " " && !e.repeat) this.dashPressed = true;
+      // Esc opens the options menu (and closes whatever window is open)
+      if (e.key === "Escape") {
+        if (this.arsenal?.isOpen) { this.arsenal.close(); return; }
+        if (this.settings?.isOpen) this.settings.close();
+        else { this.paused = true; this.settings?.open(); }
+        return;
+      }
+      if (this.settings?.isOpen) return;
+      const key = e.key.toLowerCase(), b = (a: Action) => key === this.bound(a);
+      (["weapon1", "weapon2", "weapon3"] as const).forEach((a, i) => { if (b(a)) this.weaponSlot = i; });
+      if (b("cycle") && !e.repeat) { e.preventDefault(); const n = Math.max(1, this.world.knight.weapons.length); this.weaponSlot = (this.world.knight.slot + 1) % n; }
+      // pocket items
+      (["item1", "item2", "item3", "item4"] as const).forEach((a, i) => {
+        if (b(a) && !e.repeat && !this.paused && this.world!.useItem(i)) writeSave(this.save);
+      });
+      if (b("interact") && !e.repeat) this.interactPressed = true;
+      if (b("dash") && !e.repeat) this.dashPressed = true;
+      if (b("help") && !e.repeat) $("playHint").hidden = !$("playHint").hidden;
+      if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
-      if (e.key.toLowerCase() === "i" && !e.repeat) void this.toggleArsenal();
+      if (b("arsenal") && !e.repeat) void this.toggleArsenal();
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
@@ -488,18 +517,29 @@ class Viewer {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
-    // two render views: the knight portrait and the heat meter's flame
-    const heatView = new PortraitView(this.renderer, this.loader);
-    this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => (c.tag === "heat_view" ? heatView : portrait).draw(c, g, x, y, w, h) });
+    // render views: the knight portrait, the heat meter's flame, the dash cooldown's ring and
+    // the target panel's monster (a view per target)
+    const heatView = new PortraitView(this.renderer, this.loader, undefined, null);
+    const ringView = new PortraitView(this.renderer, this.loader, undefined, null);
+    let targetView: { key: string; view: PortraitView } | null = null;
+    this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => {
+      if (c.viewOwner === "target") {
+        const t = world.hudTarget();
+        if (!t) return;
+        if (targetView?.key !== t.key) targetView = { key: t.key, view: new PortraitView(this.renderer, this.loader, undefined, t.idle) };
+        targetView.view.draw(c, g, x, y, w, h);
+      } else (c.viewOwner === "cooldown" ? ringView : c.tag === "heat_view" ? heatView : portrait).draw(c, g, x, y, w, h);
+    } });
     void this.gameHud.init(hudState(world, KNIGHT_NAME)).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
     this.az = -Math.PI / 2;
-    this.dist = (cam?.distance ?? 10) * 1.35;
+    this.dist = (cam?.distance ?? 10) * 1.35 * this.options.zoom;
+    this.applyOptions();
     $("play").textContent = "Stop playing";
-    $("playHint").hidden = false;
+    $("playHint").hidden = true; // the ? button on the HUD (or H) shows the controls
     document.body.classList.add("playing");
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
@@ -564,12 +604,65 @@ class Viewer {
   }
 
   /** Opens or closes the arsenal; the world pauses while it is open. */
-  private async toggleArsenal() {
+  private async toggleArsenal(tab?: "craft" | "weapons") {
     const arsenal = this.ensureArsenal();
     if (arsenal.isOpen) { arsenal.close(); this.paused = false; this.canvas.focus(); return; }
     this.paused = !!this.world;
-    await arsenal.open(this.save.loadout);
+    await arsenal.open(this.save.loadout, null, tab);
   }
+
+  /** Applies the options menu's settings to audio, rendering, the HUD and input. */
+  private applyOptions() {
+    const o = this.options;
+    if (this.audio) {
+      this.audio.volume = o.masterVolume; this.audio.musicVolume = o.musicVolume;
+      this.audio.effectsVolume = o.effectsVolume; this.audio.uiVolume = o.uiVolume; this.audio.muted = o.muted;
+      this.audio.applyVolumes();
+    }
+    this.renderer.particlesOn = o.particles;
+    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, hudScale: o.hudScale, fps: o.showFps };
+    if (this.gameHud) this.gameHud.options = { minimap: o.minimap, screenFlash: o.screenFlash };
+    if (this.world) this.world.autoAimOn = o.autoAim;
+    padOptions.deadZone = o.deadZone;
+    document.body.classList.toggle("no-hint", !o.controlsHint);
+  }
+
+  /** What the HUD shows besides the knight: the objective lines and whether this is a town. */
+  private hudContext(): { objectives: string[]; town: boolean } {
+    const town = !!this.scene && TOWN.test(this.scene.name);
+    const a = this.world?.arena;
+    const objectives = town ? ["Visit the shops, then enter the Clockworks."]
+      : a ? [`Survive the arena: wave ${Math.max(1, a.wave)}.`]
+      : ["Defeat the monsters that bar your way.", "Find the elevator to the next depth."];
+    return { objectives, town };
+  }
+
+  /** A HUD button was clicked (the corner menus and the activities panel). */
+  private hudAction(tag: string) {
+    this.uiSound("sound/feedback/ui_confirm.ogg");
+    switch (tag) {
+      case "button_menu": this.openSettings(); break;
+      case "button_help": $("playHint").hidden = !$("playHint").hidden; break;
+      case "button_loadout": case "button_gear": case "button_arsenal": void this.toggleArsenal(); break;
+      case "button_forge": void this.toggleArsenal("craft"); break;
+      case "button_haven": void this.returnToHaven(); break;
+      case "button_supplydepot": void this.openShop("Supply Depot"); break;
+      case "button_guildhall": case "button_social": void this.goToGuildHall(); break;
+      default: break;
+    }
+  }
+
+  /** Your guild hall: the cached hall scene. */
+  private async goToGuildHall() {
+    const hall = this.sceneList.find(s => /^hall\b/i.test(s.name));
+    if (!hall) { this.status("No guild hall in the scenes cache yet.", true); return; }
+    this.stopPlaying();
+    await this.selectScene(hall.id);
+    await this.startPlaying();
+  }
+
+  /** The settings menu (filled in by the settings module). */
+  private openSettings() { this.settings?.open(); }
 
   /** Plays a UI feedback sound once audio exists (it starts with the first play). */
   private uiSound(file: string) {
@@ -770,8 +863,9 @@ class Viewer {
   /** WASD or arrows, relative to where the camera looks. */
   private moveInput() {
     const k = this.keys;
-    const f = (k.has("w") || k.has("arrowup") ? 1 : 0) - (k.has("s") || k.has("arrowdown") ? 1 : 0);
-    const r = (k.has("d") || k.has("arrowright") ? 1 : 0) - (k.has("a") || k.has("arrowleft") ? 1 : 0);
+    const on = (a: Action) => k.has(this.bound(a));
+    const f = (on("up") || k.has("arrowup") ? 1 : 0) - (on("down") || k.has("arrowdown") ? 1 : 0);
+    const r = (on("right") || k.has("arrowright") ? 1 : 0) - (on("left") || k.has("arrowleft") ? 1 : 0);
     const fx = -Math.cos(this.az), fy = -Math.sin(this.az);
     return { x: fx * f + fy * r, y: fy * f - fx * r };
   }
@@ -921,6 +1015,17 @@ class Viewer {
     const c = this.canvas;
     let drag: { x: number; y: number; button: number } | null = null;
     c.addEventListener("pointerdown", e => {
+      // clicks on the HUD's menus go to the HUD, not the sword
+      if (this.world && this.gameHud && e.button === 0) {
+        const r = c.getBoundingClientRect(), s = this.options.hudScale;
+        const x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s;
+        if (this.gameHud.covers(x, y)) {
+          const tag = this.gameHud.pointer(x, y, true);
+          if (tag && tag !== "handle") this.hudAction(tag);
+          else if (tag === "handle") this.uiSound("sound/feedback/ui_dropdown_activate.ogg");
+          return;
+        }
+      }
       if (this.world && (e.button === 0 || e.button === 2)) {
         // play mode: left attacks (hold to charge), right raises the shield
         // Shift + right click dashes (the game's default binding); right click alone shields
@@ -942,6 +1047,9 @@ class Viewer {
     c.addEventListener("pointermove", e => {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
+      // hovering the HUD's buttons
+      const s = this.options.hudScale;
+      if (this.gameHud) { this.gameHud.pointer(this.mouse[0] / s, this.mouse[1] / s, false); c.style.cursor = this.gameHud.covers(this.mouse[0] / s, this.mouse[1] / s) ? "pointer" : ""; }
     });
     c.addEventListener("pointerup", () => { drag = null; });
     c.addEventListener("contextmenu", e => e.preventDefault());
@@ -965,7 +1073,7 @@ class Viewer {
   private frame = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
-    const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1);
+    const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1) * this.options.renderScale;
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
     if (this.instance || this.sceneItems) {
@@ -1003,8 +1111,8 @@ class Viewer {
         }
         this.attackPressed = false;
         // Q and E turn the camera; it follows the knight smoothly
-        if (this.keys.has("q")) this.az += dt * 1.8;
-        if (this.keys.has("e")) this.az -= dt * 1.8;
+        if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options.cameraSpeed;
+        if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options.cameraSpeed;
         const k = this.world.knight;
         const f = 1 - Math.exp(-dt * 10);
         this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
@@ -1034,21 +1142,21 @@ class Viewer {
         // Fog in the game is tuned for a camera about camera.distance from the player; shift it so
         // it is measured around the orbit target instead, and honour the fog toggle.
         let env = this.environment;
-        const fogOn = $<HTMLInputElement>("fog").checked;
+        const fogOn = $<HTMLInputElement>("fog").checked && this.options.fog;
         if (env.fog && (!fogOn || env.camera)) {
           const shift = Math.max(0, this.dist - (env.camera?.distance ?? this.dist));
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
         const items = this.world ? [...this.sceneItems, ...this.world.items()] : this.sceneItems;
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
-        if (this.scene) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
-        if (this.world) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
+        if (this.scene && this.options.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
+        if (this.world && this.options.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;
         this.lastView = view;
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update(hudState(this.world, KNIGHT_NAME, this.floorLabel()), dt);
+          gh?.update({ ...hudState(this.world, KNIGHT_NAME, this.floorLabel()), ...this.hudContext() }, dt);
           this.hud.draw(this.world, proj, view, gh ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }

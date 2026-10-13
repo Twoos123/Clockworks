@@ -164,3 +164,23 @@ canvas { width: 100%; height: 100%; display: block; touch-action: none; }
 .arsenal-colors .swatch { width: 20px; height: 20px; padding: 0; border-radius: 50%; border: 2px solid transparent; }
 .arsenal-colors .swatch.active { border-color: #f5c542; }
 .craft-needs { white-space: pre-line; font-size: 10px; color: var(--muted); text-align: center; }
+
+/* options menu */
+.settings-card { background: #12202e; color: #dbe9f7; border: 2px solid #3c6a8f; border-radius: 10px; width: min(620px, calc(100% - 32px));
+  max-height: calc(100% - 48px); overflow: auto; padding: 14px 18px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+.settings-head { display: flex; align-items: center; justify-content: space-between; }
+.settings-head h2 { margin: 0; font-style: italic; color: #f3d36b; text-shadow: 0 2px 0 #000; }
+.settings-body { padding-top: 10px; display: grid; gap: 8px; }
+.settings-row { display: grid; grid-template-columns: 1fr minmax(120px, 220px) 52px; align-items: center; gap: 10px; }
+.settings-row input[type=checkbox] { justify-self: start; width: 18px; height: 18px; }
+.settings-value { text-align: right; font-variant-numeric: tabular-nums; color: #9fc4e6; }
+.settings-note { margin: 4px 0; color: #9fb4c8; font-size: 13px; }
+.settings-keys { display: grid; grid-template-columns: 1fr 140px; gap: 6px 12px; align-items: center; }
+.settings-keys button.active { background: #f3d36b; color: #111; }
+.settings-buttons { display: grid; gap: 8px; max-width: 360px; }
+button.danger { background: #7a1f1f; color: #fff; border-color: #a33; }
+/* while playing, the game's own HUD menus replace the viewer toolbar */
+.playing #play, .playing #arsenalBtn, .playing #spawnJelly, .playing .toolbar label.button { display: none; }
+.no-hint .playing .hint-bar, body.no-hint #playHint { display: none; }
+/* the controls card (the HUD's ? button): solid, in the HUD's colours, above the game */
+.playing .hint-bar { background: #12202e; color: #dbe9f7; border: 2px solid #3c6a8f; opacity: 1; z-index: 6; bottom: 90px; }

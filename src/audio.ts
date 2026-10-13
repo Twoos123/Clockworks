@@ -44,6 +44,9 @@ export class AudioSystem {
   private recent = new Map<string, number>();
   volume = 0.8;
   musicVolume = 0.45;
+  /** Sound effects and menu sounds, relative to the master volume. */
+  effectsVolume = 1;
+  uiVolume = 1;
   muted = false;
 
   constructor(private readonly vfs: Vfs, loader: ModelLoader) {
@@ -73,6 +76,7 @@ export class AudioSystem {
     if (!this.master || !this.musicBus) return;
     this.master.gain.value = this.muted ? 0 : this.volume;
     this.musicBus.gain.value = this.musicVolume;
+    if (this.sfx) this.sfx.gain.value = this.effectsVolume;
   }
 
   setListener(p: Vec3) { this.listener = p; }
@@ -185,7 +189,7 @@ export class AudioSystem {
   }
 
   /** A UI feedback sound (StyleConfig feedbackSound files such as sound/feedback/ui_confirm.ogg). */
-  ui(file: string, gain = 0.8) { void this.clip(file, gain, 1, false, {}, null, 0); }
+  ui(file: string, gain = 0.8) { void this.clip(file, gain * this.uiVolume / Math.max(0.01, this.effectsVolume), 1, false, {}, null, 0); }
 
   /** Starts a looping ambient sounder (wind, rain) that plays until stopAmbience. */
   ambient(ref: any) {

@@ -52,9 +52,10 @@ export class Arsenal {
     private readonly owned: () => Set<string>, private readonly buy: (name: string, cost: number) => boolean) {}
 
   /** Opens the arsenal (owned gear), or a shop when `shop` is given. */
-  async open(loadout: Loadout, shop: ShopMode | null = null) {
+  async open(loadout: Loadout, shop: ShopMode | null = null, tab?: Tab) {
     this.loadout = { ...loadout, weapons: [...loadout.weapons], trinkets: [...(loadout.trinkets ?? [])] };
     this.shop = shop;
+    if (tab) this.tab = tab;
     if (shop && !shop.tabs.includes(this.tab)) this.tab = shop.tabs[0];
     await this.data.preload("config/item.dat");
     this.root.hidden = false;

@@ -17,8 +17,9 @@ export interface PadState {
   item: number;
 }
 
-const DEAD = 0.2;
-const dz = (x: number, y: number): [number, number] => (Math.hypot(x, y) < DEAD ? [0, 0] : [x, y]);
+/** Stick dead zone (the options menu sets it). */
+export const pad = { deadZone: 0.2 };
+const dz = (x: number, y: number): [number, number] => (Math.hypot(x, y) < pad.deadZone ? [0, 0] : [x, y]);
 
 export class Gamepads {
   private prev = new Map<number, boolean>();

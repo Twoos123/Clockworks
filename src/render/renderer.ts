@@ -389,6 +389,9 @@ export class Renderer {
   private readonly particleVao: WebGLVertexArrayObject;
   /** Emitters per model instance, one per placement in traversal order. */
   private readonly emitters = new WeakMap<ModelInstance, Emitter[]>();
+  /** Particle effects in the scene (the options menu can turn them off; HUD views keep theirs). */
+  particlesOn = true;
+  private drawingOffscreen = false;
   private lastTime = 0;
   private view: Mat4 = identity();
   private instanceData = new Float32Array(16 * 1024);
@@ -612,6 +615,12 @@ export class Renderer {
    */
   renderToPixels(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4, width: number, height: number,
     env: Environment = VIEWER_ENVIRONMENT): ImageData {
+    this.drawingOffscreen = true;
+    try { return this.renderToPixelsInner(items, proj, view, width, height, env); } finally { this.drawingOffscreen = false; }
+  }
+
+  private renderToPixelsInner(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4, width: number, height: number,
+    env: Environment): ImageData {
     const gl = this.gl;
     let o = this.offscreen;
     if (!o || o.w !== width || o.h !== height) {
@@ -848,7 +857,7 @@ export class Renderer {
         inst.boneParent = skel.inst;
         inst.bonePlacement = skel.placement;
       }
-      if (inst.model.particles?.length) {
+      if (inst.model.particles?.length && (this.particlesOn || this.drawingOffscreen)) {
         const n = visits.get(inst) ?? 0;
         visits.set(inst, n + 1);
         let list = this.emitters.get(inst);

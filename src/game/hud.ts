@@ -6,6 +6,9 @@ import type { World } from "./world";
 
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D;
+  /** Display options from the options menu. */
+  options = { healthBars: true, damageNumbers: true, hudScale: 1, fps: false };
+  private fpsTimes: number[] = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext("2d")!;
@@ -34,7 +37,7 @@ export class Hud {
     };
 
     // monster health bars
-    for (const m of world.liveMonsters) {
+    for (const m of this.options.healthBars ? world.liveMonsters : []) {
       if (m.health >= m.maxHealth) continue;
       const p = project(m.x, m.y, m.z + 1.3 * m.scale + 0.3);
       if (!p) continue;
@@ -48,7 +51,7 @@ export class Hud {
     // floating damage numbers
     g.textAlign = "center";
     g.font = "bold 18px system-ui, sans-serif";
-    for (const f of world.floaters) {
+    for (const f of this.options.damageNumbers ? world.floaters : []) {
       const p = project(f.x, f.y, f.z + f.age * 1.2);
       if (!p) continue;
       g.globalAlpha = Math.max(0, 1 - f.age / 1.2);
@@ -74,6 +77,19 @@ export class Hud {
       }
     }
     g.textAlign = "left";
-    overlay?.(g, cw, ch);
+    // the game's HUD panels, at the chosen size
+    const s = this.options.hudScale;
+    g.save();
+    g.scale(s, s);
+    overlay?.(g, cw / s, ch / s);
+    g.restore();
+    if (this.options.fps) {
+      const now = performance.now();
+      this.fpsTimes.push(now);
+      while (this.fpsTimes.length && this.fpsTimes[0] < now - 1000) this.fpsTimes.shift();
+      g.font = "bold 12px system-ui, sans-serif";
+      g.fillStyle = "#e6f2ff";
+      g.fillText(`${this.fpsTimes.length} fps`, cw / 2 - 20, 14);
+    }
   }
 }

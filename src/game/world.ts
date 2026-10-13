@@ -881,6 +881,7 @@ export class World implements LogicHost {
   // ---------------------------------------------------------------- update
 
   update(dt: number, input: KnightInput) {
+    this.clock += dt;
     this.updateKnight(dt, input);
     for (const m of this.monsters) this.updateMonster(m, dt);
     this.updateProps(dt, !!input.interact && !this.knight.dead);
@@ -944,9 +945,12 @@ export class World implements LogicHost {
   }
 
   /** The aim angle, snapped to a monster in the weapon's targeting cone when there is one. */
+  /** Guns and bombs turn toward monsters near the aim (the options menu can turn it off). */
+  autoAimOn = true;
+
   private autoAim(aimAngle: number): number {
     const k = this.knight, w = k.weapon;
-    if (!w || w.targetingDist <= 0) return aimAngle;
+    if (!this.autoAimOn || !w || w.targetingDist <= 0) return aimAngle;
     const cone = (w.targetingAngle * Math.PI) / 180;
     let best: number | null = null, bestDist = Infinity;
     for (const m of this.monsters) {
@@ -1563,8 +1567,24 @@ export class World implements LogicHost {
     target.ky = ((target.y - fy) / d) * v;
   }
 
+  /** The monster last struck and when (seconds of world time), for the HUD's target panel. */
+  private lastStruck: { m: Monster; at: number } | null = null;
+  private clock = 0;
+  private hudKeys = 0;
+
+  /** The target panel's monster: the last one struck, while alive and for a few seconds after. */
+  hudTarget(): import("../ui/hud").HudTarget | null {
+    const t = this.lastStruck;
+    if (!t || this.clock - t.at > 6 || (t.m.state === "dying" && this.clock - t.at > 1.5)) return null;
+    const name = (t.m.entity?.name ?? "").split("/").pop()!.replace(/\s+\d+(\.\d+)?$/, "");
+    const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(t.m.entity?.name ?? "")?.[1]?.toLowerCase() ?? "";
+    const key = ((t.m as any).hudKey ??= ++this.hudKeys);
+    return { key: key + name, name, health: t.m.health, maxHealth: t.m.maxHealth, family: fam, model: t.m.def.model, idle: t.m.def.idle ?? null };
+  }
+
   private damageMonster(m: Monster, amounts: Amounts, knockback: number, fx: number, fy: number) {
     if (m.passive) return;
+    this.lastStruck = { m, at: this.clock };
     // gear bonuses against the monster's family (the family is its folder: Monster/Slime/...)
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(m.entity?.name ?? "")?.[1]?.toLowerCase();
     const bonus = fam ? (amounts as any).tagged?.[`fam_${fam}`] ?? 0 : 0;

@@ -24,7 +24,9 @@ export class PortraitView {
 
   constructor(private readonly renderer: Renderer, private readonly loader: ModelLoader,
     /** Overrides the view's model reference (e.g. the knight's current gear). */
-    private readonly modelRef?: any) {}
+    private readonly modelRef?: any,
+    /** The animation the model idles with (a path or reference), or null for none. */
+    private readonly idle: any = "character/pc/idle.dat") {}
 
   private async load(view: any) {
     this.loading = true;
@@ -34,7 +36,7 @@ export class PortraitView {
       if (!ref?.name) return;
       const model = await this.loader.load(ref.name, ref);
       const inst = await this.renderer.instantiate(model);
-      const idle = await loadAnimation(this.loader, "character/pc/idle.dat").catch(() => null);
+      const idle = this.idle ? await loadAnimation(this.loader, this.idle).catch(() => null) : null;
       if (idle) inst.play(idle, { loop: true });
       const t = readTransform(vm?.transform);
       this.placement = t.matrix ?? compose(t.t, t.r, t.s);

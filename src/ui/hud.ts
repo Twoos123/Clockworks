@@ -5,7 +5,7 @@
 
 import { CONFIG_REF } from "../config/params";
 import type { World } from "../game/world";
-import { buildInterface, loadPseudo, pack, render, type Component, type GuiContext, type RenderHooks } from "./gui";
+import { buildInterface, hitTest, loadPseudo, pack, render, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { ScriptRunner } from "./script";
 import { Minimap } from "./minimap";
 
@@ -14,6 +14,31 @@ const QUICKBAR = "ui/hud_v2/interface_quickbar.dat";
 const HIT_FLASH = "ui/hud_v2/interface_hitflash.dat";
 const LOW_HEALTH = "ui/hud_v2/interface_lowhealth.dat";
 const MINIMAP = "ui/hud_v2/interface_minimap.dat";
+const MENU_LEFT = "ui/hud_v2/interface_menu-left.dat";
+const MENU_RIGHT = "ui/hud_v2/interface_menu-right.dat";
+const ACTIVITIES = "ui/hud_v2/interface_activities.dat";
+const OBJECTIVE = "ui/hud_v2/interface_objective.dat";
+const TARGET = "ui/hud_v2/interface_status-mini.dat";
+const COOLDOWN = "ui/hud_v2/parts/interface_cooldown.dat";
+
+/**
+ * Text for the HUD's message keys. The game's message bundles are in its code jars, which
+ * this project does not read, so the labels are written here.
+ */
+const LABELS: Record<string, string> = {
+  button_haven: "Return to Haven", button_readyroom: "Ready Room", button_guildhall: "Guild Hall",
+  button_furni: "Furniture", button_missions: "Missions", button_supplydepot: "Supply Depot",
+};
+/** Menu buttons and the keys shown on their badges. */
+const MENU_KEYS: Record<string, string> = {
+  button_menu: "esc", button_help: "H", button_social: "G", button_gear: "C", button_loadout: "I", button_forge: "K", button_arsenal: "B",
+};
+/** Parts with nothing behind them in single player (PvP, parties, trades, mail, news). */
+const HIDDEN = ["button_spare", "button_visithalls", "container_pvp", "button_pvp_spectate", "container_partyfinder",
+  "button_traderequest", "button_partyinvite", "button_partyfound", "button_feed", "button_mail", "panel_div", "notes_div"];
+
+/** The monster the knight is fighting, for the target panel. */
+export interface HudTarget { key: string; name: string; health: number; maxHealth: number; family: string; model: any; idle: any }
 /** The low-health frame shows below this fraction of maximum health (our choice). */
 const LOW_HEALTH_FRACTION = 0.25;
 /** One health pip (12 px wide in the images) stands for this much health. */
@@ -42,6 +67,13 @@ export interface HudState {
   vitapod: { icon: any; count: number } | null;
   /** The equipped weapon's level (the heat meter), or 0 outside the Clockworks. */
   heatLevel: number;
+  /** Seconds until the knight can dash again. */
+  dashCooldown: number;
+  target: HudTarget | null;
+  /** Lines for the objective panel. */
+  objectives: string[];
+  /** In a town (the activities panel opens; in dungeons it starts folded). */
+  town: boolean;
 }
 
 export function hudState(world: World, name: string, floor = ""): HudState {
@@ -54,6 +86,9 @@ export function hudState(world: World, name: string, floor = ""): HudState {
     pocket: world.pocket.map(([n, c]) => ({ icon: world.pocketItem(n)?.icon ?? null, count: c })),
     vitapod: world.vitapod,
     heatLevel: world.depth > 0 ? world.weaponLevels.get(k.weapon?.name ?? "") ?? 1 : 0,
+    dashCooldown: Math.max(0, k.dashCooldown),
+    target: world.hudTarget(),
+    objectives: [], town: false,
   };
 }
 
@@ -84,7 +119,7 @@ export class GameHud {
 
   /** Starts loading the interfaces; draw() shows them once ready. */
   async init(state: HudState) {
-    await Promise.all([this.rebuildStatus(state), this.buildQuickbar(),
+    await Promise.all([this.rebuildStatus(state), this.buildQuickbar(), this.buildMenus(),
       buildInterface(this.ctx, ref(HIT_FLASH)).then(ui => { this.hitFlash = ui; }),
       buildInterface(this.ctx, ref(LOW_HEALTH)).then(ui => { this.lowHealth = ui; }),
       buildInterface(this.ctx, ref(MINIMAP)).then(ui => { this.minimapUi = ui; })]);
@@ -118,6 +153,94 @@ export class GameHud {
     this.quickbar = ui;
   }
 
+  private menuLeft: Component | null = null;
+  private menuRight: Component | null = null;
+  private activities: Component | null = null;
+  private objective: Component | null = null;
+  private cooldown: Component | null = null;
+  private target: Component | null = null;
+  private targetKey = "";
+  private folded = new Map<Component, boolean>();
+  private townBuilt: boolean | null = null;
+  private hovered: Component | null = null;
+  /** Display options: the minimap and the red flash when hit. */
+  options = { minimap: true, screenFlash: true };
+
+  /** The corner menus, the activities and objective panels and the dash cooldown. */
+  private async buildMenus() {
+    const [l, r, a, o, c] = await Promise.all([
+      buildInterface(this.ctx, ref(MENU_LEFT)), buildInterface(this.ctx, ref(MENU_RIGHT)),
+      buildInterface(this.ctx, ref(ACTIVITIES)), buildInterface(this.ctx, ref(OBJECTIVE)),
+      buildInterface(this.ctx, ref(COOLDOWN, { Icon: "ui/icon/cooldown/cd_d.png", "Seconds Remaining": "" })),
+    ]);
+    for (const ui of [l, r, a]) {
+      if (!ui) continue;
+      for (const [tag, key] of Object.entries(MENU_KEYS)) {
+        const hk = ui.find(tag)?.find("hotkey");
+        if (hk) { hk.text = key; hk.visible = key !== "esc"; }
+      }
+      for (const tag of HIDDEN) { const b = ui.find(tag); if (b) b.visible = false; }
+    }
+    if (a) {
+      for (const [tag, text] of Object.entries(LABELS)) { const b = a.find(tag); if (b) b.text = text; }
+      const t = a.find("label_title"); if (t) t.text = "Activities";
+    }
+    if (o) { const t = o.find("label_title"); if (t) t.text = "Current Objective"; }
+    if (c) { const v = findKind(c, "view"); if (v) v.viewOwner = "cooldown"; }
+    this.menuLeft = l; this.menuRight = r; this.activities = a; this.objective = o; this.cooldown = c;
+    // load the target panel's images and fonts now, so the first monster struck shows at once
+    void buildInterface(this.ctx, ref(TARGET, { Name: "", "Dungeon UI": true, Background: "Half" }));
+  }
+
+  private async rebuildTarget(t: HudTarget) {
+    this.targetKey = t.key;
+    const ui = await buildInterface(this.ctx, ref(TARGET, { Name: t.name, "Dungeon UI": true,
+      "Family Icon": t.family ? `ui/icon/theme/${t.family}.png` : null, "Health Max": 100, "Health Current": 100,
+      Background: "Half", Model: t.model }));
+    if (ui && this.targetKey === t.key) {
+      const p = ui.find("portrait");
+      const v = p ? findKind(p, "view") : null;
+      if (v) v.viewOwner = "target";
+      this.target = ui;
+    }
+  }
+
+  /** Folds or unfolds a panel (its handle was clicked): the middle hides, the handle stays. */
+  private fold(ui: Component, folded: boolean) {
+    this.folded.set(ui, folded);
+    for (const tag of ["middle", "left"]) { const m = ui.find(tag); if (m) m.visible = !folded; }
+  }
+
+  private panels() { return [this.menuLeft, this.menuRight, this.activities, this.objective].filter((x): x is Component => !!x); }
+
+  /**
+   * The mouse at canvas point (x, y): lights the button under it, and on `click` returns that
+   * button's tag ("button_loadout", "button_missions"...). Panel handles fold their panel.
+   */
+  pointer(x: number, y: number, click: boolean): string | null {
+    const isButton = (c: Component) => c.kind === "button";
+    let hit: Component | null = null, owner: Component | null = null;
+    for (const ui of this.panels()) {
+      const h = hitTest(ui, x, y, isButton);
+      if (h) { hit = h; owner = ui; break; }
+    }
+    if (this.hovered !== hit) {
+      if (this.hovered) this.hovered.hover = false;
+      if (hit) hit.hover = true;
+      this.hovered = hit;
+    }
+    if (!click || !hit || !owner) return null;
+    if (hit.tag === "handle") { this.fold(owner, !this.folded.get(owner)); return "handle"; }
+    // a menu item's tag sits on its interface host; the clickable part is the inner button
+    if (hit.tag === "button") return findHost(owner, hit)?.tag ?? null;
+    return hit.tag || null;
+  }
+
+  /** True when (x, y) is over a HUD button (clicks there do not attack). */
+  covers(x: number, y: number): boolean {
+    return this.panels().some(ui => !!hitTest(ui, x, y, c => c.kind === "button"));
+  }
+
   private runner(ui: Component) {
     let r = this.runners.get(ui);
     if (!r) this.runners.set(ui, r = new ScriptRunner(ui));
@@ -130,9 +253,32 @@ export class GameHud {
     if (this.quickbar) this.bindQuickbar(this.quickbar, state);
     const label = this.minimapUi?.find("floorlabel");
     if (label) label.text = state.floor;
+    // the activities panel is open in towns and folded in the Clockworks
+    if (this.activities && this.townBuilt !== state.town) { this.townBuilt = state.town; this.fold(this.activities, !state.town); }
+    if (this.objective) {
+      const list = this.objective.find("objectives");
+      if (list) {
+        state.objectives.forEach((line, i) => { const row = list.children[i]; if (row) { row.text = "- " + line; row.visible = true; } });
+        for (let i = state.objectives.length; i < list.children.length; i++) list.children[i].visible = false;
+      }
+      this.objective.visible = state.objectives.length > 0;
+    }
+    if (this.cooldown) {
+      this.cooldown.visible = state.dashCooldown > 0.05;
+      const s = this.cooldown.find("secondsleft");
+      if (s) s.text = String(Math.ceil(state.dashCooldown));
+    }
+    // the target panel: the monster most recently struck, with its health
+    const t = state.target;
+    if (!t) { this.target = null; this.targetKey = ""; }
+    else {
+      if (t.key !== this.targetKey) { this.target = null; void this.rebuildTarget(t); }
+      const hb = this.target?.find("health_ui") ?? null;
+      bar(hb, 180, 180 * Math.max(0, t.health) / Math.max(1, t.maxHealth), 0);
+    }
     // damage: the red screen flash and the health bar's shake, both scripted in the interfaces
     if (this.lastHealth >= 0 && state.health < this.lastHealth) {
-      if (this.hitFlash) this.runner(this.hitFlash).runScript(ref("Red Pulse"));
+      if (this.hitFlash && this.options.screenFlash) this.runner(this.hitFlash).runScript(ref("Red Pulse"));
       const bar = this.status?.find("health_ui");
       if (bar) this.runner(bar).runScript(ref("Shake"));
     }
@@ -250,15 +396,35 @@ export class GameHud {
       const size = pack(this.status);
       render(this.status, g, 0, size.height, this.hooks);
     }
-    if (this.minimapUi) {
+    if (this.minimapUi && this.options.minimap) {
       // the minimap sits in the upper-right corner
       const size = pack(this.minimapUi);
       render(this.minimapUi, g, cw - size.width, size.height, this.hooks);
     }
+    const mapHeight = this.minimapUi?.height ?? 0;
     if (this.quickbar) {
       const size = pack(this.quickbar);
       render(this.quickbar, g, Math.round((cw - size.width) / 2), ch - 8, this.hooks);
+      // the dash cooldown sits 60 pixels above the quickbar (the HUD mockup's anchor)
+      if (this.cooldown?.visible) {
+        const cs = pack(this.cooldown);
+        render(this.cooldown, g, Math.round((cw - cs.width) / 2), ch - 8 - size.height - 60 + cs.height, this.hooks);
+      }
     }
+    // corner menus: the left one in the lower-left corner, the right one in the lower-right
+    if (this.menuLeft) { pack(this.menuLeft); render(this.menuLeft, g, 0, ch, this.hooks); }
+    if (this.menuRight) { const s = pack(this.menuRight); render(this.menuRight, g, cw - s.width, ch, this.hooks); }
+    // the objective and activities panels hang down the right side under the minimap
+    let y = mapHeight + 8;
+    for (const ui of [this.objective, this.activities]) {
+      if (!ui?.visible) continue;
+      const s = pack(ui);
+      y += s.height;
+      render(ui, g, cw - s.width, y, this.hooks);
+      y += 6;
+    }
+    // the target panel hangs from the top, 200 pixels in from the right edge
+    if (this.target) { const s = pack(this.target); render(this.target, g, cw - 200 - s.width, s.height, this.hooks); }
   }
 }
 
@@ -272,4 +438,26 @@ function bar(part: Component | null, max: number, current: number, damage: numbe
   set("health_backing", max);
   set("health", Math.min(max, current));
   set("health_difference", Math.min(max, current + damage));
+}
+
+/** The first descendant of a kind (e.g. a panel's RenderableView). */
+function findKind(c: Component, kind: string): Component | null {
+  if (c.kind === kind) return c;
+  for (const k of c.children) { const r = findKind(k, kind); if (r) return r; }
+  return null;
+}
+
+/** The nearest tagged ancestor of `target` under `root` (a menu item's interface host). */
+function findHost(root: Component, target: Component): Component | null {
+  const path: Component[] = [];
+  const walk = (c: Component): boolean => {
+    path.push(c);
+    if (c === target) return true;
+    for (const k of c.children) if (walk(k)) return true;
+    path.pop();
+    return false;
+  };
+  if (!walk(root)) return null;
+  for (let i = path.length - 2; i >= 0; i--) if (path[i].tag && path[i].tag !== "button" && path[i].tag !== "menuitem") return path[i];
+  return null;
 }
