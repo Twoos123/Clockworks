@@ -24,7 +24,7 @@ import { ACTIONS, loadSettings, SettingsMenu, type Action, type Settings } from 
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, gateFloors, stratumTables, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
@@ -677,6 +677,11 @@ class Viewer {
 
   /** What the HUD shows besides the knight: the objective lines and whether this is a town. */
   private hudContext(): { objectives: string[]; town: boolean } {
+    const f = this.gate ? this.floors[this.run.depth] : null;
+    if (f && (f.kind === "terminal" || f.kind === "subtown" || f.kind === "core")) {
+      return { town: true, objectives: [`${f.name}, depth ${f.depth}: rest, resupply at the Supply Depot, then take the elevator down.`] };
+    }
+    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? BOSSES[f.stratum.boss].name : "the boss"}.`, "The elevator opens when it falls."] };
     const town = !!this.scene && TOWN.test(this.scene.name);
     const a = this.world?.arena;
     const objectives = town ? ["Visit the shops, then enter the Clockworks."]
@@ -776,7 +781,10 @@ class Viewer {
     const tabs: ShopMode["tabs"] = /sword|gun|bomb|weapon/.test(k) ? ["weapons"] : /armor|helm/.test(k) ? ["armor", "helmet"]
       : /shield/.test(k) ? ["shield", "trinket"] : /trinket|jewel/.test(k) ? ["trinket"] : ["weapons", "shield", "armor", "helmet", "trinket", "vitapod"];
     this.paused = true;
-    await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity: shopTier(this.save) });
+    // in the Clockworks a terminal's Supply Depot stocks gear for its tier
+    const f = this.gate ? this.floors[this.run.depth] : null;
+    const maxRarity = f ? Math.max(shopTier(this.save), tierStars(f.tier)) : shopTier(this.save);
+    await this.ensureArsenal().open(this.save.loadout, { title: keeper.split("/").pop() ?? "Shop", tabs, maxRarity });
   }
 
   /** The knight reached the exit elevator: offer the next floor. */
@@ -1008,6 +1016,11 @@ class Viewer {
       await this.selectScene(sc.id);
       await this.startPlaying();
       if (this.bossFloor) this.spawnBoss(this.bossFloor);
+      // terminals and subtowns are safe floors: the knight is healed on arrival
+      if ((f.kind === "terminal" || f.kind === "subtown" || f.kind === "core") && this.world) {
+        this.world.knight.health = this.world.knight.maxHealth;
+        this.run.health = null;
+      }
       return;
     }
     let next = this.nextLevel();
