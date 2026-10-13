@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Clyde Web Viewer</title>
+  <title>Spiral Knights</title>
+  <script>if (!/viewer|dev=1/.test(location.hash)) document.documentElement.classList.add("game");</script>
   <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
   <section id="welcome" class="welcome">
     <div class="card">
-      <h1>Clyde Web Viewer</h1>
-      <p>A browser viewer for models built with Three Rings' open-source Clyde engine.
-        It reads models straight from your own game install. Files stay on your computer and
-        are never uploaded.</p>
-      <p class="hint">Pick the game's install folder (the one containing <code>rsrc</code>).
+      <h1>Spiral Knights</h1>
+      <p id="welcomeIntro">A single-player port that plays from your own game install. The game's files
+        stay on your computer: nothing is uploaded or downloaded.</p>
+      <p class="hint">Choose the game's install folder (the one containing <code>rsrc</code>).
         For a Steam install that is usually
         <code>C:\Program Files (x86)\Steam\steamapps\common\Spiral Knights</code>.</p>
       <div class="actions">
@@ -72,8 +72,6 @@
         <button id="pause" title="Pause animation">Pause</button>
         <button id="reset" title="Reset camera">Reset view</button>
         <button id="play" class="primary" hidden title="Play in this scene (WASD to move, click to attack, Esc to stop)">Play as knight</button>
-        <button id="clockworks" class="primary" hidden title="Start a run through the Clockworks from this town">Enter the Clockworks</button>
-        <button id="arenaBtn" hidden title="Fight waves of monsters on a cached level">Arena</button>
         <button id="arsenalBtn" title="Choose weapons and gear (I while playing)">Arsenal</button>
         <button id="spawnJelly" hidden title="Spawn a Jelly Cube next to your knight">Spawn jelly</button>
         <label class="button"><input id="fog" type="checkbox" checked> Fog</label>

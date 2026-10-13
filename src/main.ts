@@ -19,7 +19,6 @@ import { GameScreens } from "./ui/screens";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
-import { openWardrobe } from "./ui/wardrobe";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen } from "./ui/elevator";
 import { MusicPlayer } from "./game/musicplayer";
@@ -31,6 +30,7 @@ import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
 import { generateLevel, type TileInfo } from "./gen/level";
+import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
@@ -55,8 +55,8 @@ const THEMES: { key: string; test: RegExp; label: string }[] = [
   { key: "clockworks", test: /^(terminal 1|emberlight|terminal core)/i, label: "Clockwork Tunnels" },
 ];
 const themeOf = (name: string) => THEMES.find(t => t.test.test(name)) ?? null;
-/** Generated floor ids: "gen:<theme>:<seed>". */
-const GEN = /^gen:([a-z-]+):(\d+)$/;
+/** Generated floor ids: "gen:<theme>:<seed>", or "gen:<theme>:<seed>:<boss>" for a boss arena. */
+const GEN = /^gen:([a-z-]+):(\d+)(?::([a-z]+))?$/;
 
 import { invert } from "./math";
 import {
@@ -68,11 +68,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 // ---------------------------------------------------------------- choosing the install
 
 async function start() {
-  if (GAME) {
-    document.title = "Spiral Knights";
-    document.querySelector("#welcome h1")!.textContent = "Spiral Knights";
-    document.querySelector("#welcome .card p")!.textContent =
-      "A single-player browser port of Spiral Knights that plays from your own game install. Nothing is uploaded or downloaded: the game's files stay on your computer.";
+  if (!GAME) {
+    document.title = "Clyde Web Viewer";
+    document.querySelector("#welcome h1")!.textContent = "Clyde Web Viewer";
+    $("welcomeIntro").textContent = "A browser viewer for models built with Three Rings' open-source Clyde engine. " +
+      "It reads models straight from your own game install. Files stay on your computer and are never uploaded.";
   }
   // Wire every control before any async work, so a folder picked immediately is not lost.
   $("pick").onclick = async () => {
@@ -113,7 +113,18 @@ async function start() {
       await open(() => new HandleVfs(saved).init());
     };
   }
-  if (location.hash.includes("dev=1") && !$("dev").hidden) await open(async () => new DevServerVfs());
+  if (location.hash.includes("dev=1") && !$("dev").hidden) return void await open(async () => new DevServerVfs());
+  if (GAME) {
+    // the game never asks for its install: the local server (npm start, or the dev server)
+    // finds it and serves it; without one the page explains how to start the game
+    if (!$("dev").hidden) return void await open(async () => new DevServerVfs());
+    $("welcome").querySelector(".actions")!.remove();
+    $("welcome").querySelectorAll(".hint").forEach(h => h.remove());
+    $("welcomeIntro").innerHTML = "Spiral Knights wasn't found on this computer.<br><br>Start the game with <code>npm start</code>: " +
+      "it finds your install (Steam or the standalone installer) by itself. If the game is somewhere unusual, " +
+      "set <code>SK_DIR</code> to its folder first.";
+  }
+  $("welcome").classList.add("ready");
 }
 
 function showWelcomeError(msg: string) {
@@ -285,7 +296,7 @@ class Viewer {
       void this.startPlaying();
     };
     // the run's menu buttons click with the game's button sound
-    for (const id of ["descend", "deeper", "revive", "giveUp", "clockworks", "arenaBtn"]) {
+    for (const id of ["descend", "deeper", "revive", "giveUp"]) {
       $(id).addEventListener("click", () => this.uiSound(id === "giveUp" ? "sound/feedback/ui_dismiss.ogg" : "sound/feedback/button_press.ogg"));
     }
     $("descend").onclick = () => void this.descend();
@@ -294,8 +305,6 @@ class Viewer {
       if (this.gate) { $("floorDone").hidden = true; this.paused = false; this.gate = null; void this.returnToHaven(); return; }
       void this.descend(true);
     };
-    $("clockworks").onclick = () => this.openGates();
-    $("arenaBtn").onclick = () => void this.enterArena();
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
     // reviving costs crowns from the bank (the game spends energy); giving up returns to town
     $("revive").onclick = () => {
@@ -502,7 +511,7 @@ class Viewer {
    * new layout with their spawners, treasure and elevators (src/gen).
    */
   private async generatedRoot(id: string): Promise<any> {
-    const [, key, seed] = GEN.exec(id)!;
+    const [, key, seed, boss] = GEN.exec(id)!;
     // the theme's tiling: learned from its cached levels, mirrored from a related theme, or
     // rule-based (src/gen/themes.ts)
     const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
@@ -516,6 +525,9 @@ class Viewer {
     // their monsters another way
     const others = this.runLevels().filter(s => !ids.includes(s.id)).map(s => s.id);
     const pool = (await Promise.all(others.map(async sid => (await readRoot(sid)).entries ?? []))).flat();
+    // a boss's arena (src/game/bosses.ts): its own plan, props and gates
+    if (boss) return bossArena(boss as BossKey, level.sources, Number(seed), this.genNames.get(id) ?? BOSSES[boss as BossKey].level, pool,
+      { model: level.model, globals: level.globals });
     const style = this.genStyles.get(id);
     const root = generateLevel(level.sources, () => ({ width: 1, height: 1, walkable: false }), Number(seed),
       this.genNames.get(id) ?? `${level.def.label} · new floor`, pool, { model: level.model, globals: level.globals, layout: layoutFor(style) });
@@ -647,9 +659,6 @@ class Viewer {
     world.onNextFloor = () => this.floorCleared();
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = keeper => void this.openShop(keeper);
-    const town = TOWN.test(this.scene.name);
-    $("clockworks").hidden = !town;
-    $("arenaBtn").hidden = !town;
     world.color = this.save.color;
     world.gear = this.save.gear;
     if (this.eco) world.economy = this.eco;
@@ -690,7 +699,6 @@ class Viewer {
     } });
     void this.gameHud.init(hudState(world, knightName(this.save))).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
-    if (import.meta.env.DEV) openWardrobe(this.outfit, () => this.world, () => this.save, () => writeSave(this.save));
     // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
     const cam = this.environment.camera;
     this.el = cam?.elevation ?? 0.785;
@@ -716,8 +724,6 @@ class Viewer {
     this.hud?.clear();
     $("defeated").hidden = true;
     $("floorDone").hidden = true;
-    $("clockworks").hidden = true;
-    $("arenaBtn").hidden = true;
     $("spawnJelly").hidden = true;
     this.keys.clear();
     $("play").textContent = "Play as knight";
@@ -1322,7 +1328,7 @@ class Viewer {
     }
     const theme = genTheme(f.tileset);
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
-    const id = `gen:${theme}:${seed}`;
+    const id = f.kind === "boss" ? `gen:${theme}:${seed}:${s.boss}` : `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
     if (f.special) this.genStyles.set(id, f.special);
@@ -1330,23 +1336,30 @@ class Viewer {
   }
   private usedScenes = new Set<string>();
 
-  /** A boss floor: the boss's actors wait by the exit elevator, which stays shut until they fall. */
+  /** A boss floor: the boss's fight director runs its arena; the exit stays shut until it is won. */
   private spawnBoss(key: BossKey) {
-    const w = this.world, scene = this.scene;
-    if (!w || !scene) return;
-    const exit = scene.logic.find(l => /Elevator\/Next Floor/.test(l.name));
-    const [x, y] = exit ? [exit.x, exit.y] : [w.knight.x + 6, w.knight.y];
-    BOSSES[key].actors.forEach((name, i) => {
-      const spot = scene.collision.findSpawn(x + (i ? 4 : -2), y + 2, 1.5, 43) ?? [x, y];
-      w.spawnAt({ name }, spot[0], spot[1], Math.atan2(w.knight.y - spot[1], w.knight.x - spot[0]));
-    });
+    if (this.world) startBossFight(key, this.world);
   }
 
   /** The boss of this floor is still standing. */
   private bossAlive(): boolean {
     const w = this.world;
     if (!w || !this.bossFloor) return false;
-    return w.liveMonsters.some(m => /\/Boss\//.test(m.entity?.name ?? "")) || w.logic.actors.some(e => !e.destroyed && /\/Boss\//.test(e.name) && e.mobile);
+    return !(w.boss as BossFight | null)?.defeated;
+  }
+
+  /** Development: plays a boss's arena (window.__viewer.testBoss("snarbolax")). */
+  async testBoss(key: BossKey, depth = BOSSES[key].tier === 1 ? 7 : BOSSES[key].tier === 2 ? 17 : 28) {
+    this.stopPlaying();
+    this.arenaMode = false;
+    this.bossFloor = key;
+    this.run = { depth, health: null, floors: 0 };
+    const id = `gen:${genTheme(BOSSES[key].tileset)}:${(Math.random() * 1e9) >>> 0}:${key}`;
+    this.genNames.set(id, BOSSES[key].level);
+    await this.selectScene(id);
+    await this.startPlaying();
+    this.spawnBoss(key);
+    return this.world?.boss ?? null;
   }
 
   private runLevels(): { id: string; name: string }[] {

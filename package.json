@@ -5,6 +5,8 @@
   "type": "module",
   "license": "BSD-2-Clause",
   "scripts": {
+    "start": "npm run build && tsx server/play.ts",
+    "play": "tsx server/play.ts",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",

@@ -25,6 +25,8 @@ export interface MeshPart {
   vertex: ClientArray;
   normal?: ClientArray;
   texCoord?: ClientArray;
+  /** The second texture-coordinate set, for texture units with coordSet 1. */
+  texCoord1?: ClientArray;
   color?: ClientArray;
   boneIndices?: ClientArray;
   boneWeights?: ClientArray;
@@ -77,6 +79,52 @@ export interface LoadedModel {
   /** ScriptedConfig models: timed model actions (spawn a transient, play a sound). */
   script?: { loopDuration: number; actions: { time: number; action: any }[] };
   bounds?: { min: [number, number, number]; max: [number, number, number] };
+  /** SceneInfluencerConfig lights (LightConfig): lights nearby geometry inside their extent. */
+  light?: LightDef;
+  /** False when the model's InfluenceFlagConfig turns light influences off. */
+  receivesLights?: boolean;
+}
+
+/**
+ * A light influence (SceneInfluenceConfig.Light with its LightConfig), in model space. Exported
+ * configs omit default-valued fields, so LightConfig's defaults fill the gaps.
+ */
+export interface LightDef {
+  kind: "Directional" | "Point" | "Spot";
+  ambient: [number, number, number];
+  diffuse: [number, number, number];
+  /** Point and spot lights. */
+  position: [number, number, number];
+  /** Directional: toward the light. Spot: the spot direction. */
+  direction: [number, number, number];
+  /** Constant, linear and quadratic attenuation. */
+  attenuation: [number, number, number];
+  /** Spot falloff exponent and cutoff angle in degrees. */
+  exponent: number;
+  cutoff: number;
+  /** Full sizes of the influence's box extent (Extent.Limited), or null when unlimited. */
+  extent: [number, number, number] | null;
+}
+
+export function readLight(impl: any): LightDef | null {
+  const l = impl?.influence?.light;
+  const kind = (l?.$class ?? "$Directional").replace(/^.*\$/, "");
+  if (kind !== "Directional" && kind !== "Point" && kind !== "Spot") return null;
+  const v = (o: any, d: [number, number, number]): [number, number, number] => (o ? [o.x ?? 0, o.y ?? 0, o.z ?? 0] : d);
+  const c = (o: any, d: [number, number, number]): [number, number, number] => (o ? [o.r ?? 0, o.g ?? 0, o.b ?? 0] : d);
+  const att = l?.attenuation;
+  const ext = impl.extent;
+  return {
+    kind,
+    ambient: c(l?.colors?.ambient, [0, 0, 0]),
+    diffuse: c(l?.colors?.diffuse, [1, 1, 1]),
+    position: v(l?.position, [0, 0, 0]),
+    direction: v(l?.direction, kind === "Spot" ? [0, 0, -1] : [0, 0, 1]),
+    attenuation: [att?.constant ?? 1, att?.linear ?? 0, att?.quadratic ?? 0],
+    exponent: l?.falloff?.exponent ?? 0,
+    cutoff: l?.falloff?.cutoff ?? 0,
+    extent: ext?.$class?.endsWith("$Unlimited") ? null : [ext?.sizeX ?? 1, ext?.sizeY ?? 1, ext?.sizeZ ?? 1],
+  };
 }
 
 export const inflate = async (data: Uint8Array): Promise<Uint8Array> => {
@@ -112,6 +160,7 @@ function meshPart(ctx: Ctx, m: any, node?: string): MeshPart | null {
     vertex: clientArray(g.vertexArray)!,
     normal: clientArray(g.normalArray),
     texCoord: clientArray(g.texCoordArrays?.[0]),
+    texCoord1: clientArray(g.texCoordArrays?.[1]),
     color: clientArray(g.colorArray),
     indices: g.indices,
     node,
@@ -141,6 +190,10 @@ function boundsOf(b: any): LoadedModel["bounds"] {
   const mn = b.minExtent ?? { x: 0, y: 0, z: 0 }, mx = b.maxExtent ?? { x: 0, y: 0, z: 0 };
   return { min: [mn.x, mn.y, mn.z], max: [mx.x, mx.y, mx.z] };
 }
+
+const EDITOR_LIGHTS = /^editor\/marker\/(point|directional)light\/(model|parts\/influencer_pointlight|influencer_directionallight)\.dat$/;
+/** Editor-only helpers (spawn markers, gizmos) the game never draws; light markers are real lights. */
+export const editorOnly = (name: string) => name.startsWith("editor/") && !EDITOR_LIGHTS.test(name);
 
 export class ModelLoader {
   private readonly cache = new Map<string, Promise<JObject>>();
@@ -194,8 +247,10 @@ export class ModelLoader {
   async loadRef(ref: any, depth = 0, chain: string[] = []): Promise<LoadedModel | null> {
     const name: string | undefined = ref?.name;
     if (!name || !name.endsWith(".dat") || depth > 8) return null;
-    // editor-only helpers (spawn markers, vertices, gizmos) are never drawn in the game
-    if (name.startsWith("editor/")) return null;
+    // editor-only helpers (spawn markers, vertices, gizmos) are never drawn in the game; the
+    // point and directional light markers are real lights though (their visible parts sit
+    // behind a "markersVisible" condition, which loads nothing here)
+    if (editorOnly(name)) return null;
     try { return await this.load(name, ref, depth + 1, chain); } catch { return null; }
   }
 
@@ -207,6 +262,7 @@ export class ModelLoader {
       path, kind: short(impl?.$class ?? "none"), parts: [], attachments: [], autoAnimations: [], animations: {}, procedurals: [], billboards: new Map(), skipped: [],
     };
     if (!impl) return model;
+    if (impl.influences?.lights === false) model.receivesLights = false;
 
     // Derived models point at another model; their own arguments were already pushed into
     // impl.model's argument map by the derived config's parameters
@@ -250,6 +306,13 @@ export class ModelLoader {
         if (cm) { model.attachments.push({ node: "", transform: readTransform(c.transform), model: cm }); model.animations = { ...cm.animations }; return model; }
       }
       model.skipped.push("Conditional (no file-backed case)");
+      return model;
+    }
+
+    if (impl.$class.endsWith("SceneInfluencerConfig") && impl.influence?.$class?.endsWith("$Light")) {
+      const light = readLight(impl);
+      if (light) model.light = light;
+      else model.skipped.push("SceneInfluencer light");
       return model;
     }
 
