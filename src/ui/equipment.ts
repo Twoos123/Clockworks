@@ -195,9 +195,10 @@ export class ArsenalScreen extends GuiScreen {
       this.ui("ui/status/interface_v2.dat"),
       this.ui(HUNGER), this.ui(SKILL),
       this.arsenal.outfit().spriteDefs().catch(() => new Map<string, SpriteDef>()),
-      wardrobe(this.arsenal.data()).then(w => { this.wardrobe = w; }),
     ]);
     if (!left || !right) return null;
+    // the costume and accessory catalogue is read in the background (it is long)
+    void wardrobe(this.arsenal.data()).then(w => { this.wardrobe = w; });
     this.status = right;
     this.hunger = hunger;
     this.skill = skill;

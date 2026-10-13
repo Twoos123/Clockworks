@@ -1780,7 +1780,14 @@ function focusText(root: Component, st: Input, c: Component) {
     else if (e.key === "Escape") el.blur();
   };
   el.onkeyup = e => e.stopPropagation();
-  el.onblur = () => { if (st.focus === c) { st.focus = null; c.focused = false; } };
+  // the press that focused the field goes on to focus its canvas (mousedown's default): a blur
+  // straight after focusing gives the focus back instead of ending it
+  const since = performance.now();
+  el.onblur = () => {
+    if (st.focus !== c) return;
+    if (performance.now() - since < 250) { setTimeout(focus, 0); return; }
+    st.focus = null; c.focused = false;
+  };
   const focus = () => { if (st.focus === c) { el.focus({ preventScroll: true }); el.setSelectionRange(el.value.length, el.value.length); } };
   // the canvas's own pointer-down default may take the focus back, so focus again afterwards
   focus();
