@@ -10,23 +10,32 @@ A single-player loop runs in the browser, built from the install's own data:
    gear for crowns.
 2. **Arsenal.** Every weapon, shield, armour and helmet is available with its icon, plus a
    personal colour.
-3. **Runs.** Enter the Clockworks from town. The run goes through the cached levels in
-   order (Jigsaw Valley, Terminal 1, Emberlight, Dark Halls, Terminal Core), one depth per
-   floor, and the Core's elevator returns to Haven.
-4. **Levels play by their own wiring.**
+3. **Runs.** Enter the Clockworks from town. Each cached combat level is followed by a
+   newly generated floor of its theme, one depth per floor. The Core's elevator returns to
+   Haven; "go deeper" past the end keeps generating floors.
+4. **Generated floors** (`src/gen`).
+   - The level editor's brush libraries ship empty, so the auto-tiling is learned from the
+     theme's cached levels: which tile, rotation and elevation sits in which neighbourhood.
+   - Layouts are rooms joined by corridors three cells wide.
+   - Each room gets the game's own wiring, copied and retagged: a "Player Enter/Spawn
+     Activate" area, "Single Spawn" markers with spawn tables from the sources, and treasure
+     boxes.
+   - The start platform, exit elevator and lighting globals come from the source levels.
+5. **Levels play by their own wiring.**
    - Spawners and trigger areas wake waves.
    - Clearing a wave opens or closes gates.
    - Buttons and platforms send signals.
    - Gold keys unlock gold gates.
    - Monsters drop crowns, heat and items.
    - The exit elevator ends the floor.
-5. **Knockouts.** A knocked-out knight can revive for crowns (25 per depth) or give up and
+6. **Knockouts.** A knocked-out knight can revive for crowns (25 per depth) or give up and
    ride back to Haven with nothing from the floor.
-6. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
-   deeper as they go, with a checkpoint every fifth wave to bank loot.
-7. **Crafting.** Recipes from `config/recipe.dat` turn materials, crowns and a levelled base
+7. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
+   deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
+   boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
+8. **Crafting.** Recipes from `config/recipe.dat` turn materials, crowns and a levelled base
    item into the next item.
-8. **Saving.** The browser keeps:
+9. **Saving.** The browser keeps:
    - loadout, owned items and colour;
    - banked crowns, heat and materials;
    - weapon heat and the pocket;
@@ -47,6 +56,8 @@ A single-player loop runs in the browser, built from the install's own data:
 | Treasure and blocks | Breakable blocks break after a few hits; treasure boxes spill crowns and items from their damage action |
 | Pocket items | Capsules (health, remedy, buffs, barriers) and vials (thrown, splash damage and status), four slots on keys 4 to 7 |
 | Buffs | Attack, defence and speed buffs from `Buff` status conditions, with their HUD icons |
+| Gear bonuses | Two trinket slots and a vitapod slot. Armour, helmets, shields and trinkets add health, damage per weapon class, family damage, charge time, attack and move speed, and status resists |
+| UI sounds | The game's style feedback sounds on the arsenal, shops, crafting and run menus |
 | Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
 | HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
@@ -56,9 +67,9 @@ A single-player loop runs in the browser, built from the install's own data:
 
 **Content**
 
-1. **Levels beyond the cache.** Full dungeon layouts are streamed by the game's servers. The
-   cache holds only levels this account has visited, so a run uses those. A real fix needs
-   a level source: more cached levels from playing, or generated or hand-made layouts.
+1. **Level variety.** Generated floors come in the themes the cache has (Jigsaw Valley and
+   the Clockwork tunnels). More cached levels would add themes and improve the learned
+   tiling. Generated floors have no puzzles, doors or keys.
 2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
    code jars, which this project does not read. Names come from config paths instead.
 3. **Shop catalogues and prices** are server-side. The shops sell from the item library at
@@ -66,10 +77,9 @@ A single-player loop runs in the browser, built from the install's own data:
 
 **Systems**
 
-4. **Vitapods, trinkets and energy.** Trinkets and vitapod slots are not modelled; revives
-   cost crowns rather than energy.
-5. **Bosses and special monsters.** Those that rely on game-code behaviours (Royal Jelly,
-   Snarbolax) need their own AI.
+4. **Energy.** Revives cost crowns rather than energy.
+5. **Boss levels.** Bosses run their own handlers in the Arena. Their scripted arenas (the
+   Jelly Palace, Snarbolax's bells) are server-streamed levels this cache lacks.
 6. **Missions, guilds and PvP.**
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).
 
@@ -92,7 +102,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Model files loaded in the browser | 5,816 of 5,816, no failures |
 | Cached scenes loaded | 12 of 12, zero unresolved references |
 | A full run, Haven to Terminal Core and back | passes (automated) |
-| Unit tests | 13 of 13 |
+| Unit tests | 15 of 15 |
 
 ## Decisions for you
 
