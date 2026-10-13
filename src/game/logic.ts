@@ -200,7 +200,15 @@ export class Logic {
 
   // ------------------------------------------------------------------ handlers
 
+  /**
+   * A handler's action. The game's triggers (spawn markers, one-time actions, buttons) wrap
+   * their action in a Conditional whose condition the export leaves out, yet they fire in the
+   * game; a condition-less Conditional directly under a handler runs its action. Deeper
+   * ones keep Clyde's default condition (an empty tag, which fails), so optional extras
+   * such as pet skills in loot drops stay off.
+   */
   private run(action: any, source: Entity, activator: Entity | null): boolean {
+    if (action && kind(action) === "Conditional" && action.condition == null) return this.execute(action.action, source, activator);
     return this.execute(action, source, activator);
   }
 
@@ -396,7 +404,8 @@ export class Logic {
         return ok;
       }
       case "Conditional":
-        if (this.condition(cfg.condition, source, activator)) return this.execute(cfg.action, source, activator);
+        // a missing condition is Clyde's default Tagged{tag: ""}, which no entity satisfies
+        if (cfg.condition != null && this.condition(cfg.condition, source, activator)) return this.execute(cfg.action, source, activator);
         return cfg.elseAction ? this.execute(cfg.elseAction, source, activator) : true;
       case "Switch": {
         for (const c of cfg.cases ?? []) if (this.condition(c.condition, source, activator)) return this.execute(c.action, source, activator);
