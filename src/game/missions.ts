@@ -135,7 +135,7 @@ export function parseMission(c: any, props: Map<string, any>): Mission | null {
   const i = c?.implementation;
   if (!i?.id) return null;
   const path = String(c.name ?? i.id);
-  const title = path.split("/").pop()!;
+  const last = path.split("/").pop()!;
   const cls = short(i) as MissionClass;
   const restrictions = list(i.restrictions);
   const range = restrictions.find(r => short(r) === "RankRange");
@@ -161,6 +161,7 @@ export function parseMission(c: any, props: Map<string, any>): Mission | null {
   })).filter(r => r.recipe)) : [];
   const gateMatch = /\/Gate\/(\w+)$/.exec(path);
   const gateTheme = cls === "Prestige" && gateMatch && (FAMILIES as readonly string[]).includes(gateMatch[1]) ? gateMatch[1] as Family : null;
+  const title = gateTheme ? `${gateTheme} Stratum` : last;
   const kind: MissionKind = gateTheme ? "gate"
     : reqKind === "Conversation" ? "conversation"
     : reqKind === "GateConversation" ? "gate-conversation"
@@ -391,9 +392,13 @@ export function exchangeNeeds(m: Mission, recipes: Map<string, any>, now = Date.
   return out;
 }
 
-/** Whether the knight has an exchange's items: materials by count, gear owned (at its level). */
+/**
+ * Whether the knight has an exchange's items: materials by count, gear owned (levelled items at
+ * their level). `owned` gives an owned item's level, 0 when it is not owned.
+ */
 export function canExchange(needs: Ingredient[], materials: Record<string, number>, owned: (name: string) => number): boolean {
-  return needs.length > 0 && needs.every(g => (g.level !== undefined ? owned(g.item) > 0 && owned(g.item) >= g.level : (materials[g.item] ?? 0) >= g.count));
+  return needs.length > 0 && needs.every(g => (g.level !== undefined || isGear(g.item) ? owned(g.item) > 0 && owned(g.item) >= (g.level ?? 0)
+    : (materials[g.item] ?? 0) >= g.count));
 }
 
 // ------------------------------------------------------------------------------ rewards

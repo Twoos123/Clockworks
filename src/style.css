@@ -219,7 +219,7 @@ body.game #clockworks, body.game #arenaBtn { display: none; }
 .mission-art canvas { position: absolute; inset: 0; }
 .mission-body { display: grid; gap: 4px; align-content: start; font-size: 12px; }
 .mission-body h3 { margin: 0; color: #f3d36b; font-style: italic; font-size: 15px; }
-.mission-tag { color: #9fb4c8; text-transform: capitalize; }
+.mission-tag { color: #9fb4c8; }
 .mission-summary, .mission-needs, .mission-reward { margin: 0; }
 .mission-needs { color: #e8c38a; }
 .mission-reward { color: #f5c542; }

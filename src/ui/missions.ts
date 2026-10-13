@@ -135,7 +135,14 @@ export class MissionBoard {
       const needs = this.needs(m);
       const save = this.host.save();
       if (!canExchange(needs, save.materials, n => this.ownedLevel(n))) return;
-      for (const g of needs) if (g.level === undefined) save.materials[g.item] = (save.materials[g.item] ?? 0) - g.count;
+      const l = save.loadout, equipped = [...l.weapons, l.shield, l.armor, l.helmet, ...l.trinkets, l.vitapod];
+      const busy = needs.find(g => g.level === undefined && isGear(g.item) && equipped.includes(g.item));
+      if (busy) { notice(`Unequip ${label(busy.item)} before turning it in.`); return; }
+      for (const g of needs) {
+        if (g.level !== undefined) continue; // levelled gear is shown, not taken
+        if (isGear(g.item)) { save.owned = save.owned.filter(o => o !== g.item); delete save.weaponHeat[g.item]; }
+        else save.materials[g.item] = (save.materials[g.item] ?? 0) - g.count;
+      }
       this.finish(m);
     } else {
       this.briefing(m);
@@ -255,13 +262,15 @@ export class MissionBoard {
     art.append(this.canvasImage(m.cardImage, 120, 170), this.canvasImage("ui/mission/images/cards/frame_up.png", 120, 170, "mission-frame"));
     const body = el("div", "mission-body");
     body.append(el("h3", "", m.title));
-    const when = st === "upcoming" && m.schedule ? `opens in ${daysUntilActive(m.schedule, now)} day(s)` : st;
+    const days = m.schedule ? daysUntilActive(m.schedule, now) : 0;
+    const when = st === "upcoming" ? `opens in ${days} day${days === 1 ? "" : "s"}` : st[0].toUpperCase() + st.slice(1);
     body.append(el("span", "mission-tag", `${KIND_LABEL[m.kind]} · ${when}`));
     body.append(el("p", "mission-summary", m.summary));
     if (m.kind === "exchange") {
       const save = this.host.save();
-      body.append(el("p", "mission-needs", "Needs: " + this.needs(m).map(g => g.level !== undefined
-        ? `${label(g.item)} (owned ${this.ownedLevel(g.item) ? "yes" : "no"})` : `${g.count} ${label(g.item)} (${save.materials[g.item] ?? 0})`).join(", ")));
+      body.append(el("p", "mission-needs", "Needs: " + this.needs(m).map(g => g.level !== undefined || isGear(g.item)
+        ? `${label(g.item)}${g.level ? ` at level ${g.level}` : ""} (${this.ownedLevel(g.item) ? "owned" : "not owned"})`
+        : `${g.count} ${label(g.item)} (${save.materials[g.item] ?? 0})`).join(", ")));
     }
     if (m.needs.length && st === "locked") body.append(el("p", "mission-needs", "After: " + m.needs.map(id => this.missions.find(x => x.id === id)?.title ?? id).join(", ")));
     const items = m.rewards.flatMap(t => rewardItems(t, this.host.data.library_("config/spawn_table.dat")));
