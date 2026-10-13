@@ -58,6 +58,12 @@ export class Prop {
   carried = false;
   /** Elevator: seconds the knight has stood on it. */
   standTime = 0;
+  /**
+   * Switches rung by a blow rather than stepped on (a Beast Bell: no collision mask, a Damage
+   * handler): the world time until the switch can be struck again.
+   */
+  strikable = false;
+  cooldownUntil = 0;
   /** Traps: the cycle state shown, the half-size of the struck square, the cycle. */
   trapState: TrapState = 0;
   trapHalf = 0.5;
