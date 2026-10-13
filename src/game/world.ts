@@ -533,8 +533,22 @@ export class World implements LogicHost {
     const families = [...this.data.library_("config/spawn_table.dat").keys()]
       .filter(n => /^Monster\/Single Family\/.*Scaled - /.test(n) && !/Friendly|Snarbolax|Pit Boss|Giant|Trojan|Overtimer/.test(n));
     a.family = families[Math.floor(Math.random() * families.length)] ?? "Monster/Single Family/Slime/Scaled - Jelly Cube";
-    const count = Math.min(12, 2 + a.wave);
     const k = this.knight;
+    // every tenth wave is a boss: a tiered boss or mini-boss with its own handlers (Royal
+    // Jelly heals and splits into its next phase), plus a couple of its family
+    if (a.wave % 10 === 0) {
+      const t = this.tier();
+      const bosses = [`Character/NPC/Monster/Boss/Royal Jelly/Royal Jelly ${t}`, `Character/NPC/Monster/Beast/Alpha Wolver/Alpha Wolver/Alpha Wolver ${t}`,
+        "Character/NPC/Monster/Boss/Mega Knight/Mega Knight Mini boss", "Character/NPC/Monster/Boss/Scorcher Mini Boss/Scorcher Mini Boss"];
+      const name = bosses[(a.wave / 10 - 1) % bosses.length];
+      const ang = Math.random() * Math.PI * 2;
+      const spot = this.collision.findSpawn(k.x + Math.cos(ang) * 6, k.y + Math.sin(ang) * 6, 1.5, MONSTER_MASK);
+      if (spot) this.logic.spawn({ name }, spot[0], spot[1], ang + Math.PI, this.knightEntity, this.knightEntity);
+      a.family = name;
+      this.floaters.push({ x: k.x, y: k.y, z: k.z + 2.5, text: `Boss: ${name.split("/").pop()}`, color: "#ff6b6b", age: 0 });
+      return;
+    }
+    const count = Math.min(12, 2 + a.wave);
     for (let i = 0; i < count; i++) {
       const ang = Math.random() * Math.PI * 2, d = 5 + Math.random() * 3;
       const spot = this.collision.findSpawn(k.x + Math.cos(ang) * d, k.y + Math.sin(ang) * d, 0.5, MONSTER_MASK);
