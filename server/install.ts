@@ -3,7 +3,7 @@
 // game's files go from the player's disk to the player's browser and nowhere else.
 
 import { execFileSync } from "node:child_process";
-import { createReadStream, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join, normalize, sep } from "node:path";
@@ -70,8 +70,48 @@ export function detectInstall(): string | null {
   return candidates().find(isInstall) ?? null;
 }
 
+/**
+ * The player's private level archive. The official client caches every level the servers send
+ * it in the install's scenes/ folder, and may clear or replace that folder; each level found
+ * there is copied here and kept, so a level visited once in the real game stays playable. It
+ * lives in the player's own app-data folder and is never uploaded anywhere.
+ */
+export function archiveDir(): string {
+  if (process.env.SK_ARCHIVE) return process.env.SK_ARCHIVE;
+  const base = process.platform === "win32" ? process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local")
+    : process.platform === "darwin" ? join(homedir(), "Library", "Application Support")
+    : process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
+  return join(base, "clyde-web", "scenes");
+}
+
+const SCENE = /^[0-9]+$/;
+
+/** Copies new or updated cached levels from the install into the archive; returns how many. */
+export function syncArchive(install: string | null, archive = archiveDir()): number {
+  if (!install) return 0;
+  const src = join(install, "scenes");
+  if (!existsSync(src)) return 0;
+  mkdirSync(archive, { recursive: true });
+  let copied = 0;
+  for (const name of readdirSync(src)) {
+    if (!SCENE.test(name)) continue;
+    const from = join(src, name), to = join(archive, name);
+    try {
+      const a = statSync(from);
+      if (existsSync(to)) {
+        const b = statSync(to);
+        // the same level unchanged: keep the archived copy
+        if (b.size === a.size && b.mtimeMs >= a.mtimeMs) continue;
+      }
+      copyFileSync(from, to);
+      copied++;
+    } catch { /* being written by the client: next sync */ }
+  }
+  return copied;
+}
+
 /** Handles /__sk requests: the install's rsrc files, scenes cache and colour definitions. */
-export function installMiddleware(dir: () => string | null) {
+export function installMiddleware(dir: () => string | null, archive = archiveDir()) {
   let listing: string[] | null = null;
   const walk = (d: string, prefix: string, out: string[]) => {
     for (const name of readdirSync(d)) {
@@ -101,16 +141,17 @@ export function installMiddleware(dir: () => string | null) {
       send(res, jar);
       return;
     }
-    const scenes = join(root, "scenes");
+    // levels: the archive (every level ever cached), refreshed from the install on each listing
     if (url === "/scenelist") {
+      syncArchive(root, archive);
       res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify(existsSync(scenes) ? readdirSync(scenes).filter(n => /^[0-9]+$/.test(n)) : []));
+      res.end(JSON.stringify(existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : []));
       return;
     }
     if (url.startsWith("/scenes/")) {
       const name = url.substring(8);
-      const file = join(scenes, name);
-      if (!/^[0-9]+$/.test(name) || !existsSync(file)) { res.statusCode = 404; res.end(); return; }
+      const file = [join(archive, name), join(root, "scenes", name)].find(f => SCENE.test(name) && existsSync(f));
+      if (!file) { res.statusCode = 404; res.end(); return; }
       send(res, file);
       return;
     }

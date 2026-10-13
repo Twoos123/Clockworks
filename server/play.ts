@@ -5,7 +5,7 @@ import { exec } from "node:child_process";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
-import { candidates, detectInstall, installMiddleware } from "./install";
+import { archiveDir, candidates, detectInstall, installMiddleware, syncArchive } from "./install";
 
 const DIST = normalize(join(import.meta.dirname, "..", "dist"));
 const PORT = Number(process.env.PORT ?? 5175);
@@ -13,7 +13,11 @@ const TYPES: Record<string, string> = { ".html": "text/html", ".js": "text/javas
   ".png": "image/png", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".ico": "image/x-icon" };
 
 const install = detectInstall();
-if (install) console.log(`Spiral Knights found at ${install}`);
+if (install) {
+  console.log(`Spiral Knights found at ${install}`);
+  const n = syncArchive(install);
+  console.log(`Level archive: ${archiveDir()} (${n} new level${n === 1 ? "" : "s"} saved)`);
+}
 else {
   console.log("Spiral Knights was not found. Looked in:\n  " + candidates().join("\n  ") + "\nSet SK_DIR to the install folder and run again.");
 }
