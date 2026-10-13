@@ -208,6 +208,7 @@ class Viewer {
       void this.startPlaying();
     };
     $("descend").onclick = () => void this.descend();
+    $("deeper").onclick = () => void this.descend(true);
     $("clockworks").onclick = () => { this.run = { depth: 0, health: null, floors: 0 }; void this.descend(); };
     $("arsenalBtn").onclick = () => void this.toggleArsenal();
     $("revive").onclick = () => { this.world?.revive(); $("defeated").hidden = true; this.canvas.focus(); };
@@ -529,16 +530,24 @@ class Viewer {
     const last = this.nextLevel() === null;
     $("floorTitle").textContent = last ? "Back to Haven" : `Depth ${this.run.depth} cleared`;
     $("descend").textContent = last ? "Ride up to Haven" : "Take the elevator down";
+    // past the Core the Clockworks go on: cycle the levels again, deeper
+    $("deeper").hidden = !last || this.run.depth >= 29;
     const mats = [...l.materials.values()].reduce((a, b) => a + b, 0);
     $("floorInfo").textContent = `${this.world.killCount} monsters defeated, ${l.crowns} crowns, ${l.heat} heat, ${mats} other pickups.`;
     $("floorDone").hidden = false;
   }
 
   /** The run's next level after the current scene, or null when the run is over. */
-  private nextLevel(): { id: string; name: string } | null {
+  /** The cached levels in run order. */
+  private runLevels(): { id: string; name: string }[] {
     const levels = RUN_ORDER.map(n => this.sceneList.find(s => s.name.toLowerCase().startsWith(n))).filter((s): s is { id: string; name: string } => !!s);
-    // levels in the cache that the order does not name come after it
+    // levels in the cache that the order does not name come before the Core
     for (const s of this.sceneList) if (!TOWN.test(s.name) && !levels.includes(s)) levels.splice(levels.length - 1, 0, s);
+    return levels;
+  }
+
+  private nextLevel(): { id: string; name: string } | null {
+    const levels = this.runLevels();
     if (!this.scene || TOWN.test(this.scene.name)) return levels[0] ?? null;
     const i = levels.findIndex(s => s.id === this.scene!.id);
     return i >= 0 && i + 1 < levels.length ? levels[i + 1] : null;
@@ -548,9 +557,10 @@ class Viewer {
    * Takes the elevator: the run's next level, one depth deeper. The cache holds only levels
    * this account has visited, so the run goes through those; after the last, back to Haven.
    */
-  private async descend() {
+  private async descend(deeper = false) {
     $("floorDone").hidden = true;
-    const next = this.nextLevel();
+    let next = this.nextLevel();
+    if (deeper && !next) next = this.runLevels()[0] ?? null;
     this.stopPlaying();
     if (!next) {
       // the run is over: back to town
