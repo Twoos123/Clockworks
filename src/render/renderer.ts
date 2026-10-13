@@ -234,10 +234,20 @@ export class ModelInstance {
   }
 
   /** Bone matrices (bone node world * inverse reference) for a skinned part. */
+  /**
+   * The articulated model whose skeleton drives this one's skinned meshes. A skinned model
+   * attached to an articulated one (armour on a knight) has no skeleton of its own, and in
+   * Clyde its bones resolve against the parent's nodes.
+   */
+  boneParent: ModelInstance | null = null;
+  /** World placement of boneParent, for skinned meshes driven by its bones. */
+  bonePlacement: Mat4 | null = null;
+
   boneMatrices(bones: string[]): Float32Array {
     const out = new Float32Array(bones.length * 16);
+    const src = !this.model.root && this.boneParent ? this.boneParent : this;
     bones.forEach((b, i) => {
-      const w = this.world.get(b), r = this.invRef.get(b);
+      const w = src.world.get(b), r = src.invRef.get(b);
       out.set(w && r ? multiply(w, r) : identity(), i * 16);
     });
     return out;
@@ -531,6 +541,8 @@ export class Renderer {
       }
       for (const gp of inst.parts) {
         let m = gp.part.node ? multiply(placement, inst.nodeMatrix(gp.part.node)) : placement;
+        // skinned meshes borrowing a parent's skeleton are positioned by the parent's bones
+        if (gp.part.bones && !inst.model.root && inst.boneParent && inst.bonePlacement) m = inst.bonePlacement;
         const bb = gp.part.node ? inst.model.billboards.get(gp.part.node) : undefined;
         if (bb) m = this.faceCamera(m, bb);
         let g = groups.get(gp);
@@ -541,6 +553,10 @@ export class Renderer {
         let at = c.node && inst.world.has(c.node) ? multiply(placement, inst.nodeMatrix(c.node)) : placement;
         const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
         if (bb) at = this.faceCamera(at, bb);
+        if (!c.instance.model.root && inst.model.root && c.instance.model.parts.some(p => p.bones)) {
+          c.instance.boneParent = inst;
+          c.instance.bonePlacement = placement;
+        }
         collect(c.instance, multiply(at, c.transform));
       }
     };

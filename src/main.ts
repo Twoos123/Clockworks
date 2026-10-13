@@ -5,6 +5,7 @@ import { SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
 import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environment";
 import { identity, type Mat4 } from "./math";
+import { Player } from "./game/player";
 import {
   canPickDirectory, DevServerVfs, FileListVfs, HandleVfs, recallHandle, rememberHandle, VfsError, type Vfs,
 } from "./vfs";
@@ -125,6 +126,9 @@ class Viewer {
   private instance: ModelInstance | null = null;
   private sceneItems: { instance: ModelInstance; matrix: Mat4 }[] | null = null;
   private environment: Environment = VIEWER_ENVIRONMENT;
+  private scene: LoadedScene | null = null;
+  private player: Player | null = null;
+  private readonly keys = new Set<string>();
   private skyboxes: ModelInstance[] = [];
   private readonly sceneLoader: SceneLoader;
   private readonly instances = new Map<LoadedModel, Promise<ModelInstance>>();
@@ -153,6 +157,16 @@ class Viewer {
     $("pause").onclick = () => { this.paused = !this.paused; $("pause").textContent = this.paused ? "Play" : "Pause"; };
     $("reset").onclick = () => { this.dist = this.home.dist; this.target = [...this.home.target]; this.az = -0.6; this.el = 0.35; };
     this.setupCamera();
+    $("play").onclick = () => (this.player ? this.stopPlaying() : this.startPlaying());
+    const typing = () => document.activeElement instanceof HTMLInputElement && document.activeElement.type !== "checkbox";
+    addEventListener("keydown", e => {
+      if (!this.player || typing()) return;
+      if (e.key === "Escape") { this.stopPlaying(); return; }
+      this.keys.add(e.key.toLowerCase());
+      if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
+    });
+    addEventListener("keyup", e => this.keys.delete(e.key.toLowerCase()));
+    addEventListener("blur", () => this.keys.clear());
     const hash = new URLSearchParams(location.hash.substring(1));
     const fromHash = hash.get("model");
     search.value = fromHash ? fromHash.replace(/\.dat$/, "") : "jellycube/model";
@@ -244,6 +258,9 @@ class Viewer {
       if (token !== this.loadToken) return;
       this.environment = env;
       this.skyboxes = skyboxes;
+      this.stopPlaying();
+      this.scene = scene;
+      $("play").hidden = false;
       this.sceneItems = items;
       this.shares = new Map();
       for (const it of items) this.shares.set(it.instance, (this.shares.get(it.instance) ?? 0) + 1);
@@ -291,6 +308,41 @@ class Viewer {
     $("info").replaceChildren(table);
   }
 
+  private async startPlaying() {
+    if (!this.scene || this.player) return;
+    const { min, max } = this.scene.bounds;
+    const spawn = this.scene.collision.findSpawn((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, 1 / 3, 43);
+    if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
+    this.status("Spawning a knight...");
+    this.player = await Player.create(this.loader, this.renderer, this.scene.collision, spawn);
+    // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
+    const cam = this.environment.camera;
+    this.el = cam?.elevation ?? 0.785;
+    this.az = -Math.PI / 2;
+    this.dist = (cam?.distance ?? 10) * 1.35;
+    $("play").textContent = "Stop playing";
+    $("playHint").hidden = false;
+    this.status(`Playing in ${this.scene.name}`);
+    this.canvas.focus();
+  }
+
+  private stopPlaying() {
+    if (!this.player) return;
+    this.player = null;
+    this.keys.clear();
+    $("play").textContent = "Play as knight";
+    $("playHint").hidden = true;
+  }
+
+  /** WASD or arrows, relative to where the camera looks. */
+  private moveInput() {
+    const k = this.keys;
+    const f = (k.has("w") || k.has("arrowup") ? 1 : 0) - (k.has("s") || k.has("arrowdown") ? 1 : 0);
+    const r = (k.has("d") || k.has("arrowright") ? 1 : 0) - (k.has("a") || k.has("arrowleft") ? 1 : 0);
+    const fx = -Math.cos(this.az), fy = -Math.sin(this.az);
+    return { x: fx * f + fy * r, y: fy * f - fx * r };
+  }
+
   private renderList() {
     const q = $<HTMLInputElement>("search").value.trim().toLowerCase();
     const only = $<HTMLInputElement>("onlyModels").checked;
@@ -320,6 +372,9 @@ class Viewer {
       if (token !== this.loadToken) return;
       this.model = model;
       this.instance = inst;
+      this.stopPlaying();
+      this.scene = null;
+      $("play").hidden = true;
       this.sceneItems = null;
       this.environment = VIEWER_ENVIRONMENT;
       this.skyboxes = [];
@@ -464,6 +519,10 @@ class Viewer {
         // shared instances appear in several placements; advance each clock once per frame
         for (const it of this.sceneItems ?? []) it.instance.time += dt / (this.shares.get(it.instance) ?? 1);
       }
+      if (this.player) {
+        if (!this.paused) this.player.update(dt, this.moveInput());
+        this.target = [this.player.x, this.player.y, this.player.z + 1];
+      }
       const eye: Vec3 = [
         this.target[0] + this.dist * Math.cos(this.el) * Math.cos(this.az),
         this.target[1] + this.dist * Math.cos(this.el) * Math.sin(this.az),
@@ -481,7 +540,9 @@ class Viewer {
           const shift = Math.max(0, this.dist - (env.camera?.distance ?? this.dist));
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
-        this.renderer.drawAll(this.sceneItems, proj, view, env, this.skyboxes);
+        const items = this.player
+          ? [...this.sceneItems, { instance: this.player.instance, matrix: this.player.matrix() }] : this.sceneItems;
+        this.renderer.drawAll(items, proj, view, env, this.skyboxes);
       }
       else this.renderer.draw(this.instance!, proj, view);
     }

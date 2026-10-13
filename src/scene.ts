@@ -6,6 +6,7 @@ import { applyArguments } from "./config/params";
 import { importBinary } from "./export/BinaryImport";
 import { compose, toMatrix, readTransform, type Mat4 } from "./math";
 import { inflate, type LoadedModel, type ModelLoader } from "./model";
+import { CollisionMap } from "./game/collision";
 
 export interface SceneObject {
   model: LoadedModel;
@@ -20,6 +21,8 @@ export interface LoadedScene {
   /** The scene's GlobalEntry references (lighting, fog, skybox, camera, music...). */
   globals: any[];
   bounds: { min: [number, number]; max: [number, number] };
+  /** Tile and prop collision, for walking around. */
+  collision: CollisionMap;
 }
 
 // TudeySceneMetrics: elevation_scale defaults to 0.5 world units per elevation step
@@ -89,6 +92,7 @@ export class SceneLoader {
   async load(id: string, data: Uint8Array, onProgress?: (done: number, total: number) => void): Promise<LoadedScene> {
     const s: any = (await importBinary(data, inflate)).root;
     const objects: SceneObject[] = [];
+    const collision = new CollisionMap();
     const stats = { tiles: 0, placeables: 0, furniture: 0, markers: 0, unresolved: 0, uniqueModels: 0 };
     const min: [number, number] = [Infinity, Infinity], max: [number, number] = [-Infinity, -Infinity];
     const grow = (x: number, y: number) => {
@@ -116,6 +120,7 @@ export class SceneLoader {
         else if (rotation === 2) { tx += w; ty += h; }
         else if (rotation === 3) ty += w;
         jobs.push({ ref: impl.model, matrix: compose([tx, ty, elevation * ELEVATION_SCALE], TILE_ROTATIONS[rotation], 1) });
+        collision.addTile(impl, x, y, rotation, elevation, ELEVATION_SCALE);
         stats.tiles++;
         grow(x, y); grow(x + w, y + h);
       }
@@ -136,6 +141,7 @@ export class SceneLoader {
       }
       if (!modelRef) { stats.unresolved++; continue; }
       const t = readTransform(e.transform);
+      collision.addProp(impl, e.transform);
       jobs.push({ ref: modelRef, matrix: toMatrix(t) });
       stats.placeables++;
       grow(t.t[0], t.t[1]);
@@ -152,6 +158,6 @@ export class SceneLoader {
     }
     stats.uniqueModels = unique.size;
     const globals = (s.entries ?? []).filter((e: any) => e.$class.endsWith("GlobalEntry")).map((e: any) => e.sceneGlobal);
-    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals };
+    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision };
   }
 }
