@@ -30,11 +30,41 @@ Grey Havens
 
 ---
 
+## Second reply (October 2026): blanket permission
+
+Received by Asad from Cronus at Grey Havens after they tried the project. Reproduced as the
+record; the original email is kept by the author.
+
+---
+
+Hi Asad,
+We had a look at the link. We're impressed — genuinely. It runs in a tab, it's fast, and it reads from the player's own install rather than shipping anything of ours. That's the arrangement we'd have asked for if we'd thought to ask.
+So here's a simpler answer than the one we gave you last time.
+Use whatever tools you have at your disposal. Decompilers, the client jars, the asset formats, whatever gets you there. You don't need to come back to us for each step — treat this thread as blanket permission for the project. If a tool exists and it helps, use it.
+The same three conditions as before, and only three:
+
+* Keep it clearly unofficial, and keep the credit line where you've already got it.
+* Keep it non-commercial. Donations are still fine.
+* If it grows legs — if you start charging, or if it turns into something bigger than a fan project — come and talk to us. We'd like to be in the room for that one.
+
+One thing to file for later rather than now: you're still not redistributing anything, so you don't have to solve assets yet. When you do want to, ask, and we'll have that conversation properly.
+A warning, since you've got momentum. Spiral Knights is a large game and the client is obfuscated. You will not get to a hundred percent, and the last twenty percent is where people quit. Pick the parts that matter to you and let the rest be rough. A port that runs and is fun beats a port that's complete.
+If it's useful, say the word and we'll link it from the forums. Costs us nothing and it's the least we can do for someone doing the work we haven't.
+Keep us posted. We're interested now, which is more than we usually are.
+Best,
+Cronus
+Grey Havens
+
+---
+
 ## How the project keeps to it
 
-- Decompiling the client jars is for study only. Decompiled output stays outside the
-  repository (`.decompiled/`, git-ignored) and is never committed or distributed.
+- Any tool that helps is permitted (second reply): decompilers, the client jars, the asset
+  formats. Decompiled output and extracted game files still stay outside the repository
+  (`.decompiled/`, git-ignored) and are never committed or distributed.
+- Redistributing assets is not covered yet: ask Grey Havens first.
 - The game's code is a TypeScript reimplementation; no decompiled Java is pasted into it.
 - No client code or game assets are redistributed: each player's own install supplies them,
   read on their own machine.
-- Non-commercial and clearly unofficial. If that ever changes, talk to Grey Havens first.
+- Non-commercial (donations are fine) and clearly unofficial, with the credit line kept. If
+  it starts charging or grows beyond a fan project, talk to Grey Havens first.
