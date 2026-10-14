@@ -1,0 +1,220 @@
+# The real game's screens, as the user's screenshots show them
+
+Written from screenshots of the live client (October 2026, client version 20261006114613) sent
+by the user. Use it alongside the install's interface files and the decompiled client: where
+the two disagree, check the client code; where the code is silent, follow this.
+
+## Login and knight select
+
+- **Login:** a deep-blue space backdrop with drifting, out-of-focus debris and orange flecks.
+  - In the centre is a large planet (green and brown continents, glowing orange cracks, cyan
+    glow) with a golden ring band, white cloud wisps and a small icy moon to the right.
+  - The SPIRAL KNIGHTS logo sits over the planet.
+  - A dark translucent panel holds ACCOUNT NAME and ACCOUNT PASSWORD fields, a Login as Guest
+    check box, a status line, a wide Logon button, and Quit and Options buttons. A Terms of
+    Service line and Help & Support / Forgot your password links sit under it.
+  - The Grey Havens logo is at the bottom centre.
+- **Knight select:** the same backdrop, with "SELECT A CHARACTER" above a panel of cards.
+  - Each card has a gold name bar and the knight rendered full-body in its gear.
+  - Under the knight are "Rank: Vanguard", "Guild: ---" and "Played: 17:05:23:35", with a
+    small Delete button (red dot) at the bottom right.
+
+## Town HUD (a town, after login)
+
+- **Status panel:** the portrait, with the battle sprite's mini portrait overlapping its lower
+  left. Next to it are the name plate, the health pips (11 red in the shot) with the 100% heart,
+  and the shield bar.
+- **Activities (right edge, open):** an ACTIVITIES title, then:
+  - Go to Haven
+  - (dots)
+  - Missions
+  - Guild Halls
+  - Coliseum
+  - Party Finder
+  - (dots)
+  - Supply Depot
+
+  The handle's arrow sits at the panel's left. Folded, only the handle shows at the right edge.
+- **Bottom left:** five tall buttons sit directly on the screen's bottom edge, with the handle
+  to their right.
+  - The buttons are main menu (wrench), help (F1), social (F6), feed (F7) and uplink.
+  - The F1/F6/F7 badges hang below them.
+- **Bottom right:** the handle, then four buttons, character (P), loadouts (L), forge (U) and
+  arsenal (I).
+  - The forge button shows a notice star when an item is ready to level.
+- **Energy widget:** "Energy" with an energy icon and "00038", above the bottom-right menu
+  and under the activities panel. It shows while the arsenal or forge is open.
+
+## Main menu (the wrench button)
+
+A popup list titled MAIN MENU, rising from the button:
+
+- Arsenal (I)
+- Character (P)
+- Missions (M)
+- Social (F6)
+- Event Hub (F7)
+- Recipes (F5)
+- Achievements (O)
+- Messages
+- Options (Esc)
+- Help (F1)
+- Support
+- Report a Bug
+- Crucible
+- Crucible Editor
+- Purchase Energy
+- Redeem Code
+
+The wrench opens this menu. It does not open the options directly.
+
+## Options (Esc)
+
+The options screen covers the whole screen.
+- **Frame:** a dark vertical-striped backdrop over the game, with the SPIRAL KNIGHTS logo at the
+  top centre. Below the logo is a dark panel with tabs.
+- **Tabs:** General, Video, Game, Chat, Controls, Prompts, Partner, About.
+- **Bottom bar:** Quit, Logoff, (dots), Return to Haven (with an icon), OK.
+
+What each tab holds:
+
+- **General:**
+  - Language (English) and Region (USA) dropdowns, with a "Party with Any" check box.
+  - A boxed group of three sliders: Music Volume, Effect Volume, UI Volume.
+  - A "Report a Bug" button.
+- **Video:**
+  - A boxed "Display Mode:" group: a resolution dropdown (1280x800), then Cancel and Apply.
+  - "Graphics Quality" slider (High), "Video Options: Edit Advanced", and a "Camera shake
+    effects" check box.
+  - A boxed "UI Scaling:" group: a "100%" check button, a "Max!" button, and a slider whose
+    label shows 100%.
+- **Game:** check boxes, all on except Auto Target, then an "Edit Advanced" button. Under it:
+  "Some options may require a client restart to take effect."
+  - Allow Full Inspect
+  - Show Attack Damage
+  - Display Monster Health
+  - Display NPC Names
+  - Show Weapon Selection Wheel
+  - Show Weapon Charge Meter
+  - Show damage effects on HUD
+  - Show "Lockdown" HUD Arrows
+  - Auto Target by Default (off)
+- **Chat:** Chat Area (Default), Chat Font (Small), Filter Mode (Comicify), Show Names (Speaking
+  Distance), Show Rank (check box) and Loot Messages (All). An "Ignored Users" list with an
+  Unignore button sits on the right.
+- **Controls:**
+  - Three big tiles: Mouse Movement, WASD Movement (selected, with a yellow keyboard icon) and
+    Gamepad.
+  - Below them, a wide "Custom (Click to Change)" button and the restart note.
+- **Prompts:** "Confirmation Prompts:" heads a scrolling list of check boxes:
+  - Learning recipe
+  - Use an upgrade
+  - Create party when none found
+  - Offer to invite Steam friends
+  - Offer to convert to Steam account
+  - Offer end-of-session survey
+  - Unbinding item with heat
+  - Replace item variants
+  - Removing a loadout
+  - Unlocking a lockbox
+  - …
+  - Show Mission Introduction
+  - Deposit to Guild Treasury
+  - Installing a room
+  - Installing a door
+  - Installing a Guild Hall Theme
+  - Installing a Guild Hall Environment
+  - Show design mode hint
+  - Install Battle Sprite Harness
+  - Open Battle Sprite Pod
+  - Abandon Party
+- **Partner:** "Connect to Discord" on the left. On the right, a Steam group: Enable Voice
+  Chat, Push to Talk, and a Voice Volume slider.
+- **About:** a scrolling credits page. It starts with "Spiral Knights", the client version and
+  "How Bizarre", then the Grey Havens logo and "© Grey Havens, LLC". Then:
+  - **DESIGN, ART, MUSIC & SOUND, ENGINEERING:** gold headings with names under them.
+  - **Production, Community, Additional Design, Additional Art, Additional Engineering and
+    Operations:** blue headings, set in two columns.
+  - **Community Contributors.**
+
+## Help (F1)
+
+A HELP window with tabs Support, Controls, Energy, Clockworks and Monsters. The Controls tab
+reads:
+
+- **Move:** Hold <None Assigned> or use <W><A><S><D>.
+- **Attack:** <Left Mouse>. Hold to do a charge attack. <Left Mouse> also lifts large items,
+  speaks to NPCs, and activates stations.
+- **Change Weapon:** <Space> or <Wheel Down>.
+- **Inventory:** <Tab>.
+- **Defend:** Press and hold <Right Mouse>.
+- **Chat:** Press <Enter> to enter chat or commands…, then "OPTIONS MENU" (a gold link).
+
+Two big buttons, "Forums" and "Wiki", sit at the bottom.
+
+## Social (F6) and Event Hub (F7)
+
+Both dock at the left edge, side by side: SOCIAL first, then EVENT HUB.
+
+- **SOCIAL:** a search field, then:
+  - a FRIENDS (1/107) group with Friends Options and the online friends;
+  - a GUILD (0) group with <No Guild> and Guild Options;
+  - an OFFLINE section with a FRIENDS (106) list.
+- **EVENT HUB:** groups Events (cards with INSPECT! or SIGN UP! buttons), Today, This Week and
+  Last Week. Their cards carry "N minutes/days ago" timestamps.
+
+On game open the Event Hub and the Spiral Uplink (NEWS tab) open by themselves.
+
+## Spiral Uplink (mail button)
+
+Tabs NEWS, MAIL and INVITES.
+- **MAIL:** Mark All and Compose buttons, then a list with SUBJECT / FROM / DATE columns. A row
+  reads "Join my guild!", "Sumerasum", "16 Sep 2026". The footer says "Note: Mail is
+  automatically deleted 30 days after sent date."
+
+## Forge (U), with Loadouts (L) and Arsenal (I)
+
+Pressing U opens FORGE docked at the left, then the forge dial and RESULTS panels. LOADOUTS and
+ARSENAL dock at the right; each window stacks beside the others, and each has its own red close
+button.
+
+- **FORGE list:** a search field, then Sort (Name) and groups Sword, Handgun, Bomb, Helmet, Armor
+  and Shield with counts. Only items ready to level are listed (e.g. Blitz Needle ★5, Grim
+  Repeater).
+- **Dial:** the item name, its heat bar and "09 LEVEL". Below them, "Required Item" with the
+  crystal ("Radiant Fire Crystal (21 Available)") and a big "x34".
+  - "APPLY CRYSTALS" has three swirl buttons.
+  - Under them, red text "Insufficient crystals to forge this item." and a disabled FORGE
+    button.
+- **Buy panel:** under the dial, a small panel offers the crystal with a stack count of 50
+  ("Radiant Fire Crystal ★5") and a "Buy Item" button.
+- **RESULTS:**
+  - Chance for Forge Success: "100% Guaranteed chance of forge success!"
+  - Enhancements: "Handgun Power Increase" and "Charge Time Reduction: Medium", each with an up
+    arrow.
+  - Possible Bonuses: "Add more fire crystals to unlock chances for bonuses!"
+- **LOADOUTS:** a search field, then a "Lock 'n Load!" intro box ("Loadouts are configurations of
+  equipment that you design! Here you can save your current configuration for later use or
+  equip an existing loadout."). Below it:
+  - entries such as <Current Equipment>, "Chaos Set", "Fast Swap Guns" and "Vana", each with
+    PvE T2/T3 and PvP T3 bars;
+  - "PvP Tier 3" at the bottom.
+- **ARSENAL:** a search field, then Sort (Name) and groups Battle Sprite (1) and Sword (15),
+  with item pills (name, star rank, variant pips). Crowns 17,152 sits at the bottom. Further
+  down the list is a Rarity group: fire crystals, orbs of alchemy and Golden Slime Coin, with
+  stack counts.
+
+## Character (P)
+
+A "<Current Equipment>" window with a "Save Loadout" button and a "Character Options ▼"
+dropdown. The arsenal docks at the right with it.
+
+- **Tabs:** Equipment, Costume, Battle Sprite, Achievements.
+- **Battle Sprite tab:**
+  - The sprite's family name ("DRAKON"), its heat bar and "59 LEVEL".
+  - An Appetite bar.
+  - "Required Item: Power Orb".
+  - "Select a Power Orb to level up.", a slot and a LEVEL UP! button.
+  - A column of skill icons.
+  - The sprite turning in a view, with "Ready to level up!" above it and "Level 59 / Corona"
+    below.
