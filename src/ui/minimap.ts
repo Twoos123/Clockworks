@@ -1,5 +1,5 @@
 // The minimap layer: the level's walkable cells drawn top-down and revealed as the knight
-// explores, monsters as dots, the knight as an arrow, and entity icons from the data's
+// explores, monsters as the game's monster marker, the knight as an arrow, and entity icons from the data's
 // MinimapIcon handlers (elevators, gold keys and gates). Drawn over the "mapbackground" component
 // of the game's own minimap interface.
 
@@ -8,8 +8,10 @@ import type { GuiContext, GuiImage } from "./gui";
 
 /** Pixels per tile in the cached map image. */
 const PX = 4;
-/** World units around the knight the map shows, edge to centre. */
-const VIEW = 14;
+/** Map pixels per world unit (the client's minimap scale). */
+const SCALE = 3;
+/** Markers further than this many pixels from the centre are pinned to the edge (the client's radius). */
+const EDGE = 69;
 /** Radius in tiles the knight reveals around itself. */
 const REVEAL = 9;
 
@@ -74,7 +76,7 @@ export class Minimap {
     if (!this.canvas) return;
     this.reveal(world);
     const k = world.knight;
-    const scale = Math.min(w, h) / (VIEW * 2);
+    const scale = SCALE;
     const cx = x + w / 2, cy = y + h / 2;
     const toScreen = (wx: number, wy: number): [number, number] => [cx + (wx - k.x) * scale, cy - (wy - k.y) * scale];
     g.save();
@@ -85,24 +87,34 @@ export class Minimap {
     const [ox, oy] = toScreen(this.origin[0], this.origin[1] + 1);
     g.imageSmoothingEnabled = false;
     g.drawImage(this.canvas, ox, oy, this.canvas.width / PX * scale, this.canvas.height / PX * scale);
-    // entity icons from MinimapIcon handlers
+    // entity icons from MinimapIcon handlers, and monsters (ui/minimap/monster.png); a marker
+    // past the edge radius is pinned to the edge, shrinking from `near` to `far` of its size over
+    // 690 pixels and gone beyond (the client draws entity icons at 0.75 to 0.25, monsters at 1 and
+    // only inside the edge)
+    const marker = (im: GuiImage, wx: number, wy: number, near: number, far: number, pin: boolean) => {
+      let dx = (wx - k.x) * scale, dy = -(wy - k.y) * scale;
+      const d = Math.hypot(dx, dy), size = Math.max(im.width, im.height);
+      let s = size * near;
+      if (d > EDGE) {
+        if (!pin || d > EDGE + 690) return;
+        s = size * (near + (far - near) * (d - EDGE) / 690);
+        dx *= EDGE / d; dy *= EDGE / d;
+      }
+      g.drawImage(im.source, cx + dx - s / 2, cy + dy - s / 2, s, s);
+    };
+    g.restore();
     for (const e of [...world.logic.entries, ...world.logic.actors]) {
       const h2 = e.handlers.find(hh => hh.kind === "MinimapIcon");
       const file = h2?.cfg.icon?.file;
       if (!file || e.destroyed) continue;
       const im = this.icon(file);
-      if (!im) continue;
-      const [sx, sy] = toScreen(e.x, e.y);
-      const s = 18;
-      g.drawImage(im.source, sx - s / 2, sy - s / 2, s, s);
+      if (im) marker(im, e.x, e.y, 0.75, 0.25, true);
     }
-    // monsters
-    g.fillStyle = "#ff4d4d";
+    const mon = this.icon("ui/minimap/monster.png");
     for (const m of world.liveMonsters) {
-      const [sx, sy] = toScreen(m.x, m.y);
-      g.beginPath(); g.arc(sx, sy, 2.6, 0, Math.PI * 2); g.fill();
+      if (mon) marker(mon, m.x, m.y, 1, 1, false);
+      else { const [sx, sy] = toScreen(m.x, m.y); g.fillStyle = "#ff4d4d"; g.beginPath(); g.arc(sx, sy, 2.6, 0, Math.PI * 2); g.fill(); }
     }
-    g.restore();
     // the knight, pointing where it faces
     g.save();
     g.translate(cx, cy);

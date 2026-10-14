@@ -8,10 +8,19 @@
 // left, Quit (back to Haven with the loot banked).
 
 import { CONFIG_REF } from "../config/params";
+import { hasMessage, message } from "../i18n";
 import { buildInterface, pack, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { OverlayScreen } from "./overlay";
 
 export interface NextLevel { title: string; zone: string; depth: string }
+
+/** Seconds the next-level window waits before advancing on its own (the client's elevator window). */
+const AUTO_ADVANCE = 10;
+/** When the window has slid in (its appear script), the countdown starts. */
+const WINDOW_IN = 0.7;
+
+/** The dungeon bundle's text with an argument, or the fallback without the bundle. */
+const say = (key: string, arg: string, fallback: string) => hasMessage("dungeon", key) ? message("dungeon", key, arg) : fallback;
 
 /** What the screen offers when a floor is done. */
 export interface ElevatorChoice {
@@ -94,15 +103,25 @@ export class ElevatorScreen extends OverlayScreen {
     set(m, "labelLevelType", n?.title ?? "");
     set(m, "labelLevelSubtype", n?.zone ?? "");
     set(m, "labelDepth", n?.depth ?? "", !!n?.depth);
-    set(m, "labelAutoAdvance", ch.tally);
+    // the client counts down to the automatic advance here; the floor's tally (ours) takes the
+    // window's spare "waiting" line
+    set(m, "labelAutoAdvance", this.countdownText(AUTO_ADVANCE));
     set(m, "buttonAdvance", ch.advance.label);
     set(m, "buttonQuit", "Return to Haven", !!ch.quit);
-    set(m, "labelQuit", ch.quit ? "Bank your loot and ride the elevator up to Haven." : "", !!ch.quit);
-    set(m, "labelWaiting", "", false);
+    set(m, "labelQuit", ch.quit ? say("m.leaveparty_return", "Haven", "Bank your loot and ride the elevator up to Haven.") : "", !!ch.quit);
+    set(m, "labelWaiting", ch.tally, !!ch.tally);
+    this.shown = -1;
     const quit = m.find("containerQuit");
     if (quit) quit.visible = !!ch.quit;
     for (const t of ["player2Model", "player3Model", "player4Model"]) { const c = m.find(t); if (c) c.visible = false; }
     for (const t of ["buttonAdvance", "buttonQuit"]) { const c = m.find(t); if (c) c.enabled = true; }
+  }
+
+  /** The countdown's last whole second on screen. */
+  private shown = -1;
+
+  private countdownText(seconds: number) {
+    return say("m.countdown", String(seconds).padStart(2, "0"), `Advancing in ${seconds} seconds...`);
   }
 
   protected clicked(c: Component) {
@@ -120,6 +139,18 @@ export class ElevatorScreen extends OverlayScreen {
   /** The appear scripts: the stripe slides in thin and opens, the title follows, the window slides in. */
   protected update() {
     const t = this.time;
+    // the countdown, and the advance when it runs out
+    const ch = this.choice;
+    if (ch && this.main) {
+      const left = AUTO_ADVANCE - Math.max(0, t - WINDOW_IN);
+      if (left <= 0) { this.hide(); ch.advance.run(); return; }
+      const whole = Math.round(left);
+      if (whole !== this.shown) {
+        this.shown = whole;
+        const label = this.main.find("labelAutoAdvance");
+        if (label) label.text = this.countdownText(whole);
+      }
+    }
     const stripe = this.stripe?.find("containerStripe");
     if (stripe) {
       const slide = clamp01(t / 0.4), open = quadIn(clamp01((t - 0.4) / 0.4));
