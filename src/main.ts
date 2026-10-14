@@ -30,7 +30,7 @@ import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, commandKeys, gameKeyName, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
 import { hasMessage, loadMessages, message, messages, text } from "./i18n";
 import { itemName, levelText } from "./game/text";
 import { OptionsScreen } from "./ui/options";
@@ -41,7 +41,7 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { bossName, BOSSES, gateFloors, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { BOSSES, gateFloors, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { LevelArchive } from "./game/archive";
 import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
@@ -52,7 +52,9 @@ import {
   ACHIEVEMENTS, evaluate as evaluateAchievements, recordBoss, recordDepth, recordHaven, recordKills, recordPocketUse, recordRevive,
   recordRunEnd, recordRunStart, type AchievementType,
 } from "./game/achievements";
-import { UplinkScreen } from "./ui/uplink";
+import { UplinkScreen, mailbox } from "./ui/uplink";
+import { itemTip } from "./ui/itemlist";
+import { cachedHallId, GUILD_HALL, READY_ROOM } from "./game/places";
 import { HelpScreen } from "./ui/help";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
@@ -365,16 +367,12 @@ class Viewer {
         if (key === "z") { if (e.shiftKey) this.bashPressed = true; else { this.attackPressed = true; this.attackHeld = true; } }
         if (key === "x") { if (e.shiftKey) this.dashPressed = true; else this.shieldHeld = true; }
       }
-      // the game's TOGGLE_ZOOM key
-      if ((e.key === "=" || e.key === "+") && !e.repeat && !this.paused) this.toggleZoom();
-      if (b("help") && !e.repeat) this.toggleHelp();
-      if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
-      if (key === "n" && !e.repeat) this.openFeed();
-      if (key === "m" && !e.repeat) this.openMail();
+      // the client's toggle commands (as.a(dt) binds them to the same actions as the HUD's buttons)
+      if (!e.repeat) for (const [a, run] of Object.entries(this.commands()) as [Action, () => void][]) {
+        if (b(a)) { if (/^f\d+$/.test(key)) e.preventDefault(); run(); }
+      }
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
-      if (b("arsenal") && !e.repeat) void this.toggleArsenal();
-      if (b("backpack") && !e.repeat) void this.ensureScreens().toggleBackpack();
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
@@ -1032,19 +1030,69 @@ class Viewer {
     document.body.classList.toggle("no-hint", !o.controlsHint);
   }
 
-  /** What the HUD shows besides the knight: the objective lines and whether this is a town. */
+  /**
+   * What the HUD shows besides the knight: the objective lines and whether this is a town. The
+   * client's objective panel lists the server's Objective configs (PlayerObject.objectives),
+   * which no town, gate floor or arena here has, so it stays hidden as the client's does with none.
+   */
   private hudContext(): { objectives: string[]; town: boolean } {
-    const f = this.gate ? this.floors[this.run.depth] : null;
-    if (f && (f.kind === "terminal" || f.kind === "subtown" || f.kind === "core")) {
-      return { town: true, objectives: [`${f.name}, depth ${f.depth}: rest, resupply at the Supply Depot, then take the elevator down.`] };
-    }
-    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? bossName(f.stratum.boss) : "the boss"}.`, "The elevator opens when it falls."] };
-    const town = !!this.scene && TOWN.test(this.scene.name);
-    const a = this.world?.arena;
-    const objectives = town ? ["Visit the shops, then enter the Clockworks."]
-      : a ? [`Survive the arena: wave ${Math.max(1, a.wave)}.`]
-      : ["Defeat the monsters that bar your way.", "Find the elevator to the next depth."];
-    return { objectives, town };
+    return { objectives: [], town: !!this.scene && TOWN.test(this.scene.name) };
+  }
+
+  /**
+   * The portrait's personal menu (client cr: FV, FW, aJ): the knight's name, Equipment, and the
+   * guild's options (the hall, the treasury). Friends and party options need other players.
+   */
+  private personalMenu(x: number, y: number) {
+    this.uiSound("sound/feedback/ui_dropdown_activate.ogg");
+    const t = (b: string, k: string, f: string) => text(b, k, f);
+    const inHall = this.scene?.id === GUILD_HALL;
+    const entries: ({ label: string; action: string } | { header: string })[] = [
+      { label: t("projectx", "m.equipment", "Equipment"), action: "equipment" },
+      { header: t("guild", "m.guild_options", "Guild Options") },
+      ...(cachedHallId(this.sceneList) && !inHall ? [{ label: t("projectx", "b.to_guildhall", "Go to Guild Hall"), action: "guild_hall" }] : []),
+      { label: t("guild", "m.show_treasury", "Show Guild Treasury"), action: "show_treasury" },
+    ];
+    void this.gameHud?.openMenu(x, y, knightName(this.save), entries, a => {
+      this.uiSound("sound/feedback/ui_dropdown_select.ogg");
+      if (a === "equipment") this.hudAction("button_gear");
+      else if (a === "guild_hall") this.hudAction("button_guildhall");
+      else if (a === "show_treasury") this.hudAction("button_social");
+    });
+  }
+
+  /** The HUD's view of the bindings, mail, camera, places and the knight's action (see HudState). */
+  private hudExtras() {
+    const key = (a: Action) => gameKeyName(this.bound(a));
+    const kb = (a: Action) => (/^mouse/.test(this.bound(a)) ? "" : key(a));
+    const id = this.scene?.id;
+    const w = this.world;
+    return {
+      menuKeys: { button_help: key("help"), button_social: key("social"), button_feed: key("feed"), button_mail: key("uplink"),
+        button_gear: key("character"), button_loadout: key("loadout"), button_arsenal: key("arsenal"), button_forge: key("forge") },
+      commandKeys: { zoom: kb("zoom"), map: kb("map"), hudLock: kb("hudLock") },
+      mailNews: mailbox(this.save).some(m => !m.read),
+      zoomable: (this.cam?.views.length ?? 0) > 1, zoomed: (this.cam?.zoom ?? 0) > 0,
+      prestige: progressOf(this.save).prestige,
+      place: { guildHall: id === GUILD_HALL, readyRoom: id === READY_ROOM, hall: !!cachedHallId(this.sceneList) },
+      pocketTips: w ? w.pocket.map(([n]) => {
+        const it = w.pocketItem(n);
+        return it ? itemTip({ plain: true, label: this.eco?.displayName(n) ?? n.split("/").pop()!, type: "", rarity: it.rarity ?? 0, flavor: "", item: n }) : null;
+      }) : [],
+    };
+  }
+
+  /** The client's toggle commands by our action (as.a(dt) and the dungeon HUD's TOGGLE_HUD_LOCK). */
+  private commands(): Partial<Record<Action, () => void>> {
+    const hud = (tag: string) => () => this.hudAction(tag);
+    return {
+      help: hud("button_help"), forge: hud("button_forge"), arsenal: hud("button_arsenal"), character: hud("button_gear"),
+      loadout: hud("button_loadout"), social: hud("button_social"), feed: hud("button_feed"), uplink: hud("button_mail"),
+      mission: hud("button_missions"),
+      map: () => this.gameHud?.toggleMap(),
+      zoom: () => { if (!this.paused) this.toggleZoom(); },
+      hudLock: () => this.gameHud?.toggleLock(),
+    };
   }
 
   /** A HUD button was clicked (the corner menus and the activities panel). */
@@ -1062,8 +1110,10 @@ class Viewer {
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
       case "button_missions": void this.missions().toggle(); break;
-      // the minimap's map button: the Gate Map, on the gate of the run when in one
-      case "button_map": this.openGates(); break;
+      // the minimap's buttons: the map overlay (ProjectXPrefs map_overlay), the camera zoom and the HUD lock
+      case "button_map": this.gameHud?.toggleMap(); break;
+      case "button_zoom": this.toggleZoom(); break;
+      case "button_lockhud": this.gameHud?.toggleLock(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       default: break;
     }
@@ -1966,7 +2016,9 @@ class Viewer {
         const x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s;
         if (this.gameHud.covers(x, y)) {
           const tag = this.gameHud.pointer(x, y, true);
-          if (tag && tag !== "handle") this.hudAction(tag);
+          if (tag === "personal_menu") this.personalMenu(x, y);
+          else if (tag === "menu") { /* the popup menu took the press */ }
+          else if (tag && tag !== "handle") this.hudAction(tag);
           else if (tag === "handle") this.uiSound("sound/feedback/ui_dropdown_activate.ogg");
           return;
         }
@@ -2140,7 +2192,7 @@ class Viewer {
           gh?.minimap.setWorld(this.world);
           gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
             dungeon: !!this.scene && !TOWN.test(this.scene.name),
-            pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))) }, dt);
+            pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))), ...this.hudExtras() }, dt);
           // items the knight gained come up as the HUD's acquire icons
           while (this.world.acquired.length) { const a = this.world.acquired.shift()!; gh?.acquire(a); }
           // (the HUD hides while the knight talks, as the game's conversation dialog hides it)

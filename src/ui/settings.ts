@@ -23,10 +23,20 @@ export const ACTIONS = {
   sprite2: { label: "Sprite skill 2", key: "t" },
   sprite3: { label: "Sprite skill 3", key: "g" },
   cycle: { label: "Next weapon", key: "tab" },
+  // the HUD's menu commands on the client's default keys (Command.COMMON_KEYS); the corner
+  // menus' hotkey badges show what is bound here
   arsenal: { label: "Arsenal", key: "i" },
-  forge: { label: "Forge (crafting)", key: "k" },
-  backpack: { label: "Backpack", key: "b" },
-  help: { label: "Controls help", key: "h" },
+  character: { label: "Equipment", key: "p" },
+  loadout: { label: "Loadouts", key: "l" },
+  forge: { label: "Forge (crafting)", key: "u" },
+  mission: { label: "Missions", key: "m" },
+  social: { label: "Social", key: "f6" },
+  feed: { label: "News feed", key: "f7" },
+  uplink: { label: "Mail", key: "" },
+  map: { label: "Map overlay", key: "b" },
+  hudLock: { label: "Lock HUD", key: "`" },
+  zoom: { label: "Camera zoom", key: "=" },
+  help: { label: "Controls help", key: "f1" },
   turnLeft: { label: "Turn camera left", key: "q" },
   turnRight: { label: "Turn camera right", key: "e" },
 } as const;
@@ -98,7 +108,7 @@ export function saveSettings(s: Settings) {
 }
 
 /** Shown on key buttons. */
-export const keyName = (k: string) => k === " " ? "Space" : k.length === 1 ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1);
+export const keyName = (k: string) => !k ? "" : k === " " ? "Space" : k.length === 1 ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1);
 
 /** Browser key names to the game's key descriptions ("k.space" in the projectx bundle). */
 const GAME_KEYS: Record<string, string> = {
