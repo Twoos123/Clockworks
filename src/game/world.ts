@@ -381,7 +381,7 @@ export class World implements LogicHost {
   /** The knight talked to a townsperson: its actor name, the StartConversation action and its entity. */
   onConversation: ((actor: string, action: any, source: Entity) => void) | null = null;
   /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
-  onPortal: ((tags: string[], sceneId: number, portal: string, more: { area: string; townName?: string; sceneInternalId?: string }) => void) | null = null;
+  onPortal: ((tags: string[], sceneId: number, portal: string, more: { area: string; townName?: string; sceneInternalId?: string; floor?: number; action?: string }) => void) | null = null;
   /**
    * The level's scripted music actors alive now (spawned by its logic, src/game/musicstack.ts),
    * and a listener told when one spawns or is destroyed (the music player; the logic starts
@@ -919,15 +919,29 @@ export class World implements LogicHost {
     }
   }
 
+  /** Whether an action freezes, puts to sleep or stuns its activator (an ApplyStatus with no target). */
+  disablesSelf(action: any, depth = 0): boolean {
+    if (!action || depth > 6) return false;
+    const k = String(action.$class ?? "").split("$").pop();
+    if (k === "Compound") return ((action.actions ?? []) as any[]).some(a => this.disablesSelf(a, depth + 1));
+    if (k !== "ApplyStatus" || action.target || !this.conditions) return false;
+    const kind = this.conditions.get(action.condition ?? action.statusCondition, this.ctx(0))?.def.kind;
+    return kind === "Freeze" || kind === "Sleep" || kind === "Stun";
+  }
+
   /** Spiral Knights' own actions (DungeonActionConfig and friends). */
   gameAction(cfg: any, source: Entity, activator: Entity | null, logic: Logic): boolean | undefined {
     const k = String(cfg.$class ?? "").split("$").pop();
     if (cfg.$condition) return true;
     switch (k) {
       case "ScenePortal":
+      // (the guild training hall's way back to the hall, a training floor's way out: exits too)
+      case "MoveToGuildhall": case "LeaveParty":
+        if (k !== "ScenePortal" && !/^Portals\//.test(source.name)) return undefined;
         // a town exit the knight walked into: the game decides where it leads
         if (activator === this.knightEntity && !this.knight.dead) this.onPortal?.(source.tags ?? [], Number(cfg.sceneId), String(cfg.portal?.tag ?? ""),
-          { area: source.name, townName: cfg.townName, sceneInternalId: cfg.sceneInternalId });
+          { area: source.name, townName: cfg.townName, sceneInternalId: cfg.sceneInternalId,
+            ...(typeof cfg.floor === "number" ? { floor: cfg.floor } : {}), ...(k !== "ScenePortal" ? { action: k } : {}) });
         return true;
       case "ActivateMonster": case "TableSpawn": case "TableSpawnPerMember": {
         const table = cfg.spawnTable ?? cfg.table;
@@ -3416,7 +3430,7 @@ export class World implements LogicHost {
     const info: MonsterInfo = {
       name, attacks: def.slots.map(a => a?.name ?? ""), speed: def.speed, targetedSpeed: def.targetedSpeed,
       melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a ? Math.max(0, this.reach(a) - m.radius) : 0)),
-      script, args: behaviorArgs(m.ref ?? { name }, lookup),
+      script, args: behaviorArgs(m.ref ?? { name }, lookup), radius: m.radius,
     };
     let cfg: Behavior = monsterBehavior(info);
     // allies (freed companions, energy turrets) fight monsters near the knight, else follow it

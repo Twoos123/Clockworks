@@ -639,8 +639,13 @@ export class Renderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
   }
 
-  /** Uploads a model's geometry and starts loading its textures. */
-  async instantiate(model: LoadedModel): Promise<ModelInstance> {
+  /**
+   * Uploads a model's geometry and starts loading its textures. `textured` false loads its
+   * geometry alone: a Meshes particle layer draws the mesh with the layer's material, so the
+   * mesh's own textures (often missing from the install: particle/mesh/freeze's skinhalf.png,
+   * particle/mesh/shockwave's testsmoke.png) are never requested.
+   */
+  async instantiate(model: LoadedModel, textured = true): Promise<ModelInstance> {
     const inst = new ModelInstance(model);
     const gl = this.gl;
     for (const part of model.parts) {
@@ -665,20 +670,20 @@ export class Renderer {
       gl.bindVertexArray(null);
       const textures = await Promise.all(part.material.passes.map(p => {
         const u = p.units[0];
-        return u?.texture ? this.texture(u) : Promise.resolve(null);
+        return textured && u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
       const second = await Promise.all(part.material.passes.map(p => {
         const u = p.units[1];
-        return u?.texture ? this.texture(u) : Promise.resolve(null);
+        return textured && u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
       inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures, second });
     }
     for (const a of model.attachments) {
-      inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model) });
+      inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model, textured) });
     }
     // (waited for at most PARTICLE_PRELOAD_MS: a texture that never arrives must not hold
     // back the instance, and with it a bullet or an effect, for good)
-    if (model.particles?.length) await Promise.race([this.preloadParticles(model), new Promise(r => setTimeout(r, PARTICLE_PRELOAD_MS))]);
+    if (textured && model.particles?.length) await Promise.race([this.preloadParticles(model), new Promise(r => setTimeout(r, PARTICLE_PRELOAD_MS))]);
     return inst;
   }
 
@@ -1459,14 +1464,21 @@ export class Renderer {
 
   private readonly meshInstances = new Map<LoadedModel, ModelInstance | null>();
   private readonly meshInstanceLoads = new Map<LoadedModel, Promise<unknown>>();
+  private readonly meshGeometries = new Map<LoadedModel, ModelInstance | null>();
+  private readonly meshGeometryLoads = new Map<LoadedModel, Promise<unknown>>();
 
-  /** Instance for a particle-emitted model; null until its textures have loaded. */
-  private meshInstance(model: LoadedModel): ModelInstance | null {
-    if (!this.meshInstances.has(model)) {
-      this.meshInstances.set(model, null);
-      this.meshInstanceLoads.set(model, this.instantiate(model).then(i => this.meshInstances.set(model, i)).catch(() => {}));
+  /**
+   * Instance for a particle-emitted model; null until it has loaded. A meta layer's model
+   * draws with its own materials; a Meshes layer's (`geometry`) only lends its geometry to the
+   * layer's material, so its own textures are never loaded.
+   */
+  private meshInstance(model: LoadedModel, geometry = false): ModelInstance | null {
+    const done = geometry ? this.meshGeometries : this.meshInstances, loads = geometry ? this.meshGeometryLoads : this.meshInstanceLoads;
+    if (!done.has(model)) {
+      done.set(model, null);
+      loads.set(model, this.instantiate(model, !geometry).then(i => done.set(model, i)).catch(() => {}));
     }
-    return this.meshInstances.get(model) ?? null;
+    return done.get(model) ?? null;
   }
 
   /**
@@ -1484,9 +1496,9 @@ export class Renderer {
         if (p) waits.push(p.catch(() => null));
       }
       if (l.model && l.geometry === "Meshes") {
-        this.meshInstance(l.model);
+        this.meshInstance(l.model, true);
         // (a mesh with particles of its own is not waited for: a cycle would never resolve)
-        const p = this.meshInstanceLoads.get(l.model);
+        const p = this.meshGeometryLoads.get(l.model);
         if (p && !l.model.particles?.length) waits.push(p);
       }
     }
@@ -1560,7 +1572,7 @@ export class Renderer {
    */
   private drawMeshParticles(emitter: Emitter, li: number, matrix: Mat4) {
     const gl = this.gl, layer = emitter.states[li].layer;
-    const inst = layer.model ? this.meshInstance(layer.model) : null;
+    const inst = layer.model ? this.meshInstance(layer.model, true) : null;
     if (!inst) return;
     const passes = layer.material.passes;
     const textures = passes.map(p => this.particleTexture(p.units[0]));
