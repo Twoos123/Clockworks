@@ -12,6 +12,7 @@
 // windows (ui/options/advanced_*.dat), with rows for this port's own settings; Custom (Click to
 // Change) opens the custom controls page (key bindings, src/ui/keybinds.ts).
 
+import type { LootLevel } from "../game/lootlog";
 import { CONFIG_REF } from "../config/params";
 import { LEGACY_KEY, loadSave, normalizeSave, reloadRoster, ROSTER_KEY, writeSave, type SaveData } from "../game/save";
 import { checklist } from "../game/levels";
@@ -372,11 +373,14 @@ export class OptionsScreen {
     await Promise.all(Object.entries(PREF_COMBOS).map(async ([tag, { items, dflt }]) => {
       const combo = ui.find(tag);
       if (!combo) return;
-      const saved = this.settings.prefs[tag];
-      await setComboItems(this.ctx, combo, items.map(([k, f]) => (k ? t(k, f) : f)), typeof saved === "number" ? saved : dflt);
+      // Loot Messages is a real setting here (the loot lines, src/game/lootlog.ts)
+      const LOOT: LootLevel[] = ["all", "pro", "none"];
+      const saved = tag === "loot_filter" ? LOOT.indexOf(this.settings.lootMessages) : this.settings.prefs[tag];
+      await setComboItems(this.ctx, combo, items.map(([k, f]) => (k ? t(k, f) : f)), typeof saved === "number" && saved >= 0 ? saved : dflt);
       combo.onAction = c => {
         if (c.selectedIndex < 0 || this.settings.prefs[tag] === c.selectedIndex) return;
         this.settings.prefs[tag] = c.selectedIndex;
+        if (tag === "loot_filter") this.settings.lootMessages = LOOT[c.selectedIndex] ?? "all";
         this.actions.sound("sound/feedback/ui_confirm.ogg");
         this.actions.changed();
       };

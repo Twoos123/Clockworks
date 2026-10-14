@@ -25,7 +25,9 @@ import { PrologueScreen } from "./ui/prologue";
 import { dressArgs, emptyAppearance, resolveDressing } from "./game/accessories";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
-import { ElevatorScreen, type HeatReport, type HeatRow } from "./ui/elevator";
+import { ElevatorScreen, type HeatReport, type HeatRow, type PrizeWheel } from "./ui/elevator";
+import { ChatLog, shouldReportLoot } from "./game/lootlog";
+import { buildReel, floorHasWheel, type Prize } from "./game/prizewheel";
 import { GateBoard } from "./ui/gates";
 import { GateSource } from "./game/gatesource";
 import { lockNext } from "./game/gatemap";
@@ -36,7 +38,7 @@ import { MusicPlayer } from "./game/musicplayer";
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, commandKeys, gameKeyName, keyName, loadSettings, saveSettings, uiScale, type Action, type Settings } from "./ui/settings";
 import { hasMessage, loadMessages, message, messages, text } from "./i18n";
-import { itemName, levelText } from "./game/text";
+import { itemName, itemType, levelText } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
@@ -948,6 +950,7 @@ class Viewer {
     const theme = this.gate ? this.floors[this.run.depth]?.stratum?.theme : null;
     world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
     world.pocket = this.save.pocket;
+    world.onLoot = (item, count) => this.lootMessage(item, count);
     await this.outfit.dress(world);
     // the party lobby's gate pillar shows the gate being played: its six strata's themes, launched
     if (this.gateLobby && this.gate) world.gateDisplay = { themes: this.gate.real?.themes ?? this.gate.strata.map(st => st.theme), active: true };
@@ -969,6 +972,7 @@ class Viewer {
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
+    this.hud.chat = this.chat;
     this.hud.image = f => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f);
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
@@ -1743,6 +1747,57 @@ class Viewer {
    * duplicate sells for its price); the heat goes into every equipped heatable item, which
    * levels up. Returns lines describing found gear and level-ups.
    */
+  /** The chat overlay's lines (loot messages). */
+  private readonly chat = new ChatLog();
+
+  /**
+   * A find's loot message in the chat (dungeon m.item_awarded: "You have obtained Material
+   * (Bronze Bolt)."), its group as ItemCodes.Group names it, unless Loot Messages filters it.
+   */
+  private lootMessage(item: string, count: number) {
+    const eco = this.eco ?? this.world?.economy ?? null, info = eco?.info(item) ?? null;
+    if (!shouldReportLoot(this.options_.lootMessages, info?.rarity ?? 0, count, this.run.depth)) return;
+    const cat = info?.category ?? "";
+    const group = /^Rarity\//.test(item) ? text("item", "m.rarity", "Rarity")
+      : itemType(cat === "deposit" ? "mineral" : cat === "pickup" ? (/^Pickup\/Vial\//.test(item) ? "vial" : "capsule") : cat === "other" || !cat ? "item" : cat, "Item");
+    let name = itemName(item);
+    if (count > 1) name = hasMessage("global", "m.multiple") ? message("global", "m.multiple", count, name) : `${name} x${count}`;
+    this.chat.add(hasMessage("dungeon", "m.item_awarded") ? message("dungeon", "m.item_awarded", group, name) : `You have obtained ${group} (${name}).`);
+  }
+
+  /**
+   * The prize wheel after a floor with monsters (src/game/prizewheel.ts): the reel's prize is
+   * given when it lands, crowns and materials banked, hearts and pickups on the knight.
+   */
+  private prizeWheel(): PrizeWheel | null {
+    const w = this.world;
+    if (!w || w.arena) return null;
+    const floor = this.gate ? this.floors[this.run.depth] : null;
+    if (!floorHasWheel(floor?.kind, w.killCount)) return null;
+    const reel = buildReel(w.prizeSource());
+    const eco = this.eco ?? w.economy ?? null;
+    const slot = (p: Prize) => {
+      const icon = eco?.info(p.item)?.icon ?? null;
+      const base = itemName(p.item);
+      const name = p.kind !== "crowns" && p.count > 1 && hasMessage("global", "m.multiple") ? message("global", "m.multiple", p.count, base) : base;
+      return { name, icon, shine: !/^Instant\/Heart\//.test(p.item) };
+    };
+    const prize = reel[0];
+    return {
+      reel: reel.map(slot),
+      landed: () => {
+        if (prize.kind === "crowns") this.save.crowns += prize.count;
+        else if (prize.kind === "material") this.save.materials[prize.item] = (this.save.materials[prize.item] ?? 0) + prize.count;
+        else if (this.world === w) {
+          w.awardPrize(prize);
+          if (prize.kind === "heart") this.run.health = w.knight.health;
+        }
+        if (prize.kind !== "heart") this.lootMessage(prize.item, prize.count);
+        writeSave(this.save);
+      },
+    };
+  }
+
   private bankLoot(l: World["loot"]): string[] {
     const notes: string[] = [];
     const eco = this.eco ?? this.world?.economy ?? null;
@@ -1829,13 +1884,14 @@ class Viewer {
     this.run.floors++;
     this.runTotals.notes.push(...notes);
     const tally = `${l.crowns} crowns, ${l.heat} heat`;
+    const prize = this.prizeWheel();
     const { elevator } = this.screens();
     // a terminal's Shadow Lair elevator: down into that boss's Shadow Lair
     const lair = this.gate ? LAIR_GATES[String(this.world.exitElevator?.args["Push Gate"] ?? "")] : undefined;
     if (lair && /Shadow Lair/.test(this.world.exitElevator?.entity.name ?? "")) {
       const run = lairRun(lair, this.save.runs), first = run.floors.find(Boolean)!;
       void elevator.show({
-        title: `Depth ${this.run.depth} cleared`, next: loadingInfo(first.name, first, run.gate.name), tally, heat,
+        title: "", next: loadingInfo(first.name, first, run.gate.name), tally, heat, prize,
         advance: { label: "Advance", run: () => { this.elevator?.hide(); void this.enterGate(run.gate, run.floors, true); } },
         quit: { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } },
       });
@@ -1848,9 +1904,9 @@ class Viewer {
       if (this.gate.real && d < 29) this.floors[d + 1] = realFloor(this.gate, d + 1, lockNext(this.gate.real, d, here0?.wedge ?? 0, Date.now()));
       const next = this.floors[this.run.depth + 1];
       void elevator.show({
-        title: `Depth ${this.run.depth} cleared`,
+        title: "",
         next: next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally, heat,
+        tally, heat, prize,
         advance: { label: next ? "Advance" : "Ride Up", run: () => void this.descend() },
         quit: next ? { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } } : null,
       });
@@ -1862,9 +1918,9 @@ class Viewer {
       // past the Core the Clockworks go on: cycle the levels again, deeper
       const deeper = !nl && this.run.depth < 29;
       void elevator.show({
-        title: nl ? `Depth ${this.run.depth} cleared` : "Back to Haven",
+        title: nl ? "" : "Back to Haven",
         next: nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : deeper ? { title: "Deeper", zone: "A new floor below the Core", depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally, heat,
+        tally, heat, prize,
         advance: { label: nl || deeper ? "Advance" : "Ride Up", run: () => void this.descend(deeper) },
         quit: deeper ? { run: () => void this.descend() } : null,
       });
