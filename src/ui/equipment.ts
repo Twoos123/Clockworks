@@ -33,7 +33,7 @@ import {
   unlockedSkills, type SpriteDef, type SpriteProgress,
 } from "../game/sprites";
 import { validName } from "./createknight";
-import { messageText, type Component, type Style } from "./gui";
+import { messageText, selectTab, type Component, type Style } from "./gui";
 import { itemPreview, itemTip, ItemList, levelBonuses, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
 import { applyItemAction, COMPARE, compareTarget, itemMenu, rankAllows, rankLimitText, SLOT_ICON } from "./itemmenu";
 import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
@@ -259,6 +259,20 @@ export class ArsenalScreen extends GuiScreen {
   }
 
   private get mode(): Mode { return this.options ? "options" : TABS[this.tab] ?? "equipment"; }
+
+  /** The page shown (the client's TOGGLE_PROGRESS asks for the achievements). */
+  get page(): Mode { return this.mode; }
+
+  /** Shows one of the character window's pages (as.Ep opens it on the achievements). */
+  async showPage(mode: (typeof TABS)[number]) {
+    this.tab = Math.max(0, TABS.indexOf(mode));
+    this.options = false;
+    const opts = this.root?.find("characteroptions");
+    if (opts) opts.selected = false;
+    const pane = this.root?.find("tabbed");
+    if (pane) selectTab(pane, this.tab);
+    if (this.isOpen) await this.refresh();
+  }
 
   protected async build(): Promise<Component | null> {
     this.eco = await this.arsenal.eco();

@@ -7,13 +7,14 @@
 
 import { buildComponentConfig, type Component, type GuiContext } from "./gui";
 import { buildUi, uiRef } from "./screen";
-import { ACTIONS, defaultSettings, keyName, type Action, type Settings } from "./settings";
+import { ACTIONS, defaultSettings, gameKeyName, keyName, WHEEL_KEYS, type Action, type Settings } from "./settings";
 
-/** The fixed second keys (the arrows move too). */
+/** The fixed second keys (the arrows move too; the wheel's turns change weapons, WHEEL_KEYS). */
 const KEY2: Partial<Record<Action, string>> = { up: "Up", down: "Down", left: "Left", right: "Right" };
+const key2 = (a: Action) => KEY2[a] ?? (WHEEL_KEYS[a] ? gameKeyName(WHEEL_KEYS[a]!) : "");
 /** The gamepad's fixed buttons (src/gamepad.ts). */
 const PAD: Partial<Record<Action, string>> = {
-  up: "Left Stick", down: "Left Stick", left: "Left Stick", right: "Left Stick", dash: "X", interact: "Y", cycle: "RB / LB",
+  up: "Left Stick", down: "Left Stick", left: "Left Stick", right: "Left Stick", dash: "X", interact: "Y", cycle: "RB", prevWeapon: "LB",
   item1: "D-Pad Up", item2: "D-Pad Right", item3: "D-Pad Down", item4: "D-Pad Left", turnLeft: "Right Stick", turnRight: "Right Stick",
 };
 
@@ -62,7 +63,7 @@ export class KeyBindings {
     const key = (tag: string, text: string) => buildComponentConfig(ctx, { ...keyTemplate.config, tag, text }, local);
     const rows = await Promise.all((Object.keys(ACTIONS) as Action[]).map(async a => {
       const [l, k1, k2, pad] = await Promise.all([label(command(a)), key(`key_${a}`, keyName(this.settings.keys[a])),
-        key(`key2_${a}`, KEY2[a] ?? ""), key(`pad_${a}`, PAD[a] ?? "")]);
+        key(`key2_${a}`, key2(a)), key(`pad_${a}`, PAD[a] ?? "")]);
       k2.enabled = false;
       pad.enabled = false;
       k1.onAction = () => this.press(a);

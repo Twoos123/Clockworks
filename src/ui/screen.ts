@@ -134,6 +134,9 @@ export function row(kids: Component[], gap = 0, align = "TOP"): Component {
   return c;
 }
 
+/** Every window made; the left-docked ones among them lay out side by side. */
+const SCREENS: GuiScreen[] = [];
+
 export abstract class GuiScreen {
   protected root: Component | null = null;
   /** Modal interfaces over the root, topmost last. */
@@ -154,6 +157,7 @@ export abstract class GuiScreen {
   private last = 0;
 
   constructor(protected readonly ctx: GuiContext, protected readonly host: ScreenHost, id: string) {
+    SCREENS.push(this);
     const c = this.canvas = document.createElement("canvas");
     c.id = id;
     c.className = "title-canvas options-canvas gui-screen";
@@ -262,6 +266,15 @@ export abstract class GuiScreen {
   protected side: Component | null = null;
   /** Docks the main window at the screen's right edge instead of centring it (item/client/i). */
   protected dockRight = false;
+  /**
+   * Docks the main window at the screen's top left (client/g with its right flag off: x 0, at
+   * the top), beside the other left-docked windows that are open and come before it in
+   * `dockOrder`: the social window (0) first, then the event hub (1).
+   */
+  protected dockLeft = false;
+  protected dockOrder = 0;
+  /** The width the window was last drawn at (the next left-docked window starts after it). */
+  private drawnWidth = 0;
   private captured: Component | null = null;
 
   /** The window under a point: the top overlay, else the side window, else the main one. */
@@ -380,7 +393,11 @@ export abstract class GuiScreen {
     this.tick();
     if (this.root) {
       const s = pack(this.root);
-      render(this.root, g, this.dockRight ? Math.max(0, cw - s.width - DOCK_MARGIN) : Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+      this.drawnWidth = s.width;
+      if (this.dockLeft) {
+        const x = SCREENS.filter(o => o !== this && o.dockLeft && o.isOpen && o.dockOrder < this.dockOrder).reduce((a, o) => a + o.drawnWidth, 0);
+        render(this.root, g, x, s.height, this.hooks);
+      } else render(this.root, g, this.dockRight ? Math.max(0, cw - s.width - DOCK_MARGIN) : Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
     }
     if (this.side) {
       const s = pack(this.side);

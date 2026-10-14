@@ -1,47 +1,55 @@
-// The options window: the game's own rsrc/ui/options/interface.dat (General, Video, Game,
-// Controls... tabs) drawn full screen over the game, its controls bound to our settings. The
-// parts the game drives from its servers or its desktop window (region, screen mode, chat,
-// Steam, bug reports) are hidden; the language box picks the locale of the game's text (the
-// locales the install has bundles for; it applies on the next start). The Advanced buttons open
-// the game's advanced video and game windows (ui/options/advanced_*.dat) over it, Custom shows
-// its custom controls page (key bindings, src/ui/keybinds.ts), and the Steam tab's page holds the
-// save data. Settings the game's pages have no control for get rows copied from the same page's
-// own label, check box and slider configs, so everything is drawn in the game's styles.
+// The options window (Esc): the game's own rsrc/ui/options/interface.dat as OptionsDialog fills
+// it, drawn over the whole screen: its root's Options Backing (the vertical stripes) fills the
+// screen and the logo, the tabs (General, Video, Game, Chat, Controls, Prompts, Partner, About)
+// and the bottom bar (Quit, Logoff, Return to Haven, OK) sit in the middle. Every control the
+// client shows is shown; those bound to something here change it (volumes, quality, camera
+// shake, UI scale, the display mode, the Game page's damage, health, damage effect and auto
+// target boxes, the control scheme and custom keys), and those with nothing behind them in
+// single player (region, party with any, the chat page, the confirmation prompts, Discord, full
+// inspect, NPC names...) keep the player's choice without effect (Settings.prefs). Report a
+// Bug is disabled. The Partner page's Steam box (hidden without Steam, as the client hides it)
+// holds the browser's save instead. The Advanced buttons open the advanced video and game
+// windows (ui/options/advanced_*.dat), with rows for this port's own settings; Custom (Click to
+// Change) opens the custom controls page (key bindings, src/ui/keybinds.ts).
 
 import { CONFIG_REF } from "../config/params";
 import { loadSave, writeSave, type SaveData } from "../game/save";
 import { checklist } from "../game/levels";
-import { messages, text } from "../i18n";
-import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, restyle, setComboItems, type GuiContext, type GuiImage } from "./gui";
+import { message, messages, text } from "../i18n";
+import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, restyle, selectTab, setComboItems, type GuiContext, type GuiImage } from "./gui";
 import { findParent, KeyBindings } from "./keybinds";
 import { buildUi, uiRef } from "./screen";
-import { UI_MIN_SCALE, uiMaxScale, uiScale, uiScaleLimit, type Settings, type Tab } from "./settings";
+import { defaultSettings, UI_MIN_SCALE, uiMaxScale, uiScale, uiScaleLimit, type Settings, type Tab } from "./settings";
 
 export interface OptionsActions {
   changed(): void;
-  /** @deprecated The advanced pages are the options window's own now; this is not called. */
-  advanced?(tab: "graphics" | "controls" | "interface" | "save"): void;
   returnToHaven(): void;
   quit(): void;
+  /** Logoff: back to choosing a knight. */
+  logoff(): void;
   closed(): void;
   playing(): boolean;
+  /** The home town's name while the knight is away from it (Return to Haven shows), else null. */
+  awayFrom?(): string | null;
   sound(file: string): void;
   /** The save was replaced (imported or reset). */
   saveReplaced?(d: SaveData): void;
   /** Cheat: own every equippable item and add crowns; false when no game is running. */
   unlockAll?(): Promise<boolean>;
-  /** Display names of the cached scenes (for the Levels tab). */
+  /** Display names of the cached scenes (for the levels checklist). */
   sceneNames(): string[];
 }
 
-/** Tags whose parts have nothing behind them in this port. */
-const HIDDEN = ["party_with_any", "region_label", "region", "bugreport", "resetprefs", "screen_mode", "disp_cancel", "disp_apply",
-  "full_inspect", "npc_names", "ld_hud_arrows", "discord", "edit_beta_game", "weapon_switcher"];
-/** The same in the advanced video and game windows. */
+/** Parts the client shows only to its developers (edit_beta_game, resetprefs) or removes (aim_effect). */
+const HIDDEN = ["resetprefs", "edit_beta_game", "aim_effect", "aim_effect_label"];
+/** The same in the advanced video and game windows: parts with nothing behind them in this port. */
 const HIDDEN_ADVANCED = ["vsync_enabled", "compatibility_mode", "cull_transients", "antialiasing", "fps_box",
   "auto_advance", "ping_gfx", "hide_ui", "lovegroup"];
 
-type Flag = "muted" | "fog" | "shadows" | "decals" | "particles" | "showFps" | "minimap" | "controlsHint" | "mouseMove";
+/** OptionsDialog.Tab: the pages in order. */
+const PAGES = ["general", "video", "game", "chat", "controls", "prompts", "partner", "about"] as const;
+
+type Flag = "muted" | "fog" | "shadows" | "decals" | "particles" | "showFps" | "minimap" | "controlsHint";
 type Range = "masterVolume" | "cameraSpeed" | "zoom" | "deadZone";
 /** Slider ranges, and how the value label reads. */
 const RANGES: Record<Range, { min: number; max: number; fmt: (v: number) => string }> = {
@@ -51,9 +59,44 @@ const RANGES: Record<Range, { min: number; max: number; fmt: (v: number) => stri
   deadZone: { min: 0.05, max: 0.5, fmt: v => `${Math.round(v * 100)}%` },
 };
 
+/** Check boxes with nothing behind them here, by tag, and their defaults (ProjectXPrefs'). */
+const PREF_BOXES: Record<string, boolean> = {
+  party_with_any: false, full_inspect: true, npc_names: true, weapon_switcher: true, charge_bar: true, ld_hud_arrows: true,
+  rank_mode: true, discord: false,
+};
+
+/**
+ * The combo boxes with nothing behind them, by tag: their items (a bundle key and our text when
+ * the bundles lack it) and the default. Region: m.from_ip, then the deployment's regions.
+ */
+const PREF_COMBOS: Record<string, { items: [string, string][]; dflt: number }> = {
+  region: { items: [["m.from_ip", "From IP"], ["", "USA"], ["", "Europe"], ["", "South America"], ["", "Asia Pacific"]], dflt: 1 },
+  // ProjectXPrefs.ChatSize, ChatFont, CurseFilter.Mode (less VERNACULAR), KnightLabel, LootReportLevel
+  chat_size: { items: [["m.chat_size_default", "Default"], ["m.chat_size_large", "Large"], ["m.chat_size_xl", "Extra Large"]], dflt: 0 },
+  chat_font: { items: [["m.font_small", "Small"], ["m.font_medium", "Medium"], ["m.font_large", "Large"], ["m.font_xlarge", "Extra Large"], ["m.font_huge", "Huge"]], dflt: 0 },
+  filter_mode: { items: [["m.unfiltered", "None"], ["m.comic", "Comicify"], ["m.drop", "Drop"]], dflt: 1 },
+  label_mode: { items: [["m.always", "Always"], ["m.speaking", "Speaking Distance"], ["m.hover", "Hover"]], dflt: 1 },
+  loot_filter: { items: [["o.lf_all", "All"], ["o.lf_pro", "Filtered"], ["o.lf_none", "None"]], dflt: 0 },
+};
+
+/**
+ * ProjectXPrefs.ConfirmPrompt: the Prompts page's check boxes (m.<name>), all on by default.
+ * The Steam offers show only with Steam (OFFER_STEAM_INVITES, OFFER_STEAM_CONVERSION).
+ */
+const PROMPTS = ["register_recipe", "use_upgrade", "auto_create", "offer_end_survey", "unbind_heat", "replace_variants", "remove_loadout",
+  "unlock_box", "change_color", "change_eye", "change_height", "use_style_kit", "mission_intro", "deposit_guild_treasury", "install_room",
+  "install_door", "install_theme", "install_environment", "design_mode_hint", "install_harness", "hatch_sprite_egg", "abandon_party"];
+
+/** Command.ControlScheme's visible schemes: the Controls page's tiles. */
+const SCHEMES = ["mouse_move", "wasd_move", "gamepad"] as const;
+type Scheme = (typeof SCHEMES)[number] | "custom";
+
 const SAVE_KEY = "clyde-web-save";
 /** OptionsDialog's fixed UI scale buttons. */
 const SCALES: [string, number][] = [["scale100", 1], ["scale150", 1.5], ["scale200", 2], ["scale250", 2.5]];
+const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
+
+const t = (key: string, fallback: string) => text("projectx", key, fallback);
 
 export class OptionsScreen {
   private ui: Component | null = null;
@@ -65,6 +108,8 @@ export class OptionsScreen {
   private keys: KeyBindings | null = null;
   /** The Controls tab's host and its two pages. */
   private controls: { host: Component; scheme: Component; custom: Component | null } | null = null;
+  /** The control scheme tiles and the Custom button. */
+  private schemeButtons = new Map<Scheme, Component>();
   /** Check boxes and sliders bound to settings the game's own controls do not cover. */
   private flags = new Map<Flag, Component[]>();
   private ranges = new Map<Range, { slider: Component; label: Component | null }>();
@@ -74,6 +119,8 @@ export class OptionsScreen {
   /** The scale the slider is held at, applied when the button is let go. */
   private pendingScale: number | null = null;
   private scaleUp = false;
+  /** The display modes offered: the browser's window, and the whole screen. */
+  private modes: { full: boolean; label: string }[] = [];
 
   constructor(private readonly ctx: GuiContext, private readonly canvas: HTMLCanvasElement, private readonly settings: Settings,
     private readonly actions: OptionsActions) {
@@ -105,13 +152,12 @@ export class OptionsScreen {
         this.popOverlay();
       }
     }, true);
+    addEventListener("fullscreenchange", () => { if (this.ui) void this.fillModes(this.ui); });
   }
 
   get isOpen() { return !this.canvas.hidden; }
 
   private building: Promise<Component | null> | null = null;
-  /** The Levels tab's page and a label of the window to take its text style from. */
-  private levels: { page: Component; proto: Component } | null = null;
 
   /** Builds the window ahead of its first opening (in idle time). */
   async prebuild() {
@@ -123,17 +169,24 @@ export class OptionsScreen {
     this.canvas.hidden = false;
     if (!wasOpen) this.actions.sound("sound/feedback/ui_open.ogg");
     if (!this.ui) this.ui = await (this.building ??= this.build());
-    if (this.ui) this.fillLevels();
     if (this.ui && !wasOpen) {
       this.overlays = [];
       this.showScheme();
       this.load(this.ui);
+      void this.fillModes(this.ui);
       resetInput(this.ui);
     }
-    const ret = this.ui?.find("return"), quit = this.ui?.find("quit"), logoff = this.ui?.find("logoff");
-    if (ret) ret.visible = this.actions.playing();
-    if (quit) quit.visible = this.actions.playing();
-    if (logoff) logoff.visible = false;
+    // OptionsDialog.wasAdded: Logoff and the Chat page while logged on (playing); Return to
+    // <home town> while away from it; Quit always
+    const playing = this.actions.playing();
+    const ret = this.ui?.find("return"), logoff = this.ui?.find("logoff");
+    const away = playing ? this.actions.awayFrom?.() ?? null : null;
+    if (ret) { ret.visible = !!away; if (away) ret.text = message("projectx", "m.return_to", away) || `Return to ${away}`; }
+    if (logoff) logoff.visible = playing;
+    const chat = this.ui?.find("pane")?.parts.buttons?.children[PAGES.indexOf("chat")];
+    if (chat) chat.visible = playing;
+    // a knight's own options (full inspect, loot messages, party with any) show once one plays
+    if (this.ui) for (const tag of ["full_inspect", "loot_filter", "party_with_any"]) showPart(this.ui, tag, playing);
     if (!this.running) { this.running = true; requestAnimationFrame(this.frame); }
     if (page) await this.showPage(page);
   }
@@ -152,17 +205,15 @@ export class OptionsScreen {
   async showPage(page: Tab) {
     const ui = this.ui;
     if (!ui) return;
-    const tab = { game: "General", audio: "General", graphics: "Video", interface: "Game", controls: "Controls", save: "Save Data" }[page];
+    const tab = ({ game: "general", audio: "general", graphics: "video", interface: "game", controls: "controls", save: "partner" } as const)[page];
     this.selectTab(tab);
     if (page === "graphics" && this.advancedVideo) this.pushOverlay(this.advancedVideo);
     if (page === "interface" && this.advancedGame) this.pushOverlay(this.advancedGame);
-    if (page === "controls") this.showCustom();
   }
 
-  private selectTab(title: string) {
+  private selectTab(page: (typeof PAGES)[number]) {
     const pane = this.ui?.find("pane");
-    const i = pane?.parts.buttons?.children.findIndex(b => b.text === title) ?? -1;
-    if (pane && i >= 0) pane.value = i;
+    if (pane) selectTab(pane, PAGES.indexOf(page));
   }
 
   private pushOverlay(o: Component) {
@@ -181,11 +232,7 @@ export class OptionsScreen {
     const ui = await buildInterface(this.ctx, { $class: CONFIG_REF, name: "ui/options/interface.dat" });
     if (!ui) return null;
     hideParts(ui, HIDDEN);
-    for (const t of ui.find("pane")?.tabs ?? []) hideParts(t, HIDDEN);
-    // tabs with nothing behind them in single player; the Steam tab's page holds the save data
-    // and the Prompts tab's the Levels checklist
-    this.hideTabs(ui, ["Chat"]);
-    this.levelsTab(ui);
+    for (const p of ui.find("pane")?.tabs ?? []) hideParts(p, HIDDEN);
     const s = this.settings, act = this.actions;
     const on = (tag: string, fn: (c: Component, action: string) => void) => { const c = ui.find(tag); if (c) c.onAction = fn; };
     const slider = (tag: string, key: "musicVolume" | "effectsVolume" | "uiVolume") =>
@@ -208,31 +255,52 @@ export class OptionsScreen {
     check("monster_health", "healthBars");
     check("auto_target", "autoAim");
     check("show_damage_effects", "screenFlash");
-    await this.languages(ui);
-    on("keyboard_mouse", () => act.sound("sound/feedback/ui_confirm.ogg"));
-    on("keyboard_only", () => act.sound("sound/feedback/ui_confirm.ogg"));
+    for (const tag of Object.keys(PREF_BOXES)) on(tag, c => { s.prefs[tag] = !!c.value; act.sound("sound/feedback/ui_confirm.ogg"); act.changed(); });
+    await Promise.all([this.languages(ui), this.prefCombos(ui), this.buildPrompts(ui)]);
+    // the display mode: Apply and Cancel enable while another mode is picked
+    on("screen_mode", () => this.modePicked(ui));
+    on("disp_cancel", () => { void this.fillModes(ui); act.sound("sound/feedback/ui_dismiss.ogg"); });
+    on("disp_apply", () => void this.applyMode(ui));
+    // a bug report goes to the game's servers: there is none to send it to
+    const bug = ui.find("bugreport");
+    if (bug) bug.enabled = false;
+    // About: the client's version line (this port's name in the version's place) and release name
+    const version = ui.find("client_version"), release = ui.find("version_name");
+    if (version) version.text = message("projectx", "m.client_version", "clyde-web") || "Client version clyde-web";
+    if (release) release.text = "How Bizarre";
     on("dismiss", () => this.close());
-    on("return", () => { this.close(); act.returnToHaven(); });
-    on("quit", () => { this.close(); act.quit(); });
+    on("return", () => {
+      const away = this.actions.awayFrom?.() ?? "Haven";
+      this.confirm(message("projectx", "m.confirm_return", away) || `Are you sure you want to return to ${away}?`, t("b.return", "Return"),
+        () => { this.close(); act.returnToHaven(); });
+    });
+    on("quit", () => this.confirm(t("m.confirm_quit", "Are you sure you want to quit?"), t("m.quit", "Quit"), () => { this.close(); act.quit(); }));
+    on("logoff", () => this.confirm(t("m.confirm_logoff", "Are you sure you want to logoff?"), t("m.logoff", "Logoff"), () => { this.close(); act.logoff(); }));
 
     const [video, game, keys] = await Promise.all([this.ui_("ui/options/advanced_video.dat"), this.ui_("ui/options/advanced_game.dat"),
       KeyBindings.build(this.ctx, s, { changed: () => act.changed(), sound: f => act.sound(f), back: () => this.showScheme() })]);
     this.keys = keys;
-    await Promise.all([this.buildGeneral(ui), this.buildControls(ui), this.buildSaveTab(ui),
+    await Promise.all([this.buildControls(ui), this.buildSaveBox(ui),
       video && this.buildAdvanced(video, "render_effects", [["fog", "Fog"], ["shadows", "Character Shadows"],
         ["decals", "Projected Shade (Roofs, Trees)"], ["showFps", "Show Frame Rate"]]),
-      game && this.buildAdvanced(game, "auto_advance", [["minimap", "Show Minimap"], ["controlsHint", "Show Controls Hint"], ["mouseMove", "Hold Left Button to Move"]])]);
+      game && this.buildAdvanced(game, "auto_advance", [["minimap", "Show Minimap"], ["controlsHint", "Show Controls Hint"], ["muted", "Mute All Sound"]])]);
     if (video) {
       const fx = video.find("render_effects");
       if (fx) this.bindFlag(fx, "particles");
       const l = findLabelOf(video, "render_effects");
       if (l) l.text = "Particle Effects";
     }
+    // the advanced game window takes this port's sliders: master volume, the camera and the gamepad
+    const table = game && findParent(game, c => c.children.some(k => k.tag === "auto_advance"));
+    if (table) {
+      const rows = await Promise.all([this.sliderRow(ui, "masterVolume", "Master Volume"), this.sliderRow(ui, "cameraSpeed", "Camera Turn Speed"),
+        this.sliderRow(ui, "zoom", "Camera Distance"), this.sliderRow(ui, "deadZone", "Stick Dead Zone")]);
+      table.children.push(...rows.flat());
+    }
     this.advancedVideo = video;
     this.advancedGame = game;
     on("edit_advanced", () => { act.sound("sound/feedback/ui_open.ogg"); if (video) this.pushOverlay(video); });
     on("edit_advanced_game", () => { act.sound("sound/feedback/ui_open.ogg"); if (game) this.pushOverlay(game); });
-    on("custom", () => { act.sound("sound/feedback/ui_confirm.ogg"); this.showCustom(); });
     return ui;
   }
 
@@ -290,7 +358,6 @@ export class OptionsScreen {
       const tag = code || "en";
       try { const n = new Intl.DisplayNames([tag], { type: "language" }).of(tag) ?? tag; return n[0].toUpperCase() + n.slice(1); } catch { return tag; }
     };
-    if (codes.length === 1) { const box = ui.find("language_container"); if (box) box.visible = false; return; }
     await setComboItems(this.ctx, combo, codes.map(own), Math.max(0, codes.indexOf(this.settings.locale)));
     combo.onAction = c => {
       const code = codes[c.selectedIndex] ?? "";
@@ -299,6 +366,73 @@ export class OptionsScreen {
       this.actions.sound("sound/feedback/ui_confirm.ogg");
       this.actions.changed();
     };
+  }
+
+  /** The combo boxes with nothing behind them: their items, the player's last choice kept. */
+  private async prefCombos(ui: Component) {
+    await Promise.all(Object.entries(PREF_COMBOS).map(async ([tag, { items, dflt }]) => {
+      const combo = ui.find(tag);
+      if (!combo) return;
+      const saved = this.settings.prefs[tag];
+      await setComboItems(this.ctx, combo, items.map(([k, f]) => (k ? t(k, f) : f)), typeof saved === "number" ? saved : dflt);
+      combo.onAction = c => {
+        if (c.selectedIndex < 0 || this.settings.prefs[tag] === c.selectedIndex) return;
+        this.settings.prefs[tag] = c.selectedIndex;
+        this.actions.sound("sound/feedback/ui_confirm.ogg");
+        this.actions.changed();
+      };
+    }));
+  }
+
+  /** OptionsDialog: a check box per visible ConfirmPrompt in confirm_prompts, labelled m.<prompt>. */
+  private async buildPrompts(ui: Component) {
+    const list = ui.find("confirm_prompts");
+    if (!list) return;
+    const boxes = await Promise.all(PROMPTS.map(async p => {
+      const label = t("m." + p, p.replace(/_/g, " "));
+      const b = await buildComponentConfig(this.ctx, { $class: COMPONENT + "CheckBox", tag: "prompt_" + p, text: "~" + label }, list.local);
+      b.constraints = null;
+      b.onAction = c => { this.settings.prefs["prompt_" + p] = !!c.value; this.actions.sound("sound/feedback/ui_confirm.ogg"); this.actions.changed(); };
+      return b;
+    }));
+    list.children = boxes;
+  }
+
+  /**
+   * ProjectXPrefs.d's display modes as the screen-mode box lists them ("1280x800 windowed"):
+   * the browser's window and the whole screen, the one in use picked.
+   */
+  private async fillModes(ui: Component) {
+    const combo = ui.find("screen_mode");
+    if (!combo) return;
+    const fmt = (w: number, h: number, full: boolean) => {
+      const res = message("projectx", "m.resolution", String(w), String(h)) || `${w}x${h}`;
+      return (message("projectx", "m.disp_fmt", res, "", full ? t("x.fullscreen", "fullscreen") : t("x.windowed", "")) || res).replace(/\s+/g, " ").trim();
+    };
+    const full = !!document.fullscreenElement;
+    this.modes = [{ full: false, label: fmt(innerWidth, innerHeight, false) }, { full: true, label: fmt(screen.width, screen.height, true) }];
+    await setComboItems(this.ctx, combo, this.modes.map(m => m.label), full ? 1 : 0);
+    this.modePicked(ui);
+  }
+
+  /** OptionsDialog.FM: Apply and Cancel are enabled while a mode other than the current one is picked. */
+  private modePicked(ui: Component) {
+    const combo = ui.find("screen_mode");
+    const picked = this.modes[combo?.selectedIndex ?? -1];
+    const changed = !!picked && picked.full !== !!document.fullscreenElement;
+    for (const tag of ["disp_apply", "disp_cancel"]) { const b = ui.find(tag); if (b) b.enabled = changed; }
+  }
+
+  /** Apply: the whole screen, or back to the window. */
+  private async applyMode(ui: Component) {
+    const picked = this.modes[ui.find("screen_mode")?.selectedIndex ?? -1];
+    if (!picked) return;
+    this.actions.sound("sound/feedback/ui_confirm.ogg");
+    try {
+      if (picked.full) await document.documentElement.requestFullscreen();
+      else if (document.fullscreenElement) await document.exitFullscreen();
+    } catch { /* the browser refused */ }
+    await this.fillModes(ui);
   }
 
   /**
@@ -332,50 +466,101 @@ export class OptionsScreen {
     return [l, g];
   }
 
-  /** General: master volume over the game's three, and a mute check box under them. */
-  private async buildGeneral(ui: Component) {
-    const music = ui.find("music_volume");
-    const table = music && findParent(ui, c => c.children.includes(music));
-    if (!table) return;
-    table.children.unshift(...await this.sliderRow(ui, "masterVolume", "Master Volume"));
-    const box = ui.find("show_damage"), boxTable = box && findParent(ui, c => c.children.includes(box));
-    const label = boxTable?.children[boxTable.children.indexOf(box!) - 1];
-    if (!box || !label) return;
-    const [l, b] = await Promise.all([buildComponentConfig(this.ctx, { ...label.config, text: "Mute All Sound" }, label.local),
-      buildComponentConfig(this.ctx, { ...box.config, tag: "muted" }, box.local)]);
-    l.constraints = table.children[0]?.constraints ?? null;
-    b.constraints = table.children[1]?.constraints ?? null;
-    this.bindFlag(b, "muted");
-    table.children.push(l, b);
+  /** The scheme in use: the custom keys, mouse movement, or WASD (or the gamepad, which plays as WASD). */
+  private get scheme(): Scheme {
+    const p = this.settings.prefs.controlScheme;
+    if (this.settings.mouseMove) return "mouse_move";
+    return p === "gamepad" || p === "custom" ? p : "wasd_move";
   }
 
-  /** Controls: the camera and gamepad sliders under the scheme buttons, and the custom page. */
+  /**
+   * Controls (client/u on ui/options/controlscheme.dat): a 148 x 120 tile per visible
+   * Command.ControlScheme (m.cs_<scheme>, styled Button (Blue Control Scheme)/<scheme>), the
+   * scheme in use pressed; a press asks to switch (client/ad). Custom (Click to Change) opens
+   * the custom controls page.
+   */
   private async buildControls(ui: Component) {
     const host = ui.find("controls");
     const scheme = host?.children[0];
     if (!host || !scheme) return;
     this.controls = { host, scheme, custom: this.keys?.root ?? null };
     if (this.keys) this.keys.root.constraints = scheme.constraints;
-    const music = ui.find("music_volume");
-    const table = music && findParent(ui, c => c.children.includes(music));
-    if (!table) return;
-    const rows = (await Promise.all([this.sliderRow(ui, "cameraSpeed", "Camera Turn Speed"), this.sliderRow(ui, "zoom", "Camera Distance"),
-      this.sliderRow(ui, "deadZone", "Stick Dead Zone")])).flat();
-    const sub = await buildComponentConfig(this.ctx, { ...table.config, layout: { ...table.config.layout, children: [] } }, table.local);
-    sub.children = rows;
-    sub.constraints = scheme.children.find(k => k.tag === "custom")?.constraints ?? null;
-    const note = scheme.children.findIndex(k => k.kind === "label");
-    scheme.children.splice(note < 0 ? scheme.children.length : note, 0, sub);
+    const row = scheme.find("controlSchemes"), proto = row?.children[0];
+    if (row && proto) {
+      const tiles = await Promise.all(SCHEMES.map(async id => {
+        const b = await buildComponentConfig(this.ctx, { ...proto.config, tag: "scheme_" + id, text: "~" + t("m.cs_" + id, id),
+          style: { ...proto.config.style, name: `Button (Blue Control Scheme)/${id}/Button, Blue` }, preferredSize: { width: 148, height: 120 } }, proto.local);
+        b.constraints = proto.constraints;
+        b.onAction = () => { this.actions.sound("sound/feedback/ui_confirm.ogg"); void this.askScheme(id); };
+        this.schemeButtons.set(id, b);
+        return b;
+      }));
+      row.children = tiles;
+    }
+    const custom = scheme.find("custom");
+    if (custom) {
+      this.schemeButtons.set("custom", custom);
+      custom.onAction = () => {
+        this.actions.sound("sound/feedback/ui_confirm.ogg");
+        if (this.scheme !== "custom") { this.settings.prefs.controlScheme = "custom"; this.settings.mouseMove = false; this.actions.changed(); }
+        this.showSchemes();
+        this.showCustom();
+      };
+    }
+    this.showSchemes();
+  }
+
+  /** The tiles' and Custom's pressed state: the scheme in use. */
+  private showSchemes() {
+    for (const [id, b] of this.schemeButtons) b.selected = id === this.scheme;
+  }
+
+  /**
+   * client/ad on ui/controlselect/interface.dat: the scheme's diagram and summary
+   * (t.cs_desc_<scheme>, m.cs_desc_<scheme>_1..3) with Back and Accept. Accepting switches to it
+   * with its default keys (Command.resetControlScheme).
+   */
+  private async askScheme(id: (typeof SCHEMES)[number]) {
+    const [o, diagram] = await Promise.all([this.ui_("ui/controlselect/interface.dat"), this.ui_(`ui/controlselect/part_diagram_${id}.dat`)]);
+    if (!o) { this.setScheme(id); return; }
+    const row = o.find("controlSchemes");
+    if (row) row.visible = false;
+    const host = o.find("uiDiagram");
+    const parent = host && findParent(o, c => c.children.includes(host));
+    if (host && parent && diagram) { diagram.constraints = host.constraints; parent.children[parent.children.indexOf(host)] = diagram; }
+    const desc = "cs_desc_" + id;
+    const title = o.find("labelTitle");
+    if (title) title.text = t("t." + desc, id);
+    for (let i = 1; i <= 3; i++) {
+      const l = o.find("labelText" + i);
+      if (!l) continue;
+      const k = `m.${desc}_${i}`;
+      l.visible = !!message("projectx", k) && message("projectx", k) !== k;
+      l.text = l.visible ? t(k, "") : "";
+    }
+    const back = o.find("buttonBack"), accept = o.find("buttonAccept");
+    if (back) back.onAction = () => { this.popOverlay(o); this.showSchemes(); };
+    if (accept) accept.onAction = () => { this.overlays = this.overlays.filter(x => x !== o); this.actions.sound("sound/feedback/ui_confirm.ogg"); this.setScheme(id); };
+    resetInput(o);
+    this.actions.sound("sound/feedback/ui_open.ogg");
+    this.overlays.push(o);
+  }
+
+  private setScheme(id: (typeof SCHEMES)[number]) {
+    this.settings.prefs.controlScheme = id;
+    this.settings.mouseMove = id === "mouse_move";
+    this.settings.keys = defaultSettings().keys;
+    this.keys?.refresh();
+    this.actions.changed();
+    this.showSchemes();
   }
 
   private showCustom() {
     const c = this.controls;
     if (!c?.custom) return;
-    this.selectTab("Controls");
+    this.selectTab("controls");
     c.host.children = [c.custom];
     this.keys?.refresh();
-    const custom = this.ui?.find("custom");
-    if (custom) custom.value = false;
   }
 
   private showScheme() {
@@ -383,74 +568,29 @@ export class OptionsScreen {
     if (!c) return;
     this.keys?.cancel();
     c.host.children = [c.scheme];
+    this.showSchemes();
   }
 
   /**
-   * The Prompts tab (hidden: nothing behind it here) becomes the Levels tab: how many of the
-   * game's server-side levels the player has collected, by group (src/game/levels.ts).
+   * The Partner page's Steam box (hidden without Steam) holds the browser's save: what it
+   * holds, the levels collected from the scene cache, and Export, Import, Reset, Unlock All
+   * Gear and the levels checklist, in the box's own label and the window's button styles.
    */
-  private levelsTab(ui: Component) {
-    const pane = ui.find("pane"), buttons = pane?.parts.buttons;
-    if (!pane || !buttons) return;
-    const i = buttons.children.findIndex(b => b.text === "Prompts");
-    const proto = findTextLabel(pane.tabs[0] ?? pane);
-    if (i < 0 || !pane.tabs[i] || !proto) return;
-    buttons.children[i].text = "Levels";
-    buttons.children[i].visible = true;
-    const page = new Component("container", null);
-    page.layout = column("CENTER", 10);
-    page.constraints = pane.tabs[i].constraints;
-    pane.tabs[i] = page;
-    if (pane.selectedIndex === i) pane.children = [pane.parts.top!, page];
-    this.levels = { page, proto };
-  }
-
-  /** Collected / total per group, from the cached scenes' names. */
-  private fillLevels() {
-    if (!this.levels) return;
-    const { page, proto } = this.levels;
-    const list = checklist(this.actions.sceneNames());
-    const label = (text: string) => {
-      const c = new Component("label", null);
-      c.styles = proto.styles; c.local = proto.local; c.fontFamily = proto.fontFamily; c.states = proto.states;
-      c.text = text;
-      c.constraints = { fixed: true };
-      return c;
-    };
-    const names = new Component("container", null), counts = new Component("container", null);
-    names.layout = column("LEFT", 4);
-    counts.layout = column("RIGHT", 4);
-    names.children = [...list.groups.map(g => label(g.title)), label("All levels")];
-    counts.children = [...list.groups.map(g => label(`${g.have.length} / ${g.have.length + g.missing.length}`)), label(`${list.have} / ${list.total}`)];
-    const table = new Component("container", null);
-    table.layout = { $class: "LayoutConfig$HorizontalGroup", policy: { name: "NONE" }, justification: { name: "CENTER" },
-      offAxisPolicy: { name: "NONE" }, offAxisJustification: { name: "TOP" }, gap: 24 };
-    table.children = [names, counts];
-    for (const k of table.children) k.constraints = { fixed: true };
-    table.constraints = { fixed: true };
-    page.children = [label("Levels collected from the game's scene cache"), table,
-      ...(list.guildHalls ? [label(`Guild halls: ${list.guildHalls} archived`)] : []), label("npm run levels lists where to find each one")];
-  }
-
-  /** Save Data (in the Steam tab's place): what the save holds, export, import and reset. */
-  private async buildSaveTab(ui: Component) {
-    const pane = ui.find("pane");
-    const tabButton = pane?.parts.buttons?.children.find(b => b.text === "Steam");
-    const page = tabButton && pane!.tabs[pane!.parts.buttons!.children.indexOf(tabButton)];
-    const root = page?.children[0];
-    const table = root?.children[0];
-    const box = page?.find("enable_voice_chat");
-    const label = table?.children[0];
+  private async buildSaveBox(ui: Component) {
+    const box = ui.find("steam_container");
+    const title = box?.children.find(k => k.kind === "label");
+    const table = box?.children.find(k => k.children.some(x => x.tag === "enable_voice_chat"));
+    const label = table?.children[0], cell = table?.find("enable_voice_chat");
     const blue = ui.find("edit_advanced"), orange = ui.find("scalemax");
-    if (!tabButton || !root || !table || !label || !box || !blue || !orange) return;
-    tabButton.text = "Save Data";
+    if (!box || !title || !table || !label || !cell || !blue || !orange) return;
+    title.text = "Save Data";
     const valueCfg = { ...label.config, text: "", style: { $class: CONFIG_REF, name: "Default/Label" } };
-    const rows: [string, string][] = [["crowns", "Crowns"], ["heat", "Heat"], ["owned", "Items Owned"], ["depth", "Deepest Depth"], ["runs", "Runs"]];
+    const rows: [string, string][] = [["crowns", "Crowns"], ["heat", "Heat"], ["owned", "Items Owned"], ["depth", "Deepest Depth"], ["runs", "Runs"], ["levels", "Levels"]];
     const summary = await Promise.all(rows.map(async ([tag, text]) => {
       const [l, v] = await Promise.all([buildComponentConfig(this.ctx, { ...label.config, text }, label.local),
         buildComponentConfig(this.ctx, { ...valueCfg, tag: `save_${tag}` }, label.local)]);
       l.constraints = label.constraints;
-      v.constraints = box.constraints;
+      v.constraints = cell.constraints;
       this.summary.set(tag, v);
       return [l, v];
     }));
@@ -463,17 +603,22 @@ export class OptionsScreen {
       b.onAction = () => { this.actions.sound("sound/feedback/button_press.ogg"); fn(); };
       return b;
     };
-    const buttons = await Promise.all([button(blue.config, blue.local, "save_export", "Export Save", () => this.exportSave()),
-      button(blue.config, blue.local, "save_import", "Import Save", () => this.importSave()),
-      button(orange.config, orange.local, "save_reset", "Reset Save", () => this.confirmReset()),
-      button(orange.config, orange.local, "save_unlock", "Unlock All Gear", () => this.confirmUnlock())]);
-    const row = await buildComponentConfig(this.ctx, { ...table.config, tag: "save_buttons",
-      layout: { $class: "LayoutConfig$HorizontalGroup", policy: { name: "NONE" }, justification: { name: "LEFT" }, offAxisPolicy: { name: "NONE" }, gap: 10, children: [] } },
-    table.local);
-    row.children = buttons;
-    row.constraints = table.constraints;
-    root.children = [table, note, row];
-    // the page's second table (voice volume) is gone with the rest of Steam's page
+    const rowOf = async (kids: Component[]) => {
+      const r = await buildComponentConfig(this.ctx, { ...table.config, tag: "",
+        layout: { $class: "LayoutConfig$HorizontalGroup", policy: { name: "NONE" }, justification: { name: "LEFT" }, offAxisPolicy: { name: "NONE" }, gap: 8, children: [] } },
+      table.local);
+      r.children = kids;
+      r.constraints = table.constraints;
+      return r;
+    };
+    const [a, b] = await Promise.all([
+      Promise.all([button(blue.config, blue.local, "save_export", "Export", () => this.exportSave()),
+        button(blue.config, blue.local, "save_import", "Import", () => this.importSave()),
+        button(blue.config, blue.local, "save_levels", "Levels", () => void this.showLevels())]),
+      Promise.all([button(orange.config, orange.local, "save_reset", "Reset Save", () => this.confirmReset()),
+        button(orange.config, orange.local, "save_unlock", "Unlock All Gear", () => this.confirmUnlock())]),
+    ]);
+    box.children = [title, table, note, await rowOf(a), await rowOf(b)];
   }
 
   private refreshSummary() {
@@ -484,6 +629,39 @@ export class OptionsScreen {
     set("owned", d.owned.length);
     set("depth", d.bestDepth);
     set("runs", d.runs);
+    const list = checklist(this.actions.sceneNames());
+    set("levels", `${list.have} / ${list.total}`);
+  }
+
+  /**
+   * The levels checklist (src/game/levels.ts): how many of the game's server-side levels the
+   * install's scene cache holds, by group, in a window like the advanced ones.
+   */
+  private async showLevels() {
+    const o = await this.ui_("ui/options/advanced_game.dat");
+    const table = o && findParent(o, c => c.children.some(k => k.tag === "auto_advance"));
+    const label = table?.children[0];
+    if (!o || !table || !label) return;
+    hideParts(o, ["lovegroup"]);
+    const title = o.children[0]?.kind === "label" ? o.children[0] : o.find("title") ?? findTitle(o);
+    if (title) title.text = "Levels Collected";
+    const list = checklist(this.actions.sceneNames());
+    const valueCfg = { ...label.config, text: "", style: { $class: CONFIG_REF, name: "Default/Label" } };
+    const rows: [string, string][] = [...list.groups.map(g => [g.title, `${g.have.length} / ${g.have.length + g.missing.length}`] as [string, string]),
+      ["All levels", `${list.have} / ${list.total}`], ...(list.guildHalls ? [["Guild halls archived", String(list.guildHalls)] as [string, string]] : [])];
+    const built = await Promise.all(rows.map(async ([name, value]) => {
+      const [l, v] = await Promise.all([buildComponentConfig(this.ctx, { ...label.config, text: "~" + name }, label.local),
+        buildComponentConfig(this.ctx, { ...valueCfg, text: "~" + value }, label.local)]);
+      l.constraints = label.constraints;
+      v.constraints = table.children[1]?.constraints ?? null;
+      return [l, v];
+    }));
+    table.children = built.flat();
+    const dismiss = o.find("dismiss");
+    if (dismiss) dismiss.onAction = () => this.popOverlay(o);
+    resetInput(o);
+    this.actions.sound("sound/feedback/ui_open.ogg");
+    this.overlays.push(o);
   }
 
   private exportSave() {
@@ -537,11 +715,17 @@ export class OptionsScreen {
     this.refreshSummary();
   }
 
+  /** The client's confirmation (cc, cf, bY): a question with Cancel and the action's own button. */
+  private confirm(question: string, acceptText: string, accept: () => void) {
+    this.actions.sound("sound/feedback/ui_dropdown_activate.ogg");
+    void this.prompt("", question, accept, acceptText);
+  }
+
   /**
-   * The game's confirmation window (ui/window/confirm_prompt): OK runs `accept`; with no
-   * `accept` it is a notice with OK alone.
+   * The game's confirmation window (ui/window/confirm_prompt): OK (or `acceptText`) runs
+   * `accept`; with no `accept` it is a notice with OK alone.
    */
-  private async prompt(title: string, text: string, accept: (() => void) | null) {
+  private async prompt(title: string, text: string, accept: (() => void) | null, acceptText?: string) {
     const o = await buildUi(this.ctx, uiRef("ui/window/confirm_prompt/interface.dat"));
     if (!o) return;
     const set = (tag: string, v: string) => { const c = o.find(tag); if (c) c.text = v; };
@@ -551,7 +735,10 @@ export class OptionsScreen {
     if (confirm) confirm.visible = false;
     if (cancel) { cancel.visible = !!accept; cancel.onAction = () => this.popOverlay(o); }
     if (dismiss) dismiss.onAction = () => this.popOverlay(o);
-    if (ok) ok.onAction = () => { this.overlays = this.overlays.filter(x => x !== o); this.actions.sound("sound/feedback/ui_confirm.ogg"); accept?.(); };
+    if (ok) {
+      if (acceptText) ok.text = acceptText;
+      ok.onAction = () => { this.overlays = this.overlays.filter(x => x !== o); this.actions.sound("sound/feedback/ui_confirm.ogg"); accept?.(); };
+    }
     resetInput(o);
     this.actions.sound("sound/feedback/ui_open.ogg");
     this.overlays.push(o);
@@ -579,11 +766,13 @@ export class OptionsScreen {
     set("monster_health", s.healthBars);
     set("auto_target", s.autoAim);
     set("show_damage_effects", s.screenFlash);
-    set("keyboard_mouse", true);
+    for (const [tag, dflt] of Object.entries(PREF_BOXES)) set(tag, typeof s.prefs[tag] === "boolean" ? s.prefs[tag] as boolean : dflt);
+    for (const p of PROMPTS) set("prompt_" + p, s.prefs["prompt_" + p] !== false);
     if (ui === this.ui) {
       this.setQualityLabel(ui);
       this.showScale(ui);
       this.refreshSummary();
+      this.showSchemes();
       this.keys?.refresh();
     }
   }
@@ -653,13 +842,6 @@ export class OptionsScreen {
     this.actions.changed();
   }
 
-  private hideTabs(ui: Component, titles: string[]) {
-    const pane = ui.find("pane");
-    if (!pane) return;
-    const walk = (c: Component) => { if (c.kind === "button" && titles.includes(c.text)) c.visible = false; c.children.forEach(walk); };
-    walk(pane);
-  }
-
   private frame = () => {
     if (!this.running) return;
     const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1);
@@ -670,11 +852,20 @@ export class OptionsScreen {
     g.clearRect(0, 0, w, h);
     g.scale(dpr, dpr);
     const cw = w / dpr, ch = h / dpr;
-    g.fillStyle = "rgba(4,10,18,0.6)";
+    g.fillStyle = "rgba(4,10,18,0.35)";
     g.fillRect(0, 0, cw, ch);
     for (const ui of [this.ui, ...this.overlays]) {
       if (!ui) continue;
-      if (ui !== this.ui) { g.fillStyle = "rgba(4,10,18,0.45)"; g.fillRect(0, 0, cw, ch); }
+      if (ui === this.ui) {
+        // the window covers the screen: its Options Backing (vertical stripes) fills it, and the
+        // anchored logo, tabs and buttons sit in the middle
+        ui.preferredSize = { width: Math.round(cw), height: Math.round(ch) };
+        pack(ui);
+        render(ui, g, 0, Math.round(ch), {});
+        continue;
+      }
+      g.fillStyle = "rgba(4,10,18,0.45)";
+      g.fillRect(0, 0, cw, ch);
       const s = pack(ui);
       render(ui, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), {});
     }
@@ -701,6 +892,16 @@ function hideParts(root: Component, tags: string[]) {
   walk(root);
 }
 
+/** Shows or hides a tagged control and, in a label + control table, its label. */
+function showPart(root: Component, tag: string, on: boolean) {
+  const c = root.find(tag);
+  if (!c) return;
+  c.visible = on;
+  const p = findParent(root, x => x.children.includes(c));
+  const prev = p?.children[p.children.indexOf(c) - 1];
+  if (p?.layout?.$class?.endsWith("Table") && prev?.kind === "label") prev.visible = on;
+}
+
 /** The label before a tagged control in its table. */
 function findLabelOf(root: Component, tag: string): Component | null {
   const c = root.find(tag), t = c && findParent(root, p => p.children.includes(c));
@@ -708,13 +909,9 @@ function findLabelOf(root: Component, tag: string): Component | null {
   return l?.kind === "label" ? l : null;
 }
 
-/** A vertical group with its children at their preferred sizes. */
-const column = (align: string, gap: number) => ({ $class: "LayoutConfig$VerticalGroup", policy: { name: "NONE" },
-  justification: { name: "CENTER" }, offAxisPolicy: { name: "NONE" }, offAxisJustification: { name: align }, gap });
-
-/** The first visible label with text: its style is the window's text style. */
-function findTextLabel(c: Component): Component | null {
-  if (c.kind === "label" && c.visible && c.text && c.styles[0]) return c;
-  for (const k of c.children) { const r = findTextLabel(k); if (r) return r; }
+/** A window's title: its first label. */
+function findTitle(c: Component): Component | null {
+  if (c.kind === "label") return c;
+  for (const k of c.children) { const r = findTitle(k); if (r) return r; }
   return null;
 }

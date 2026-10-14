@@ -3,7 +3,8 @@
 //
 //  - Guild Hall (HUD activity): the player's hall, with its furniture layer.
 //  - Furniture (HUD activity): furniture mode in the hall (goes there first).
-//  - Social (HUD menu button, G): the guild window (name, emblem, vault, hall furniture).
+//  - The guild window (name, emblem, vault, hall furniture): the personal menu's and the social
+//    window's guild options open it.
 //  - Ready Room (HUD activity): rsrc/world/readyroom/scene.dat as the client shows it, a stage
 //    and not a place to walk: the knight posed at the room's console (READY_ROOM_POSE), the
 //    room's own fixed camera (its Camera/Default placeable), the HUD without its minimap, and
@@ -234,7 +235,7 @@ export class Places {
       case "button_readyroom": void this.readyRoom(); return true;
       // in the Ready Room the Haven activity leaves it (client hud/b: the "readyroom" case)
       case "button_haven": if (!this.staged(this.host.scene()?.id)) return false; void this.leaveReadyRoom(); return true;
-      case "button_social": this.host.pause(true); this.guild.open(); return true;
+      case "guild_window": this.host.pause(true); this.guild.open(); return true;
       default: return false;
     }
   }

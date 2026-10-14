@@ -114,6 +114,18 @@ export class GameScreens {
   }
 
   toggleArsenal() { return this.toggle(this.arsenal); }
+
+  /** TOGGLE_PROGRESS (as.DE): the character window on its achievements page; again, it closes. */
+  async toggleAchievements() {
+    const a = this.arsenal;
+    if (a.isOpen && a.page === "achievements") { a.close(); return; }
+    if (!a.isOpen) {
+      for (const o of this.all()) if (o !== a) o.close();
+      this.host.paused(true);
+      await a.open();
+    }
+    await a.showPage("achievements");
+  }
   toggleForge() { return this.toggle(this.forge); }
   toggleBackpack() { return this.toggle(this.backpack); }
 
