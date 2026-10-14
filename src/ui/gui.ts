@@ -478,7 +478,10 @@ export async function buildInterface(ctx: GuiContext, ref: any, opts: BuildOptio
   host.bundle = opts.bundle ?? "global";
   host.local = local;
   host.scripts = scripts;
-  host.addAction = impl?.addAction ?? null;
+  // UserInterface runs its config's initAction as the config is set, then its addAction as it
+  // is added (the prologue's captions fade in from the preface's initAction): both run here
+  const acts = [impl?.initAction, impl?.addAction].filter(a => a?.$class);
+  host.addAction = acts.length > 1 ? { $class: "com.threerings.opengl.gui.config.ActionConfig$Compound", actions: acts } : acts[0] ?? null;
   const root = impl?.root ? await buildComponent(ctx, impl.root, local, opts, depth) : null;
   if (root) host.children.push(root);
   return host;

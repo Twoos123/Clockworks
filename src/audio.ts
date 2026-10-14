@@ -41,7 +41,7 @@ export class AudioSystem {
   private buffers = new Map<string, Promise<AudioBuffer | null>>();
   private sounders: Promise<Map<string, any>>;
   private listener: Vec3 = [0, 0, 0];
-  private music: { key: string; source: AudioBufferSourceNode; gain: GainNode; loop: boolean; duration: number } | null = null;
+  private music: { key: string; source: AudioBufferSourceNode; gain: GainNode; loop: boolean; duration: number; startedAt: number } | null = null;
   /** Looping ambient sources, stopped together when leaving a scene. */
   private loops: AudioBufferSourceNode[] = [];
   /** Limits how many copies of one file may start within a short window (bullet storms). */
@@ -277,8 +277,8 @@ export class AudioSystem {
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(gain, t + Math.max(0.05, fadeIn));
     src.connect(g).connect(this.trackBus ?? this.musicBus);
-    src.start();
-    this.music = { key: file, source: src, gain: g, loop, duration: buf.duration };
+    src.start(t);
+    this.music = { key: file, source: src, gain: g, loop, duration: buf.duration, startedAt: t };
   }
 
   /**
@@ -420,6 +420,20 @@ export class AudioSystem {
     m.gain.gain.linearRampToValueAtTime(0, t + fadeOut);
     m.source.stop(t + fadeOut + 0.05);
     this.music = null;
+  }
+
+  /**
+   * How far a music track has played, in seconds of the audio clock (null when it is not
+   * playing and not on its way; 0 while it is still loading). Timed pictures follow this
+   * rather than a clock of their own, so a slow decode or a background tab cannot leave them
+   * behind or ahead of the sound.
+   */
+  musicTime(file: string): number | null {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== "running") return null;
+    const m = this.music;
+    if (m?.key === file) return Math.max(0, ctx.currentTime - m.startedAt);
+    return this.nowPlaying === file ? 0 : null;
   }
 
   stopMusic(fadeOut = 1) {

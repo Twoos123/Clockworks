@@ -41,7 +41,7 @@ export interface FloorMusicContext {
 }
 
 /** What the player needs of the audio system. */
-export type MusicAudio = Pick<AudioSystem, "playMix" | "playMusic" | "stinger" | "unlock" | "layer" | "transient" | "stopMusic">;
+export type MusicAudio = Pick<AudioSystem, "playMix" | "playMusic" | "stinger" | "unlock" | "layer" | "transient" | "stopMusic"> & Partial<Pick<AudioSystem, "musicTime">>;
 
 /** A stream on a music stack: the floor's own track, or a level-scripted one. */
 interface Voice { track: Track; scripted?: ScriptedMusic }
@@ -93,6 +93,12 @@ export class MusicPlayer {
     const t = PLACES.prologue;
     this.playing = t;
     void this.audio().playMusic(t.files[0].file, t.gain, 0.5, false, 0.5);
+  }
+
+  /** How far the prologue's score has played (seconds), 0 while it loads, null when it is not playing. */
+  prologueTime(): number | null {
+    const f = PLACES.prologue.files[0]?.file;
+    return f ? this.audio().musicTime?.(f) ?? null : null;
   }
 
   /** The track a floor plays (exported for tests and the docs). */

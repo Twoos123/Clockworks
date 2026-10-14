@@ -692,6 +692,8 @@ class Viewer {
     if (!this.prologue) {
       this.prologue = new PrologueScreen(this.gui, this.renderer, this.loader, "prologueScreen");
       this.prologue.sound = f => this.uiSound(f);
+      // the prologue's scripts follow its score's playback (dK starts both together)
+      this.prologue.clock = () => this.music.prologueTime();
       this.prologue.onDone = () => {
         // dK.wasRemoved: the title music again, under knight creation
         this.music.title();
