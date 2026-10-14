@@ -32,10 +32,10 @@ be done fully, with the reason.
 - [ ] FLAG: PvP, parties, trading, mail (multiplayer)
 
 ## Combat and actors
-- [ ] Audit: every monster loads, moves, attacks, reacts to hits, dies with its death animation and effects
-- [ ] Audit: knight animations for every weapon class (sword combos, gun shots and reloads, bomb charges), shield, dash, hurt, death, revive, idle
-- [ ] Guns and bombs: every weapon's attack and charge animations wired, projectiles and effects
-- [ ] Monster reactions to guns and bombs (knockback, react animations, statuses)
+- [x] Audit: every monster loads, moves, attacks, reacts to hits, dies with its death animation and effects (docs/research/actor-audit.md; reactions follow reactTime, d3a1d96; behaviours in src/game/behavior.ts)
+- [x] Audit: knight animations for every weapon class (sword combos, gun shots and reloads, bomb charges), shield, dash, hurt, death, revive, idle
+- [x] Guns and bombs: every weapon's attack and charge animations wired, projectiles and effects (c29bc90); FLAG: about 11 guns still don't fire (being fixed)
+- [x] Monster reactions to guns and bombs (knockback, react animations, statuses)
 
 ## UI
 - [x] HUD from the full-screen mockup (menus, objective, activities, target, dash cooldown)
@@ -62,7 +62,7 @@ be done fully, with the reason.
 - [x] Achievements (`src/game/achievements.ts`): the client's 65 types (codes are the CRC-32 of the type name: bundle keys `m.achievement_<code>`, icons `ui/icon/cheevos/<code>.png`), kept in the save; earned offline from the arsenal (gear by kind, five-star set, level 10, every socket), rank (tier clearance), depths and runs (terminals, subtowns, the Core, tiers and the full Clockworks without revives), bosses, crafting, capsules and revives; kills counted; announced with the chat bundle's notice. FLAG: party revives, derelict Mecha Knights, Lockdown, the prize wheel and mineral deposits need other players or the server
 - [x] Point, spot and directional lights from scene entries and models (LightConfig influences: attenuation, spot exponent and cutoff, box extents; the nearest eight per object, as GL's fixed-function lights; models with light influences off are skipped), including the editor light markers the game's scenes and generated floors place
 - [x] White-quad particles fixed: textures are premultiplied on load as Clyde does (WebGL ignores UNPACK_PREMULTIPLY for ImageBitmaps, so alpha-only sprites drew as white squares under additive blending); second texture units (masks, "Separate Mask" materials) are applied; particle layers use their material's own blend
-- [ ] Audit and fixes: every monster and weapon animation; lichen fusion
+- [x] Audit and fixes: every monster and weapon animation; lichen fusion (c29bc90, e94a9fe)
 
 ## Done earlier (see STATUS.md)
 Engine, scenes cache, Tudey logic, HUD, arsenal, crafting, shops, arena, pocket items, trinkets, vitapods, dash, heat.
