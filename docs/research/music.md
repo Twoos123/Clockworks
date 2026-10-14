@@ -48,6 +48,31 @@ the table names is in the install, and that every track in the install is placed
 
 ## The mapping
 
+## Level-scripted music (the music stack)
+
+The levels' logic plays music of its own: it spawns `Environment/Music` actors
+(`config/actor.dat`: a Block whose sprite model is `world/environment/global_music_stack.dat`, a
+viewer affecter playing the sounder `Stream/Default (Gain, Stack)`), with arguments File, Gain,
+Fade In, Fade Out, Override (the sounder's `push`), Stack and Tag, and a Destruction Transient
+(`model/scripted/play_sound_clip.dat`, nearly always `fanfare_victory_1`). It ends them with a
+DestroyActor on the tag, typically from a `Trigger/Actor Removed` when a room's last wave falls.
+About 400 spawns across the archive: wave rooms play `battle_1`/`battle_2`/`battle_citadel` with
+the fanfare; the Royal Jelly court's arena plays `main_theme` (tag `music 1g`, never destroyed).
+Spawns leave Gain at the actor's default, 1.
+
+Streams sit on named stacks the way Clyde's `StackedStream` keeps them: a stream pushed with
+Override fades out the stack's top level over its Fade In and starts a level above it; without
+Override it joins the top level and plays alongside. When the actor goes, its stream fades out
+over Fade Out, and if that empties the top level the level below fades back in over the same
+time. The scene's own music global is a Stream on the default stack without push, so it is the
+bottom level. `src/game/musicstack.ts` holds the stacks; `MusicPlayer` puts the floor's track at
+the bottom and the level's streams over it, so scripted music wins wherever it is spawned. The
+boss and arena rules change only the bottom level's track. A boss's own victory fanfare is
+skipped when a Destruction Transient has just played. The Battle Arena ignores scripted music,
+because it leaves out the triggers that would end it. Generated floors keep each room's spawn and
+its destroying trigger together, with their tag numbers renumbered by room
+(`tests/musicstack.test.ts`).
+
 Gate floors always use the table. Generated floors copy their source scene's globals, and the
 cached scenes stand in for places they are not, such as the Dark Halls lobby standing in for
 Moorcroft Manor. Other scenes (Haven, the guild hall, the old run plan) play their own music
