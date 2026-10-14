@@ -1149,6 +1149,18 @@ class Viewer {
   /** The knight reached the exit elevator: offer the next floor. */
   private floorCleared() {
     if (!this.world) return;
+    if (this.inLobby && this.gate) {
+      // the Mission Lobby's elevator: down to the mission's first floor
+      const next = this.floors[this.run.depth + 1];
+      void this.screens().elevator.show({
+        title: messageText("%dungeon:m.mission_lobby"),
+        next: next ? loadingInfo(next.name, next, this.gate.name) : null,
+        tally: this.gate.name,
+        advance: { label: "Advance", run: () => { this.inLobby = false; void this.descend(); } },
+        quit: { run: () => { this.inLobby = false; this.paused = false; this.gate = null; this.missionBoard?.runAbandoned(); void this.returnToHaven(); } },
+      });
+      return;
+    }
     // bank what the floor gave
     const l = this.world.loot;
     const notes = this.bankLoot(l);
@@ -1274,6 +1286,7 @@ class Viewer {
   private summaryScreen: RunSummaryScreen | null = null;
 
   private async returnToHaven() {
+    this.inLobby = false;
     // the end of a gate run: a summary of what it brought home
     const t = this.runTotals;
     const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
@@ -1335,6 +1348,18 @@ class Viewer {
     this.arenaMode = false;
     // the descent starts above the first floor (a mission's floors start deeper)
     this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
+    // a mission starts in the Mission Lobby (the client's LOBBY level: knights gear up, then
+    // its elevator takes them down), when the level archive has it
+    // (the archive holds several revisions: the newest scene id, not an instance's huge one)
+    const lobby = g.id.startsWith("mission:") ? this.sceneList.filter(s => /^mission lobby$/i.test(s.name) && Number(s.id) < 1e6)
+      .sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null : null;
+    if (lobby) {
+      this.inLobby = true;
+      this.stopPlaying();
+      await this.selectScene(lobby.id);
+      await this.startPlaying();
+      return;
+    }
     await this.descend();
   }
 
@@ -1370,6 +1395,8 @@ class Viewer {
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   private usedScenes = new Set<string>();
+  /** In the Mission Lobby before a mission's first floor. */
+  private inLobby = false;
 
   /** A boss floor: the boss's fight director runs its arena; the exit stays shut until it is won. */
   private spawnBoss(key: BossKey) {
