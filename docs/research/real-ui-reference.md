@@ -291,3 +291,22 @@ seconds, git-ignored). They show the gate lobby, then a Gremlin floor of Cooling
     The note "Heat levels up your weapons and gear and makes them stronger." sits under them.
   - **After choosing:** the centre card goes. The prize wheel and heat panel stay over the next
     view for a moment.
+
+## Combat up close (Jigsaw Valley, gremlins)
+
+From a 45-second recording; frames are in `.scratch/vid3` (one per second, git-ignored).
+
+- **Weapon switch:** a small card pops up beside the knight with the new weapon's icon and
+  name ("Blitz Needle"), then fades.
+- **Floating text:**
+  - "Health At Max!" (white) over the knight when a heart is picked up at full health.
+  - "FIRE!" (red-orange) over a monster as fire takes hold.
+  - Damage numbers on hits.
+- **Loot lines:** "You have obtained …" in the chat area at the bottom left, about eight lines
+  stacked.
+- **Shield:** a translucent bubble in the shield's own colour (green-tinted for this shield),
+  with a bright ring at the knight's feet.
+- **Quickbar:** the three weapons, then the pocket items (vials and capsules, with counts), then
+  the vitapod slot.
+- **Other sights:** explosions throw debris and leave scorch decals. Orange crystal blocks sit
+  in clusters, and gremlins carry bombs and hammers.
