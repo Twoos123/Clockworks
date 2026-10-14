@@ -432,6 +432,8 @@ export class ArsenalScreen extends GuiScreen {
       case "costume": void this.toggleCostume(value); return;
       case "accessory": void this.toggleAccessory(value); return;
       case "sprite": this.chooseSprite(value); return;
+      // materials are listed to look at (the client's context menu offers nothing more here)
+      case "mat": return;
       case "food":
         this.food = this.food === value ? "" : value;
         this.focus = "sprite";
@@ -762,6 +764,17 @@ export class ArsenalScreen extends GuiScreen {
       });
       const key = GROUP_KEY[cat.id];
       groups.push({ id: cat.id, label: key ? messageText(key, "item") : cat.label, icon: cat.icon, entries, showEmpty: !!key });
+    }
+    // ArsenalPanel also lists the minerals and materials (shown even while empty)
+    const eco = this.eco;
+    for (const g of [{ id: "mineral", key: "m.mineral", icon: CAT + "icon_mineral.png", cats: ["mineral", "deposit"] },
+      { id: "material", key: "m.material", icon: CAT + "icon_puzzle.png", cats: ["material"] }]) {
+      const names = Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && g.cats.includes(eco?.info(n)?.category ?? ""));
+      groups.push({ id: g.id, label: messageText(g.key, "item"), icon: g.icon, showEmpty: true, entries: names.map(n => {
+        const it = eco?.info(n), count = save.materials[n] ?? 0;
+        return { key: `mat:${n}`, label: itemLabel(n), rarity: it?.rarity ?? 0, icon: it?.icon ?? null, count: count > 1 ? String(count) : "",
+          tip: itemTip({ label: itemLabel(n), type: messageText(g.key, "item"), rarity: it?.rarity ?? 0, flavor: "", item: n, kind: it?.category, plain: true }) } satisfies ListEntry;
+      }) });
     }
     return groups;
   }
