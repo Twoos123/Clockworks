@@ -1106,6 +1106,7 @@ class Viewer {
       openArsenal: async () => { if (!this.itemScreens?.arsenal.isOpen) await this.toggleArsenal(); },
       arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
       colors: () => this.renderer.colors,
+      eco: () => this.economy(),
       returnToHaven: () => void this.returnToHaven(),
       pause: on => { this.paused = on && !!this.world; },
       focus: () => this.canvas.focus(),

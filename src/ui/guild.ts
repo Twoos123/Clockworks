@@ -4,9 +4,13 @@
 // cards (ui/cards/parts/interface_card.dat with the art in ui/guild/images/cards) lead to the
 // vault, the emblem, the hall and its furniture, and the funds part shows the treasury.
 //
-//  - The vault is the game's trade window (ui/trade/tradewindow.dat): the guild's materials
-//    on the left, the knight's on the right; clicking a socket moves one across (Shift moves
-//    them all), the wheel scrolls; crowns go in with Deposit and come out with Withdraw.
+//  - The treasury and the member, veteran and officer storages are the client's
+//    GuildBagWindow in its trade mode: the bag as an arsenal list
+//    (ui/inventory/interface_combined.dat's ui/arsenal/interface.dat) with its pills backed red
+//    (storage) or green (treasury), the trade cart (ui/trade/interface_tradecart.dat: five
+//    lines, the bag's warning, the treasury's crowns slot, Empty and Confirm) and the knight's
+//    own arsenal. A pill pressed in either list goes into the cart (Shift: ten of a stack), a
+//    cart line pressed comes out; Confirm moves them. The treasury takes and never gives back.
 //  - The emblem is edited in a creation window (ui/create/parts/interface_window-collapsed.dat)
 //    with a symbol slider and a colour slider; the gate heraldry (ui/icon/gate/*.png) is
 //    tinted in the emblem colour.
@@ -14,21 +18,26 @@
 // The guild's members, ranks, upkeep and charter were kept on the game's servers and have
 // nothing behind them in single player; those parts are hidden.
 
+import type { GameData } from "../game/data";
+import type { Economy } from "../game/economy";
 import type { SaveData } from "../game/save";
-import { EMBLEM_COLORS, EMBLEM_SYMBOLS, guildOf, transfer } from "../game/guild";
+import { bagGivesBack, bagStore, commitCart, EMBLEM_COLORS, EMBLEM_SYMBOLS, guildOf, type CartLine, type GuildBag } from "../game/guild";
+import { isGear } from "../game/missions";
 import { itemLabel } from "../game/items";
 import { text } from "../i18n";
-import { hitTest, type Component, type GuiContext, type GuiImage } from "./gui";
-import { styledButton, styledLabel } from "./floating";
-import { itemTip } from "./itemlist";
-import { GuiScreen } from "./screen";
+import type { Component, GuiContext, GuiImage } from "./gui";
+import { ownedGroups } from "./equipment";
+import { ItemList, type ListEntry, type ListGroup } from "./itemlist";
+import { buildUi, GuiScreen, row, uiRef } from "./screen";
 
 export interface GuildHooks {
   save(): SaveData;
   write(): void;
   sound(file: string): void;
-  /** A material's IconConfig (for the vault's sockets). */
+  /** An item's IconConfig. */
   icon(item: string): any;
+  data(): GameData;
+  eco(): Promise<Economy>;
   goToHall(): void;
   openFurniture(): void;
   /** Places the cached hall's own furniture as the guild's (or clears the hall when false). */
@@ -43,7 +52,28 @@ type Tab = "guild" | "vault";
 const CARD = "ui/cards/parts/interface_card.dat";
 const CARDS = "ui/guild/images/cards/";
 const COLOR_NAMES = ["Blue", "Red", "Green", "Gold", "Purple", "Orange", "Teal", "Grey", "Navy", "Rust", "White", "Rose"];
-const SLOTS = 15;
+const ARSENAL = "ui/arsenal/interface.dat";
+const CART = "ui/trade/interface_tradecart.dat";
+const PILL = "ui/hud_v2/parts/interface_itempill.dat";
+const CAT = "ui/icon/inventory/categories/";
+/** The trade cart's lines (trade/a/s: five items at most). */
+const CART_MAX = 5;
+/** GuildBagWindow's bags: the window title (guild bundle), the pills' colour (GuildBagType.getColorArg). */
+const BAGS: Record<GuildBag, { title: string; color: "Green" | "Red" }> = {
+  treasury: { title: "t.treasury", color: "Green" }, member: { title: "t.member_storage", color: "Red" },
+  veteran: { title: "t.veteran_storage", color: "Red" }, officer: { title: "t.officer_storage", color: "Red" },
+};
+
+/** An open bag window: the bag, its list, the cart, the knight's list and the cart's lines. */
+interface BagWindow {
+  bag: GuildBag;
+  ui: Component;
+  bagList: ItemList;
+  mine: ItemList;
+  cart: Component;
+  lines: Map<string, CartLine>;
+  status: string;
+}
 
 /** The emblem colour's name. */
 const colorName = (c: string) => COLOR_NAMES[EMBLEM_COLORS.indexOf(c)] ?? c;
@@ -116,23 +146,20 @@ export class GuildWindow extends GuiScreen {
   private message = "";
   private cards: { spec: CardSpec; ui: Component }[] = [];
   private page = 0;
-  private vault: Component | null = null;
   private emblem: Component | null = null;
-  /** The vault's sockets: side, socket component, the item shown. */
-  private sockets: { left: boolean; slot: Component; item: string | null }[] = [];
-  private icons_ = new Map<Component, any>();
-  private scroll = { left: 0, right: 0 };
+  /** The bag window on show (GuildBagWindow), if any. */
+  private bagWin: BagWindow | null = null;
+  private eco: Economy | null = null;
   private shift = false;
 
   constructor(ctx: GuiContext, private readonly guild: GuildHooks) {
     super(ctx, { sound: f => guild.sound(f), closed: () => guild.onClose() }, "guildCanvas");
     this.canvas.addEventListener("pointerdown", e => { this.shift = e.shiftKey; }, true);
-    this.canvas.addEventListener("wheel", e => this.wheel(e), { passive: true });
   }
 
   async open(tab?: Tab) {
     await super.open();
-    if (tab === "vault") this.showVault(); else if (tab === "guild") this.overlays = [];
+    if (tab === "vault") void this.showBag("treasury"); else if (tab === "guild") this.overlays = [];
     await this.refresh();
   }
 
@@ -160,8 +187,12 @@ export class GuildWindow extends GuiScreen {
     if (caption2?.kind === "label") caption2.text = "Treasury";
     // the cards
     const specs: CardSpec[] = [
-      // guild/client/a's cards where this port has the same thing: the treasury, the member storage, design mode
-      { image: "treasury.png", text: text("guild", "m.show_treasury", "Show Guild Treasury"), act: () => this.showVault() },
+      // guild/client/a's cards where this port has the same thing: the treasury, the three
+      // storages (the knight leads its guild, so it holds every rank), design mode
+      { image: "treasury.png", text: text("guild", "m.show_treasury", "Show Guild Treasury"), act: () => this.showBag("treasury") },
+      { image: "memberstorage.png", text: text("guild", "b.member_storage", "Member Storage"), act: () => this.showBag("member") },
+      { image: "veteranstorage.png", text: text("guild", "b.veteran_storage", "Veteran Storage"), act: () => this.showBag("veteran") },
+      { image: "officerstorage.png", text: text("guild", "b.officer_storage", "Officer Storage"), act: () => this.showBag("officer") },
       { image: "charter.png", text: "Emblem", act: () => this.showEmblem() },
       { image: "environments.png", text: "Go to Guild Hall", act: () => { if (this.guild.inHall()) return; this.close(); this.guild.goToHall(); } },
       { image: "designmode.png", text: text("guild", "b.console_edit", "Design Mode"), act: () => { this.close(); this.guild.openFurniture(); } },
@@ -185,8 +216,7 @@ export class GuildWindow extends GuiScreen {
       this.on(ui, "btn_prev", () => this.turn(-1));
       this.on(ui, "btn_next", () => this.turn(1));
     }
-    // the vault and emblem windows build while the console is on show
-    this.vaultBuilt ??= this.buildVault();
+    // the emblem window builds while the console is on show
     this.emblemBuilt ??= this.buildEmblem();
     this.hooks = {
       view: (c, g, x, y, w, h) => {
@@ -195,11 +225,6 @@ export class GuildWindow extends GuiScreen {
         drawEmblem(this.ctx, g, e.symbol, e.color, x, y + 10, w, h - 20);
       },
       tagged: {
-        slot_ring: (c, g, x, y, w, h) => {
-          const cfg = this.icons_.get(c);
-          const im = cfg ? this.icon(cfg, Math.min(w, h) - 6) : null;
-          if (im) g.drawImage(im.source as CanvasImageSource, Math.round(x + (w - im.width) / 2), Math.round(y + (h - im.height) / 2), im.width, im.height);
-        },
         icon1: (_c, g, x, y, w, h) => { const e = guildOf(this.guild.save()).emblem; drawEmblem(this.ctx, g, e.symbol, e.color, x, y, w, h); },
         icon2: (_c, g, x, y, w, h) => {
           const e = guildOf(this.guild.save()).emblem, r = Math.min(w, h) / 2 - 6;
@@ -252,101 +277,177 @@ export class GuildWindow extends GuiScreen {
     void this.refresh();
   }
 
-  // ------------------------------------------------------------ the vault
+  // ------------------------------------------------------------ the bag windows
 
-  private async buildVault() {
-    {
-      const win = await this.ui("ui/trade/tradewindow.dat");
-      if (!win) return;
-      this.vault = win;
-      const box = win.children[0]?.children[0];
-      this.on(win, "dismiss", () => this.back());
-      const crownsR = win.find("crowns_right"), energyR = win.find("energy_right"), energyL = win.find("energy_left");
-      for (const c of [energyR, energyL, win.find("ready_left"), win.find("ready_right")]) if (c) c.visible = false;
-      // the right column: the knight's crowns, and under them the amount to move
-      if (box && crownsR && energyR) {
-        const mine = await styledLabel(this.ctx, "0", "Currency/Crowns", win.local);
-        mine.tag = "crowns_mine";
-        mine.preferredSize = { width: 120, height: -1 };
-        mine.constraints = crownsR.constraints;
-        crownsR.constraints = energyR.constraints;
-        crownsR.text = "100";
-        crownsR.maxLength = 9;
-        box.children.push(mine);
-        const withdraw = await styledButton(this.ctx, "Withdraw", () => this.moveCrowns(false), win.local, "Default/Button (Yellow)/Button");
-        const confirm = win.find("confirm");
-        withdraw.preferredSize = confirm?.preferredSize ?? { width: 136, height: 40 };
-        withdraw.constraints = { ...(confirm?.constraints ?? {}), x: 14 };
-        box.children.push(withdraw);
-      }
-      const confirm = this.on(win, "confirm", () => this.moveCrowns(true));
-      if (confirm) confirm.text = "Deposit";
-      for (const [side, left] of [["slots_left", true], ["slots_right", false]] as const) {
-        const part = win.find(side);
-        for (let i = 1; i <= SLOTS; i++) {
-          const slot = part?.find(`slot${i}`);
-          if (!slot) continue;
-          const s = { left, slot, item: null as string | null };
-          this.sockets.push(s);
-          this.clicks.set(slot, () => { if (s.item) this.moveItem(s.item, !left, this.shift); });
-        }
-      }
-    }
-  }
-
-  private vaultBuilt: Promise<void> | null = null;
-
-  private async showVault() {
-    await (this.vaultBuilt ??= this.buildVault());
-    if (!this.vault) return;
-    this.scroll = { left: 0, right: 0 };
-    if (!this.overlays.includes(this.vault)) this.overlays = [this.vault];
+  /**
+   * GuildBagWindow.a(..., Mode.TRADE): the bag's list, the trade cart and the knight's arsenal,
+   * side by side. Opening a bag replaces the one on show.
+   */
+  private async showBag(bag: GuildBag) {
+    this.eco ??= await this.guild.eco();
+    const color = BAGS[bag].color, back = bagGivesBack(bag);
+    const [bagUi, cart, mineUi] = await Promise.all([this.ui(ARSENAL, { Mode: "Window" }),
+      this.ui(CART, { Direction: back ? "Both" : "Give", "Color, Take": color }), this.ui(ARSENAL, { Mode: "Window" })]);
+    if (!bagUi || !cart || !mineUi) return;
+    const sound = (f: string) => this.guild.sound(f);
+    const bagList = new ItemList(this.ctx, bagUi, this.tips, sound), mine = new ItemList(this.ctx, mineUi, this.tips, sound);
+    // G.BW: the treasury sorts naturally or by name; the storages as the arsenal does
+    bagList.sorts = bag === "treasury" ? ["natural", "name"] : ["natural", "name", "stars", "level"];
+    mine.sorts = ["natural", "name", "stars", "level"];
+    bagList.clicks = mine.clicks = this.clicks;
+    const w: BagWindow = { bag, ui: row([bagUi, cart, mineUi], 8, "CENTER"), bagList, mine, cart, lines: new Map(), status: "" };
+    bagList.onPick = e => { if (back) this.addLine(w, e, false); };
+    mine.onPick = e => this.addLine(w, e, true);
+    // any of the three dismissed closes the others (GuildBagWindow and trade/a/s dismiss together)
+    for (const c of [bagUi, cart, mineUi]) this.on(c, "dismiss", () => this.back());
+    const energy = cart.find("slot_energy"), crowns = cart.find("slot_crowns");
+    if (energy) energy.visible = false;
+    if (crowns) crowns.visible = bag === "treasury";
+    const field = cart.find("crowns");
+    if (field) { field.text = "0"; field.maxLength = 9; field.onAction = () => this.showLines(w); }
+    this.on(cart, "empty_cart", () => { w.lines.clear(); if (field) field.text = "0"; this.guild.sound("sound/feedback/ui_dismiss.ogg"); void this.fillBag(); });
+    this.on(cart, "confirm_cart", () => this.confirmCart(w));
+    // the bag's warning (GuildBagType.getTradeWarning) until something else is said
+    w.status = text("guild", bag === "treasury" ? "m.treasury_warning" : "m.storage_warning", "");
+    this.bagWin = w;
+    this.overlays = [w.ui];
     this.message = "";
     await this.refresh();
   }
 
-  private moveItem(item: string, toVault: boolean, all: boolean) {
+  /** The crowns in the treasury's crowns slot. */
+  private cartCrowns(w: BagWindow): number {
+    const f = w.cart.find("crowns");
+    return w.bag === "treasury" ? Number(String(f?.text ?? "").replace(/[^\d]/g, "")) || 0 : 0;
+  }
+
+  /** trade/a/s.a: adds `n` (ten with Shift) of a pill's item to the cart's give or take side. */
+  private addLine(w: BagWindow, e: ListEntry, give: boolean) {
+    const item = e.key.replace(/^mat:/, ""), gear = !e.key.startsWith("mat:");
     const save = this.guild.save(), g = guildOf(save);
-    const have = (toVault ? save.materials[item] : g.vault[item]) ?? 0;
-    this.move(item, all ? have : 1, toVault);
-  }
-
-  private moveCrowns(toVault: boolean) {
-    const f = this.vault?.find("crowns_right");
-    this.move("crowns", Number(String(f?.text ?? "").replace(/[^\d]/g, "")), toVault);
-  }
-
-  private move(what: string, n: number, toVault: boolean) {
-    if (transfer(this.guild.save(), what, n, toVault)) {
-      this.guild.write();
-      this.guild.sound("sound/feedback/ui_merchant_trade_add.ogg");
-      this.message = "";
-    } else {
-      this.guild.sound("sound/feedback/ui_dismiss.ogg");
-      this.message = "Not enough to move.";
+    const have = gear ? 1 : give ? save.materials[item] ?? 0
+      : w.bag === "treasury" ? g.vault[item] ?? 0 : bagStore(g, w.bag).materials[item] ?? 0;
+    if (give) {
+      // GuildBagType.canAdd and getTradeableGroups: worn gear cannot go; the treasury takes materials only
+      const l = save.loadout;
+      if (gear && [...l.weapons, l.shield, l.armor, l.helmet, ...l.trinkets, l.vitapod].includes(item)) { this.say_(w, text("item", "e.untradeable", "That item is not tradeable.")); return; }
+      if (w.bag === "treasury" && gear) return;
+      if (!gear && !isMaterial(this.eco, item)) return;
     }
-    void this.refresh();
+    const key = `${give ? "give" : "take"}:${item}`, line = w.lines.get(key);
+    if (!line && w.lines.size >= CART_MAX) { this.say_(w, text("trade", "e.cart_full", "The cart is full.")); return; }
+    const count = Math.max(0, Math.min(have, (line?.count ?? 0) + (this.shift ? 10 : 1)));
+    if (count === (line?.count ?? 0)) return;
+    w.lines.set(key, { item, count, give, gear: gear && isGear(item) });
+    this.guild.sound("sound/feedback/ui_merchant_trade_add.ogg");
+    void this.fillBag();
   }
 
-  /** The wheel over a column of sockets scrolls it by a row. */
-  private wheel(e: WheelEvent) {
-    const v = this.vault;
-    if (!v || this.overlays[this.overlays.length - 1] !== v) return;
-    const r = this.canvas.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-    for (const [tag, key] of [["slots_left", "left"], ["slots_right", "right"]] as const) {
-      const part = v.find(tag);
-      if (part && hitTest(part, x, y)) {
-        const n = this.contents(key === "left").length;
-        const max = Math.max(0, Math.ceil((n - SLOTS) / 3) * 3);
-        this.scroll[key] = Math.max(0, Math.min(max, this.scroll[key] + Math.sign(e.deltaY) * 3));
-        void this.refresh();
-      }
+  private say_(w: BagWindow, s: string) {
+    w.status = s;
+    this.guild.sound("sound/feedback/ui_dismiss.ogg");
+    void this.fillBag();
+  }
+
+  /** The cart's Confirm: the treasury asks first (ConfirmPrompt.DEPOSIT_GUILD_TREASURY), then the lines move. */
+  private confirmCart(w: BagWindow) {
+    const go = () => {
+      if (commitCart(this.guild.save(), w.bag, [...w.lines.values()], this.cartCrowns(w))) {
+        this.guild.write();
+        this.guild.sound("sound/feedback/ui_merchant_trade_add.ogg");
+        w.lines.clear();
+        const f = w.cart.find("crowns");
+        if (f) f.text = "0";
+        w.status = "";
+      } else this.say_(w, "Not enough to move.");
+      void this.fillBag();
+    };
+    if (w.bag !== "treasury") { go(); return; }
+    void this.prompt(text("guild", "t.treasury", "TREASURY"), text("guild", "m.confirm_deposit_treasury", "Deposit into the guild's treasury?"), go);
+  }
+
+  /** The game's confirmation window over the bag window: OK runs `accept`. */
+  private async prompt(title: string, body: string, accept: () => void) {
+    const o = await buildUi(this.ctx, uiRef("ui/window/confirm_prompt/interface.dat"));
+    if (!o) return;
+    const set = (tag: string, v: string) => { const c = o.find(tag); if (c) c.text = v; };
+    set("title", title);
+    set("prompt", body);
+    const confirm = o.find("confirm");
+    if (confirm) confirm.visible = false;
+    const shut = () => { this.overlays = this.overlays.filter(x => x !== o); };
+    this.on(o, "cancel", shut);
+    this.on(o, "dismiss", shut);
+    this.on(o, "accept", () => { shut(); accept(); });
+    this.overlays.push(o);
+  }
+
+  /** The bag's own pills: the bag's look (red or green), counts less what the cart takes. */
+  private bagGroups(w: BagWindow): ListGroup[] {
+    const save = this.guild.save(), g = guildOf(save), data = this.guild.data(), eco = this.eco!;
+    const look = `False - ${BAGS[w.bag].color}` as const;
+    const taking = (key: string) => w.lines.get(`take:${key.replace(/^mat:/, "")}`)?.count ?? 0;
+    const restyle = (groups: ListGroup[]) => groups.map(gr => ({ ...gr, entries: gr.entries.map(e => ({ ...e, look, count: countLeft(e, taking(e.key)) })) }));
+    const empty = { weapons: [], shield: "", armor: "", helmet: "", trinkets: [], vitapod: "" };
+    if (w.bag === "treasury") {
+      // G.y: the treasury's groups are guild upgrades, furniture and materials
+      const mats = ownedGroups({ ...save, owned: [], gear: {}, materials: g.vault, loadout: empty }, data, eco).filter(gr => gr.id === "material" || gr.id === "mineral");
+      const furni: ListEntry[] = Object.entries(g.furni).filter(([, n]) => n > 0).map(([n, c]) => ({
+        key: `furni:${n}`, label: itemLabel(n), rarity: eco.info(n)?.rarity ?? 0, icon: this.guild.icon(n), count: c > 1 ? String(c) : "" }));
+      return [{ id: "guild_upgrade", label: text("item", "m.guild_upgrade", "Guild Upgrades"), icon: CAT + "icon_guildupgrade.png", entries: [] },
+        { id: "furni", label: text("item", "m.furni", "Furnishing"), icon: CAT + "icon_furni.png", entries: furni },
+        ...restyle(mats)];
     }
+    const store = bagStore(g, w.bag);
+    return restyle(ownedGroups({ ...save, owned: Object.keys(store.gear), gear: store.gear, materials: store.materials, loadout: empty }, data, eco));
   }
 
-  private contents(vault: boolean): [string, number][] {
-    const save = this.guild.save(), items = vault ? guildOf(save).vault : save.materials;
-    return Object.entries(items).filter(([, n]) => n > 0).sort((a, b) => itemLabel(a[0]).localeCompare(itemLabel(b[0])));
+  /** The knight's arsenal: what it owns, counts less what the cart gives (trade/a/q.e). */
+  private mineGroups(w: BagWindow): ListGroup[] {
+    const giving = (key: string) => w.lines.get(`give:${key.replace(/^mat:/, "")}`)?.count ?? 0;
+    return ownedGroups(this.guild.save(), this.guild.data(), this.eco!).map(gr => ({ ...gr, entries: gr.entries.map(e => ({ ...e, count: countLeft(e, giving(e.key)) })) }));
+  }
+
+  /** The cart's lines as item pills (look "False" for the knight's, the bag's colour for the bag's); a press takes one (ten with Shift) out. */
+  private async showLines(w: BagWindow) {
+    const list = w.cart.find("list_cart");
+    const status = w.cart.find("status");
+    if (status) status.text = w.status;
+    const crowns = this.cartCrowns(w);
+    const any = w.lines.size > 0 || crowns > 0;
+    const empty = w.cart.find("empty_cart"), confirm = w.cart.find("confirm_cart");
+    if (empty) empty.enabled = any;
+    if (confirm) confirm.enabled = any;
+    if (!list) return;
+    const pills = await Promise.all([...w.lines.entries()].map(async ([key, l]) => {
+      const it = this.eco?.info(l.item), icon = this.guild.icon(l.item);
+      const p = await buildUi(this.ctx, uiRef(PILL, { Name: itemLabel(l.item), Damage: l.give ? "Default" : BAGS[w.bag].color, "Damage (Secondary)": l.give ? "Default" : BAGS[w.bag].color,
+        "Rank Visible": (it?.rarity ?? -1) >= 0, "Rank Mode": "Star", Rank: String(Math.max(0, it?.rarity ?? 0)), Variants: "-1", Accessory: false,
+        Locked: "Hidden", Equipped: "False", Equippable: "True", Hoverable: true, Icon: icon?.file ?? "ui/icon/inventory/blank.png", Colorization: icon?.colorizations ?? [] }));
+      if (!p) return null;
+      const count = p.find("itemcount");
+      if (count) count.text = String(l.count);
+      const sel = p.find("entryselect");
+      if (sel) sel.onAction = () => {
+        const n = l.count - (this.shift ? 10 : 1);
+        if (n > 0) w.lines.set(key, { ...l, count: n }); else w.lines.delete(key);
+        this.guild.sound("sound/feedback/ui_dismiss.ogg");
+        void this.fillBag();
+      };
+      p.constraints = null;
+      return p;
+    }));
+    if (this.bagWin === w) list.children = pills.filter((c): c is Component => !!c);
+  }
+
+  /** Fills the bag window's three parts. */
+  private async fillBag() {
+    const w = this.bagWin;
+    if (!w || !this.eco) return;
+    const save = this.guild.save(), g = guildOf(save);
+    w.bagList.setInfo(text("guild", BAGS[w.bag].title, w.bag.toUpperCase()), "", "", w.bag === "treasury" ? g.treasury : null);
+    w.mine.setInfo(text("item", "t.arsenal", "ARSENAL"), "", "", save.crowns);
+    await Promise.all([w.bagList.setGroups(this.bagGroups(w)), w.mine.setGroups(this.mineGroups(w)), this.showLines(w)]);
   }
 
   // ------------------------------------------------------------ the emblem
@@ -395,9 +496,10 @@ export class GuildWindow extends GuiScreen {
     }
   }
 
-  /** Closes the vault or emblem window back to the console. */
+  /** Closes the bag or emblem window back to the console. */
   private back() {
     this.overlays = [];
+    this.bagWin = null;
     this.guild.sound("sound/feedback/ui_dismiss.ogg");
     void this.refresh();
   }
@@ -431,7 +533,7 @@ export class GuildWindow extends GuiScreen {
       const b = hall?.ui.find("card");
       if (b) b.enabled = !this.guild.inHall();
     }
-    if (this.vault) this.fillVault(save);
+    if (this.bagWin) void this.fillBag();
     if (this.emblem) {
       const e = g.emblem;
       for (const [slider, list, v, label] of [["slider1", EMBLEM_SYMBOLS, e.symbol, e.symbol[0].toUpperCase() + e.symbol.slice(1)],
@@ -443,29 +545,14 @@ export class GuildWindow extends GuiScreen {
       }
     }
   }
-
-  private fillVault(save: SaveData) {
-    const v = this.vault!, g = guildOf(save);
-    const set = (tag: string, text: string) => { const c = v.find(tag); if (c) c.text = text; };
-    set("their_name", g.name || "Guild");
-    set("my_name", save.knight?.name ?? "You");
-    set("crowns_left", g.treasury.toLocaleString("en-US"));
-    set("crowns_mine", save.crowns.toLocaleString("en-US"));
-    const alert = v.find("alert");
-    if (alert) { alert.text = this.message; alert.visible = !!this.message; }
-    const lists = { left: this.contents(true), right: this.contents(false) };
-    const index = { left: 0, right: 0 };
-    for (const s of this.sockets) {
-      const key = s.left ? "left" : "right";
-      const item = lists[key][this.scroll[key] + index[key]++];
-      const ring = s.slot.find("slot_ring"), count = s.slot.find("itemcount");
-      s.item = item?.[0] ?? null;
-      if (count) count.text = item && item[1] > 1 ? String(item[1]) : "";
-      if (ring) { if (item) this.icons_.set(ring, this.guild.icon(item[0])); else this.icons_.delete(ring); }
-      if (!item) { this.tips.delete(s.slot); continue; }
-      this.tips.set(s.slot, itemTip({ label: itemLabel(item[0]), type: s.left ? "Guild vault" : "Material", rarity: 0,
-        flavor: s.left ? "Kept in the guild vault. Crafting uses the materials you carry: withdraw it first." : "A crafting material you carry.",
-        lines: [`${item[1]} ${s.left ? "in the vault" : "carried"}`, s.left ? "Click: take one, Shift+click: take all" : "Click: store one, Shift+click: store all"] }));
-    }
-  }
 }
+
+/** A pill's count with `n` of it in the cart (trade/a/F.e: a single item reads 0 once in the cart). */
+function countLeft(e: ListEntry, n: number): string | undefined {
+  if (!n) return e.count;
+  const c = Number(e.count) || 1, left = c - n;
+  return c === 1 && left === 1 ? "" : String(left);
+}
+
+/** Materials (the item groups' CRAFT) are what a bag takes besides gear. */
+const isMaterial = (eco: Economy | null, item: string) => eco?.info(item)?.category === "material";
