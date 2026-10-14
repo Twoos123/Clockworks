@@ -53,6 +53,7 @@ import {
   recordRunEnd, recordRunStart, type AchievementType,
 } from "./game/achievements";
 import { UplinkScreen, mailbox } from "./ui/uplink";
+import { TooSmallWarning } from "./ui/toosmall";
 import { itemTip } from "./ui/itemlist";
 import { cachedHallId, GUILD_HALL, READY_ROOM } from "./game/places";
 import { HelpScreen } from "./ui/help";
@@ -786,6 +787,7 @@ class Viewer {
     this.hud.image = f => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f);
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
+    this.tooSmall ??= new TooSmallWarning(this.gui);
     // arriving in Haven, and the arsenal as it stands, may earn achievements
     this.achieve();
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
@@ -1262,6 +1264,8 @@ class Viewer {
     this.audio.ui(file);
   }
 
+  /** The window-too-small warning (client hud/n), made when play first starts. */
+  private tooSmall: TooSmallWarning | null = null;
   private conversation: ConversationScreen | null = null;
 
   /**
