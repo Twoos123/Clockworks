@@ -286,23 +286,23 @@ export class AudioSystem {
    * one twice running when there is a choice), cross-fading over `crossFade` seconds. A single
    * file loops. Asking for the mix that already plays keeps it going.
    */
-  playMix(files: { file: string; weight: number }[], gain = 1, crossFade = 0, fadeIn = 1.5) {
+  playMix(files: { file: string; weight: number }[], gain = 1, crossFade = 0, fadeIn = 1.5, fadeOut = 1.5) {
     if (!files.length) return;
-    if (files.length === 1) { void this.playMusic(files[0].file, gain, fadeIn); return; }
+    if (files.length === 1) { void this.playMusic(files[0].file, gain, fadeIn, true, fadeOut); return; }
     const key = files.map(f => f.file).join("|");
     if (this.mixState?.key === key) { this.mixState.gain = gain; this.setMusicGain(gain, fadeIn); return; }
     this.clearMix();
     this.mixState = { key, files, gain, crossFade, last: "", timer: null };
-    void this.nextInMix(fadeIn);
+    void this.nextInMix(fadeIn, fadeOut);
   }
 
-  private async nextInMix(fadeIn: number) {
+  private async nextInMix(fadeIn: number, fadeOut?: number) {
     const m = this.mixState;
     if (!m) return;
     const choices = m.files.length > 1 ? m.files.filter(f => f.file !== m.last) : m.files;
     const pick = weighted(choices) ?? m.files[0];
     m.last = pick.file;
-    await this.playMusic(pick.file, m.gain, fadeIn, false, Math.max(0.05, m.crossFade));
+    await this.playMusic(pick.file, m.gain, fadeIn, false, fadeOut ?? Math.max(0.05, m.crossFade));
     const cur = this.music;
     if (this.mixState !== m || cur?.key !== pick.file) return;
     const lead = Math.min(m.crossFade, cur.duration / 2);
@@ -352,9 +352,27 @@ export class AudioSystem {
    * level's track back.
    */
   playStream(file: string, gain = 1, fadeIn = 2): (fadeOut?: number) => void {
+    return this.loopOnBus(file, gain, fadeIn, true);
+  }
+
+  /**
+   * A looping track layered with the level's (a level-scripted stream joining its stack's top
+   * level instead of overriding it): it plays alongside, under the same fades as the level's.
+   * The returned function fades it out over `fadeOut` seconds and stops it.
+   */
+  layer(file: string, gain = 1, fadeIn = 1.5): (fadeOut?: number) => void {
+    return this.loopOnBus(file, gain, fadeIn, false);
+  }
+
+  /** A level-scripted music actor's Destruction Transient: a sound clip (the victory fanfare). */
+  transient(file: string, gain = 1, pitch = 1) {
+    this.lastStinger = file;
+    void this.clip(file, gain, pitch, false, {}, null, 0);
+  }
+
+  private loopOnBus(file: string, gain: number, fadeIn: number, duck: boolean): (fadeOut?: number) => void {
     let stopped = false, node: { src: AudioBufferSourceNode; g: GainNode } | null = null;
-    this.streams++;
-    this.duckTracks(0, fadeIn);
+    if (duck) { this.streams++; this.duckTracks(0, fadeIn); }
     void (async () => {
       if (!this.ctx || !this.musicBus) return;
       const buf = await this.buffer(file);
@@ -366,14 +384,14 @@ export class AudioSystem {
       const t = this.ctx.currentTime;
       g.gain.setValueAtTime(0, t);
       g.gain.linearRampToValueAtTime(gain, t + Math.max(0.05, fadeIn));
-      src.connect(g).connect(this.musicBus);
+      src.connect(g).connect(duck ? this.musicBus : this.trackBus ?? this.musicBus);
       src.start();
       node = { src, g };
     })();
     return (fadeOut = 2) => {
       if (stopped) return;
       stopped = true;
-      if (--this.streams === 0) this.duckTracks(1, fadeOut);
+      if (duck && --this.streams === 0) this.duckTracks(1, fadeOut);
       if (!node || !this.ctx) return;
       const t = this.ctx.currentTime, gg = node.g.gain;
       gg.cancelScheduledValues(t);
