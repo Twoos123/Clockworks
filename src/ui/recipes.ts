@@ -24,6 +24,7 @@ import { recordCraft } from "../game/achievements";
 import type { GameData } from "../game/data";
 import type { Economy, Recipe } from "../game/economy";
 import { catalogue, CATEGORIES, isEquipped, itemLabel, toggleEquip } from "../game/items";
+import { canChangeEquipment } from "../game/equippolicy";
 import { itemStats, pillDamage } from "../game/itemstats";
 import { energyOf, type SaveData } from "../game/save";
 import { energyNow } from "../game/energy";
@@ -329,9 +330,10 @@ export class RecipesScreen extends GuiScreen {
       const equip = o.find("equipitem");
       if (equip) {
         equip.visible = !!entry;
-        equip.enabled = !!entry && !isEquipped(save.loadout, entry);
+        // (craft/a/G: M.b finds no slot where gear cannot change, M.K)
+        equip.enabled = !!entry && !isEquipped(save.loadout, entry) && canChangeEquipment();
         equip.onAction = () => {
-          if (!entry) return;
+          if (!entry || !canChangeEquipment()) return;
           save.loadout = toggleEquip(save.loadout, entry);
           this.host_.changed();
           this.host.sound("sound/feedback/ui_equip.ogg");

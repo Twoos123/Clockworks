@@ -64,7 +64,11 @@ export interface Balloon {
   /** helptips keys. */
   message: string;
   title: string;
-  /** The title's colour (r, g, b, a in 0..1), or null for the style's. */
+  /**
+   * The bubble's title colour (r, g, b, a in 0..1), or null. The client passes it under an
+   * argument name the balloon's title style does not have, so it shows the style's own colour
+   * (src/ui/balloons.ts).
+   */
   titleColor: [number, number, number, number] | null;
   width: number;
   /** Raised this far above the bubble's spot (world units). */

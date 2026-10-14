@@ -40,6 +40,7 @@ import {
 import { validName } from "./createknight";
 import { loadoutPill, loadoutTip, wearLoadout } from "./loadouts";
 import { messageText, type Component, type Style } from "./gui";
+import { canChangeEquipment } from "../game/equippolicy";
 import { itemPreview, itemTip, ItemList, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
 import { applyItemAction, COMPARE, compareTarget, itemMenu, RANK_LIMIT, rankAllows, rankLimitText, SLOT_ICON } from "./itemmenu";
 import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
@@ -449,8 +450,8 @@ export class ArsenalScreen extends GuiScreen {
     walk(page);
     // a locked socket's padlock stands in for its category icon
     for (const s of SOCKETS) if (s.locked) { const b = this.socketBacking(page, s.tag); if (b) b.alpha = 0; }
-    // the notice (a FadeLabel): the locked-in-town notice never applies here (windows open
-    // only where gear can change); the sprite page shows its own (LoadoutPanel.n.Fa)
+    // the notice (a FadeLabel): EQUIPMENT LOCKED on the equipment and costume pages where gear
+    // cannot change (refresh); the sprite page shows its own (LoadoutPanel.n.Fa)
     const notice = page.find("notice");
     if (notice) { notice.visible = index === 2; notice.alpha = 0; }
   }
@@ -539,7 +540,7 @@ export class ArsenalScreen extends GuiScreen {
 
   private emptySocket(s: (typeof SOCKETS)[number]) {
     const save = this.arsenal.save();
-    if (!this.socketItem(s)) return;
+    if (!this.socketItem(s) || this.gearLocked()) return;
     const l = unequip(save.loadout, s.slot, s.index);
     if (JSON.stringify(l) === JSON.stringify(save.loadout)) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
     this.host.sound("sound/feedback/ui_dropdown_select.ogg");
@@ -549,7 +550,7 @@ export class ArsenalScreen extends GuiScreen {
 
   private async takeOffCostume(slot: CostumeSlot) {
     const outfit = this.arsenal.outfit();
-    if (!outfit.appearance.costume[slot]) return;
+    if (!outfit.appearance.costume[slot] || this.gearLocked()) return;
     this.host.sound("sound/feedback/ui_dropdown_select.ogg");
     await outfit.equipCostume(slot, "");
     void this.refresh();
@@ -604,6 +605,7 @@ export class ArsenalScreen extends GuiScreen {
   // ------------------------------------------------------------------ costumes and accessories
 
   private async toggleCostume(name: string) {
+    if (this.gearLocked()) return;
     const outfit = this.arsenal.outfit(), slot = COSTUME_GROUPS.find(g => this.wardrobe?.costumes.get(g.slot)?.some(c => c.name === name))?.slot;
     if (!slot) return;
     this.host.sound("sound/feedback/ui_equip.ogg");
@@ -612,6 +614,7 @@ export class ArsenalScreen extends GuiScreen {
   }
 
   private async toggleAccessory(name: string) {
+    if (this.gearLocked()) return;
     const outfit = this.arsenal.outfit();
     const worn = ACCESSORY_SLOTS.find(s => outfit.appearance.accessories[s] === name);
     this.host.sound("sound/feedback/ui_equip.ogg");
@@ -629,7 +632,7 @@ export class ArsenalScreen extends GuiScreen {
 
   private wearLoadout(i: number) {
     const save = this.arsenal.save(), l = save.loadouts?.[i];
-    if (!l) return;
+    if (!l || this.gearLocked()) return;
     this.host.sound("sound/feedback/ui_equip.ogg");
     void wearLoadout(save, this.arsenal.outfit(), l, x => this.arsenal.equipped(x)).then(() => this.refresh());
   }
@@ -740,6 +743,7 @@ export class ArsenalScreen extends GuiScreen {
   }
 
   private chooseSprite(name: string) {
+    if (this.gearLocked()) return;
     const outfit = this.arsenal.outfit();
     const cur = outfit.sprites.active()?.name ?? "";
     outfit.setSprite(cur === name ? "" : name);
@@ -747,6 +751,16 @@ export class ArsenalScreen extends GuiScreen {
     this.spriteMessage = "";
     this.host.sound("sound/feedback/ui_equip.ogg");
     void this.refresh();
+  }
+
+  /**
+   * M.K: where gear cannot change (the Clockworks away from an Arsenal Station) a change is
+   * refused with the dismiss sound; the page's notice says why (EQUIPMENT or SPRITE LOCKED).
+   */
+  private gearLocked(): boolean {
+    if (canChangeEquipment()) return false;
+    this.host.sound("sound/feedback/ui_dismiss.ogg");
+    return true;
   }
 
   /** A socket press (LoadoutPanel.h.Fs): its page in the left column, which unfolds. */
@@ -769,7 +783,7 @@ export class ArsenalScreen extends GuiScreen {
   /** FEED SPRITE or LEVEL UP! (LoadoutPanel.f, br): the chosen item goes to the sprite. */
   private feed() {
     const { def, p } = this.activeSprite();
-    if (!def || !p || !this.food) return;
+    if (!def || !p || !this.food || this.gearLocked()) return;
     const roster = this.arsenal.outfit().sprites;
     if (readyToLevel(p)) {
       if (!roster.levelUp(this.food)) {
@@ -799,7 +813,7 @@ export class ArsenalScreen extends GuiScreen {
 
   private addPoint(power: number) {
     const { p } = this.activeSprite(), i = this.focus;
-    if (!p || typeof i !== "number") return;
+    if (!p || typeof i !== "number" || this.gearLocked()) return;
     const left = freePoints(p) - this.pending.reduce((a, b) => a + b, 0);
     if (i >= unlockedSkills(p.level) || left <= 0 || p.ranks[i][power] + this.pending[power] >= MAX_RANK) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
     this.pending[power]++;
@@ -809,7 +823,7 @@ export class ArsenalScreen extends GuiScreen {
 
   private confirmPoints() {
     const i = this.focus;
-    if (typeof i !== "number") return;
+    if (typeof i !== "number" || this.gearLocked()) return;
     const roster = this.arsenal.outfit().sprites;
     for (let j = 0; j < 3; j++) for (let k = 0; k < this.pending[j]; k++) roster.spend(i, j);
     this.pending = [0, 0, 0];
@@ -820,7 +834,7 @@ export class ArsenalScreen extends GuiScreen {
   /** The ultimate choice (interface_battlesprite-ultimate.dat) for the focused skill, once BattleSprite.fI allows it. */
   private async openUltimate() {
     const { def, p } = this.activeSprite(), i = this.focus;
-    if (!def || !p || typeof i !== "number" || !ultimateReady(p, i)) return;
+    if (!def || !p || typeof i !== "number" || !ultimateReady(p, i) || this.gearLocked()) return;
     const o = await this.ui(ULTIMATE);
     if (!o) return;
     const s = def.skills[i];
@@ -913,7 +927,9 @@ export class ArsenalScreen extends GuiScreen {
     this.noticeAction = null;
     if (notice) {
       let text = "";
-      if (def && p && readyToLevel(p)) { text = bundleText("projectx", "m.can_level_up", "Ready to level up!"); this.noticeAction = "sprite"; }
+      // LoadoutPanel.n.Fa: SPRITE LOCKED first, where gear cannot change
+      if (!canChangeEquipment()) text = bundleText("projectx", "m.spritelocked", "SPRITE LOCKED: Battle Sprites can be equipped, fed and skill points assigned in towns or at Arsenal Stations.");
+      else if (def && p && readyToLevel(p)) { text = bundleText("projectx", "m.can_level_up", "Ready to level up!"); this.noticeAction = "sprite"; }
       else if (def && p && freePoints(p) > 0) {
         text = bundleText("projectx", "m.available_skill_points", "Skill points available!");
         const i = [0, 1, 2].find(k => k < unlockedSkills(p.level) && !p.ultimates[k] && p.ranks[k].reduce((a, b) => a + b, 0) < 3 * MAX_RANK);
@@ -1163,6 +1179,14 @@ export class ArsenalScreen extends GuiScreen {
       const m = save.missions ?? freshProgress();
       set("label_playerrank", `${rankName(m.rank)}(${m.rank}-${m.subrank})`);
       set("label_prestige", m.prestige.toLocaleString("en-US"));
+      // LoadoutPanel.j.Fa: EQUIPMENT LOCKED where gear cannot change (the equipment and costume pages)
+      const notice = i < 2 ? page.find("notice") : null;
+      if (notice) {
+        const locked = !canChangeEquipment();
+        notice.visible = locked;
+        notice.text = locked ? bundleText("projectx", "m.equipmentlocked", "EQUIPMENT LOCKED: Equipment can be changed in towns or at Arsenal Stations.") : "";
+        notice.alpha = locked ? 1 : 0;
+      }
     }
     const st = this.status;
     // LoadoutPanel.EZ: the title names the saved loadout the knight is wearing (the last that

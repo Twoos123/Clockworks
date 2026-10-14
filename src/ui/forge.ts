@@ -27,6 +27,7 @@ import type { GameData } from "../game/data";
 import { MAX_LEVEL, type Economy, type ForgeResult } from "../game/economy";
 import { bonusesAt, crystalBand, crystalFor, successChance, type ForgeBonus, type ForgeStep } from "../game/forge";
 import { energyNow } from "../game/energy";
+import { canChangeEquipment } from "../game/equippolicy";
 import { catalogue, itemLabel } from "../game/items";
 import { energyOf, type SaveData } from "../game/save";
 import { message, text } from "../i18n";
@@ -179,12 +180,13 @@ export class ForgeScreen extends GuiScreen {
     set("required_name", message("item", "m.crystals_available", itemLabel(crystal), held) || `${itemLabel(crystal)}\n(${held} Available)`);
     set("crystal_count", message("item", "m.crystal_count", String(this.crystals)) || `x${this.crystals}`);
     BUTTONS.forEach((tag, i) => { const b = panel.find(tag); if (b) b.selected = this.crystals === step.crystals[i]; });
-    // n.Pe: the status line and FORGE
-    const enough = this.crystals >= step.crystals[0] && held >= this.crystals;
-    const status = set("status", this.forging ? "" : enough ? "" : itemText("m.insufficient_crystals", "Insufficient crystals to forge this item."));
+    // n.Pe: the status line and FORGE (n.Ue, M.K: only in town or at an Arsenal Station)
+    const enough = this.crystals >= step.crystals[0] && held >= this.crystals, can = canChangeEquipment();
+    const status = set("status", this.forging ? "" : !can ? itemText("m.forge_locked", "The Forge can only be used in town or at Arsenal Stations.")
+      : enough ? "" : itemText("m.insufficient_crystals", "Insufficient crystals to forge this item."));
     if (status) status.visible = !!status.text;
     const btn = panel.find("btn_forge");
-    if (btn) btn.enabled = enough && !this.forging;
+    if (btn) btn.enabled = can && enough && !this.forging;
     const pct = Math.min(100, Math.round(successChance(step, this.crystals) * 100));
     set("success_chance", message("item", "m.success_pct", String(pct)) || `${pct}%`);
     set("success_msg", pct === 100 ? itemText("m.guaranteed_success", "Guaranteed chance of forge success!")
@@ -266,7 +268,7 @@ export class ForgeScreen extends GuiScreen {
   /** n.Ub: forges with the chosen crystals, then shows item/client/r. */
   private async forge() {
     const save = this.host_.save(), eco = this.eco!, name = this.chosen, step = this.step;
-    if (!name || !step || this.forging) return;
+    if (!name || !step || this.forging || !canChangeEquipment()) return;
     const band = crystalBand(step, this.crystals);
     const label = eco.displayName(name, save.gear[name]);
     const result = eco.forge(save, name, this.crystals);

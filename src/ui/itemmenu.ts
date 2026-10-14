@@ -16,6 +16,7 @@
 
 import type { GameData } from "../game/data";
 import type { Economy } from "../game/economy";
+import { canChangeEquipment } from "../game/equippolicy";
 import { catalogue, copyLoadout, type ItemEntry } from "../game/items";
 import { freshProgress } from "../game/missions";
 import type { Loadout, SaveData } from "../game/save";
@@ -127,13 +128,19 @@ export function compareTarget(l: Loadout, e: ItemEntry): string | null {
 /** One entry of the item menu: the action, its text, the icon's item (or slot icon) and whether it can be chosen. */
 export interface ItemMenuEntry { action: string; text: string; slot?: SlotNo; item?: string; enabled: boolean }
 
-/** ItemConfig.Level.a(ctx, item, menu) and Original's: the item menu's entries for an owned piece of gear. */
-export function itemMenu(save: SaveData, costume: { helmet: string; armor: string; shield: string }, e: ItemEntry): ItemMenuEntry[] {
+/**
+ * ItemConfig.Level.a(ctx, item, menu) and Original's: the item menu's entries for an owned piece
+ * of gear. Where gear cannot change (M.K: in the Clockworks away from an Arsenal Station) there
+ * is no Equip or Unequip; the menu says so ("Can't Change Equipment", the item bundle's m.cant_equip).
+ */
+export function itemMenu(save: SaveData, costume: { helmet: string; armor: string; shield: string }, e: ItemEntry,
+  canEquip = canChangeEquipment()): ItemMenuEntry[] {
   const out: ItemMenuEntry[] = [];
   const l = save.loadout, slots = slotsFor(e);
   const wornIn = slots.find(n => !COSTUME_SLOT[n] && slotItem(l, costume, n) === e.name);
+  if (!canEquip) out.push({ action: "cant_equip", text: cantEquipText(), enabled: false });
   // the helmet and armour, once worn, stay (ItemCodes.bwv)
-  if (wornIn !== 0 && wornIn !== 1) {
+  else if (wornIn !== 0 && wornIn !== 1) {
     let worn = false;
     for (const n of slots) {
       const held = slotItem(l, costume, n);
@@ -161,10 +168,20 @@ function menuText(key: string, n: SlotNo): string {
   return n === 12 ? (key.startsWith("m.unequip") ? "Unequip Vitapod" : "Equip as Vitapod") : key;
 }
 
-/** Applies an item menu action to the save's loadout; returns the new loadout, or null when nothing changes. */
-export function applyItemAction(save: SaveData, e: ItemEntry, action: string): { loadout?: Loadout; costume?: ["helmet" | "armor" | "shield", string] } | null {
+/** The item bundle's m.cant_equip ("Can't Change Equipment"). */
+export function cantEquipText(): string {
+  return text("item", "m.cant_equip", "Can't Change Equipment");
+}
+
+/**
+ * Applies an item menu action to the save's loadout; returns the new loadout, or null when
+ * nothing changes (an equip refused where gear cannot change, M.d's M.b check, among them).
+ */
+export function applyItemAction(save: SaveData, e: ItemEntry, action: string,
+  canEquip = canChangeEquipment()): { loadout?: Loadout; costume?: ["helmet" | "armor" | "shield", string] } | null {
   const m = /^(un)?equip_(\d+)$/.exec(action);
   if (m) {
+    if (!canEquip) return null;
     const n = Number(m[2]) as SlotNo, cs = COSTUME_SLOT[n];
     if (cs) return { costume: [cs, m[1] ? "" : e.name] };
     const l = m[1] ? unequipAt(save.loadout, n) : equipAt(save.loadout, n, e.name);

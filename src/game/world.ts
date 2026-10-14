@@ -18,7 +18,8 @@ import { Entity, Logic, type LogicHost } from "./logic";
 import { balloonOf, gateDisplayModel, Prop, propKind, trapState, type Balloon } from "./props";
 import { BEAM_MODELS, DungeonObjects, isAlly, isCaptive, standInModel, type BeamResult } from "./objects";
 import { ENERGY_CROWNS } from "./energy";
-import { intersects } from "./shapes";
+import { expand, intersects } from "./shapes";
+import { ARSENAL_DESCRIPTION, ARSENAL_STATION, policyOf, type EquipPolicy } from "./equippolicy";
 import { SpawnTables } from "./spawntable";
 import { DEFAULT_LOADOUT, POCKET_SLOTS, type KnightFace, type Loadout as GearLoadout } from "./save";
 import { faceArgs } from "./creator";
@@ -356,6 +357,9 @@ export interface WorldOptions {
   arena?: boolean;
 }
 
+/** An Arsenal Station: its placeable entry, its actor's state animations (shut, open), whether it stands open. */
+interface ArsenalStation { e: Entity; box: boolean; states: any[]; open: boolean }
+
 export class World implements LogicHost {
   knight!: Knight;
   readonly monsters: Monster[] = [];
@@ -562,6 +566,17 @@ export class World implements LogicHost {
   arena: { wave: number; timer: number; family: string } | null = null;
   /** A safe place (a town, the Rescue Camp): the knight carries no weapons and raises no shield. */
   safe = false;
+  /**
+   * PlayerObject.equipPolicy: ANY while the knight stands on an Arsenal Station's pad (its
+   * zone's SetEquipPolicy), else NORMAL (src/game/equippolicy.ts).
+   */
+  equipPolicy: EquipPolicy = "NORMAL";
+  /** The knight used an Arsenal Station (the server's show_arsenal_station: the arsenal windows open). */
+  onArsenalStation: (() => void) | null = null;
+  /** The scene's own model of a station where it stands (its actor's StatefulEntry sprite animates it). */
+  stationModel: ((x: number, y: number) => ModelInstance | null) | null = null;
+  /** The level's Arsenal Stations: the placeable entry, its actor's state animations (shut, open), whether it stands open. */
+  private stations: ArsenalStation[] = [];
   /** Called every fifth arena wave cleared (a checkpoint to bank or carry on). */
   onArenaCheckpoint: ((wave: number) => void) | null = null;
 
@@ -838,6 +853,12 @@ export class World implements LogicHost {
       e.tags = le.tags;
       this.logic.addEntry(e, le.handlers);
       if (le.actor) props.push([e, le.actor]);
+      if (ARSENAL_STATION.test(le.name)) {
+        const actor = le.actor ? this.data.resolveSync("config/actor.dat", le.actor, "actor") : null;
+        const states = ((actor?.sprite?.states ?? []) as any[]).map(st => st?.animation).filter(Boolean);
+        this.stations.push({ e, box: /Box$/.test(le.name), states, open: false });
+        void this.preload(...states);
+      }
     }
     this.logic.startEntries();
     // stateful and elevator props spawn their actors after their own handlers start
@@ -929,6 +950,13 @@ export class World implements LogicHost {
         if (activator === this.knightEntity && !this.knight.dead) this.onPortal?.(source.tags ?? [], Number(cfg.sceneId), String(cfg.portal?.tag ?? ""),
           { area: source.name, townName: cfg.townName, sceneInternalId: cfg.sceneInternalId });
         return true;
+      case "SetEquipPolicy": {
+        // an Arsenal Station's zone: gear can change while the knight stands on its pad
+        // (its target, the Activator by default, is the knight that stepped on or off)
+        const targets = cfg.target?.$class && !/\$Activator$/.test(cfg.target.$class) ? logic.resolveTarget(cfg.target, source, activator) : activator ? [activator] : [];
+        if (targets.includes(this.knightEntity)) this.equipPolicy = policyOf(cfg);
+        return true;
+      }
       case "ActivateMonster": case "TableSpawn": case "TableSpawnPerMember": {
         const table = cfg.spawnTable ?? cfg.table;
         if (!table) return false;
@@ -1531,14 +1559,16 @@ export class World implements LogicHost {
     const kshape = { k: "circle" as const, x: k.x, y: k.y, r: KNIGHT_RADIUS };
     const touching = (p: Prop) => { const s = p.entity.shape(); return !!s && intersects(s, kshape); };
     let interacted = false;
+    this.updateStations();
     for (const p of [...this.props]) {
       if (p.instance) p.instance.advance(dt);
       // a townsperson's idle ended: the next one
       if (p.kind === "generic" && !p.obj && p.instance?.finished && (p.cfg.sprite?.idles?.length ?? 0) > 1) this.showPropState(p);
       switch (p.kind) {
         case "switch": {
-          // hit switches (emitters, gun blocks, cages) are not stood on; nor are help bubbles
-          if (p.obj || p.balloon) break;
+          // hit switches (emitters, gun blocks, cages) are not stood on; nor are help bubbles,
+          // nor Arsenal Stations (their consoles open as they are used: updateStations)
+          if (p.obj || p.balloon || ARSENAL_STATION.test(p.entity.name)) break;
           if (p.strikable) {
             if (p.pressed && this.clock >= p.cooldownUntil) { p.pressed = false; this.showPropState(p); }
             break;
@@ -1621,6 +1651,8 @@ export class World implements LogicHost {
       if (this.boss?.dropped?.(carried)) this.logic.destroy(carried.entity, ke);
       return;
     }
+    const station = this.stationAt();
+    if (station) { this.useStation(station); return; }
     const target = near.find(p => p.entity.handlers.some(h => h.kind === "Interaction"));
     if (target) { this.logic.interact(target.entity, ke); return; }
     // traders and townsfolk that are actors with interactions (gremlin merchants)
@@ -2927,12 +2959,54 @@ export class World implements LogicHost {
     if (door && carried?.cfg.actionableSignal && carried.cfg.actionableSignal === door.cfg.actionableSignal) return target(door, door.cfg, "m.unlock");
     if (carried) return null;
     if (this.props.some(p => p.kind === "lift" && Math.hypot(p.x - k.x, p.y - k.y) < 1.2)) return { hint: "m.lift", desc: null };
+    // an Arsenal Station underfoot: its Interaction's ActionDesc (Interact: "Press ATTACK to
+    // activate.") and the station's description (Dungeon/Arsenal: "Arsenal")
+    const station = this.stationAt();
+    if (station) {
+      const h = station.e.handlers.find(x => x.kind === "Interaction")?.cfg;
+      return { hint: actionHint(h?.actionDesc, "m.interact"), desc: this.describe(station.e.name, { description: h?.description ?? { name: ARSENAL_DESCRIPTION } }) };
+    }
     const prop = near.find(p => p.entity.handlers.some(h => h.kind === "Interaction"));
     if (prop) return target(prop, prop.cfg, "m.interact");
     const npc = this.monsters.filter(m => m.passive && m.entity?.handlers.some(h => h.kind === "Interaction") && Math.hypot(m.x - fx, m.y - fy) < 1.8)
       .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y))[0];
     if (npc?.entity) return target(npc, this.data.resolveSync("config/actor.dat", { name: npc.entity.name }, "actor"), "m.talk");
     return null;
+  }
+
+  /**
+   * The Arsenal Station the knight can use: the one whose pad it stands on (the zone's
+   * Interaction is an intersection handler over the placeable's shape), or the console it
+   * stands against (a box, which is the console alone).
+   */
+  private stationAt(): ArsenalStation | null {
+    const k = this.knight;
+    if (!k || k.dead || !this.stations.length) return null;
+    const kshape = { k: "circle" as const, x: k.x, y: k.y, r: KNIGHT_RADIUS };
+    for (const st of this.stations) {
+      const s = st.e.shape();
+      if (s && intersects(st.box ? expand(s, 0.4) : s, kshape)) return st;
+    }
+    return null;
+  }
+
+  /** Uses a station: its console opens (the actor's open state) and the arsenal windows come up. */
+  private useStation(st: ArsenalStation) {
+    this.logic.interact(st.e, this.knightEntity);
+    if (!st.open) { st.open = true; this.showStation(st); }
+    this.onArsenalStation?.();
+  }
+
+  /** A station's console shuts again once the knight has left it. */
+  private updateStations() {
+    for (const st of this.stations) if (st.open && this.stationAt() !== st) { st.open = false; this.showStation(st); }
+  }
+
+  /** Plays a station's state on the scene's model of it (states: shut, open; one-shot, held at the end). */
+  private showStation(st: ArsenalStation) {
+    const inst = this.stationModel?.(st.e.x, st.e.y);
+    const clip = this.clip(st.states[st.open ? 1 : 0]);
+    if (inst && clip) inst.play(clip, { loop: false, blend: 0.1 });
   }
 
   /** The knight stands on the exit elevator, waiting for it to go (the party status the client shows m.elevator for). */

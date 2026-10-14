@@ -80,6 +80,7 @@ import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
 import { Balloons } from "./ui/balloons";
+import { canEquipAt, setEquipGate } from "./game/equippolicy";
 import { rangeRoot, rangeSpawn, TEST_RANGE } from "./dev/rangescene";
 import type { TestRange } from "./dev/testrange";
 
@@ -372,6 +373,8 @@ class Viewer {
   private rangeDepth = 1;
 
   constructor(private readonly vfs: Vfs, files: string[]) {
+    // the item windows ask whether gear can change here (src/game/equippolicy.ts)
+    setEquipGate(() => this.canChangeEquipment());
     this.loader = new ModelLoader(vfs);
     this.renderer = new Renderer(this.canvas, vfs);
     messages.controls = command => commandKeys(this.options_, command);
@@ -1046,6 +1049,18 @@ class Viewer {
       }
       return best;
     };
+    // an Arsenal Station animates the scene's station model where it stands, and its use brings
+    // up the arsenal windows (the gear can change while the knight stands on its pad)
+    world.stationModel = (x, y) => {
+      let best: ModelInstance | null = null, bestD = 2;
+      for (const it of this.sceneItems ?? []) {
+        if (!/world\/dynamic\/arsenal\/arsenal_(zone|box)/.test(it.instance.model.path)) continue;
+        const d = Math.hypot(it.matrix[12] - x, it.matrix[13] - y);
+        if (d < bestD) { best = it.instance; bestD = d; }
+      }
+      return best;
+    };
+    world.onArsenalStation = () => void this.arsenalStation();
     // town exits lead to their scenes (src/game/portals.ts); the Arcade, which the scenes cache
     // lacks, brings up its gate board
     world.onPortal = (tags, sceneId, portal, more) => this.walkOut({ tags, sceneId, portal, ...more });
@@ -1417,6 +1432,25 @@ class Viewer {
   /** Opens or closes the character window (equipment); the world pauses while it is open. */
   private async toggleArsenal() {
     await this.ensureScreens().toggleArsenal();
+  }
+
+  /** An Arsenal Station used: the arsenal with the forge (when gear is ready) or the character window. */
+  private async arsenalStation() {
+    if (this.talking || this.paused) return;
+    const eco = this.eco ?? this.world?.economy;
+    await this.ensureScreens().showArsenalStation(!!eco?.forgeable(this.save).length);
+  }
+
+  /**
+   * M.K: whether the knight can change gear now. Towns, lobbies, terminals, subtowns and the
+   * Core let it anywhere (LevelType.canEquip); Clockworks levels only on an Arsenal Station's
+   * pad (EquipPolicy ANY). The test range is a workshop: anything goes there.
+   */
+  private canChangeEquipment(): boolean {
+    const sc = this.scene, w = this.world;
+    if (!sc || !w || sc.id === TEST_RANGE) return true;
+    const floor = this.gate && (this.run.depth > 0 || this.gateLobby) ? this.floors[this.run.depth] : null;
+    return canEquipAt({ town: TOWN.test(sc.name), lobby: LOBBY.test(sc.name), floorKind: floor?.kind ?? null, sceneName: sc.name }, w.equipPolicy);
   }
 
   /** Applies the options menu's settings to audio, rendering, the HUD and input. */
