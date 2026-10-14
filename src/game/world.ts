@@ -2622,11 +2622,11 @@ export class World implements LogicHost {
     }
     // bombs drop at the knight's feet; a bullet starting inside a wall fizzles at once
     if (p.kind === "Bomb") { x = a.x + c * 0.4; y = a.y + s * 0.4; }
-    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
     const z = this.collision.groundZ(x, y) + p.height;
-    const proj = new Projectile(p, instance, a.team, x, y, z, heading, this.attackerCtx(a));
+    const proj = new Projectile(p, null, a.team, x, y, z, heading, this.attackerCtx(a));
     if (a instanceof Monster) proj.owner = a;
     this.projectiles.push(proj);
+    this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), p.fuse / 1000);
     // point blank: a target between the attacker and the muzzle is hit at once
     if (p.kind === "Bullet" && !p.trail) {
@@ -2638,14 +2638,30 @@ export class World implements LogicHost {
     }
   }
 
+  /**
+   * A projectile's model, made in the background: the projectile flies and strikes from the
+   * moment it is fired, and shows once its model (and its particle layers' textures) are
+   * ready, its clock caught up with the time it has flown so its particles run with it. (It
+   * used to wait for the model before it existed at all, so a slow texture held the shot back
+   * and a model that never finished loading fired nothing.)
+   */
+  private dressProjectile(proj: Projectile, model: LoadedModel | null) {
+    if (!model) return;
+    void this.instantiate(model).then(inst => {
+      if (proj.done || proj.instance) return;
+      inst.advance(proj.age);
+      proj.instance = inst;
+    }).catch(() => {});
+  }
+
   /** A bullet or bomb a logic action spawns at a point (monster bullets, traps). */
   private async spawnProjectileAt(ref: any, x: number, y: number, heading: number, team: Team, ctx: DepthContext) {
     const loaded = await this.projectileDef(ref);
     if (!loaded) return;
-    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
     const z = this.collision.groundZ(x, y) + loaded.def.height;
-    const proj = new Projectile(loaded.def, instance, team, x, y, z, heading, ctx);
+    const proj = new Projectile(loaded.def, null, team, x, y, z, heading, ctx);
     this.projectiles.push(proj);
+    this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), loaded.def.fuse / 1000);
   }
 
@@ -2658,9 +2674,8 @@ export class World implements LogicHost {
   private async launchOrbital(loaded: { def: ProjectileDef; model: LoadedModel | null }, x: number, y: number, heading: number,
     team: Team, ctx: DepthContext, source: Projectile | null, shooter: Actor | null, index: number) {
     const p = loaded.def;
-    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
     if (source?.done) return;
-    const proj = new Projectile(p, instance, team, x, y, 0, heading, ctx);
+    const proj = new Projectile(p, null, team, x, y, 0, heading, ctx);
     proj.source = source;
     proj.shooter = shooter;
     if (shooter instanceof Monster) proj.owner = shooter;
@@ -2670,6 +2685,7 @@ export class World implements LogicHost {
     }
     proj.z = (source ? source.z - source.def.height : this.collision.groundZ(x, y)) + p.height;
     this.projectiles.push(proj);
+    this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), 3);
     if (p.creationFx) this.spawnEffect(p.creationFx, proj.matrix(), 2);
     if (p.returnModel) {

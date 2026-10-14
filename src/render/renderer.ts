@@ -14,7 +14,7 @@
 import { identity, invert, multiply, slerp, lerp3, toMatrix, type Mat4, type Transform, type Vec3 } from "../math";
 import type { PassState, TextureUnitState } from "../config/materials";
 import { VIEWER_ENVIRONMENT, type Environment, type Rgb } from "../environment";
-import { Emitter, catchUpSteps } from "../particles";
+import { Emitter, clockEmitter } from "../particles";
 import { recolorPixels, type ColorPository } from "../colors";
 import type { AnimationClip, ClientArray, LightDef, LoadedModel, MeshPart, NodeDef } from "../model";
 import type { Vfs } from "../vfs";
@@ -580,6 +580,9 @@ function sampleClip(clip: AnimationClip, time: number): Map<string, Transform> {
   return out;
 }
 
+/** How long instantiate() waits for a model's particle textures before returning anyway. */
+export const PARTICLE_PRELOAD_MS = 1500;
+
 export class Renderer {
   readonly gl: WebGL2RenderingContext;
   private readonly program: WebGLProgram;
@@ -673,7 +676,9 @@ export class Renderer {
     for (const a of model.attachments) {
       inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model) });
     }
-    if (model.particles?.length) await this.preloadParticles(model);
+    // (waited for at most PARTICLE_PRELOAD_MS: a texture that never arrives must not hold
+    // back the instance, and with it a bullet or an effect, for good)
+    if (model.particles?.length) await Promise.race([this.preloadParticles(model), new Promise(r => setTimeout(r, PARTICLE_PRELOAD_MS))]);
     return inst;
   }
 
@@ -1316,16 +1321,7 @@ export class Renderer {
         const emitter = list[n] ??= new Emitter(inst.model.particles);
         // each emitter keeps its own clock, so views drawn offscreen in the same frame (HUD
         // portraits, the heat flame) still advance
-        if (inst.age > 0) {
-          // an instance its owner advances (an effect, an actor): the world's clock
-          const lastAge = (emitter as any).lastAge as number | undefined;
-          (emitter as any).lastAge = inst.age;
-          for (const s of catchUpSteps(lastAge, inst.age)) emitter.update(s, placement);
-        } else {
-          const last = (emitter as any).lastTime as number | undefined;
-          (emitter as any).lastTime = this.time;
-          emitter.update(last === undefined ? dt : Math.min(0.1, Math.max(0, this.time - last)), placement);
-        }
+        clockEmitter(emitter, inst.age, this.time, dt, placement);
         particles.push({ emitter, matrix: placement, filter });
         // model-emitting layers place their model at each particle
         emitter.states.forEach((state, li) => {
