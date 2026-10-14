@@ -482,6 +482,22 @@ export class Emitter {
 }
 
 /**
+ * The steps an emitter takes to catch up with its model instance's own clock (the seconds its
+ * owner has advanced it: an effect, an actor), from `last` (undefined: never updated, so from
+ * 0) to `age`. A system is simulated over the time its effect has lived even when it is drawn
+ * only now (a stepped audit draws one frame per shot; an effect's first frame), so a layer that
+ * fades in (the shield bubble's rings start transparent) is not caught at age 0. At most `cap`
+ * seconds are replayed, in steps of at most `maxStep`.
+ */
+export function catchUpSteps(last: number | undefined, age: number, cap = 2, maxStep = 1 / 30): number[] {
+  let span = Math.min(cap, Math.max(0, age - (last ?? 0)));
+  if (span <= 0) return [];
+  const n = Math.ceil(span / maxStep - 1e-9), out: number[] = [];
+  for (let i = 0; i < n; i++) { const s = Math.min(maxStep, span); out.push(s); span -= s; }
+  return out;
+}
+
+/**
  * The order a system's layers draw in. Clyde sorts transparent layers back to front; a layer
  * with a GroupPriority sorts at its group's centre moved toward the camera by priority x 1e-4,
  * so within one system they draw by rising priority. Layers without one sort at their own

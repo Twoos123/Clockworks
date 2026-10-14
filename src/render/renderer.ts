@@ -14,7 +14,7 @@
 import { identity, invert, multiply, slerp, lerp3, toMatrix, type Mat4, type Transform, type Vec3 } from "../math";
 import type { PassState, TextureUnitState } from "../config/materials";
 import { VIEWER_ENVIRONMENT, type Environment, type Rgb } from "../environment";
-import { Emitter } from "../particles";
+import { Emitter, catchUpSteps } from "../particles";
 import { recolorPixels, type ColorPository } from "../colors";
 import type { AnimationClip, ClientArray, LightDef, LoadedModel, MeshPart, NodeDef } from "../model";
 import type { Vfs } from "../vfs";
@@ -361,6 +361,13 @@ export class ModelInstance {
   clip: AnimationClip | null = null;
   /** Seconds since the current clip started (or since the instance was made). */
   time = 0;
+  /**
+   * Seconds the owner has advanced this instance in all (never reset by a clip): its particle
+   * systems keep this clock, so they run with the world (and catch up when first drawn).
+   * Instances nobody advances (level scenery, offscreen views) stay at 0 and their particles
+   * keep the renderer's clock.
+   */
+  age = 0;
   /** Playback speed multiplier for the current clip. */
   speed = 1;
   /** The clip being faded out, its time when the fade began, and its speed. */
@@ -456,6 +463,7 @@ export class ModelInstance {
   /** Advances this instance's clock and its attachments' (a weapon's own animations). */
   advance(dt: number) {
     this.time += dt;
+    this.age += dt;
     for (const c of this.children) c.instance.advance(dt);
   }
 
@@ -665,6 +673,7 @@ export class Renderer {
     for (const a of model.attachments) {
       inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model) });
     }
+    if (model.particles?.length) await this.preloadParticles(model);
     return inst;
   }
 
@@ -1307,9 +1316,16 @@ export class Renderer {
         const emitter = list[n] ??= new Emitter(inst.model.particles);
         // each emitter keeps its own clock, so views drawn offscreen in the same frame (HUD
         // portraits, the heat flame) still advance
-        const last = (emitter as any).lastTime as number | undefined;
-        (emitter as any).lastTime = this.time;
-        emitter.update(last === undefined ? dt : Math.min(0.1, Math.max(0, this.time - last)), placement);
+        if (inst.age > 0) {
+          // an instance its owner advances (an effect, an actor): the world's clock
+          const lastAge = (emitter as any).lastAge as number | undefined;
+          (emitter as any).lastAge = inst.age;
+          for (const s of catchUpSteps(lastAge, inst.age)) emitter.update(s, placement);
+        } else {
+          const last = (emitter as any).lastTime as number | undefined;
+          (emitter as any).lastTime = this.time;
+          emitter.update(last === undefined ? dt : Math.min(0.1, Math.max(0, this.time - last)), placement);
+        }
         particles.push({ emitter, matrix: placement, filter });
         // model-emitting layers place their model at each particle
         emitter.states.forEach((state, li) => {
@@ -1415,14 +1431,39 @@ export class Renderer {
   }
 
   private readonly meshInstances = new Map<LoadedModel, ModelInstance | null>();
+  private readonly meshInstanceLoads = new Map<LoadedModel, Promise<unknown>>();
 
   /** Instance for a particle-emitted model; null until its textures have loaded. */
   private meshInstance(model: LoadedModel): ModelInstance | null {
     if (!this.meshInstances.has(model)) {
       this.meshInstances.set(model, null);
-      this.instantiate(model).then(i => this.meshInstances.set(model, i)).catch(() => {});
+      this.meshInstanceLoads.set(model, this.instantiate(model).then(i => this.meshInstances.set(model, i)).catch(() => {}));
     }
     return this.meshInstances.get(model) ?? null;
+  }
+
+  /**
+   * Starts loading what a model's particle layers draw with (their materials' textures, the
+   * meshes Meshes layers emit) and resolves once they are ready, so an effect's first frames
+   * draw every layer: drawing skips a layer whose texture is still loading.
+   */
+  private preloadParticles(model: LoadedModel): Promise<unknown> {
+    const waits: Promise<unknown>[] = [];
+    for (const l of model.particles ?? []) {
+      for (const pass of l.material.passes) for (const u of [pass.units[0], pass.units[1]]) {
+        if (!u?.texture) continue;
+        this.particleTexture(u);
+        const p = this.particleTextures.get(u.texture);
+        if (p) waits.push(p.catch(() => null));
+      }
+      if (l.model && l.geometry === "Meshes") {
+        this.meshInstance(l.model);
+        // (a mesh with particles of its own is not waited for: a cycle would never resolve)
+        const p = this.meshInstanceLoads.get(l.model);
+        if (p && !l.model.particles?.length) waits.push(p);
+      }
+    }
+    return Promise.all(waits);
   }
 
   private readonly particleTextures = new Map<string, Promise<WebGLTexture | null>>();
