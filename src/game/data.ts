@@ -12,6 +12,7 @@ import { DepthScales } from "./depth";
 import { resolveRef } from "./logic";
 import { setItemResolver } from "./text";
 import { descriptionBundle } from "./action";
+import { readOrbit, type OrbitDef } from "./orbitals";
 
 const kind = (o: any) => (o?.$class ?? "").substring((o?.$class ?? "").lastIndexOf("$") + 1);
 
@@ -31,11 +32,25 @@ export interface FireDef {
   damage: any;
   shape: DamageShape | null;
   knockback: Knock;
-  spawn: { actor: any; variance: number; rotation: number } | null;
+  spawn: SpawnDef | null;
   /** The fire action's name (Base/Spawn Actor, a monster's own). */
   name?: string;
   /** A fire action that runs an action (a mender's heal spawns its heal bomb). */
   action?: any;
+}
+
+/**
+ * An actor a fire action spawns: its reference, its rotation and spread in radians (the
+ * client turns a spawn by up to half the spread either way), its offset from the attacker
+ * (SpawnTransformedPrespawned: forward, side) and its place in a multi-spawn (the client
+ * stamps each spawn with the next creation time, which picks an alternating disk's spin).
+ */
+export interface SpawnDef {
+  actor: any;
+  variance: number;
+  rotation: number;
+  translation?: [number, number];
+  index?: number;
 }
 
 export interface AttackDef {
@@ -72,7 +87,7 @@ export interface AttackDef {
    */
   impulse: { forward: number; side: number; delay: number; duration: number; speedModified?: boolean } | null;
   /** An actor the attack spawns (a bullet or bomb), with its spread in radians. */
-  spawn: { actor: any; variance: number; rotation: number } | null;
+  spawn: SpawnDef | null;
   /** Upper-body attack (AttackConfig blended, true unless the config says otherwise). */
   blended: boolean;
   /** A Chain attack: the index of the attacker's attack that follows it. */
@@ -217,10 +232,15 @@ export interface ArmorDef {
   slot?: "armor" | "helmet";
 }
 
-/** A bullet or bomb actor (DungeonActorConfig$Bullet or $Bomb). */
+/**
+ * A bullet or bomb actor (DungeonActorConfig$Bullet or $Bomb), or an orbiting one: a disk
+ * (OrbitalBullet, CompoundOrbitalBullet), a satellite following its source (Orbital,
+ * RelativeOrbital), or a mixer's core (a plain ActorConfig$Agent that flies straight and
+ * carries the satellites its startup spawns).
+ */
 export interface ProjectileDef {
   name: string;
-  kind: "Bullet" | "Bomb";
+  kind: "Bullet" | "Bomb" | "Orbital" | "Agent";
   model: any;
   /** Units per second; 0 for bombs. */
   speed: number;
@@ -242,7 +262,27 @@ export interface ProjectileDef {
   /** Played where a bullet hits or a bomb goes off; a bullet that runs out fizzles. */
   hitFx: any;
   fizzleFx: any;
+  /** Orbitals: the orbit and flight (src/game/orbitals.ts). */
+  orbit?: OrbitDef;
+  /** A returning disk's damage and knockback (its Shutdown's other branch). */
+  returnDamage?: any;
+  returnKnockback?: Knock;
+  /** The model a disk shows while returning (its sprite's RETURNING flag model). */
+  returnModel?: any;
+  /** Actors its startup spawns (a mixer core's satellites), which follow it. */
+  children: any[];
+  /** Other startup actions (sounds, sparks). */
+  startActions: any[];
+  /** Orbitals: played where it appears (a disk's whoosh, a core's shot sound). */
+  creationFx?: any;
 }
+
+/**
+ * How long a mixer core flies, in ms. Its timer is server data the client export strips;
+ * the mixer disks that replaced the cores fly out for 990 ms (Bullet/Handgun/Diskgun/Parts/
+ * Mixer (Orbital Bullet) outDuration), so the core is given the same reach.
+ */
+export const AGENT_BULLET_FUSE = 990;
 
 export class GameData {
   private libs = new Map<string, Promise<Map<string, any>>>();
@@ -368,6 +408,16 @@ export class GameData {
       // "Fire Prefired" launches bullets spawned earlier in the attack; it hits nothing itself
       if (!spawn && /Prefired/.test(fire.name ?? "")) continue;
       const delay = Number(getArg(fire, "Delay") ?? 0);
+      // a fire action that names its own spawns (the diskguns' and mixers' twin, triple and
+      // quad disks: DungeonActionConfig MultiSpawnPrespawned, or one SpawnPrespawned)
+      if (!spawn && !shapeArg) {
+        const fa = await this.resolve("config/fire_action.dat", fire, "action");
+        const own = prespawns(fa?.action);
+        if (own.length) {
+          for (const s of own) fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: s, name: fire.name });
+          continue;
+        }
+      }
       // "Base/Default" fire actions run an action of their own (a heal bomb, a raised corpse)
       const act = getArg(fire, "Action") as any;
       if (!spawn && !shapeArg && act?.$class && /ActionConfig\$/.test(String(act.$class))) {
@@ -519,6 +569,7 @@ export class GameData {
   async projectile(ref: any): Promise<ProjectileDef | null> {
     const p = await this.resolve("config/actor.dat", ref, "actor");
     const k = kind(p);
+    if (/^(Orbital|RelativeOrbital|OrbitalBullet|CompoundOrbitalBullet|Agent)$/.test(k)) return orbitalDef(ref?.name ?? "", p, k);
     if (k !== "Bullet" && k !== "Bomb") return null;
     // the detonation: its damage region (a Compound may hold one beside other actions), and
     // whatever else it does (a lichen bomb spawns its colony, a marker activates monsters)
@@ -541,6 +592,7 @@ export class GameData {
       knockback: readKnock(det?.impulseDealt),
       hitFx: transient(p.sprite?.destructionTransient),
       fizzleFx: transient(p.sprite?.fizzleTransient),
+      children: [], startActions: [],
     };
   }
 
@@ -575,6 +627,94 @@ function findActorRef(o: any, depth = 0, isActor?: (name: string) => boolean): a
   if (o.$map) { for (const [, v] of o.entries) { const r = findActorRef(v, depth + 1, isActor); if (r) return r; } return null; }
   for (const k of Object.keys(o)) { if (k === "$outer") continue; const r = findActorRef(o[k], depth + 1, isActor); if (r) return r; }
   return null;
+}
+
+/**
+ * An orbiting projectile's definition from its resolved actor config: its orbit, its removal
+ * (Shutdown handler: the damage it deals, outgoing and returning, and its other actions), and
+ * its startup (the satellites a mixer core spawns, and its sounds).
+ */
+export function orbitalDef(name: string, p: any, k: string): ProjectileDef {
+  const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : null);
+  const handlers: any[] = p.handlers ?? [];
+  const shut = shutdownParts(handlers.find(h => kind(h) === "Shutdown")?.action);
+  const children: any[] = [], startActions: any[] = [];
+  const startup = (a: any, d = 0) => {
+    if (!a?.$class || d > 6) return;
+    if (kind(a) === "Compound") { for (const x of a.actions ?? []) startup(x, d + 1); return; }
+    if (/^Spawn(Rotated|Transformed)?Actor$/.test(kind(a))) { if (a.actor?.name) children.push(a.actor); return; }
+    startActions.push(a);
+  };
+  for (const h of handlers) if (kind(h) === "Startup") startup(h.action);
+  const sprite = p.sprite ?? {};
+  const agent = k === "Agent";
+  const region = (det: any) => det?.region?.shape?.radius ?? 0.5;
+  return {
+    name, kind: agent ? "Agent" : "Orbital",
+    model: sprite.model ?? null,
+    // ActorConfig Mobile speed 6
+    speed: agent ? p.speed ?? 6 : 0,
+    fuse: agent ? AGENT_BULLET_FUSE : Infinity,
+    radius: p.shape?.radius ?? 0.2,
+    offset: [0, 0], height: p.height ?? 0,
+    collisionMask: p.collisionMask ?? 0,
+    damage: shut.out?.damage ?? null,
+    harmless: !shut.out,
+    actions: shut.other,
+    regionRadius: region(shut.out),
+    knockback: readKnock(shut.out?.impulseDealt),
+    hitFx: transient(sprite.destructionTransient),
+    fizzleFx: transient(sprite.fizzleTransient),
+    orbit: agent ? undefined : readOrbit(p, k),
+    returnDamage: shut.back?.damage ?? null,
+    returnKnockback: readKnock(shut.back?.impulseDealt),
+    returnModel: (sprite.flagModels ?? []).find((f: any) => f?.flag === "RETURNING")?.model ?? null,
+    children, startActions,
+    creationFx: sprite.creationTransient ?? null,
+  };
+}
+
+/**
+ * The spawns of a prespawning fire action (DungeonActionConfig SpawnPrespawned and its
+ * transformed form, or a MultiSpawnPrespawned of several), each with its rotation, spread,
+ * offset and multi-spawn index.
+ */
+export function prespawns(action: any): SpawnDef[] {
+  const k = kind(action);
+  const list: any[] = k === "MultiSpawnPrespawned" ? action.spawns ?? []
+    : /^SpawnPrespawned$|^SpawnTransformedPrespawned$/.test(k) ? [action] : [];
+  return list.filter(s => s?.actor?.name).map((s, index) => ({
+    actor: s.actor, variance: s.rotationVariance ?? 0, rotation: s.rotation ?? 0,
+    translation: s.translation ? [s.translation.x ?? 0, s.translation.y ?? 0] as [number, number] : undefined,
+    index,
+  }));
+}
+
+/**
+ * An orbital's removal (its Shutdown handler): the damage regions, split where a conditional
+ * with an else branch picks between a returning disk's damage (its action) and an outgoing
+ * one's (its else), and the other actions it runs (sounds and sparks).
+ */
+export function shutdownParts(action: any): { out: any | null; back: any | null; other: any[] } {
+  const res = { out: null as any, back: null as any, other: [] as any[] };
+  const walk = (a: any, branch: "out" | "back" | null, d: number) => {
+    if (!a?.$class || d > 8) return;
+    const k = kind(a);
+    if (k === "Compound") { for (const x of a.actions ?? []) walk(x, branch, d + 1); return; }
+    if (k === "Conditional") {
+      if (a.elseAction) { walk(a.action, "back", d + 1); walk(a.elseAction, "out", d + 1); }
+      else walk(a.action, branch, d + 1);
+      return;
+    }
+    if (/^DamageRegion/.test(k)) {
+      if (branch !== "back" && !res.out) res.out = a;
+      if (branch !== "out" && !res.back) res.back = a;
+      return;
+    }
+    res.other.push(a);
+  };
+  walk(action, null, 0);
+  return res;
 }
 
 /** An animation reference, kept whole when it names a file (its arguments matter). */
