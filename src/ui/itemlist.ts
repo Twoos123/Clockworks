@@ -31,6 +31,8 @@ export interface ListEntry {
   variants?: number;
   /** A levelled item (its lock state shows); others hide the lock. */
   levelled?: boolean;
+  /** The price, for the vendor's price order. */
+  price?: number;
   /** The item's level, for sorting. */
   level?: number;
   /** A count drawn over the icon (a stack of more than one). */
@@ -50,7 +52,7 @@ export interface ListGroup {
 }
 
 /** The client's sort choices (the arsenal's; the recipe list leaves out level). */
-export type SortKey = "natural" | "name" | "stars" | "level";
+export type SortKey = "natural" | "name" | "stars" | "level" | "price";
 
 const PILL = "ui/hud_v2/parts/interface_itempill.dat";
 const HEADER = "ui/recipes/parts/pill_recipe/interface_header.dat";
@@ -61,6 +63,7 @@ const SORT = "ui/social/parts/interface_header.dat";
 function compare(sort: SortKey, a: ListEntry, b: ListEntry): number {
   const natural = sort === "natural";
   let r = 0;
+  if (sort === "price") r = (a.price ?? 0) - (b.price ?? 0);
   if (natural || sort === "stars") r = (b.rarity ?? 0) - (a.rarity ?? 0);
   if (!r && (natural || sort === "level")) r = (b.level ?? 0) - (a.level ?? 0);
   if (!r) r = a.label.localeCompare(b.label);
@@ -82,6 +85,8 @@ export class ItemList {
   /** The message bundle of the sort names and the empty list's text (the client's list bundle). */
   bundle = "item";
   onPick: ((e: ListEntry) => void) | null = null;
+  /** Called with each pill as it is shown (a window drawing icons of its own). */
+  onRow: ((e: ListEntry, c: Component) => void) | null = null;
   private list: Component | null;
   private groups: ListGroup[] = [];
   private cache = new Map<string, Promise<Component | null>>();
@@ -221,12 +226,13 @@ export class ItemList {
       pills.forEach((p, i) => {
         if (!p) return;
         const e = shown[i];
-        const sel = p.find("entryselect");
+        const sel = p.find("entryselect") ?? p.find("slot_ring");
         const pressed = () => this.showSelection && this.selected === e.key;
         if (sel) { sel.selected = pressed(); sel.onAction = () => { this.pick(e); sel.selected = pressed(); }; }
         const count = p.find("itemcount");
         if (count) count.text = e.count ?? "";
         if (e.tip) this.tips.set(p, e.tip); else this.tips.delete(p);
+        this.onRow?.(e, p);
         rows.push(p);
       });
       // a blank row closes an open category (shared: it draws nothing)

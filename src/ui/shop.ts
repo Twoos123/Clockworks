@@ -1,15 +1,26 @@
-// A shop: the game's vendor window (ui/shop/vendor_withportrait.dat: the shopkeeper's name,
-// eight price-tagged sockets a page, sorting and paging) beside its shopping cart
-// (ui/shop/shoppingcart.dat). Clicking a socket puts the item in the cart, clicking a cart
-// row takes it out, Checkout trades everything in the cart. The vendor's Buyback tab is the
-// knight's own sellable gear and materials, which go in the cart as sales. Stock, prices,
-// buying and selling are the economy's (src/game/economy.ts).
+// A shop as the client's shop dialog lays it out (shop/client/m on ui/shop/interface.dat):
+//
+// - The vendor (shop/client/u, an item list on ui/arsenal/interface.dat titled "VENDOR"):
+//   the goods by item group, each a price-tagged socket (ui/shop/slot_tag), sorted by price
+//   or by name. A click puts one in the cart (ten with shift held).
+// - The shopping cart with the keeper's portrait (ui/shop/shoppingcart_withportrait.dat):
+//   bought goods in the Buy socket style with their cost, sold items in the Sell style with
+//   their worth, a click taking one back out; the total, signed and red when the cart costs
+//   crowns ("-1,000") or plain when it earns them ("+250"); the shop bundle's warnings
+//   (already learned, cart full, cannot be sold); Empty Cart and Checkout, enabled while the
+//   cart holds something.
+// - The knight's arsenal beside them (shop/client/a's ArsenalPanel): its gear and materials;
+//   a click puts one in the cart to sell, the pill counting down what is left.
+//
+// Stock, prices, buying and selling are the economy's (src/game/economy.ts).
 
 import type { Economy } from "../game/economy";
-import { itemLabel } from "../game/items";
+import { catalogue, CATEGORIES, isEquipped, itemLabel } from "../game/items";
+import { itemStats, pillDamage } from "../game/itemstats";
 import type { SaveData } from "../game/save";
-import type { Component } from "./gui";
-import { itemTip } from "./itemlist";
+import { text } from "../i18n";
+import { messageText, restyle, type Component } from "./gui";
+import { itemTip, ItemList, type ListEntry, type ListGroup } from "./itemlist";
 import { buildUi, GuiScreen, row, uiRef, type ScreenHost, type ViewModel } from "./screen";
 
 export interface ShopHost extends ScreenHost {
@@ -17,52 +28,68 @@ export interface ShopHost extends ScreenHost {
   eco(): Promise<Economy>;
   /** The save changed (a trade). */
   changed(): void;
+  data(): import("../game/data").GameData;
 }
 
 /** One thing a shop sells. */
 export interface StockItem { name: string; price: number; rarity: number }
 
-interface Line { name: string; price: number; rarity: number; sell: boolean }
+/** A cart line: goods bought, or the knight's things sold, and how many. */
+interface Line { name: string; price: number; rarity: number; sell: boolean; count: number }
 
 const TAG = "ui/shop/slot_tag/interface.dat";
-const PER_PAGE = 8;
 const fmt = (n: number) => n.toLocaleString("en-US");
-const TYPES: Record<string, string> = { sword: "Sword", handgun: "Gun", bomb: "Bomb", shield: "Shield", armor: "Armor", helm: "Helmet",
-  trinket: "Trinket", vitapod: "Vitapod", pickup: "Supply", recipe: "Recipe", material: "Material", mineral: "Mineral" };
+const shopText = (key: string, fallback: string) => text("shop", key, fallback);
+/** ShopDialogInfo's ItemPreparer limits: lines in a cart, and of one good. */
+const MAX_LINES = 100, MAX_QUANTITY = 500;
+const CAT = "ui/icon/inventory/categories/";
+/** Item groups in ItemCodes.Group order: our economy categories, the item bundle's names, icons. */
+const GROUPS: { cats: string[]; key: string; icon: string }[] = [
+  { cats: ["sword"], key: "m.sword", icon: CAT + "icon_sword.png" },
+  { cats: ["handgun"], key: "m.handgun", icon: CAT + "icon_handgun.png" },
+  { cats: ["bomb"], key: "m.bomb", icon: CAT + "icon_bomb.png" },
+  { cats: ["helm"], key: "m.helm", icon: CAT + "icon_helmet.png" },
+  { cats: ["armor"], key: "m.armor", icon: CAT + "icon_armor.png" },
+  { cats: ["shield"], key: "m.shield", icon: CAT + "icon_shield.png" },
+  { cats: ["trinket"], key: "m.trinket", icon: CAT + "icon_amulet.png" },
+  { cats: ["mineral", "deposit"], key: "m.mineral", icon: CAT + "icon_mineral.png" },
+  { cats: ["material"], key: "m.material", icon: CAT + "icon_puzzle.png" },
+  { cats: ["recipe"], key: "m.recipe", icon: CAT + "icon_recipe.png" },
+  { cats: ["vitapod", "pickup", "other"], key: "m.usable", icon: CAT + "icon_core.png" },
+];
 
 export class ShopScreen extends GuiScreen {
-  private vendor: Component | null = null;
+  private vendor: ItemList | null = null;
+  private arsenal: ItemList | null = null;
   private cartUi: Component | null = null;
   private eco: Economy | null = null;
   private keeper = "Shop";
-  private maxRarity = 2;
-  /** The keeper's title line (the shop bundle's, from its description), or "" for ours. */
+  /** The keeper's title line (the shop bundle's, from its description). */
   private subtitle = "";
   private stock: StockItem[] = [];
   private cart: Line[] = [];
-  private page = 0;
-  private sort: "price" | "name" = "price";
-  /** Showing the knight's own things to sell. */
-  private selling = false;
   private tagCache = new Map<string, Promise<Component | null>>();
   /** The item icon each socket button draws. */
   private socketIcons = new Map<Component, any>();
-  private vendorTable: Component | null = null;
   private message = "";
   /** The shopkeeper's model and animation for the portrait, or null (a shop with no keeper). */
   private portrait: ViewModel | null = null;
+  private shift = false;
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly shop: ShopHost) {
     super(ctx, shop, "shopCanvas");
+    // GoodSlot: a click with shift (or control) moves ten
+    const key = (e: KeyboardEvent) => { this.shift = e.shiftKey || e.ctrlKey; };
+    addEventListener("keydown", key);
+    addEventListener("keyup", key);
   }
 
   /** Opens a keeper's shop with its stock. */
-  async openFor(title: string, stock: StockItem[], maxRarity: number, portrait: ViewModel | null = null, subtitle = "") {
-    if (title !== this.keeper) { this.cart = []; this.page = 0; this.selling = false; }
+  async openFor(title: string, stock: StockItem[], _maxRarity: number, portrait: ViewModel | null = null, subtitle = "") {
+    if (title !== this.keeper) this.cart = [];
     this.keeper = title;
     this.subtitle = subtitle;
     this.portrait = portrait;
-    this.maxRarity = maxRarity;
     this.stock = stock;
     this.message = "";
     this.eco = await this.shop.eco();
@@ -70,60 +97,41 @@ export class ShopScreen extends GuiScreen {
   }
 
   protected async build(): Promise<Component | null> {
-    const [left, right] = await Promise.all([this.ui("ui/shop/vendor_withportrait.dat"), this.ui("ui/shop/shoppingcart.dat")]);
-    if (!left || !right) return null;
-    this.vendor = left;
-    this.cartUi = right;
-    this.on(right, "dismiss", () => this.close());
-    this.on(left, "handle", () => this.close());
-    this.on(left, "sort_buyback", () => { this.selling = !this.selling; this.page = 0; this.click(); void this.refresh(); });
-    this.on(left, "sort_price", () => { this.sort = "price"; this.selling = false; this.page = 0; this.click(); void this.refresh(); });
-    this.on(left, "sort_name", () => { this.sort = "name"; this.selling = false; this.page = 0; this.click(); void this.refresh(); });
-    this.on(left, "prevbag_vendor", () => { this.page = Math.max(0, this.page - 1); this.click(); void this.refresh(); });
-    this.on(left, "nextbag_vendor", () => { this.page = Math.min(this.pages() - 1, this.page + 1); this.click(); void this.refresh(); });
-    this.on(right, "empty_cart", () => { this.cart = []; this.message = ""; this.host.sound("sound/feedback/ui_merchant_trade_remove.ogg"); void this.refresh(); });
-    this.on(right, "confirm_cart", () => this.checkout());
+    const [left, cart, right] = await Promise.all([this.ui("ui/arsenal/interface.dat", { Mode: "Window" }),
+      this.ui("ui/shop/shoppingcart_withportrait.dat"), this.ui("ui/arsenal/interface.dat", { Mode: "Window" })]);
+    if (!left || !cart || !right) return null;
+    this.cartUi = cart;
+    const sound = (f: string) => this.host.sound(f);
+    const v = this.vendor = new ItemList(this.ctx, left, this.tips, sound);
+    v.sorts = ["price", "name"];
+    v.sort = "price";
+    v.clicks = this.clicks;
+    v.onRow = (e, c) => { const ring = c.find("slot_ring"); if (ring) this.socketIcons.set(ring, this.eco?.info(e.key)?.icon ?? null); };
+    v.onPick = e => this.add(e.key, false);
+    const a = this.arsenal = new ItemList(this.ctx, right, this.tips, sound);
+    a.clicks = this.clicks;
+    a.onPick = e => this.add(e.key, true);
+    for (const root of [left, right]) this.on(root, "dismiss", () => this.close());
+    this.on(cart, "dismiss", () => this.close());
+    this.on(cart, "empty_cart", () => { this.cart = []; this.message = ""; this.host.sound("sound/feedback/ui_merchant_trade_remove.ogg"); void this.refresh(); });
+    this.on(cart, "confirm_cart", () => this.checkout());
     // buying crowns or energy is the game's store
-    for (const tag of ["mini_getcrowns", "mini_getenergy"]) { const c = right.find(tag); if (c) c.visible = false; }
-    // the panel handle's caption is drawn rotated by the game; here the handle only closes
-    const handle = left.find("handle");
-    if (handle) handle.text = "";
-    const buyback = left.find("sort_buyback");
-    if (buyback) buyback.text = "Sell";
+    for (const tag of ["mini_getcrowns", "mini_getenergy"]) { const c = cart.find(tag); if (c) c.visible = false; }
     // the keeper's portrait: its own model in the portrait's RenderableView
-    const view = left.find("portrait_vendor");
+    const view = cart.find("portrait_vendor");
     if (view) view.view = { ...(view.view ?? {}) };
     this.hooks = {
       view: (c, g, x, y, w, h) => { if (this.portrait) this.host.view?.(c, g, x, y, w, h, this.portrait); },
       tagged: {
         slot_ring: (c, g, x, y, w, h) => {
-          // the price tag's socket is the square at its left end
+          // GoodSlot sets the good's icon on its socket button: the square at the tag's left end
           const im = this.socketIcons.has(c) ? this.icon(this.socketIcons.get(c), h - 8) : null;
           if (im) g.drawImage(im.source as CanvasImageSource, Math.round(x + (h - im.width) / 2), Math.round(y + (h - im.height) / 2), im.width, im.height);
         },
       },
     };
-    return row([left, right], 6, "BOTTOM");
+    return row([left, cart, right], 6, "BOTTOM");
   }
-
-  private click() { this.host.sound("sound/feedback/ui_dropdown_select.ogg"); }
-
-  /** What the knight could sell: gear not worn, and each material (one at a time). */
-  private sellable(): StockItem[] {
-    const eco = this.eco!, save = this.shop.save();
-    const gear = save.owned.filter(n => eco.canSell(save, n));
-    const mats = Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && eco.sellPrice(n) > 0);
-    return [...gear, ...mats].map(name => ({ name, price: eco.sellPrice(name), rarity: eco.info(name)?.rarity ?? 0 }));
-  }
-
-  private shown(): StockItem[] {
-    const list = this.selling ? this.sellable() : [...this.stock];
-    if (this.sort === "name") list.sort((a, b) => itemLabel(a.name).localeCompare(itemLabel(b.name)));
-    else list.sort((a, b) => a.price - b.price || itemLabel(a.name).localeCompare(itemLabel(b.name)));
-    return list;
-  }
-
-  private pages() { return Math.max(1, Math.ceil(this.shown().length / PER_PAGE)); }
 
   /** A price-tagged socket (built once per look). */
   private tag(key: string, args: Record<string, unknown>): Promise<Component | null> {
@@ -133,128 +141,154 @@ export class ShopScreen extends GuiScreen {
     return p;
   }
 
-  /** Crowns the cart costs (sales count against it). */
-  private total() { return this.cart.reduce((n, e) => n + (e.sell ? -e.price : e.price), 0); }
+  private slotArgs(name: string, mode: "Normal" | "Buy" | "Sell", price: number, count = 1) {
+    return { Occupied: "True", "Item Name": itemLabel(name), "Item Price": fmt(price), Mode: mode, Currency: "Crowns", Sale: false,
+      Locked: "Hidden", "Item Count": count > 1 ? String(count) : "" };
+  }
 
-  private checkout() {
+  /** The cart's worth: sales add, purchases take away (shop/client/m). */
+  private total() { return this.cart.reduce((n, e) => n + (e.sell ? 1 : -1) * e.price * e.count, 0); }
+
+  /** What the knight holds of an item, and what is still free to sell. */
+  private held(name: string): number {
+    const save = this.shop.save();
+    return (save.materials[name] ?? 0) || (save.owned.includes(name) ? 1 : 0);
+  }
+
+  private status(key: string, fallback: string) {
+    this.message = shopText(key, fallback);
+    this.host.sound("sound/feedback/ui_dismiss.ogg");
+  }
+
+  /** Puts one (ten with shift) in the cart: a good to buy, or something of the knight's to sell. */
+  private add(name: string, sell: boolean) {
     const save = this.shop.save(), eco = this.eco!;
-    if (!this.cart.length) return;
-    if (save.crowns < this.total()) { this.message = "Not enough crowns for everything in the cart."; this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.refresh(); return; }
-    // sales first, so their crowns pay for the purchases
-    let sold = 0, bought = 0;
-    for (const e of this.cart.filter(x => x.sell)) if (eco.sell(save, e.name) > 0) sold++;
-    const failed: string[] = [];
-    for (const e of this.cart.filter(x => !x.sell)) { if (eco.buy(save, e.name, e.price)) bought++; else failed.push(itemLabel(e.name)); }
-    this.cart = [];
-    this.shop.changed();
-    this.message = [bought ? `Bought ${bought}.` : "", sold ? `Sold ${sold}.` : "", failed.length ? `Could not take ${failed.join(", ")}.` : ""].filter(Boolean).join(" ");
-    this.host.sound("sound/feedback/merchant_transaction.ogg");
+    this.message = "";
+    const qty = this.shift ? 10 : 1;
+    let line = this.cart.find(c => c.name === name && c.sell === sell);
+    if (!line && this.cart.length >= MAX_LINES) { this.status("m.cart_full", "Your cart is full."); void this.refresh(); return; }
+    if (sell) {
+      // a.f: worn things and worthless ones cannot be sold
+      if (!eco.canSell(save, name) && !((save.materials[name] ?? 0) > 0 && eco.sellPrice(name) > 0)) { this.status("m.unsellable", "That item cannot be sold."); void this.refresh(); return; }
+      const free = this.held(name) - (line?.count ?? 0);
+      if (free <= 0) { void this.refresh(); return; }
+      line ??= this.push({ name, price: eco.sellPrice(name), rarity: eco.info(name)?.rarity ?? 0, sell, count: 0 });
+      line.count += Math.min(qty, free);
+    } else {
+      const it = eco.info(name), stock = this.stock.find(s => s.name === name);
+      if (!stock) return;
+      // m.b: a recipe learned or held is not bought again, and one is enough; gear is one of a kind here
+      const r = it?.category === "recipe" ? eco.recipeOfItem(name) : null;
+      if (r && save.recipes.includes(r.name)) { this.status("m.cart_recipe_learned", "You have already learned this recipe!"); void this.refresh(); return; }
+      const single = !!r || (it?.category !== "pickup" && it?.category !== "material" && it?.category !== "mineral");
+      if (single && save.owned.includes(name)) { this.message = `${itemLabel(name)} is already in your arsenal.`; this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.refresh(); return; }
+      if (single && line) { if (r) this.status("m.cart_recipe_adjusted", "You will only need one of these recipes!"); void this.refresh(); return; }
+      line ??= this.push({ name, price: stock.price, rarity: stock.rarity, sell, count: 0 });
+      line.count = Math.min(MAX_QUANTITY, line.count + (single ? 1 : qty));
+    }
+    this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
     void this.refresh();
   }
 
-  private args(e: StockItem, mode: "Normal" | "Buy" | "Sell", price: string) {
-    return { Occupied: "True", "Item Name": itemLabel(e.name), "Item Price": price, Mode: mode, Currency: "Crowns", Sale: false, Locked: "Hidden", "Item Count": "" };
-  }
+  private push(l: Line) { this.cart.push(l); return l; }
 
-  private tip(e: StockItem, flavor: string) {
-    const it = this.eco!.info(e.name);
-    return itemTip({ label: itemLabel(e.name), type: TYPES[it?.category ?? ""] ?? "Item", rarity: e.rarity, flavor, item: e.name, kind: it?.category ?? "item", lines: [`${fmt(e.price)} crowns`] });
-  }
-
-  protected async refresh() {
-    const v = this.vendor, cartUi = this.cartUi, eco = this.eco;
-    if (!v || !cartUi || !eco) return;
-    const save = this.shop.save(), owned = new Set(save.owned);
-    const set = (root: Component, tag: string, text: string) => { const c = root.find(tag); if (c) c.text = text; };
-    set(v, "name_vendor", this.keeper);
-    set(v, "title_vendor", this.selling ? "Selling" : this.subtitle || `${"★".repeat(Math.max(1, this.maxRarity))} goods`);
-    set(v, "vendorlevel", String(this.maxRarity));
-    const bar = v.find("expbar");
-    if (bar) bar.preferredSize = { width: Math.round(128 * this.maxRarity / 5), height: bar.preferredSize?.height ?? 10 };
-    this.page = Math.min(this.page, this.pages() - 1);
-    set(v, "currentbag_vendor", `${this.page + 1} / ${this.pages()}`);
-    const sb = v.find("sort_buyback"), sp = v.find("sort_price"), sn = v.find("sort_name");
-    if (sb) sb.selected = this.selling;
-    if (sp) sp.selected = !this.selling && this.sort === "price";
-    if (sn) sn.selected = !this.selling && this.sort === "name";
-    // the eight sockets of the page
-    const items = this.shown().slice(this.page * PER_PAGE, this.page * PER_PAGE + PER_PAGE);
-    const learned = (n: string) => { const r = eco.recipeOfItem(n); return !!r && save.recipes.includes(r.name); };
-    const sockets = await Promise.all(Array.from({ length: PER_PAGE }, (_, i) => {
-      const e = items[i];
-      if (!e) return this.tag(`empty${i}`, { Occupied: "False" });
-      const has = !this.selling && (owned.has(e.name) || learned(e.name));
-      const inCart = this.cart.some(c => c.name === e.name && c.sell === this.selling);
-      return this.tag((this.selling ? "sell:" : "") + e.name, this.args(e, inCart ? (this.selling ? "Sell" : "Buy") : "Normal", has ? "Owned" : fmt(e.price)));
-    }));
-    const table = this.vendorTable ??= parentOf(v, "slot1_vendor");
-    if (table) {
-      table.children = sockets.map((s, i) => {
-        const c = s!, e = items[i], ring = c.find("slot_ring");
-        c.constraints = null;
-        if (ring) {
-          if (e) this.socketIcons.set(ring, eco.info(e.name)?.icon ?? null); else this.socketIcons.delete(ring);
-          ring.onAction = () => e && this.toggleCart(e, this.selling);
-        }
-        if (e) this.tips.set(c, this.tip(e, this.selling ? "Click to put it in the cart to sell." : owned.has(e.name) ? "Already in your arsenal."
-          : learned(e.name) ? "You know this recipe." : "Click to put it in the cart."));
-        else this.tips.delete(c);
-        return c;
-      });
-    }
-    // the cart
-    const list = cartUi.find("list_cart");
-    if (list) {
-      const rows = await Promise.all(this.cart.map((e, i) => this.tag(`cart${i}:${e.sell}:${e.name}`, this.args(e, e.sell ? "Sell" : "Buy", fmt(e.price)))));
-      list.children = rows.filter((r): r is Component => !!r).map((r, i) => {
-        r.constraints = null;
-        const ring = r.find("slot_ring"), e = this.cart[i];
-        if (ring) { this.socketIcons.set(ring, eco.info(e.name)?.icon ?? null); ring.onAction = () => this.removeLine(i); }
-        this.tips.set(r, this.tip(e, e.sell ? "To sell: click to take it out." : "To buy: click to take it out."));
-        return r;
-      });
-    }
-    const totals = cartUi.find("total_cont_cart");
-    totals?.children.forEach((row, i) => {
-      if (i > 0) { row.visible = false; return; }
-      const t = row.find("total_cart");
-      if (t) t.text = fmt(this.total());
-    });
-    const status = cartUi.find("status");
-    if (status) status.text = this.message || `You have ${fmt(save.crowns)} crowns.`;
-    const checkout = cartUi.find("confirm_cart");
-    if (checkout) checkout.enabled = this.cart.length > 0;
-  }
-
-  private removeLine(i: number) {
-    this.cart.splice(i, 1);
+  /** A cart line clicked: one (ten with shift) comes back out. */
+  private takeOut(i: number) {
+    const l = this.cart[i];
+    if (!l) return;
+    l.count -= this.shift ? 10 : 1;
+    if (l.count <= 0) this.cart.splice(i, 1);
     this.message = "";
     this.host.sound("sound/feedback/ui_merchant_trade_remove.ogg");
     void this.refresh();
   }
 
-  private toggleCart(e: StockItem, sell: boolean) {
+  private checkout() {
     const save = this.shop.save(), eco = this.eco!;
-    const i = this.cart.findIndex(c => c.name === e.name && c.sell === sell);
-    this.message = "";
-    const it = eco.info(e.name);
-    // supplies and materials stack: each click adds one more; gear and recipes go in once
-    const stacks = sell ? (save.materials[e.name] ?? 0) > 0 : it?.category === "pickup";
-    if (i >= 0 && !stacks) { this.removeLine(i); return; }
-    if (stacks && sell && this.cart.filter(c => c.name === e.name && c.sell).length >= (save.materials[e.name] ?? 0)) {
-      this.message = `You have no more ${itemLabel(e.name)} to sell.`; this.host.sound("sound/feedback/ui_dismiss.ogg");
-    } else if (!sell && save.owned.includes(e.name)) {
-      this.message = `${itemLabel(e.name)} is already in your arsenal.`; this.host.sound("sound/feedback/ui_dismiss.ogg");
-    } else {
-      this.cart.push({ name: e.name, price: e.price, rarity: e.rarity, sell });
-      this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
-    }
+    if (!this.cart.length) return;
+    if (save.crowns + this.total() < 0) { this.message = "Not enough crowns for everything in the cart."; this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.refresh(); return; }
+    // sales first, so their crowns pay for the purchases
+    for (const e of this.cart.filter(x => x.sell)) eco.sell(save, e.name, e.count);
+    const failed: string[] = [];
+    for (const e of this.cart.filter(x => !x.sell)) for (let k = 0; k < e.count; k++) if (!eco.buy(save, e.name, e.price)) { failed.push(itemLabel(e.name)); break; }
+    this.cart = [];
+    this.shop.changed();
+    this.message = failed.length ? `Could not take ${failed.join(", ")}.` : "";
+    this.host.sound("sound/feedback/merchant_transaction.ogg");
     void this.refresh();
   }
-}
 
-function parentOf(root: Component, tag: string): Component | null {
-  if (root.children.some(k => k.tag === tag)) return root;
-  for (const k of root.children) { const r = parentOf(k, tag); if (r) return r; }
-  return null;
+  private groupOf(name: string) {
+    const c = this.eco!.info(name)?.category ?? "other";
+    return GROUPS.find(g => g.cats.includes(c)) ?? GROUPS[GROUPS.length - 1];
+  }
+
+  private tip(name: string, rarity: number) {
+    const it = this.eco!.info(name), cat = CATEGORIES.find(k => k.eco === it?.category);
+    return itemTip({ label: itemLabel(name), type: cat?.label.replace(/s$/, "") ?? messageText(this.groupOf(name).key, "item"), rarity, flavor: "",
+      item: name, kind: it?.category ?? "item", plain: !it?.heatable, level: it?.heatable ? 1 : undefined,
+      stats: it?.heatable ? itemStats(this.shop.data(), this.eco!, name, 1) : null });
+  }
+
+  protected async refresh() {
+    const cartUi = this.cartUi, eco = this.eco, v = this.vendor, a = this.arsenal;
+    if (!cartUi || !eco || !v || !a) return;
+    const save = this.shop.save(), data = this.shop.data();
+    const set = (root: Component, tag: string, t: string) => { const c = root.find(tag); if (c) c.text = t; };
+    set(cartUi, "name_vendor", this.keeper);
+    set(cartUi, "title_vendor", this.subtitle);
+    // the vendor: goods by group; u shows only the groups that have something
+    v.setInfo(shopText("t.vendor", "VENDOR"), "", "", null);
+    const inCart = (n: string, sell: boolean) => this.cart.find(c => c.name === n && c.sell === sell)?.count ?? 0;
+    const groups: ListGroup[] = GROUPS.map(g => ({ id: g.key, label: messageText(g.key, "item"), icon: g.icon, entries: this.stock
+      .filter(s => this.groupOf(s.name) === g)
+      .map(s => ({ key: s.name, label: itemLabel(s.name), rarity: s.rarity, price: s.price, icon: eco.info(s.name)?.icon ?? null,
+        ui: uiRef(TAG, this.slotArgs(s.name, "Normal", s.price)), tip: this.tip(s.name, s.rarity) } satisfies ListEntry)) }));
+    await v.setGroups(groups);
+    // the knight's arsenal: gear not worn and materials, counting down what the cart takes
+    a.setInfo(text("craft", "m.arsenal", "ARSENAL"), "", "", save.crowns);
+    const entries = (cats: string[]) => [
+      ...save.owned.filter(n => cats.includes(eco.info(n)?.category ?? "")),
+      ...Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && cats.includes(eco.info(n)?.category ?? "")),
+    ];
+    const worn = (n: string) => { const e = catalogue(data).find(x => x.name === n); return !!e && isEquipped(save.loadout, e); };
+    a.setGroups(GROUPS.slice(0, 9).map(g => ({ id: g.key, label: messageText(g.key, "item"), icon: g.icon, showEmpty: true, entries: entries(g.cats).map(n => {
+      const it = eco.info(n), left = this.held(n) - inCart(n, true);
+      return { key: n, label: eco.displayName(n, save.gear[n]), rarity: it?.rarity ?? 0, icon: it?.icon ?? null, look: worn(n) ? "True" : "False",
+        damage: it?.heatable ? pillDamage(data, eco, n, Math.max(1, eco.level(save, n))) : undefined,
+        variants: it?.heatable ? save.gear[n]?.variants.length ?? 0 : -1, levelled: !!it?.heatable, level: eco.level(save, n),
+        count: (save.materials[n] ?? 0) > 1 || inCart(n, true) ? String(left) : "", tip: this.tip(n, it?.rarity ?? 0) } satisfies ListEntry;
+    }) })));
+    // the cart
+    const list = cartUi.find("list_cart");
+    if (list) {
+      const rows = await Promise.all(this.cart.map((e, i) => this.tag(`cart${i}:${e.sell}:${e.name}`, this.slotArgs(e.name, e.sell ? "Sell" : "Buy", e.price * e.count, e.count))));
+      list.children = rows.filter((r): r is Component => !!r).map((r, i) => {
+        r.constraints = null;
+        const ring = r.find("slot_ring"), e = this.cart[i];
+        if (ring) { this.socketIcons.set(ring, eco.info(e.name)?.icon ?? null); ring.onAction = () => this.takeOut(i); }
+        this.tips.set(r, this.tip(e.name, e.rarity));
+        return r;
+      });
+    }
+    // the total: signed, red while the cart costs crowns; the energy row belongs to energy shops
+    const totals = cartUi.find("total_cont_cart");
+    const total = this.total();
+    for (const [i, rowc] of (totals?.children ?? []).entries()) {
+      if (i > 0) { rowc.visible = false; continue; }
+      const t = rowc.find("total_cart");
+      if (!t) continue;
+      t.text = (total > 0 ? "+" : "") + fmt(total);
+      const style = total < 0 ? "TotalLabel_money_neg" : "TotalLabel_money";
+      if (t.styleRef?.name !== style) {
+        // the style is shoppingcart.dat's own, the scope around total_row.dat's
+        const outer = cartUi.find("list_cart")?.local;
+        if (outer?.has(style) && !t.local.has(style)) t.local = new Map([...outer, ...t.local]);
+        if (t.local.has(style)) await restyle(this.ctx, t, style).catch(() => undefined);
+      }
+    }
+    const status = cartUi.find("status");
+    if (status) status.text = this.message;
+    for (const tag of ["confirm_cart", "empty_cart"]) { const b = cartUi.find(tag); if (b) b.enabled = this.cart.length > 0; }
+  }
 }
