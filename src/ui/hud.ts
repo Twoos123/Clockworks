@@ -446,7 +446,9 @@ export class GameHud {
   /** The panel's x offset while it slides or sits folded. */
   private dx(ui: Component) { return this.offsets.get(ui) ?? 0; }
 
-  private panels() { return [this.menuLeft, this.menuRight, this.activities, this.objective].filter((x): x is Component => !!x); }
+  private panels() {
+    return [this.menuLeft, this.menuRight, this.activities, this.objective, this.options.minimap ? this.minimapUi : null].filter((x): x is Component => !!x);
+  }
 
   /**
    * The mouse at canvas point (x, y): lights the button under it, and on `click` returns that
