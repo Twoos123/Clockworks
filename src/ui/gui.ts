@@ -941,9 +941,9 @@ export function preferredSize(c: Component, whint: number, hhint: number): { wid
 }
 
 function computePreferred(c: Component, whint: number, hhint: number): { width: number; height: number } {
-  // RenderableView.computePreferredSize with its preferred-size hints: a view with no size of its
-  // own takes the space it is offered (the log-on and prologue skyboxes fill the screen)
-  if (c.kind === "view") return { width: Math.max(0, whint), height: Math.max(0, hhint) };
+  // RenderableView.computePreferredSize: with usePreferredSizeHints a view takes the space it is
+  // offered (the log-on and prologue skyboxes fill the screen); otherwise nothing of its own
+  if (c.kind === "view") return c.view?.usePreferredSizeHints ? { width: Math.max(0, whint), height: Math.max(0, hhint) } : { width: 0, height: 0 };
   if (c.kind === "label" || c.kind === "button" || c.kind === "menuitem") { const s = labelSize(c, whint); return { width: s.width, height: s.height }; }
   if (c.kind === "ui") {
     const root = c.children[0];
