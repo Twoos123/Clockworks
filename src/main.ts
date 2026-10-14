@@ -796,8 +796,17 @@ class Viewer {
     const heatView = new PortraitView(this.renderer, this.loader, undefined, null);
     const ringView = new PortraitView(this.renderer, this.loader, undefined, null);
     let targetView: { key: string; view: PortraitView } | null = null;
+    const acquireViews = new Map<string, PortraitView>();
     this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => {
-      if (c.viewOwner === "target") {
+      if (c.viewOwner?.startsWith("acquire:")) {
+        // each item-acquire icon plays its own 3D animation
+        let v = acquireViews.get(c.viewOwner);
+        if (!v) {
+          acquireViews.set(c.viewOwner, v = new PortraitView(this.renderer, this.loader, undefined, null));
+          if (acquireViews.size > 12) acquireViews.delete(acquireViews.keys().next().value!);
+        }
+        v.draw(c, g, x, y, w, h);
+      } else if (c.viewOwner === "target") {
         const t = world.hudTarget();
         if (!t) return;
         if (targetView?.key !== t.key) targetView = { key: t.key, view: new PortraitView(this.renderer, this.loader, undefined, t.idle) };
@@ -2082,6 +2091,8 @@ class Viewer {
           gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
             dungeon: !!this.scene && !TOWN.test(this.scene.name),
             pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))) }, dt);
+          // items the knight gained come up as the HUD's acquire icons
+          while (this.world.acquired.length) { const a = this.world.acquired.shift()!; gh?.acquire(a); }
           // (the HUD hides while the knight talks, as the game's conversation dialog hides it)
           this.hud.draw(this.world, proj, view, gh && !this.talking ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }

@@ -108,6 +108,11 @@ export interface HudState {
 /** What the status panel is built for: its heat meter's level and the portrait's colour. */
 const statusKey = (s: HudState) => `${heatLevel(s.heat)}|${s.color ?? ""}`;
 
+/** An item gained, for its acquire icon: the icon image, colorizations, count and pocket slot. */
+export interface AcquireEntry { icon: string; colorizations: unknown[]; count: number; slot: number | null }
+
+const ACQUIRE = "ui/scripted/dynamic/item_acquire.dat";
+
 export function hudState(world: World, name: string, floor = ""): HudState {
   const k = world.knight;
   return {
@@ -166,6 +171,39 @@ class Trail {
 export class GameHud {
   private status: Component | null = null;
   private quickbar: Component | null = null;
+  /**
+   * Item-acquire icons (client hud/t): items gained wait in a queue, come up 300 ms apart as the
+   * game's 3D icon (ui/scripted/dynamic/item_acquire.dat) and go after 2 s. Pocket items sit
+   * beside their quickbar slot, other items by the lower-right corner.
+   */
+  private acquireQueue: AcquireEntry[] = [];
+  private acquireShown: { ui: Component; left: number; slot: number | null }[] = [];
+  private acquireWait = 0;
+  private acquireBusy = false;
+  private acquireSeq = 0;
+
+  /** Queues an item gained for its acquire icon. */
+  acquire(e: AcquireEntry) { this.acquireQueue.push(e); }
+
+  private updateAcquire(dt: number) {
+    this.acquireWait -= dt;
+    for (const a of this.acquireShown) a.left -= dt;
+    this.acquireShown = this.acquireShown.filter(a => a.left > 0);
+    if (!this.acquireQueue.length || this.acquireWait > 0 || this.acquireBusy) return;
+    const e = this.acquireQueue.shift()!;
+    this.acquireBusy = true;
+    this.acquireWait = 0.3;
+    const count = e.count > 1 ? String(e.count) : "";
+    void buildInterface(this.ctx, ref(ACQUIRE, { Icon: e.icon, Colorizations: e.colorizations, ItemCount: count, ItemCountVisible: e.count > 1 }))
+      .then(ui => {
+        if (!ui) return;
+        const v = findKind(ui, "view");
+        if (v) v.viewOwner = "acquire:" + (this.acquireSeq++);
+        this.acquireShown.push({ ui, left: 2, slot: e.slot });
+      })
+      .catch(() => { /* the icon is skipped */ })
+      .finally(() => { this.acquireBusy = false; });
+  }
   /** The heat level and colour the status panel was built with (its heat meter's HeatPower). */
   private built: string | null = null;
   private building = false;
@@ -458,6 +496,7 @@ export class GameHud {
 
   update(state: HudState, dt: number) {
     this.dungeon = state.dungeon;
+    this.updateAcquire(dt);
     this.bindSprite(state.sprite);
     if (this.built !== statusKey(state)) void this.rebuildStatus(state);
     if (this.status) this.bindStatus(this.status, state, dt);
@@ -714,6 +753,13 @@ export class GameHud {
       y += s.height;
       render(ui, g, cw - s.width, y, this.hooks);
       y += 6;
+    }
+    // item-acquire icons: beside their quickbar slot, or in from the lower-right corner
+    for (const a of this.acquireShown) {
+      pack(a.ui);
+      const slot = a.slot !== null && qb ? qb.find(a.slot < 4 ? "slot" + a.slot : "vitaslot")?.screen ?? null : null;
+      if (slot) render(a.ui, g, Math.round(slot.x - 1.5 * slot.width), Math.round(slot.y + slot.height), this.hooks);
+      else render(a.ui, g, cw - 125, ch - 15, this.hooks);
     }
     // the target panel hangs from the top, 200 pixels in from the right edge
     if (this.target) { const s = pack(this.target); render(this.target, g, cw - 200 - s.width, s.height, this.hooks); }
