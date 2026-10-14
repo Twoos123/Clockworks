@@ -65,8 +65,8 @@ export interface MissionHost {
   arsenalOpen?(): boolean;
   /** The crafting tutorial's Craft Items: the forge (the game's servers craft them for the knight). */
   openForge?(): void;
-  /** Pauses the game while the board is open. */
-  pause(on: boolean): void;
+  /** The board closed (the game canvas takes the keys back). */
+  closed?(): void;
   /** Starts a mission's floors through the gate descent, at a difficulty. */
   startRun(gate: Gate, floors: Floor[], difficulty: Difficulty): void;
   /** Opens the Arcade's gate board (when the board cannot list the gates itself). */
@@ -173,7 +173,7 @@ export class MissionBoard {
   private activeDifficulty: Difficulty = "easy";
 
   constructor(private readonly host: MissionHost) {
-    this.screen = new MissionScreen(host.gui, { sound: f => host.sound(f), closed: () => { host.pause(false); this.music(false); } }, this);
+    this.screen = new MissionScreen(host.gui, { sound: f => host.sound(f), closed: () => { host.closed?.(); this.music(false); } }, this);
   }
 
   get list(): readonly Mission[] { return this.missions; }
@@ -200,10 +200,12 @@ export class MissionBoard {
     await this.show();
   }
 
-  /** Opens the window as it stands (pausing the game and starting the board's music). */
+  /**
+   * Opens the window as it stands, starting the board's music. The game goes on behind it, as
+   * the online client's does.
+   */
   private async show() {
     if (!this.screen.isOpen) this.music(true);
-    this.host.pause(true);
     await this.screen.open();
   }
 
@@ -228,7 +230,6 @@ export class MissionBoard {
 
   close() {
     if (this.screen.isOpen) this.screen.close();
-    else this.host.pause(false);
   }
 
   toggle() { if (this.isOpen) this.close(); else void this.open(); }

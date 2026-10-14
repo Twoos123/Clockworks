@@ -86,8 +86,17 @@ export class ForgeScreen extends GuiScreen {
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly host_: ForgeHost) {
     super(ctx, host_, "forgeCanvas");
-    // q.BH: the forge sits at the screen's left
-    this.dockLeft = true;
+    // q.BH: the forge sits at the screen's left, its list full height above the HUD from the
+    // top (a client/g list window), with the HUD's energy panel at the bottom right
+    this.dockLeft = () => 0;
+    this.energy = () => energyNow(energyOf(this.host_.save()));
+  }
+
+  /** The forge's item list window (its height follows the screen's, as the arsenal's). */
+  private listUi: Component | null = null;
+
+  protected tick() {
+    if (this.listUi) this.listUi.preferredSize = { width: -1, height: Math.max(200, Math.round(this.canvas.clientHeight - 145)) };
   }
 
   protected async build(): Promise<Component | null> {
@@ -97,6 +106,7 @@ export class ForgeScreen extends GuiScreen {
     this.eco = eco;
     this.panel = panel;
     if (!replaceTag(root, "arsenal", left) || !replaceTag(root, "forge", panel)) return null;
+    this.listUi = left;
     this.list = new ItemList(this.ctx, left, this.tips, f => this.host.sound(f));
     this.list.showSelection = true;
     this.list.sorts = ["natural", "name", "stars", "level"];

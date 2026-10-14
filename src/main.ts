@@ -369,6 +369,7 @@ class Viewer {
   private cam: { views: CameraView[]; zoom: number; from: CameraView; to: CameraView; t: number } | null = null;
   private target: Vec3 = [0, 0, 0.5];
   private home = { dist: 3, target: [0, 0, 0.5] as Vec3 };
+  /** The asset viewer's Pause button (and the play audit's stepping): the clocks and the world stop. No game window pauses. */
   private paused = false;
   private last = performance.now();
   private loadToken = 0;
@@ -432,7 +433,7 @@ class Viewer {
         if (this.missionBoard?.escape()) return;
         if (this.escapeWindow()) return;
         if (this.options?.isOpen) this.options.close();
-        else { this.paused = true; void this.openOptions(); }
+        else void this.openOptions();
         return;
       }
       const key = e.key.toLowerCase(), b = (a: Action) => key === this.bound(a);
@@ -452,9 +453,9 @@ class Viewer {
       if (b("prevWeapon") && !e.repeat) { e.preventDefault(); this.switchWeapon(-1); }
       // pocket items
       (["item1", "item2", "item3", "item4"] as const).forEach((a, i) => {
-        if (b(a) && !e.repeat && !this.paused) this.usePocket(i);
+        if (b(a) && !e.repeat && !this.paused && !this.controlLocked) this.usePocket(i);
       });
-      (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
+      (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused && !this.controlLocked) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
       if (b("dash") && !e.repeat) this.dashPressed = true;
       // the mouse-move scheme's keys: Z attacks (Shift + Z bashes), X shields (Shift + X dodges)
@@ -1420,8 +1421,9 @@ class Viewer {
       data: () => this.world?.data ?? new GameData(this.loader),
       save: () => this.save, sound: f => this.uiSound(f),
       write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); this.achieve(); },
-      // the mission board's arsenal toggle opens the arsenal over the board, which keeps the game paused
-      paused: on => { this.paused = (on || !!this.missionBoard?.isOpen) && !!this.world; if (!on && !this.missionBoard?.isOpen) this.canvas.focus(); },
+      // the game goes on behind the windows (as the online client's does); the last one closing
+      // gives the keys back to the game (unless the mission board, under its arsenal, is still up)
+      allClosed: () => { if (!this.missionBoard?.isOpen) this.canvas.focus(); },
       arsenalClosed: () => { this.places.arsenalClosed(); this.achieve(); },
       outfit: () => this.outfit,
       previewModel: async item => { const ref = this.world?.previewRef(item); return ref ? { ref, idle: "character/pc/idle.dat" } : null; },
@@ -1455,21 +1457,21 @@ class Viewer {
 
   /** A turn of the mouse wheel over the game: down the next weapon, up the previous. */
   private wheelWeapon(deltaY: number) {
-    if (!deltaY || this.paused || this.options?.isOpen) return;
+    if (!deltaY || this.paused || this.controlLocked || this.options?.isOpen) return;
     const now = performance.now();
     if (now - this.wheelAt < 150) return;
     this.wheelAt = now;
     this.switchWeapon(deltaY > 0 ? 1 : -1);
   }
 
-  /** Opens or closes the character window (equipment); the world pauses while it is open. */
+  /** Opens or closes the character window (equipment); the game goes on behind it. */
   private async toggleArsenal() {
     await this.ensureScreens().toggleArsenal();
   }
 
   /** An Arsenal Station used: the arsenal with the forge (when gear is ready) or the character window. */
   private async arsenalStation() {
-    if (this.talking || this.paused) return;
+    if (this.controlLocked || this.paused) return;
     const eco = this.eco ?? this.world?.economy;
     await this.ensureScreens().showArsenalStation(!!eco?.forgeable(this.save).length);
   }
@@ -1629,8 +1631,8 @@ class Viewer {
         // a vendor or alchemy machine the knight is using keeps its hint and target panel while
         // its windows are open (the client's stay up over the shop)
         if (w && this.vendorAction && (this.itemScreens?.shop.isOpen || this.itemScreens?.recipes.isOpen)) return this.vendorAction;
-        if (!this.paused) this.vendorAction = null;
-        if (!w || this.paused || this.anyWindowOpen() || this.talking) return null;
+        if (!this.vendorOpening) this.vendorAction = null;
+        if (!w || this.paused || this.windowOver() || this.talking) return null;
         const dungeon = !!this.scene && !TOWN.test(this.scene.name);
         if (dungeon && w.onElevator) return { hint: "m.elevator", desc: null };
         return w.actionTarget();
@@ -1723,7 +1725,6 @@ class Viewer {
       colors: () => this.renderer.colors,
       eco: () => this.economy(),
       returnToHaven: () => void this.returnToHaven(),
-      pause: on => { this.paused = on && !!this.world; },
       focus: () => this.canvas.focus(),
     });
     places.onCreated = () => {
@@ -1751,7 +1752,7 @@ class Viewer {
       toggleArsenal: () => this.toggleArsenal(),
       arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
       openForge: () => { if (!this.itemScreens?.recipes.isOpen) void this.ensureScreens().toggleRecipes(); },
-      pause: on => { this.paused = on && !!this.world; },
+      closed: () => { if (!this.itemScreens?.isOpen) this.canvas.focus(); },
       startRun: (g, floors, difficulty) => void this.enterGate(g, floors, false, { difficulty }),
       openGates: () => this.openGates(),
       // the ARCADE tab: today's gates, the run's place on the map, entering a gate at a tier
@@ -1797,14 +1798,14 @@ class Viewer {
     initNotices(gui);
     const host = {
       sound: (f: string) => this.uiSound(f),
-      closed: () => { if (!this.anyWindowOpen()) { this.paused = false; this.canvas.focus(); } },
+      closed: () => { if (!this.anyWindowOpen()) this.canvas.focus(); },
     };
     this.uplink ??= new UplinkScreen(gui, { ...host, save: () => this.save, write: () => writeSave(this.save) });
     this.help ??= new HelpScreen(gui, { ...host,
       username: () => knightName(this.save),
       // the help's action links: OPTIONS MENU (the controls page) and ENERGY DEPOT
       link: a => {
-        if (a === "controls") { this.help?.close(); this.paused = !!this.world; void this.optionsScreen().open("controls"); }
+        if (a === "controls") { this.help?.close(); void this.optionsScreen().open("controls"); }
         else if (a === "exchange") { this.help?.close(); this.hudAction("button_supplydepot"); }
       } });
     this.social ??= new SocialScreen(gui, { ...host,
@@ -1829,6 +1830,24 @@ class Viewer {
     return !!(this.uplink?.isOpen || this.help?.isOpen || this.social?.isOpen || this.eventHub?.isOpen || this.summaryScreen?.isOpen);
   }
 
+  /**
+   * True while any window stands over the game (the item windows, the boards, the options...).
+   * The game goes on behind them, as the online client's does; only the action hint hides.
+   */
+  private windowOver() {
+    return this.anyWindowOpen() || !!(this.itemScreens?.isOpen || this.missionBoard?.isOpen || this.options?.isOpen
+      || this.gateBoard_?.isOpen || this.report?.isOpen || this.places.guild.isOpen);
+  }
+
+  /**
+   * The knight takes no orders (the world still runs): during a conversation or a comlink call
+   * (the client's conversation freezes the controller) and while the expedition's REPORT is up
+   * at the elevator.
+   */
+  private get controlLocked() {
+    return !!(this.talking || this.conversation?.isOpen || this.report?.isOpen);
+  }
+
   /** Escape: closes the topmost of the windows above; false when none is open. */
   private escapeWindow(): boolean {
     for (const w of [this.summaryScreen, this.help, this.uplink, this.eventHub, this.social]) if (w?.isOpen) { w.escape(); return true; }
@@ -1838,7 +1857,6 @@ class Viewer {
   /** The social window (F6): friends and the guild, docked at the left. */
   private toggleSocial() {
     const s = this.windows().social;
-    if (!s.isOpen) this.paused = !!this.world;
     s.toggle();
   }
 
@@ -1860,7 +1878,6 @@ class Viewer {
   private openFeed() {
     const hub = this.windows().eventHub;
     if (hub.isOpen) { hub.close(); return; }
-    this.paused = !!this.world;
     void hub.open();
   }
 
@@ -1868,7 +1885,6 @@ class Viewer {
   private openMail() {
     const up = this.windows().uplink;
     if (up.isOpen) { up.close(); return; }
-    this.paused = !!this.world;
     void up.show("mail");
   }
 
@@ -1885,19 +1901,17 @@ class Viewer {
     if (this.talking || this.anyWindowOpen() || this.missionBoard?.isOpen) return;
     this.welcomePending = false;
     const { uplink, eventHub } = this.windows();
-    this.paused = !!this.world;
     void uplink.show("news").then(() => eventHub.open());
   }
 
   /** The help window (the HUD's help button, F1) on its controls page, or the support page (the main menu's Support). */
   private toggleHelp(tab: HelpTab = "controls") {
     const h = this.windows().help;
-    if (!h.isOpen) this.paused = !!this.world;
     h.toggle(tab);
   }
 
   /** The settings menu (filled in by the settings module). */
-  private openSettings() { this.paused = !!this.world; void this.openOptions(); }
+  private openSettings() { void this.openOptions(); }
 
   private options: OptionsScreen | null = null;
 
@@ -1922,12 +1936,12 @@ class Viewer {
         writeSave(this.save);
         return true;
       },
-      returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
+      returnToHaven: () => void this.returnToHaven(),
       quit: () => this.leaveGame(false),
       // Logoff: back to the knight select window (the log-on screen when no knight is saved)
       logoff: () => this.leaveGame(true),
       awayFrom: () => (this.world && !/haven/i.test(this.scene?.name ?? "") ? "Haven" : null),
-      closed: () => { this.paused = false; this.canvas.focus(); },
+      closed: () => this.canvas.focus(),
       playing: () => !!this.world,
       sound: f => this.uiSound(f),
       sceneNames: () => this.sceneList.map(s => s.name),
@@ -1936,7 +1950,6 @@ class Viewer {
 
   /** Quit and Logoff: the windows close, play stops and the log-on screen (or, logging off, the knight select) comes back. */
   private leaveGame(logoff: boolean) {
-    this.paused = false;
     this.gameHud?.closeMenu();
     this.itemScreens?.closeAll();
     for (const w of [this.help, this.uplink, this.social, this.eventHub]) w?.close();
@@ -1961,7 +1974,7 @@ class Viewer {
   /**
    * A townsperson's conversation (ProjectXActionConfig.StartConversation): the game's
    * conversation interface with the NPC's lines from the bundles; the NPC turns to the knight
-   * and the world waits while they talk.
+   * and the knight takes no orders while they talk (the world goes on).
    */
   private async openConversation(actor: string, action: any, source: { x: number; y: number; rotation: number }) {
     const w = this.world;
@@ -2010,7 +2023,7 @@ class Viewer {
   /**
    * Plays a conversation in the conversation dialog (src/ui/conversation.ts) with the speaker's
    * look and the conversation's music (ConversationDialogInfo.music, a stream over the level's
-   * while the dialog is up); the world waits while they talk.
+   * while the dialog is up); the knight takes no orders while they talk (the world goes on).
    */
   private talk(conv: NpcConversation, look: { ref: any; idle: any }, music: any): Promise<boolean> {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
@@ -2028,7 +2041,7 @@ class Viewer {
         return (c, g, x, y, ww, h) => v!.draw(c, g, x, y, ww, h);
       },
       closed: completed => {
-        this.talking = null; this.paused = false; views.clear(); this.canvas.focus();
+        this.talking = null; views.clear(); this.canvas.focus();
         this.talkMusic?.(); this.talkMusic = null;
         // the conversation controls hint shows until the knight has talked once
         if (this.save.knight && !this.save.knight.conversed) { this.save.knight.conversed = true; writeSave(this.save); }
@@ -2038,13 +2051,12 @@ class Viewer {
       },
     });
     this.talking = look;
-    this.paused = true;
     this.talkMusic = music?.name ? this.ensureAudio().holdStream(music) : null;
     const hint = !this.save.knight?.conversed;
     return new Promise<boolean>(resolve => {
       this.talkDone = resolve;
       this.conversation!.start(conv, knightName(this.save), hint).catch(() => {
-        this.talking = null; this.paused = false; views.clear();
+        this.talking = null; views.clear();
         this.talkMusic?.(); this.talkMusic = null; this.talkDone = null;
         resolve(false);
       });
@@ -2059,14 +2071,30 @@ class Viewer {
   /** An alchemy machine: the crafting window (craft/a/o), its hint and target panel staying up. */
   private async openCrafter() {
     this.vendorAction = this.world?.actionTarget() ?? null;
-    const screens = this.ensureScreens();
-    if (!screens.recipes.isOpen) await screens.toggleRecipes();
+    this.vendorOpening = true;
+    try {
+      await this.ensureScreens().openCrafter();
+    } catch (e) {
+      console.error("crafting window failed", e);
+    } finally { this.vendorOpening = false; }
   }
+
+  /** A vendor's or machine's windows are on their way (its hint stays up meanwhile). */
+  private vendorOpening = false;
+  /** The keeper whose shop opened last. */
+  private shopKeeper: string | null = null;
 
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
   private async openShop(keeper: string, portrait: { ref: any; idle: any } | null = null) {
+    // (the game runs on behind the shop: using its keeper again leaves it as it is)
+    if (this.vendorOpening || (this.itemScreens?.shop.isOpen && this.shopKeeper === keeper)) return;
+    this.shopKeeper = keeper;
     this.vendorAction = this.world?.actionTarget() ?? null;
-    this.paused = true;
+    this.vendorOpening = true;
+    try { await this.openShop_(keeper, portrait); } catch (e) { console.error("shop failed", e); } finally { this.vendorOpening = false; }
+  }
+
+  private async openShop_(keeper: string, portrait: { ref: any; idle: any } | null) {
     const eco = await this.economy();
     // in the Clockworks a terminal's keepers stock their tier (Basil sells its recipes, the
     // Supply Depot its supplies); Haven's bazaar shows what progress has unlocked
@@ -2313,13 +2341,12 @@ class Viewer {
     const notes = this.bankLoot(l);
     l.crowns = 0; l.heat = 0; l.materials.clear(); l.items.length = 0;
     writeSave(this.save);
-    this.paused = true;
     this.runTotals.notes.push(...notes);
     void this.screens().elevator.show({
       title: `Arena: wave ${wave} cleared`,
       next: { title: "Arena", zone: `Wave ${wave + 1} awaits`, depth: "" },
       tally: `Loot banked: ${this.save.crowns} crowns`,
-      advance: { label: "Fight On", run: () => { this.paused = false; this.world?.continueArena(); } },
+      advance: { label: "Fight On", run: () => this.world?.continueArena() },
       quit: { run: () => void this.descend() },
     });
   }
@@ -2427,7 +2454,6 @@ class Viewer {
    */
   private quitExpedition() {
     if (/^mission:/.test(this.gate?.id ?? "")) this.missionBoard?.runAbandoned();
-    this.paused = true;
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     this.report ??= new ReportScreen(this.gui, { sound: f => this.uiSound(f), closed: () => undefined }, (c, g, x, y, w, h) => {
       const wd = this.world;
@@ -2441,7 +2467,7 @@ class Viewer {
       const it = eco?.info(name);
       return { name, label: itemName(name), count, rarity: it?.rarity ?? 0, icon: it?.icon ?? null };
     });
-    void this.report.show({ knight: knightName(this.save), crowns: this.runCrowns, loot, done: () => { this.paused = false; void this.returnToHaven(false); } });
+    void this.report.show({ knight: knightName(this.save), crowns: this.runCrowns, loot, done: () => void this.returnToHaven(false) });
   }
   private reportView: { key: string; view: PortraitView } | null = null;
   /** The expedition's crowns and loot so far (for its REPORT). */
@@ -2468,9 +2494,8 @@ class Viewer {
     await this.selectScene(haven.id);
     await this.startPlaying();
     if (summary && summary.deepest > 0) {
-      this.paused = true;
       this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-      this.summaryScreen ??= new RunSummaryScreen(this.gui, { sound: f => this.uiSound(f), closed: () => { this.paused = false; this.canvas.focus(); } });
+      this.summaryScreen ??= new RunSummaryScreen(this.gui, { sound: f => this.uiSound(f), closed: () => this.canvas.focus() });
       void this.summaryScreen.show({
         title: "Back in Haven",
         name: summary.gate || "The Clockworks",
@@ -2492,7 +2517,7 @@ class Viewer {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     return this.gateBoard_ ??= new GateBoard(this.gui, {
       sound: f => this.uiSound(f),
-      closed: () => { this.paused = false; this.canvas.focus(); },
+      closed: () => this.canvas.focus(),
       gates: older => this.gateSource.choices(older),
       gate: e => this.gateSource.gate(e),
       offline: () => this.gateSource.offline,
@@ -2512,7 +2537,6 @@ class Viewer {
    * map with its level and theme icons, as the game's adventure board draws them.
    */
   private openGates() {
-    this.paused = !!this.world;
     void this.gateBoard.openOn(this.gate);
   }
 
@@ -2845,7 +2869,6 @@ class Viewer {
    */
   private async descend(deeper = false) {
     this.elevator?.hide();
-    this.paused = false;
     if (this.arenaMode) { this.arenaMode = false; await this.returnToHaven(); return; }
     if (this.gate) {
       // the gate's next floor (after the Core's terminal, back to Haven)
@@ -3239,7 +3262,7 @@ class Viewer {
           if (pad.move[0] || pad.move[1]) move = rel(pad.move[0], pad.move[1]);
           if (pad.aim) { const [ax, ay] = rel(pad.aim[0], pad.aim[1]); const k = this.world.knight; aim = [k.x + ax * 3, k.y + ay * 3]; }
           else if (pad.move[0] || pad.move[1]) aim = null;
-          if (pad.item >= 0 && !this.paused) this.usePocket(pad.item);
+          if (pad.item >= 0 && !this.paused && !this.controlLocked) this.usePocket(pad.item);
           if (pad.cycle && this.world.knight.weapons.length) {
             const n = this.world.knight.weapons.length;
             this.weaponSlot = (this.world.knight.slot + pad.cycle + n) % n;
@@ -3248,7 +3271,7 @@ class Viewer {
         // the Arcade's gate control panels (their server action picks the gate): the gate board;
         // in a gate's party lobby its lobby consoles show the gate being played
         const lobbyHere = this.gateLobby;
-        if (!this.paused && (this.interactPressed || pad?.interact) && this.scene && ((/arcade/i.test(this.scene.name) && !this.gate) || lobbyHere)) {
+        if (!this.paused && !this.controlLocked && (this.interactPressed || pad?.interact) && this.scene && ((/arcade/i.test(this.scene.name) && !this.gate) || lobbyHere)) {
           const k = this.world.knight;
           const panel = lobbyHere ? /Gates\/Lobby Console/ : /Gates\/Control Panel/;
           if (this.scene.logic.some(e => panel.test(e.name) && Math.hypot(e.x - k.x, e.y - k.y) < 3)) {
@@ -3256,7 +3279,13 @@ class Viewer {
             this.openGates();
           }
         }
-        if (!this.paused) {
+        if (!this.paused && this.controlLocked) {
+          // a conversation or comlink call holds the knight (the client freezes its controller)
+          // while the world goes on
+          this.world.update(dt, { move: [0, 0], attackDown: false, attackHeld: false, shield: false, aim: null, weaponSlot: null, interact: false, dash: false, bash: false });
+          this.dashPressed = this.bashPressed = this.interactPressed = false;
+          this.weaponSlot = null;
+        } else if (!this.paused) {
           this.world.update(dt, {
             move, attackDown: this.attackPressed || !!pad?.attackDown, attackHeld: this.attackHeld || !!pad?.attackHeld,
             shield: this.shieldHeld || !!pad?.shield, aim, weaponSlot: this.weaponSlot,

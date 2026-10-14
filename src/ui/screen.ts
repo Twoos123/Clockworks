@@ -15,11 +15,13 @@ const BONUS = "ui/window/tooltip_parts/bonus.dat";
 const STATS = "ui/window/tooltip_parts/container_stats.dat";
 const BAR = "ui/window/tooltip_parts/stat_bar.dat";
 const COMPARE = "ui/window/tooltip_compare.dat";
-/** Pixels between a docked window and the screen's edge. */
-const DOCK_MARGIN = 8;
-/** The HUD's height under a left-docked list (as.i: the display height less 145). */
+/**
+ * The HUD's height under a docked list (as.i: the display height less 145). The client's list
+ * windows (client/g.Ah) stand that tall from the screen's top, against its edge (g.Cj: the
+ * display width less their own; bL.Cj: the loadouts against the arsenal), with no margin or gap.
+ */
 const DOCK_BOTTOM = 145;
-/** Pixels between docked windows. */
+/** Pixels between a centred window and the docked ones beside it. */
 const DOCK_GAP = 4;
 /** hud/r: the energy panel's bottom edge above the screen's (its anchor's 70 pixel offset). */
 const ENERGY_BOTTOM = 70;
@@ -28,7 +30,7 @@ const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 export interface ScreenHost {
   /** Plays a UI feedback sound. */
   sound(file: string): void;
-  /** Called when the window closes (the game resumes). */
+  /** Called when the window closes (the game canvas takes the keys back). */
   closed(): void;
   /**
    * Draws a RenderableView, when the game can: the knight preview, or another model (a
@@ -215,6 +217,10 @@ export abstract class GuiScreen {
     c.addEventListener("pointerleave", () => { this.pointer = null; });
     c.addEventListener("wheel", ev("wheel"), { passive: false });
     c.addEventListener("contextmenu", e => e.preventDefault());
+    // a press passed on to the game's canvas may be captured there (its release never comes
+    // back here): any release ends the passing on
+    const done = () => { this.forwardTo = null; };
+    if (typeof addEventListener === "function") { addEventListener("pointerup", done); addEventListener("pointercancel", done); }
   }
 
   get isOpen() { return !this.canvas.hidden; }
@@ -232,8 +238,10 @@ export abstract class GuiScreen {
       if (type === "up" || this.captured || this.overlays.length || this.root?.overlay || this.sides.some(d => d.overlay)) return false;
       if ((this.root && hitTest(this.root, x, y)) || this.sides.some(d => hitTest(d, x, y))) return false;
       if (this.beside && this.besideShown && hitTest(this.beside, x, y)) return false;
+      // the window canvas beneath, else the game's own canvas: the game goes on behind the
+      // windows, and a click off them attacks or presses the HUD as it would with none open
       to = (document.elementsFromPoint?.(e.clientX, e.clientY) ?? []).find((el): el is HTMLCanvasElement =>
-        el !== this.canvas && el instanceof HTMLCanvasElement && el.classList.contains("gui-screen") && !el.hidden) ?? null;
+        el !== this.canvas && el instanceof HTMLCanvasElement && !el.hidden) ?? null;
       if (!to) return false;
     }
     if (type === "down") this.forwardTo = to;
@@ -337,7 +345,11 @@ export abstract class GuiScreen {
   private docks: { key: string; order: number; panel: DockPanel; left?: boolean }[] = [];
   /** The docked windows, from the screen's edge inward. */
   protected get sides(): Component[] { return this.docks.map(d => d.panel.ui); }
-  /** Docks the main window at the screen's right edge instead of centring it (item/client/i). */
+  /**
+   * Docks the main window at the screen's right edge instead of centring it (item/client/i, a
+   * client/g list window): full height above the HUD from the top edge, against the edge (or
+   * the windows docked at it).
+   */
   protected dockRight = false;
   /**
    * Docks the main window at the screen's left edge. A function: full height above the HUD
@@ -350,11 +362,11 @@ export abstract class GuiScreen {
   /** Darkens the game behind the window (a docked list leaves it be). */
   protected dim = true;
   /**
-   * The docked windows stand full height above the HUD from the top edge, as the shop's
-   * vendor and arsenal and the crafting window's do (client/g with its side), instead of
-   * centred at their own height.
+   * The docked windows stand full height above the HUD from the top edge, as every client/g
+   * list window does (the arsenal, the loadouts, the shop's vendor), instead of centred at
+   * their own height.
    */
-  protected tallDocks = false;
+  protected tallDocks = true;
   /**
    * The HUD's energy panel (hud/r: ui/energy/interface_collapse.dat holding the energy module
    * ui/energy/interface.dat), which the client's item lists show at the screen's bottom right,
@@ -531,8 +543,10 @@ export abstract class GuiScreen {
     this.tick();
     // docked windows from the right edge inward, then the main window: at the left edge, at
     // the docked windows' left, or centred where that leaves them clear
-    let edge = cw - DOCK_MARGIN, leftEdge = 0;
+    let edge = cw, leftEdge = 0;
     const tall = Math.max(200, Math.round(ch - DOCK_BOTTOM));
+    // the right edge's column (the arsenal, a right-docked window): the energy panel joins it
+    let column = false;
     for (const d of this.docks) {
       const ui = d.panel.ui;
       if (this.tallDocks) ui.preferredSize = { width: -1, height: tall };
@@ -540,14 +554,13 @@ export abstract class GuiScreen {
       const bottom = this.tallDocks ? s.height : Math.round((ch + s.height) / 2);
       if (d.left) {
         // a window docked at the left edge (the shop's vendor), the next one beside it
-        leftEdge += DOCK_MARGIN;
         render(ui, g, leftEdge, bottom, this.hooks);
         leftEdge += s.width;
         continue;
       }
+      if (edge === cw && this.tallDocks) column = true;
       edge -= s.width;
       render(ui, g, Math.max(0, edge), bottom, this.hooks);
-      edge -= DOCK_GAP;
     }
     if (this.root) {
       if (typeof this.dockLeft === "function") {
@@ -557,9 +570,12 @@ export abstract class GuiScreen {
         this.dockedWidth = s.width;
         render(this.root, g, Math.min(Math.max(0, cw - s.width), this.dockLeft()), s.height, this.hooks);
       } else {
+        // a right-docked list window stands full height from the top, against the edge
+        if (this.dockRight) this.root.preferredSize = { width: -1, height: tall };
         const s = pack(this.root);
-        const right = this.docks.some(d => !d.left) ? edge : cw - DOCK_MARGIN;
-        let x = this.dockLeft ? DOCK_MARGIN : this.dockRight ? right - s.width
+        const right = this.docks.some(d => !d.left) ? edge - (this.dockRight ? 0 : DOCK_GAP) : cw;
+        if (this.dockRight && right === cw) column = true;
+        let x = this.dockLeft ? 0 : this.dockRight ? right - s.width
           : Math.max(leftEdge + DOCK_GAP, Math.min(Math.round((cw - s.width) / 2), right - s.width));
         // a window docked to the main one's left (the mission board's Featured Items,
         // mission/client/r.Ah): the main window moves right by half its width when both fit,
@@ -575,10 +591,10 @@ export abstract class GuiScreen {
             this.besideShown = true;
           }
         }
-        render(this.root, g, Math.max(0, x), Math.round((ch + s.height) / 2), this.hooks);
+        render(this.root, g, Math.max(0, x), this.dockRight ? s.height : Math.round((ch + s.height) / 2), this.hooks);
       }
     }
-    this.drawEnergy(g, cw, ch);
+    this.drawEnergy(g, cw, ch, column ? tall : null);
     for (const o of this.overlays) {
       g.fillStyle = "rgba(4,10,18,0.45)";
       g.fillRect(0, 0, cw, ch);
@@ -624,8 +640,12 @@ export abstract class GuiScreen {
   /** Per-frame work before drawing (animations). */
   protected tick() {}
 
-  /** The HUD's energy panel at the bottom right (hud/r, anchored right and bottom, 70 up). */
-  private drawEnergy(g: CanvasRenderingContext2D, cw: number, ch: number) {
+  /**
+   * The HUD's energy panel at the bottom right (hud/r, anchored right and bottom, 70 up), flush
+   * against the screen's edge; under a column docked at the right edge it hangs from that
+   * column's bottom (`top`), joined to it.
+   */
+  private drawEnergy(g: CanvasRenderingContext2D, cw: number, ch: number, top: number | null = null) {
     if (!this.energy) return;
     if (!this.energyUi) {
       if (!this.energyBuilding) {
@@ -637,7 +657,7 @@ export abstract class GuiScreen {
     const n = this.energyUi.find("crystalenergy");
     if (n) n.text = this.energy().toLocaleString("en-US");
     const s = pack(this.energyUi);
-    render(this.energyUi, g, Math.max(0, cw - s.width), Math.round(ch - ENERGY_BOTTOM), this.hooks);
+    render(this.energyUi, g, Math.max(0, cw - s.width), top !== null ? top + s.height : Math.round(ch - ENERGY_BOTTOM), this.hooks);
   }
 }
 
