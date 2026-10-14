@@ -14,6 +14,7 @@ import { styledLabel } from "./floating";
 import { buildUi, uiRef, type TipSpec } from "./screen";
 import { itemFlavor, itemType } from "../game/text";
 import type { ItemStats } from "../game/itemstats";
+import type { GameData } from "../game/data";
 
 export interface ListEntry {
   /** Unique within the list (an item config name). */
@@ -341,6 +342,33 @@ export class ItemList {
   }
 }
 
+/** ItemConfig's x(): the item/preview model each kind of item is shown in. */
+const PREVIEW: Record<string, string> = {
+  Armor: "gear-armor", ArmorCostume: "gear-armor", Helm: "gear-helm", HelmCostume: "gear-helm", Shield: "gear-shield", ShieldCostume: "gear-shield",
+  Sword: "weapon-sword", SwingingHandgun: "weapon-sword", Handgun: "weapon-handgun", Bomb: "weapon-bomb", BlastNetworkBomb: "weapon-bomb",
+};
+
+/**
+ * ItemConfig.Original.a(..., renderview): the tooltip's 3D preview of an item config, its
+ * model with the knight's colour in its kind's item/preview/model_*.dat (null hides the view:
+ * items without a model, and dungeon gear such as vitapods).
+ */
+export function previewModel(cfg: any, color: number): any {
+  const k = String(cfg?.$class ?? "").replace(/^.*\$/, "");
+  if (!cfg?.model?.name || k === "Dungeon") return null;
+  const entries: [string, unknown][] = [...(cfg.model.arguments?.entries ?? []).filter(([n]: [string]) => n !== "Colorization"), ["Colorization", color]];
+  const model = { ...cfg.model, arguments: { $map: "com.threerings.config.ArgumentMap", entries } };
+  const wrap = PREVIEW[k];
+  return wrap ? uiRef(`item/preview/model_${wrap}.dat`, { Model: model }) : model;
+}
+
+/** previewModel for an item by its config name. */
+export function itemPreview(data: GameData, name: string, color: number): any {
+  let cfg: any = null;
+  try { cfg = data.resolveSync("config/item.dat", { name }, "item"); } catch { /* not an item */ }
+  return previewModel(cfg, color);
+}
+
 const TIP = "ui/window/tooltip_level.dat";
 const TIP_PLAIN = "ui/window/tooltip.dat";
 
@@ -379,18 +407,21 @@ export function levelBonuses(st: { damage: number; uncapped: number; charge: num
  * level (materials, food, costumes without heat) use the plain ui/window/tooltip.dat.
  */
 export function itemTip(o: { label: string; type: string; rarity: number; flavor: string; level?: number; progress?: number; equipped?: boolean;
-  lines?: string[]; item?: string; kind?: string; stats?: ItemStats | null; bonuses?: TipBonus[]; noLevel?: boolean; plain?: boolean }): TipSpec {
+  lines?: string[]; item?: string; kind?: string; stats?: ItemStats | null; bonuses?: TipBonus[]; noLevel?: boolean; plain?: boolean;
+  /** The 3D preview's model (previewModel). */ model?: any;
+  /** False when the knight's rank cannot wear it (Equipped "Unequippable" with the rank limit text). */ wearable?: boolean; rankText?: string }): TipSpec {
   const levelled = o.level !== undefined;
   const flavor = (o.item && itemFlavor(o.item)) || o.flavor;
   let type = o.kind ? itemType(o.kind, o.type) : o.type;
   if (o.equipped) type = message("item", "m.equipped", type) || `Equipped ${type}`;
-  const extra = { stats: o.stats ?? undefined, bonuses: o.bonuses };
+  const extra = { stats: o.stats ?? undefined, bonuses: o.bonuses, model: o.model ?? undefined };
   if (o.plain) return { lines: o.lines, ...extra, ref: uiRef(TIP_PLAIN, {
     Name: o.label.toUpperCase(), Type: type.toUpperCase(), Body: "", Flavor: flavor, Rarity: String(Math.max(0, Math.min(5, o.rarity))) }) };
-  const look = (o.equipped ? "True" : "False") + (levelled && !o.noLevel ? "" : " No Level");
+  // ItemConfig.Level: Equipped True, False, or Unequippable (with the rank limit) when the rank is too low
+  const look = (o.equipped ? "True" : o.wearable === false ? "Unequippable" : "False") + (levelled && !o.noLevel ? "" : " No Level");
   return { lines: o.lines, ...extra, ref: uiRef(TIP, {
     Name: o.label.toUpperCase(), Type: o.noLevel ? type : type.toUpperCase(), Flavor: flavor, Rarity: String(Math.max(0, Math.min(5, o.rarity))),
     Equipped: look, Level: String(o.level ?? 0).padStart(2, "0"), Heat: 16 + Math.trunc(104 * (o.progress ?? 0)),
-    "Max Level": (o.level ?? 0) >= 10 ? "True" : "False",
+    "Max Level": (o.level ?? 0) >= 10 ? "True" : "False", ...(o.rankText ? { "Unequippable Text": o.rankText } : {}),
   }) };
 }

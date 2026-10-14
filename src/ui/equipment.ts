@@ -33,8 +33,8 @@ import {
 } from "../game/sprites";
 import { validName } from "./createknight";
 import { messageText, type Component, type Style } from "./gui";
-import { itemTip, ItemList, levelBonuses, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
-import { applyItemAction, COMPARE, compareTarget, itemMenu, rankAllows, SLOT_ICON } from "./itemmenu";
+import { itemPreview, itemTip, ItemList, levelBonuses, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
+import { applyItemAction, COMPARE, compareTarget, itemMenu, rankAllows, rankLimitText, SLOT_ICON } from "./itemmenu";
 import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
 import { styledLabel } from "./floating";
 import { freshProgress, rankName } from "../game/missions";
@@ -188,7 +188,8 @@ function ownTip(save: SaveData, data: GameData, eco: Economy, e: ItemEntry, worn
     : `${e.category.label.replace(/s$/, "")}.`;
   return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
     flavor, level: heatable ? lv : undefined, noLevel: e.category.slot === "trinket",
-    progress: eco.heatProgress(save, e.name), equipped: worn, bonuses, stats: itemStats(data, eco, e.name, Math.max(1, lv), g?.variants) });
+    progress: eco.heatProgress(save, e.name), equipped: worn, bonuses, stats: itemStats(data, eco, e.name, Math.max(1, lv), g?.variants),
+    model: itemPreview(data, e.name, save.color), wearable: worn || rankAllows(save, e.rarity), rankText: rankLimitText(e.rarity) });
 }
 
 /**

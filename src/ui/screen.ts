@@ -61,6 +61,11 @@ export interface TipSpec {
   /** Bonus and penalty lines (green or red, with an icon), after the lines. */
   bonuses?: { text: string; bonus: boolean; icon?: string | null; /** "Variant" for a unique variant's line. */ color?: string }[];
   /**
+   * The 3D preview in the tooltip's renderview (ItemConfig.Original.a): the item's model in
+   * its kind's item/preview model, turning; none hides the view.
+   */
+  model?: any;
+  /**
    * The item this one is compared with (item/client/k, ItemConfig.Level's compare tooltip):
    * both tooltips side by side in ui/window/tooltip_compare.dat, the compared one first.
    */
@@ -299,6 +304,10 @@ export abstract class GuiScreen {
 
   private buildTip(spec: TipSpec): Promise<Component | null> { return buildTooltip(this.ctx, spec); }
 
+  /** The tooltip on screen and how long it has been up (its 3D preview turns). */
+  private shownTip: Component | null = null;
+  private tipAge = 0;
+
   private clickable(root: Component, x: number, y: number): Component | null {
     if (!this.clicks.size) return null;
     const hit = hitTest(root, x, y);
@@ -345,10 +354,19 @@ export abstract class GuiScreen {
       render(o, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
     }
     const tip = this.hoveredTip();
+    if (tip !== this.shownTip) { this.shownTip = tip; this.tipAge = 0; }
     if (tip && this.pointer) {
+      this.tipAge += dt;
       const s = pack(tip);
       const x = Math.min(cw - s.width - 4, this.pointer.x + 18), y = Math.min(ch - 4, this.pointer.y + 18 + s.height);
-      render(tip, g, Math.max(4, x), Math.max(s.height + 4, y), this.hooks);
+      render(tip, g, Math.max(4, x), Math.max(s.height + 4, y), { ...this.hooks, view: (v, gg, vx, vy, vw, vh) => {
+        if (v.viewOwner !== "tooltip") { this.hooks.view?.(v, gg, vx, vy, vw, vh); return; }
+        // client/ui/Q: after 0.2 s the camera orbits, speeding up to 3pi/8 radians a second over a second
+        const base = (v.view.baseAzimuth ??= v.view.azimuth ?? 0), a = this.tipAge;
+        const turned = a <= 0.2 ? 0 : a <= 1.2 ? (3 * Math.PI / 8) * (a - 0.2) ** 2 / 2 : (3 * Math.PI / 8) * (0.5 + (a - 1.2));
+        v.view.azimuth = base + turned;
+        this.host.view?.(v, gg, vx, vy, vw, vh, { ref: v.view.models?.[0]?.model ?? null, idle: null });
+      } });
     }
   }
 
@@ -384,9 +402,12 @@ export async function buildTooltip(ctx: GuiContext, spec: TipSpec): Promise<Comp
   // our own lines (not the game's bonuses) leave out the bonus arrow
   lines.slice(0, plain).forEach(l => { const arrow = l?.children[0]?.children.at(-1); if (arrow && !arrow.tag) arrow.visible = false; });
   if (!c) return null;
-  // the tooltips' 3D item previews are drawn by the game's item renderer; not here
+  // the 3D item preview: the view shows the spec's model (drawn by the window's view hook)
   const view = c.find("renderview");
-  if (view) view.visible = false;
+  if (view) {
+    view.visible = !!spec.model;
+    if (spec.model) { view.view = { ...(view.view ?? {}), models: [{ ...(view.view?.models?.[0] ?? {}), model: spec.model }] }; view.viewOwner = "tooltip"; }
+  }
   for (const [tag, text] of Object.entries(spec.texts ?? {})) { const t = c.find(tag); if (t) t.text = text; }
   const pills = c.find("tooltip_pills");
   if (pills) {

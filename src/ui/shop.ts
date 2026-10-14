@@ -20,7 +20,7 @@ import { itemStats, pillDamage } from "../game/itemstats";
 import type { SaveData } from "../game/save";
 import { text } from "../i18n";
 import { messageText, restyle, type Component } from "./gui";
-import { itemTip, ItemList, type ListEntry, type ListGroup } from "./itemlist";
+import { itemPreview, itemTip, ItemList, type ListEntry, type ListGroup } from "./itemlist";
 import { buildUi, GuiScreen, row, uiRef, type ScreenHost, type ViewModel } from "./screen";
 
 export interface ShopHost extends ScreenHost {
@@ -230,7 +230,7 @@ export class ShopScreen extends GuiScreen {
     const it = this.eco!.info(name), cat = CATEGORIES.find(k => k.eco === it?.category);
     return itemTip({ label: itemLabel(name), type: cat?.label.replace(/s$/, "") ?? messageText(this.groupOf(name).key, "item"), rarity, flavor: "",
       item: name, kind: it?.category ?? "item", plain: !it?.heatable, level: it?.heatable ? 1 : undefined,
-      stats: itemStats(this.shop.data(), this.eco!, name, 1) });
+      stats: itemStats(this.shop.data(), this.eco!, name, 1), model: itemPreview(this.shop.data(), name, this.shop.save().color) });
   }
 
   protected async refresh() {

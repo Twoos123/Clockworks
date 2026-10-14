@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { CATEGORIES, type ItemEntry } from "../src/game/items.ts";
 import { resistBar } from "../src/game/itemstats.ts";
 import type { SaveData } from "../src/game/save.ts";
+import { previewModel } from "../src/ui/itemlist.ts";
 import { applyItemAction, COMPARE, compareTarget, equipAt, itemMenu, rankAllows, unequipAt } from "../src/ui/itemmenu.ts";
 
 const save = (): SaveData => ({
@@ -55,6 +56,14 @@ test("tooltips compare with the chosen item, else the first other worn of the gr
   applyItemAction(d, entry("Weapon/Sword/C", "sword"), "compare");
   assert.equal(compareTarget(d.loadout, entry("Weapon/Sword/A", "sword")), "Weapon/Sword/C");
   COMPARE.clear();
+});
+
+test("a tooltip's 3D preview wraps the coloured model in its kind's preview model", () => {
+  const m = previewModel({ $class: "x.ItemConfig$Armor", model: { name: "a.dat", arguments: { entries: [["Colorization", 1]] } } }, 300);
+  assert.equal(m.name, "item/preview/model_gear-armor.dat");
+  assert.deepEqual(m.arguments.entries[0][1].arguments.entries, [["Colorization", 300]]);
+  assert.equal(previewModel({ $class: "x.ItemConfig$Dungeon", model: { name: "v.dat" } }, 1), null, "vitapods hide the view");
+  assert.equal(previewModel({ $class: "x.ItemConfig$Trinket" }, 1), null);
 });
 
 test("status resist bars are value + 8, at most 82, weakness on the penalty side", () => {

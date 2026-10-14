@@ -32,6 +32,14 @@ export function rankAllows(save: SaveData, rarity: number): boolean {
   return m.rank > need[0] || (m.rank === need[0] && m.subrank >= need[1]);
 }
 
+/** m.rank_limit for a star rating ("Requires Rank 3-1 to equip"), or "" when it needs no rank. */
+export function rankLimitText(rarity: number): string {
+  const need = RANK_LIMIT[rarity];
+  if (!need) return "";
+  const t = message("item", "m.rank_limit", `${need[0]}-${need[1]}`);
+  return t.startsWith("m.") ? `Requires Rank ${need[0]}-${need[1]} to equip` : t;
+}
+
 /** The client's equipment slot numbers this port's loadout has. */
 export type SlotNo = 0 | 1 | 2 | 3 | 4 | 6 | 7 | 8 | 10 | 11 | 12 | 15;
 
@@ -137,8 +145,7 @@ export function itemMenu(save: SaveData, costume: { helmet: string; armor: strin
       }
     }
     if (!rankAllows(save, e.rarity) && !worn) {
-      const [r, s] = RANK_LIMIT[e.rarity];
-      out.push({ action: "rank_limit", text: message("item", "m.rank_limit", `${r}-${s}`) || `Requires Rank ${r}-${s} to equip`, enabled: false });
+      out.push({ action: "rank_limit", text: rankLimitText(e.rarity), enabled: false });
     }
   }
   // Original.a: Compare / Don't Compare for items whose group has slots

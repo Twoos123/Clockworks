@@ -22,7 +22,7 @@ import { itemStats, pillDamage } from "../game/itemstats";
 import type { SaveData } from "../game/save";
 import { message, text } from "../i18n";
 import type { Component } from "./gui";
-import { itemTip, ItemList, type ListGroup } from "./itemlist";
+import { itemPreview, itemTip, ItemList, type ListGroup } from "./itemlist";
 import { buildUi, GuiScreen, uiRef, type ScreenHost } from "./screen";
 
 export interface ForgeHost extends ScreenHost {
@@ -122,7 +122,8 @@ export class ForgeScreen extends GuiScreen {
           key: r.name, label: itemLabel(r.output), rarity: r.rarity, icon: this.iconOf(r.output),
           damage: pillDamage(data, eco, r.output),
           tip: itemTip({ label: itemLabel(r.output), type: cat.label.replace(/s$/, ""), rarity: r.rarity, item: r.output, kind: cat.eco,
-            flavor: "", level: eco.info(r.output)?.heatable ? 1 : undefined, noLevel: g.id === "trinket", stats: itemStats(data, eco, r.output, 1) }),
+            flavor: "", level: eco.info(r.output)?.heatable ? 1 : undefined, noLevel: g.id === "trinket", stats: itemStats(data, eco, r.output, 1),
+            model: itemPreview(data, r.output, save.color) }),
         })),
       };
     });
