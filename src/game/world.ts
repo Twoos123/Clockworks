@@ -2514,8 +2514,10 @@ export class World implements LogicHost {
       }
     }
     this.hitStatuses(m, amounts, dmg);
-    // a big enough hit interrupts the monster (minReactPercent of its health)
-    if (dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning" && m.health > dmg) {
+    // a big enough hit interrupts the monster (minReactPercent of its health) for reactTime;
+    // a monster whose reactTime is 0 never reacts (drones, Vanaduke, the Swarm's core,
+    // tortodrones in their shells: DungeonActorConfig Monster)
+    if (m.def.reactTime > 0 && dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning" && m.health > dmg) {
       m.attack = null;
       m.reacting = m.def.reactTime / 1000;
       if (m.def.react) this.play(m, m.def.react, { loop: false, blend: 0.05 });

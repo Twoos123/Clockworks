@@ -201,7 +201,7 @@
     model: refName(def.model), scale: def.scale, radius: def.radius, speed: def.targetedSpeed, turnRate: def.turnRate,
     idle: refName(def.idle), move: refName(def.move), activation: refName(def.activation), attacks: def.attacks.map(a => a.name),
     hitFx: refName(def.hitFx), deathFx: refName(def.deathFx), react: refName(def.react), dying: refName(def.dying), deathTime: def.deathTime,
-    minReact: def.minReactPercent,
+    minReact: def.minReactPercent, reactTime: def.reactTime,
   });
 
   window.__audit = {
@@ -361,7 +361,9 @@
         if (!dummy) return false;
         await step(1.5);
       }
-      dummy.def = { ...dummy.def, targetedSpeed: 0, speed: 0 };
+      // inert: no attacks, and a fresh (idle) behaviour built from them
+      dummy.def = { ...dummy.def, targetedSpeed: 0, speed: 0, attacks: [], slots: [] };
+      dummy.brain = null;
       dummy.cooldown = 1e9; dummy.attack = null; dummy.reacting = 0; dummy.statuses.length = 0;
       dummy.kx = dummy.ky = 0;
       dummy.state = "chase";

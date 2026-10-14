@@ -82,7 +82,9 @@ function judgeMonster(r: Rec) {
   if (!passive) {
     if (r.def.speed > 0 && !r.moved && !r.attacked) p.push("never moved toward the knight");
     if (!r.attacked) p.push("never attacked");
-    if (!r.reacted && (r.def.minReact ?? 0) <= 1) p.push("did not react to a big hit");
+    // DungeonActorConfig Monster: a reactTime of 0, or a minReactPercent of 1, never reacts
+    const reacts = (r.def.reactTime ?? 567) > 0 && (r.def.minReact ?? 0) < 1;
+    if (!r.reacted && reacts) p.push("did not react to a big hit");
   }
   if (r.mappings?.includes("reacting") && !r.def.react) p.push("model has a reacting animation that is not used");
   if (r.mappings?.includes("dying") && !r.def.dying) p.push("model has a dying animation that is not used");
