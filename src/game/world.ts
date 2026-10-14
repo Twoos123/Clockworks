@@ -2662,6 +2662,7 @@ export class World implements LogicHost {
     this.projectiles.push(proj);
     this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), p.fuse / 1000);
+    if (p.creationFx) void this.spawnEffect(p.creationFx, proj.matrix(), 2);
     // point blank: a target between the attacker and the muzzle is hit at once
     if (p.kind === "Bullet" && !p.trail) {
       for (let i = 1; i <= 4 && !proj.done; i++) {
@@ -2697,6 +2698,8 @@ export class World implements LogicHost {
     this.projectiles.push(proj);
     this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), loaded.def.fuse / 1000);
+    // the sprite's creation transient (a thrown shard's crystal slam and pulse)
+    if (loaded.def.creationFx) void this.spawnEffect(loaded.def.creationFx, proj.matrix(this.collision.groundZ(x, y)), 2);
   }
 
   /**
@@ -2816,7 +2819,9 @@ export class World implements LogicHost {
           else if (this.hitsWall(p)) { this.toWallFace(p, px, py); this.detonate(p, true); }
         }
         if (d.trail && !p.done) this.leaveBursts(p, d.trail);
-        if (!p.done && p.age * 1000 >= d.fuse) {
+        // a bullet that spawns where it ends (a shard flying out) goes off there
+        if (!p.done && p.age * 1000 >= d.fuse && d.spawns) this.detonate(p, true);
+        else if (!p.done && p.age * 1000 >= d.fuse) {
           p.done = true;
           // run out: the fizzle transient where the sprite is (the client's bullet sprite
           // plays it for a fizzled bullet, its destruction transient otherwise)
@@ -2857,6 +2862,10 @@ export class World implements LogicHost {
   private detonate(p: Projectile, bullet: boolean) {
     p.done = true;
     const d = p.def, r = d.regionRadius;
+    // what it throws as it goes off (a shard bomb's shards, a shard's crystal), on its side;
+    // several fan out evenly around its heading
+    const spawns = d.spawns ?? [];
+    spawns.forEach((ref, i) => void this.spawnProjectileAt(ref, p.x, p.y, p.heading + (i * 2 * Math.PI) / spawns.length, p.team, p.ctx));
     if (d.actions.length) {
       const at = new Entity(false, d.name);
       at.x = p.x; at.y = p.y; at.rotation = p.heading;

@@ -279,8 +279,38 @@ export interface ProjectileDef {
    * how many and how often.
    */
   trail?: { actor: any; count: number; interval: number };
-  /** Orbitals: played where it appears (a disk's whoosh, a core's shot sound). */
+  /**
+   * Played where it appears: a disk's whoosh, a core's shot sound, a bullet's or bomb's
+   * sprite creation transient (a shard's crystal slam and pulse).
+   */
   creationFx?: any;
+  /**
+   * Bullets and bombs it spawns as it goes off (DungeonActorConfig Bomb's timer, a bullet's
+   * detonation): a shard bomb's shards, a shard's embedded crystal. Several spawned at once
+   * fan out evenly around its heading (their spawn transforms are server data the export
+   * strips; the shards fly out all round).
+   */
+  spawns?: any[];
+}
+
+/**
+ * How long a thrown shard (Bomb/Parts/Shard/Shard Base (Timer)) sits before it strikes, in
+ * ms. Its Timer's delayed signal is server logic the export strips (an empty Delayed), so
+ * the shard's own ambient crystal (particle/explosion/shardbomb/ambient_shard.dat) sets the
+ * pace: it strikes within it.
+ */
+export const SHARD_SIGNAL_MS = 1000;
+/** A shard's strike radius: its DamageRegionFromPoint's region is stripped with the signal. */
+export const SHARD_RADIUS = 1;
+
+/** The bullet and bomb actors an action spawns (inside compounds, delays and conditions). */
+export function spawnedProjectiles(a: any, d = 0): any[] {
+  if (!a || typeof a !== "object" || d > 8) return [];
+  const k = kind(a);
+  const name = String(a.actor?.name ?? "");
+  // (a spawn whose class the export dropped keeps only its actor)
+  if ((!a.$class || /^Spawn/.test(k)) && /^(Bomb|Bullet)\//.test(name)) return [a.actor];
+  return [...(a.actions ?? []), a.action, a.elseAction, a.defaultAction].flatMap(x => spawnedProjectiles(x, d + 1));
 }
 
 /**
@@ -587,16 +617,32 @@ export class GameData {
     // whatever else it does (a lichen bomb spawns its colony, a marker activates monsters)
     const flat = (a: any, d = 0): any[] => !a || d > 6 ? [] : kind(a) === "Compound" ? (a.actions ?? []).flatMap((x: any) => flat(x, d + 1)) : [a];
     // a bomb without a detonation action goes off through its Timer handler (the shard bombs'
-    // blast); the shards that handler spawns are left out (they would spawn on the monsters' side)
-    const timer = !p.detonationAction && k === "Bomb" ? (p.handlers ?? []).find((h: any) => kind(h) === "Timer")?.action : null;
-    const acts = flat(p.detonationAction ?? timer).filter(a => !(timer && /^(Delayed|Spawn)/.test(kind(a))));
+    // blast), or, when its timer does nothing the export kept, its Signal handler (a thrown
+    // shard: Bomb/Parts/Shard/Shard Base (Timer) strikes when signalled)
+    const handler = (name: string) => (p.handlers ?? []).find((h: any) => kind(h) === name)?.action;
+    let timer = !p.detonationAction && k === "Bomb" ? handler("Timer") : null;
+    const signalled = !!timer && !flat(timer).some(a => /^DamageRegion|FireEffect/.test(kind(a))) && !!handler("Signal");
+    if (signalled) timer = handler("Signal");
+    // the bullets and bombs it spawns as it goes off (a shard bomb's six shards, each shard's
+    // embedded crystal), flown on the side of what spawned them rather than through the logic
+    // (which would spawn them on the monsters' side)
+    const spawns = spawnedProjectiles(p.detonationAction ?? timer);
+    const acts = flat(p.detonationAction ?? timer)
+      .filter(a => !(timer && /^(Delayed|Spawn)/.test(kind(a))) && !spawnedProjectiles(a).length);
     const det = acts.find(a => /^DamageRegion/.test(kind(a))) ?? null;
     const trail = k === "Bullet" && !p.detonationAction ? burstTrail(p, full!.ref, full!.base) : null;
     const region = det?.region?.shape;
+    // a bullet that only spawns where it ends (Bomb/Parts/Shard/Shard Distance Check) flies its
+    // "Max Distance" choice, which sets its speed to ten times the distance: a tenth of a second
+    const reach = k === "Bullet" && spawns.length && !det ? 100 : null;
+    // a signalled shard's signal is server logic the export strips: it strikes a moment after it lands
+    const fuse = signalled ? SHARD_SIGNAL_MS : reach ?? p.fuse ?? (k === "Bomb" ? 2000 : 1100);
     return {
       name: ref?.name ?? "", kind: k, model: p.sprite?.model ?? p.model ?? null,
       // Bullet: Mobile speed 6, fuse 1100, no offset or height; Bomb: fuse 2000
-      speed: p.speed ?? (k === "Bullet" ? 6 : 0), fuse: p.fuse ?? (k === "Bomb" ? 2000 : 1100),
+      speed: p.speed ?? (k === "Bullet" ? 6 : 0), fuse,
+      spawns: spawns.length ? spawns : undefined,
+      creationFx: p.sprite?.creationTransient ?? undefined,
       radius: p.shape?.radius ?? 0.2,
       offset: [p.offset?.x ?? 0, p.offset?.y ?? 0], height: p.height ?? 0,
       collisionMask: p.collisionMask ?? 1,
@@ -604,7 +650,8 @@ export class GameData {
       harmless: (!!p.detonationAction || !!timer || !!trail) && !det,
       trail: trail ?? undefined,
       actions: acts.filter(a => a !== det && a?.$class),
-      regionRadius: region?.radius ?? (k === "Bomb" ? 2 : 0.5),
+      // (a shard's region is stripped with its signal: about the crystal's own reach)
+      regionRadius: region?.radius ?? (signalled ? SHARD_RADIUS : k === "Bomb" ? 2 : 0.5),
       knockback: readKnock(det?.impulseDealt),
       // the sprite's own transients, whole (model/scripted/transient_sound.dat: the particles
       // turned and scaled by its Transform, and the hit sound), played at the sprite's transform

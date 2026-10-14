@@ -36,7 +36,13 @@ for (const name of [...items.keys()].sort()) {
       if (!seen.includes(k)) seen.push(k);
       if (p.kind === "Agent") {
         for (const c of p.children) if (!(await data.projectile(c).catch(() => null))) problems.push(`${label}: satellite ${c.name} does not load`);
-      } else if (p.harmless && !p.actions.length && !p.trail) problems.push(`${label}: ${p.name} deals no damage`);
+      } else if (p.harmless && !p.actions.length && !p.trail && !p.spawns) problems.push(`${label}: ${p.name} deals no damage`);
+      // what it throws as it goes off (a shard bomb's shards, a Tortafist's missile) must fly too
+      for (const s of p.spawns ?? []) {
+        const c = await data.projectile(s).catch(() => null);
+        if (!c) problems.push(`${label}: ${p.name}'s spawn ${s.name} does not load`);
+        else if (c.kind === "Orbital" || c.kind === "Agent") problems.push(`${label}: ${p.name}'s spawn ${s.name} is an orbital (not flown from a detonation)`);
+      }
     }
     if (!does) problems.push(`${label}: fires nothing`);
   };

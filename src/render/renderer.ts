@@ -379,7 +379,9 @@ export class ModelInstance {
    * A second clip layered over the first on a subset of nodes (the upper body), so a knight
    * can swing a sword while its legs run. Its time is advanced by the owner.
    */
-  overlay: { clip: AnimationClip; time: number; speed: number; mask: Set<string>; blendIn: number } | null = null;
+  overlay: { clip: AnimationClip; time: number; speed: number; mask: Set<string>; blendIn: number;
+    /** The pose the overlay it replaced had reached on its nodes, which this one blends in from. */
+    from?: { pose: Map<string, Transform>; mask: Set<string> } | null } | null = null;
   /**
    * Frame actions (AnimationConfig.FrameAction) the clips have passed since the owner last
    * drained this list; the owner executes them (sounds, swing trails).
@@ -410,7 +412,12 @@ export class ModelInstance {
   /** Plays a clip on the masked nodes only, over whatever the base clip does. */
   playOverlay(clip: AnimationClip, mask: Set<string>, opts: { loop?: boolean; speed?: number; blendIn?: number } = {}) {
     if (this.overlay && this.overlay.clip.path === clip.path && (opts.loop ?? false) && this.overlay.clip.loop) return;
-    this.overlay = { clip: { ...clip, loop: opts.loop ?? false }, time: 0, speed: opts.speed ?? 1, mask, blendIn: opts.blendIn ?? 0.08 };
+    // a clip following another on the same nodes (a gun's start then fire, shot after shot)
+    // blends from where the last one left them, not from the clip beneath: the arm stays
+    // raised, rather than dropping to the base pose and rising again with each shot
+    const o = this.overlay;
+    const from = o ? { pose: sampleClip(o.clip, o.time * o.speed), mask: o.mask } : null;
+    this.overlay = { clip: { ...clip, loop: opts.loop ?? false }, time: 0, speed: opts.speed ?? 1, mask, blendIn: opts.blendIn ?? 0.08, from };
   }
 
   get overlayFinished(): boolean {
@@ -517,7 +524,7 @@ export class ModelInstance {
       for (const name of o.mask) {
         const b = layer.get(name);
         if (!b) continue;
-        const a = pose.get(name) ?? this.bindLocal.get(name);
+        const a = (w < 1 && o.from?.mask.has(name) ? o.from.pose.get(name) : undefined) ?? pose.get(name) ?? this.bindLocal.get(name);
         pose.set(name, w >= 1 || !a || a.matrix || b.matrix ? b
           : { t: lerp3(a.t, b.t, w), r: slerp(a.r, b.r, w), s: a.s + (b.s - a.s) * w });
       }
