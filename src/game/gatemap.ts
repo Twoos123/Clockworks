@@ -540,3 +540,38 @@ export function displayOrder(w: Wheel, t: number): number[] {
   const shift = top + Math.floor(n / 2) + 1;
   return Array.from({ length: n }, (_, k) => (k + shift) % n);
 }
+
+// ---------------------------------------------------------------------------- elevator screens
+
+/** A randomised next depth on an elevator's screen: the "?" icon, greyed (the client's ElevatorProp sprite's own colours). */
+export const ELEVATOR_UNKNOWN = { file: "ui/icon/map/unknown.png", colorizations: [custom(GLYPH, 0, -1, -0.9), custom(FIELD, 0, -1, -0.35)] };
+
+const mapIcon = (l: RealLevel) => ({ file: `ui/icon/map/${l.icon}.png`, colorizations: l.colorizations });
+
+/**
+ * What an exit elevator's screen shows, as the client's ElevatorProp sprite sets its model's
+ * "Icon" and "Colorizations" every tick (dungeon/client/a/t): the level it leads to, the next
+ * depth's wedge under this depth's as the two wheels turn (so it changes while the floor is
+ * played); "?" for a randomised depth; the run's town (Haven) after the last floor, or from an
+ * elevator that ends the run (dissolveParty). `next` is the run's next floor, for gates without
+ * wheels (generated gates, missions); null when the run ends there.
+ */
+export function elevatorScreen(o: { real: RealGate | null; depth: number; wedge: number; next: Floor | null; dissolve: boolean; t: number }):
+  { file: string; colorizations: any[] } {
+  if (o.dissolve) return mapIcon(fixedLevel(-1));
+  const b = o.real && o.depth < 29 ? o.real.wheels[o.depth + 1] : undefined;
+  if (o.real && b) {
+    if (b.random) return ELEVATOR_UNKNOWN;
+    const n = nextLevel(o.real, o.depth, o.wedge, o.t);
+    return mapIcon(b.options[n?.wedge ?? 0] ?? b.options[0]);
+  }
+  return mapIcon(o.next ? floorMapLevel(o.next) : fixedLevel(-1));
+}
+
+/** An elevator model reference with its screen's "Icon" and "Colorizations" arguments set. */
+export function withScreen(ref: any, screen: { file: string; colorizations: any[] }): any {
+  const entries: [unknown, unknown][] = ((ref?.arguments?.entries ?? []) as [unknown, unknown][])
+    .filter(([k]) => k !== "Icon" && k !== "Colorizations");
+  entries.push(["Colorizations", screen.colorizations], ["Icon", screen.file]);
+  return { ...ref, arguments: { ...(ref?.arguments ?? { $map: "com.threerings.config.ArgumentMap" }), entries } };
+}
