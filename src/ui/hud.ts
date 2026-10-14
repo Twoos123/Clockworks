@@ -113,6 +113,12 @@ export interface AcquireEntry { icon: string; colorizations: unknown[]; count: n
 
 const ACQUIRE = "ui/scripted/dynamic/item_acquire.dat";
 
+/** Where the corner menus' open or folded state is kept. */
+const MENU_PREF = "clyde-web.menu_panels_out";
+/** Clyde's Easing CubicIn and CubicOutOvershoot (overshoot 1.70158, about 10 percent). */
+const cubicIn = (t: number) => t * t * t;
+const cubicOutOvershoot = (t: number) => { const o = 1.70158; t -= 1; return t * t * ((o + 1) * t + o) + 1; };
+
 export function hudState(world: World, name: string, floor = ""): HudState {
   const k = world.knight;
   return {
@@ -354,6 +360,10 @@ export class GameHud {
     if (o) { const t = o.find("label_title"); if (t) t.text = text("projectx", "m.current_objective", "Current Objective"); }
     if (c) { const v = findKind(c, "view"); if (v) v.viewOwner = "cooldown"; }
     this.menuLeft = l; this.menuRight = r; this.activities = a; this.objective = o; this.cooldown = c;
+    // the corner menus open or folded as the player left them (the client's menu_panels_out)
+    let out: string | null = null;
+    try { out = localStorage.getItem(MENU_PREF); } catch { /* storage unavailable */ }
+    if (out !== null) for (const m of [l, r]) if (m) { this.manual.add(m); this.fold(m, out === "0", false); }
     // load the target panel's images and fonts now, so the first monster struck shows at once
     void buildInterface(this.ctx, ref(TARGET, { Name: "", "Dungeon UI": true, Model: null, Rank: "", Background: "Full" }));
   }
@@ -398,11 +408,43 @@ export class GameHud {
     if (this.targetKey === t.key) { this.target = ui; this.target.setAlpha(1); this.targetFade = 0; }
   }
 
-  /** Folds or unfolds a panel (its handle was clicked): the middle hides, the handle stays. */
-  private fold(ui: Component, folded: boolean) {
+  /** Panels sliding to or from their folded place: the x offset now, and the slide in progress. */
+  private offsets = new Map<Component, number>();
+  private slides = new Map<Component, { from: number; to: number; t: number; ease: (t: number) => number }>();
+
+  /**
+   * Folds or unfolds a panel (client hud/M): the whole panel slides toward its screen edge over
+   * 0.2 s until only its handle shows, easing in (CubicIn) as it folds and overshooting
+   * (CubicOutOvershoot) as it opens. The corner menus fold together, and their state is kept.
+   */
+  private fold(ui: Component, folded: boolean, animate = true) {
     this.folded.set(ui, folded);
-    for (const tag of ["middle", "left"]) { const m = ui.find(tag); if (m) m.visible = !folded; }
+    // how far it slides: the panel's width less its handle's (measured with the parts hidden)
+    const parts = ["middle", "left"].map(t => ui.find(t)).filter((c): c is Component => !!c);
+    for (const c of parts) c.visible = true;
+    const full = pack(ui).width;
+    for (const c of parts) c.visible = false;
+    const handleOnly = pack(ui).width;
+    for (const c of parts) c.visible = true;
+    pack(ui);
+    const sign = ui === this.menuLeft ? -1 : 1;
+    const to = folded ? sign * Math.max(0, full - handleOnly) : 0;
+    const from = this.offsets.get(ui) ?? 0;
+    if (!animate) { this.offsets.set(ui, to); this.slides.delete(ui); return; }
+    this.slides.set(ui, { from, to, t: 0, ease: folded ? cubicIn : cubicOutOvershoot });
   }
+
+  /** Advances the panels' slides. */
+  private updateSlides(dt: number) {
+    for (const [ui, sl] of this.slides) {
+      sl.t = Math.min(1, sl.t + dt / 0.2);
+      this.offsets.set(ui, Math.round(sl.from + (sl.to - sl.from) * sl.ease(sl.t)));
+      if (sl.t >= 1) this.slides.delete(ui);
+    }
+  }
+
+  /** The panel's x offset while it slides or sits folded. */
+  private dx(ui: Component) { return this.offsets.get(ui) ?? 0; }
 
   private panels() { return [this.menuLeft, this.menuRight, this.activities, this.objective].filter((x): x is Component => !!x); }
 
@@ -423,7 +465,13 @@ export class GameHud {
       this.hovered = hit;
     }
     if (!click || !hit || !owner) return null;
-    if (hit.tag === "handle") { this.manual.add(owner); this.fold(owner, !this.folded.get(owner)); return "handle"; }
+    if (hit.tag === "handle") {
+      const folded = !this.folded.get(owner);
+      const menus = owner === this.menuLeft || owner === this.menuRight ? [this.menuLeft, this.menuRight] : [owner];
+      for (const m of menus) if (m) { this.manual.add(m); this.fold(m, folded); }
+      if (menus.length > 1) try { localStorage.setItem(MENU_PREF, folded ? "0" : "1"); } catch { /* storage unavailable */ }
+      return "handle";
+    }
     // a menu item's tag sits on its interface host; the clickable part is the inner button
     if (hit.tag === "button") return findHost(owner, hit)?.tag ?? null;
     return hit.tag || null;
@@ -496,6 +544,7 @@ export class GameHud {
 
   update(state: HudState, dt: number) {
     this.dungeon = state.dungeon;
+    this.updateSlides(dt);
     this.updateAcquire(dt);
     this.bindSprite(state.sprite);
     if (this.built !== statusKey(state)) void this.rebuildStatus(state);
@@ -737,21 +786,21 @@ export class GameHud {
     // corner menus fold to their handles when the window is too narrow for them beside the
     // quickbar (unless the player has opened or folded them by hand)
     if (this.menuLeft && this.menuRight) {
-      const qw = qb?.width ?? 0, wide = (m: Component) => { const was = this.folded.get(m); this.fold(m, false); const w = pack(m).width; this.fold(m, !!was); return w; };
+      const qw = qb?.width ?? 0, wide = (m: Component) => pack(m).width;
       const needed = qw + 2 * Math.max(wide(this.menuLeft), wide(this.menuRight)) + 16;
       const auto = cw < needed;
       for (const m of [this.menuLeft, this.menuRight]) if (!this.manual.has(m) && !!this.folded.get(m) !== auto) this.fold(m, auto);
     }
     // corner menus: the left one in the lower-left corner, the right one in the lower-right
-    if (this.menuLeft) { pack(this.menuLeft); render(this.menuLeft, g, 0, ch, this.hooks); }
-    if (this.menuRight) { const s = pack(this.menuRight); render(this.menuRight, g, cw - s.width, ch, this.hooks); }
+    if (this.menuLeft) { pack(this.menuLeft); render(this.menuLeft, g, this.dx(this.menuLeft), ch, this.hooks); }
+    if (this.menuRight) { const s = pack(this.menuRight); render(this.menuRight, g, cw - s.width + this.dx(this.menuRight), ch, this.hooks); }
     // the objective panel hangs 166 pixels down the right edge, the activities 6 pixels under it
     let y = 166;
     for (const ui of [this.objective, this.activities]) {
       if (!ui?.visible) continue;
       const s = pack(ui);
       y += s.height;
-      render(ui, g, cw - s.width, y, this.hooks);
+      render(ui, g, cw - s.width + this.dx(ui), y, this.hooks);
       y += 6;
     }
     // item-acquire icons: beside their quickbar slot, or in from the lower-right corner
