@@ -288,6 +288,10 @@ export class World implements LogicHost {
   onPortal: ((tags: string[], sceneId: number, portal: string, more: { area: string; townName?: string; sceneInternalId?: string }) => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
+  /** The elevator the level was left by (a terminal's Shadow Lair elevator, or its exit). */
+  exitElevator: Prop | null = null;
+  /** Whether an elevator the knight stands on may run (a terminal's Shadow Lair elevators only lead somewhere from depth 23). */
+  elevatorAllowed: ((p: Prop) => boolean) | null = null;
   /**
    * What the knight has collected on this floor: crowns, heat, materials and minerals, and
    * gear found (with the unique variants it rolled).
@@ -678,7 +682,7 @@ export class World implements LogicHost {
       // beams are traced by the prism system (objects.ts), not run as actors
       return null;
     } else {
-      this.createProp(e, cfg);
+      this.createProp(e, cfg, ref);
     }
     return e;
   }
@@ -919,6 +923,7 @@ export class World implements LogicHost {
       return;
     }
     this.finished = true;
+    this.exitElevator = elevator ?? null;
     const model = elevator ? elevator.instance ?? this.rideModel?.(elevator.x, elevator.y) ?? null : null;
     if (elevator && model) this.startRide(elevator, model);
     else this.onNextFloor?.();
@@ -980,9 +985,10 @@ export class World implements LogicHost {
 
   // ---------------------------------------------------------------- props
 
-  private createProp(e: Entity, cfg: any) {
+  private createProp(e: Entity, cfg: any, ref?: any) {
     const kind = propKind(cfg);
     const p = new Prop(kind, e, cfg);
+    p.args = Object.fromEntries((ref?.arguments?.entries ?? []) as [string, unknown][]);
     e.game = p;
     p.z = this.collision.groundZ(e.x, e.y);
     if (kind === "door") p.open = !!cfg.open;
@@ -1315,7 +1321,7 @@ export class World implements LogicHost {
         case "elevator":
           if (!k.dead && touching(p)) {
             p.standTime += dt;
-            if (p.standTime > 1.5 && !this.finished) this.finishLevel(p);
+            if (p.standTime > 1.5 && !this.finished && (this.elevatorAllowed?.(p) ?? true)) this.finishLevel(p);
           } else p.standTime = 0;
           break;
       }

@@ -84,17 +84,30 @@ test("a dungeon mission's setting comes from its card image", () => {
   assert.deepEqual([rankFloors(1), rankFloors(5), rankFloors(10)], [2, 3, 4]);
 });
 
-test("a dungeon mission runs as floors at its depth, ending in its boss", () => {
+test("a dungeon mission runs its own floors in order, at the wiki's depths, ending in its boss", () => {
   const ms = parseMissions(library, props);
   const slime = ms.find(m => m.id === "sovereign_slime")!;
   const { gate, floors } = missionRun(slime);
   const list = floors.filter(Boolean);
   assert.equal(gate.id, "mission:sovereign_slime");
   assert.equal(list.length, slime.setting!.floors);
+  assert.deepEqual(list.map(f => f.depth), [14, 15, 16]);
+  assert.deepEqual(list.map(f => f.mission!.keys[0]), ["royal_jelly_garden", "royal_jelly_court", "royal_jelly_lair"]);
+  assert.deepEqual(list.map(f => f.kind), ["level", "level", "boss"]);
+  assert.equal(list[list.length - 1].stratum!.boss, "jelly");
+  assert.deepEqual(list.map(f => f.tier), [2, 2, 2]);
+  for (const f of list) assert.equal(floors[f.depth], f);
+  // the Rescue Camp's mission starts in its own party lobby
+  assert.equal(missionRun(ms.find(m => m.id === "abandoned_depot")!).gate.lobby, "training_lobby");
+});
+
+test("a mission without a floor list plays generated floors at its rank's depth", () => {
+  const m = parseMissions([rankMission("Rank/02/2.1/Unlisted", "unlisted", 2, 1, { cardImage: "ui/mission/images/cards/images/royaljelly_castle.png" })], props)[0];
+  const list = missionRun(m).floors.filter(Boolean);
+  assert.equal(list.length, m.setting!.floors);
   assert.equal(list[0].depth, rankDepth(2));
   assert.equal(list[list.length - 1].kind, "boss");
-  assert.equal(list[list.length - 1].stratum!.boss, "jelly");
-  for (const f of list) assert.equal(floors[f.depth], f);
+  assert.ok(list.every(f => !f.mission));
 });
 
 test("rank progression: a subrank's missions complete, the knight ranks up; prerequisites gate missions", () => {
@@ -179,7 +192,7 @@ test("the install's missions parse (skipped without the install)", { skip: !exis
   const rank = ms.filter(m => m.cls === "Rank");
   assert.ok(rank.length >= 95, `${rank.length} rank missions`);
   assert.ok(ms.filter(m => m.cls === "Prestige").length >= 130);
-  for (const m of ms) if (m.kind === "dungeon") assert.ok(m.setting && m.setting.floors >= 2 && m.setting.depth >= 1 && m.setting.depth <= 28, m.id);
+  for (const m of ms) if (m.kind === "dungeon") assert.ok(m.setting && m.setting.floors >= 1 && m.setting.depth >= 1 && m.setting.depth + m.setting.floors <= 30, m.id);
   assert.equal(ms.find(m => m.id === "king_of_ashes")!.setting!.boss, "vanaduke");
   assert.equal(ms.find(m => m.id === "first_contact")!.kind, "conversation");
   // every rank mission can be reached: completing them in rank order walks the knight to rank 10

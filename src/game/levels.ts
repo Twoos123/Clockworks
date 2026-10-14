@@ -318,12 +318,12 @@ mission("9-2", "The Gauntlet", [["Shock and Awe", "devilish_drudgery_shock_the_g
 mission("10-1", "Breaking in the Recruits", [["Operation Greenhorn", "breakingin_recruits"], ["The Underworks", "ct_construct_breakingin_recruits"],
   ["The Overworks", "breakingin_recruits_finale"]]);
 mission("10-1", "Crimson Chaos", [["Frost Chamber", "cc_construct_crimson_chaos"], ["The Frozen Compound", "compound_freeze_crimson_chaos"], ["Complex 357", "crimson_chaos_compound"]]);
-mission("10-1", "It Came From Below", [["Haunted Halls", "candlestick_keep_shock_from_below"], ["Into the Maw", "cc_fiend_frombelow"],
-  ["The Path is Revealed", "terminal_core_camefrombelow"]], "regular", "the wiki also lists A Descent into Darkness, the Unknown Passage's subtitle");
+mission("10-1", "It Came From Below", [["Haunted Halls", "candlestick_keep_shock_from_below"], ["Into the Maw", "cc_fiend_frombelow"]], "regular",
+  "its last floor, A Descent into Darkness, is the Shadow Lairs' Unknown Passage (counted there)");
 mission("10-2", "Shadowplay", [["Greenstone Bridge", "firestorm_citadel_greenstone_bridge"], ["Overgrown Court", "firestorm_citadel_overgrown_court"],
   ["Throne Room", "firestorm_citadel_throne_room"]], "regular", "the overgrown Firestorm Citadel");
-mission("10-2", "Dreams and Nightmares", [["A Step Beyond", "core_1"], ["Descent into Darkness", "core_dreamsandnightmares_finale"], ["Refuge", "core_treasure_vault"]],
-  "regular", "the way into the Core");
+mission("10-2", "Dreams and Nightmares", [["The Path is Revealed", "terminal_core_camefrombelow"], ["A Step Beyond", "core_1"],
+  ["Descent into Darkness", "core_dreamsandnightmares_finale"], ["Refuge", "core_treasure_vault"]], "regular", "the way into the Core (A Step Beyond twice)");
 add("missions", "The Core", "Stormchasing", 'A Core level in the game\'s text (keyed like It Came From Below\'s The Path is Revealed), not on the wiki', keys("teminal_core_camefrombelow"), "unknown");
 
 // the Hall of Heroes: the hall itself (star 0) is under towns; one level per star
