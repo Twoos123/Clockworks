@@ -104,8 +104,12 @@ export function prefabLabels(root: any): { text: string; x: number; y: number; z
   });
 }
 
-/** Widest cross-section a corridor may have, in cells. */
-const MAX_CORRIDOR = 6;
+/**
+ * Widest cross-section a corridor may have, in cells: the widest opening the floor's names
+ * give and two more (Devilish Drudgery's "5w" openings are seven cells between their posts).
+ */
+const corridorWidth = (labels: { text: string }[]) =>
+  Math.max(6, ...labels.flatMap(l => [...l.text.matchAll(/(\d+)w/g)].map(m => Number(m[1]) + 2)).filter(w => w <= 9));
 
 interface Node { id: number; cells: string[]; corridor: "EW" | "NS" | null; numbers: Map<string, number> }
 
@@ -144,6 +148,7 @@ export function segment(root: any, facts: (ref: any) => TileFacts): Segmentation
     return s[0] === r[0] && s[1] === r[1];
   };
   const kind = new Map<string, "EW" | "NS" | null>();
+  const MAX_CORRIDOR = corridorWidth(labels);
   for (const k of walk) {
     const [x, y] = P(k);
     // an east-west corridor: a short north-south cross-section, the same a cell either way

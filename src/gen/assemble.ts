@@ -76,7 +76,8 @@ function toLib(source: string, p: Piece): LibPiece | null {
       same.width = hi - lo;
     } else openings.push({ side: c.side, x: c.x, y: c.y, width: c.width });
   }
-  if (openings.some(o => o.width < 3 || o.width > 7)) return null;
+  const widest = Math.max(5, ...[...p.label.matchAll(/(\d+)w/g)].map(m => Number(m[1])).filter(w => w < 10));
+  if (openings.some(o => o.width < 3 || o.width > widest + 2)) return null;
   const sides = new Set(openings.map(o => o.side));
   if (named && (named.length !== sides.size || named.some(s => !sides.has(s)))) return null;
   // one opening a side (the names give one)
@@ -207,7 +208,10 @@ function tryPath(plan: PieceKind[], pool: Record<PieceKind, LibPiece[]>, shuffle
   // the joint between two placed pieces must be floor against floor along the whole opening
   const attach = (ai: number, o: Opening, kind: PieceKind): boolean => {
     const a = placed[ai];
-    for (const piece of shuffle(pool[kind].filter(p => !used.has(p)))) {
+    // a prefab once a floor where the library allows (captures can hold the same room twice)
+    const free = pool[kind].filter(p => !used.has(p));
+    const fresh = free.filter(p => ![...used].some(u => u.label === p.label));
+    for (const piece of [...shuffle(fresh), ...shuffle(free.filter(p => !fresh.includes(p)))]) {
       for (const b of shuffle(piece.openings.filter(x => x.side === OPPOSITE[o.side] && x.width === o.width))) {
         const [dx, dy] = offset(a, o, piece, b);
         if (!fits(piece, dx, dy, ai, b)) continue;
