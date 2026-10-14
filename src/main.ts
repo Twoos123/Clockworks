@@ -7,7 +7,7 @@ import { loadEnvironment, readCamera, VIEWER_ENVIRONMENT, type CameraView, type 
 import { multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { GuiContext, messageText } from "./ui/gui";
+import { GuiContext, messageText, type MenuEntry } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -25,7 +25,9 @@ import { PrologueScreen } from "./ui/prologue";
 import { dressArgs, emptyAppearance, resolveDressing } from "./game/accessories";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
-import { ElevatorScreen, type HeatReport, type HeatRow } from "./ui/elevator";
+import { ElevatorScreen, type HeatReport, type HeatRow, type PrizeWheel } from "./ui/elevator";
+import { ChatLog, shouldReportLoot } from "./game/lootlog";
+import { buildReel, floorHasWheel, type Prize } from "./game/prizewheel";
 import { GateBoard } from "./ui/gates";
 import { GateSource } from "./game/gatesource";
 import { lockNext } from "./game/gatemap";
@@ -36,7 +38,7 @@ import { MusicPlayer } from "./game/musicplayer";
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, commandKeys, gameKeyName, keyName, loadSettings, saveSettings, uiScale, type Action, type Settings } from "./ui/settings";
 import { hasMessage, loadMessages, message, messages, text } from "./i18n";
-import { itemName, levelText } from "./game/text";
+import { itemName, itemType, levelText } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
@@ -64,7 +66,8 @@ import { FEED_BOSS, logFeed } from "./game/feed";
 import { TooSmallWarning } from "./ui/toosmall";
 import { itemTip } from "./ui/itemlist";
 import { cachedHallId, CREATE_KNIGHT, GUILD_HALL, READY_ROOM } from "./game/places";
-import { HelpScreen } from "./ui/help";
+import { HelpScreen, type HelpTab } from "./ui/help";
+import { SocialScreen } from "./ui/social";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
@@ -378,6 +381,7 @@ class Viewer {
       if (this.conversation?.isOpen) { if (this.conversation.key(e)) e.preventDefault(); return; }
       // Esc opens the options menu (and closes whatever window is open)
       if (e.key === "Escape") {
+        if (this.gameHud?.menuOpen) { this.gameHud.closeMenu(); return; }
         if (this.itemScreens?.escape()) return;
         if (this.missionBoard?.escape()) return;
         if (this.escapeWindow()) return;
@@ -385,19 +389,21 @@ class Viewer {
         else { this.paused = true; void this.openOptions(); }
         return;
       }
-      if (this.options?.isOpen) return;
       const key = e.key.toLowerCase(), b = (a: Action) => key === this.bound(a);
+      // a command's function key or Tab is the game's, not the browser's (F5 reloading, Tab moving focus)
+      const browserKey = /^f\d+$/.test(key) || key === "tab";
+      if (browserKey && (Object.keys(ACTIONS) as Action[]).some(b)) e.preventDefault();
+      if (this.options?.isOpen) return;
       // on a stage (the Ready Room) only the HUD's commands answer: there is no knight to steer
       if (this.staged) {
         // knight creation answers only its own window: no arsenal, no menus
         if (this.places.create.isOpen) return;
-        if (!e.repeat) for (const [a, run] of Object.entries(this.commands()) as [Action, () => void][]) {
-          if (b(a)) { if (/^f\d+$/.test(key)) e.preventDefault(); run(); }
-        }
+        if (!e.repeat) for (const [a, run] of Object.entries(this.commands()) as [Action, () => void][]) if (b(a)) run();
         return;
       }
       (["weapon1", "weapon2", "weapon3"] as const).forEach((a, i) => { if (b(a)) this.weaponSlot = i; });
-      if (b("cycle") && !e.repeat) { e.preventDefault(); const n = Math.max(1, this.world.knight.weapons.length); this.weaponSlot = (this.world.knight.slot + 1) % n; }
+      if (b("cycle") && !e.repeat) { e.preventDefault(); this.switchWeapon(1); }
+      if (b("prevWeapon") && !e.repeat) { e.preventDefault(); this.switchWeapon(-1); }
       // pocket items
       (["item1", "item2", "item3", "item4"] as const).forEach((a, i) => {
         if (b(a) && !e.repeat && !this.paused) this.usePocket(i);
@@ -411,9 +417,7 @@ class Viewer {
         if (key === "x") { if (e.shiftKey) this.dashPressed = true; else this.shieldHeld = true; }
       }
       // the client's toggle commands (as.a(dt) binds them to the same actions as the HUD's buttons)
-      if (!e.repeat) for (const [a, run] of Object.entries(this.commands()) as [Action, () => void][]) {
-        if (b(a)) { if (/^f\d+$/.test(key)) e.preventDefault(); run(); }
-      }
+      if (!e.repeat) for (const [a, run] of Object.entries(this.commands()) as [Action, () => void][]) if (b(a)) run();
       // Shift while the shield is up also dashes (right click, then Shift)
       if (e.key === "Shift" && !e.repeat && this.shieldHeld) this.dashPressed = true;
       this.keys.add(e.key.toLowerCase());
@@ -947,6 +951,7 @@ class Viewer {
     const theme = this.gate ? this.floors[this.run.depth]?.stratum?.theme : null;
     world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
     world.pocket = this.save.pocket;
+    world.onLoot = (item, count) => this.lootMessage(item, count);
     await this.outfit.dress(world);
     // the party lobby's gate pillar shows the gate being played: its six strata's themes, launched
     if (this.gateLobby && this.gate) world.gateDisplay = { themes: this.gate.real?.themes ?? this.gate.strata.map(st => st.theme), active: true };
@@ -968,6 +973,7 @@ class Viewer {
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
+    this.hud.chat = this.chat;
     this.hud.image = f => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f);
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
@@ -1222,6 +1228,26 @@ class Viewer {
     });
   }
 
+  /** The next (+1) or previous (-1) weapon (NEXT_WEAPON, PREV_WEAPON), applied on the next update. */
+  private switchWeapon(step: 1 | -1) {
+    const k = this.world?.knight;
+    if (!k) return;
+    const n = Math.max(1, k.weapons.length);
+    this.weaponSlot = (k.slot + step + n) % n;
+  }
+
+  /** When the wheel last changed weapons: a touchpad's flick sends many small turns, taken as one. */
+  private wheelAt = 0;
+
+  /** A turn of the mouse wheel over the game: down the next weapon, up the previous. */
+  private wheelWeapon(deltaY: number) {
+    if (!deltaY || this.paused || this.options?.isOpen) return;
+    const now = performance.now();
+    if (now - this.wheelAt < 150) return;
+    this.wheelAt = now;
+    this.switchWeapon(deltaY > 0 ? 1 : -1);
+  }
+
   /** Opens or closes the character window (equipment); the world pauses while it is open. */
   private async toggleArsenal() {
     await this.ensureScreens().toggleArsenal();
@@ -1271,8 +1297,65 @@ class Viewer {
       // as.DI: the character window on its equipment
       if (a === "equipment") void this.ensureScreens().showCharacter("equipment");
       else if (a === "guild_hall") this.hudAction("button_guildhall");
-      else if (a === "show_treasury") this.hudAction("button_social");
+      else if (a === "show_treasury") this.hudAction("guild_window");
     });
+  }
+
+  /** The personal menu's guild options (cr.aJ), for the social window's Guild Options header. */
+  private guildOptions(): { entries: MenuEntry[]; run(action: string): void } {
+    const inHall = this.scene?.id === GUILD_HALL;
+    return {
+      entries: [
+        ...(cachedHallId(this.sceneList) && !inHall ? [{ action: "guild_hall", text: text("projectx", "b.to_guildhall", "Go to Guild Hall") }] : []),
+        { action: "show_treasury", text: text("guild", "m.show_treasury", "Show Guild Treasury") },
+      ],
+      run: a => {
+        this.social?.close();
+        this.hudAction(a === "guild_hall" ? "button_guildhall" : "guild_window");
+      },
+    };
+  }
+
+  /**
+   * The main menu (client et, the HUD's wrench button): a MAIN MENU popup rising from the
+   * button (PopupMenu.popup above it), an item per window with its command's bound key
+   * ("Arsenal (I)", m.add_command_key; none for an unbound command). Report a Bug and Redeem
+   * Code reach the game's servers and show disabled; the Crucible items are offered only to the
+   * Crucible Creator Crew (the player's flag 4096), which no knight here is; the gate map's
+   * party item needs a party. Support opens the help window's Support page (as.Ea), Purchase
+   * Energy the Supply Depot.
+   */
+  private mainMenu() {
+    const hud = this.gameHud;
+    if (!hud) return;
+    if (hud.menuOpen) { hud.closeMenu(); return; }
+    this.uiSound("sound/feedback/ui_dropdown_activate.ogg");
+    const item = (key: string, fallback: string, command?: Action, enabled = true) => {
+      let label = text("projectx", "m." + key, fallback);
+      const bound = command ? this.bound(command) : "";
+      if (bound) label = message("projectx", "m.add_command_key", label, gameKeyName(bound)) || `${label} (${gameKeyName(bound)})`;
+      return { label, action: key, enabled };
+    };
+    const entries = [
+      item("arsenal_item", "Arsenal", "arsenal"), item("status_item", "Character", "character"), item("missions_item", "Missions", "mission"),
+      item("social_item", "Social", "social"), item("feed_item", "Event Hub", "feed"), item("recipes_item", "Recipes", "recipes"),
+      item("achievements", "Achievements", "achievements"), item("messages_item", "Messages"), item("options_item", "Options (Esc)"),
+      item("help_item", "Help", "help"), item("support_item", "Support"), item("report_bug", "Report a Bug", undefined, false),
+      item("purchase_energy_item", "Purchase Energy"), item("redeem_code", "Redeem Code", undefined, false),
+    ];
+    const r = hud.buttonRect("button_menu");
+    const run: Record<string, () => void> = {
+      arsenal_item: () => this.hudAction("button_arsenal"), status_item: () => this.hudAction("button_gear"),
+      missions_item: () => this.hudAction("button_missions"), social_item: () => this.hudAction("button_social"),
+      feed_item: () => this.hudAction("button_feed"), recipes_item: () => this.hudAction("recipes"),
+      achievements: () => this.hudAction("achievements"), messages_item: () => this.hudAction("button_mail"),
+      options_item: () => this.openSettings(), help_item: () => this.hudAction("button_help"),
+      support_item: () => this.toggleHelp("support"), purchase_energy_item: () => this.hudAction("button_supplydepot"),
+    };
+    void hud.openMenu(r?.x ?? 0, r?.y ?? innerHeight, text("projectx", "m.main_menu", "MAIN MENU"), entries, a => {
+      this.uiSound("sound/feedback/ui_dropdown_select.ogg");
+      run[a]?.();
+    }, { above: true, owner: "button_menu" });
   }
 
   /** The HUD's view of the bindings, mail, camera, places and the knight's action (see HudState). */
@@ -1318,7 +1401,7 @@ class Viewer {
     return {
       help: hud("button_help"), forge: hud("button_forge"), arsenal: hud("button_arsenal"), character: hud("button_gear"),
       loadout: hud("button_loadout"), social: hud("button_social"), feed: hud("button_feed"), uplink: hud("button_mail"),
-      mission: hud("button_missions"),
+      mission: hud("button_missions"), panels: hud("panels"),
       // TOGGLE_RECIPES (as.DM) and TOGGLE_PROGRESS (as.DE), the main menu's Recipes and Achievements
       recipes: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); void this.ensureScreens().toggleRecipes(); },
       achievements: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); void this.ensureScreens().toggleAchievements(); },
@@ -1328,44 +1411,20 @@ class Viewer {
     };
   }
 
-  /**
-   * The wrench's MAIN MENU (client/et, popped up at the button): the toggles with their keys
-   * (m.add_command_key), Messages, Options and Help, and Purchase Energy (the Supply Depot).
-   * Support, Report a Bug, Redeem Code and the Crucible need the game's servers.
-   */
-  private mainMenu(x: number, y: number) {
-    this.uiSound("sound/feedback/ui_dropdown_activate.ogg");
-    const t = (k: string, f: string) => text("projectx", k, f);
-    const item = (key: string, fallback: string, action: string, cmd?: Action) => {
-      const label = t(`m.${key}`, fallback), k = cmd ? gameKeyName(this.bound(cmd)) : "";
-      return { label: k ? message("projectx", "m.add_command_key", label, k) || `${label} (${k})` : label, action };
-    };
-    const entries = [
-      item("arsenal_item", "Arsenal", "arsenal", "arsenal"), item("status_item", "Character", "character", "character"),
-      item("missions_item", "Missions", "missions", "mission"), item("social_item", "Social", "social", "social"),
-      item("feed_item", "Event Hub", "feed", "feed"), item("recipes_item", "Recipes", "recipes", "recipes"),
-      item("achievements", "Achievements", "achievements", "achievements"), item("messages_item", "Messages", "messages"),
-      item("options_item", "Options (Esc)", "options"), item("help_item", "Help", "help", "help"),
-      item("purchase_energy_item", "Purchase Energy", "energy"),
-    ];
-    void this.gameHud?.openMenu(x, y, t("m.main_menu", "MAIN MENU"), entries, a => {
-      this.uiSound("sound/feedback/ui_dropdown_select.ogg");
-      const c = this.commands();
-      if (a === "arsenal") c.arsenal?.(); else if (a === "character") c.character?.(); else if (a === "missions") c.mission?.();
-      else if (a === "social") c.social?.(); else if (a === "feed") c.feed?.(); else if (a === "recipes") c.recipes?.();
-      else if (a === "achievements") c.achievements?.(); else if (a === "messages") this.hudAction("button_mail");
-      else if (a === "options") this.openSettings(); else if (a === "help") c.help?.();
-      else if (a === "energy") this.hudAction("button_supplydepot");
-    });
-  }
-
   /** A HUD button was clicked (the corner menus and the activities panel). */
   private hudAction(tag: string) {
-    if (tag === "button_menu") { this.mainMenu(8, innerHeight); return; }
     this.uiSound("sound/feedback/ui_confirm.ogg");
     if (this.places.hudAction(tag)) return;
     switch (tag) {
+      case "button_menu": this.mainMenu(); break;
       case "button_help": this.toggleHelp(); break;
+      case "button_social": this.toggleSocial(); break;
+      // TOGGLE_RECIPES (as.DM): the recipe window; TOGGLE_PROGRESS (as.DE): the character window's achievements
+      case "recipes": void this.ensureScreens().toggleRecipes(); break;
+      case "achievements": void this.ensureScreens().toggleAchievements(); break;
+      // TOGGLE_PANELS (as's ax): with the character and arsenal windows up, every window closes;
+      // else they open (the character window here holds the arsenal's list)
+      case "panels": this.togglePanels(); break;
       case "button_feed": this.openFeed(); break;
       case "button_mail": this.openMail(); break;
       // hud/P: P the character window (as.DD), L the loadouts (as.DF), I the arsenal (as.DG),
@@ -1467,25 +1526,59 @@ class Viewer {
     };
     this.uplink ??= new UplinkScreen(gui, { ...host, save: () => this.save, write: () => writeSave(this.save) });
     this.help ??= new HelpScreen(gui, { ...host,
-      keys: () => (Object.keys(ACTIONS) as Action[]).map(a => [ACTIONS[a].label, keyName(this.bound(a))] as [string, string]) });
+      username: () => knightName(this.save),
+      // the help's action links: OPTIONS MENU (the controls page) and ENERGY DEPOT
+      link: a => {
+        if (a === "controls") { this.help?.close(); this.paused = !!this.world; void this.optionsScreen().open("controls"); }
+        else if (a === "exchange") { this.help?.close(); this.hudAction("button_supplydepot"); }
+      } });
+    this.social ??= new SocialScreen(gui, { ...host,
+      knight: () => knightName(this.save),
+      guild: () => this.save.guild?.name ?? null,
+      whereabouts: () => this.scene?.id === GUILD_HALL ? "guild" : this.hudContext().town ? "town" : "dungeon",
+      guildOptions: () => this.guildOptions(),
+    });
     this.eventHub ??= new EventHubScreen(gui, { ...host, save: () => this.save, name: () => knightName(this.save),
       missions: () => this.missions().hubMissions(),
       inspect: id => void this.missions().inspect(id),
-      // social/client/i.Cj: past the Social window (as.DK) when it is docked open at the left;
-      // this port's Social button opens the guild console, which is centred, so the hub docks at the edge
-      dockX: () => 0 });
-    return { uplink: this.uplink, help: this.help, eventHub: this.eventHub };
+      // social/client/i.Cj: past the Social window (as.DK) when it is docked open at the left
+      dockX: () => (this.social?.isOpen ? this.social.dockedWidth : 0) });
+    return { uplink: this.uplink, help: this.help, social: this.social, eventHub: this.eventHub };
   }
 
+  private social: SocialScreen | null = null;
   private eventHub: EventHubScreen | null = null;
 
   /** True while one of the windows above is open. */
-  private anyWindowOpen() { return !!(this.uplink?.isOpen || this.help?.isOpen || this.eventHub?.isOpen || this.summaryScreen?.isOpen); }
+  private anyWindowOpen() {
+    return !!(this.uplink?.isOpen || this.help?.isOpen || this.social?.isOpen || this.eventHub?.isOpen || this.summaryScreen?.isOpen);
+  }
 
   /** Escape: closes the topmost of the windows above; false when none is open. */
   private escapeWindow(): boolean {
-    for (const w of [this.summaryScreen, this.help, this.uplink, this.eventHub]) if (w?.isOpen) { w.escape(); return true; }
+    for (const w of [this.summaryScreen, this.help, this.uplink, this.eventHub, this.social]) if (w?.isOpen) { w.escape(); return true; }
     return false;
+  }
+
+  /** The social window (F6): friends and the guild, docked at the left. */
+  private toggleSocial() {
+    const s = this.windows().social;
+    if (!s.isOpen) this.paused = !!this.world;
+    s.toggle();
+  }
+
+  /**
+   * TOGGLE_PANELS (the help's Inventory, Tab): with the character and arsenal windows up, every
+   * window closes (as.Eb); else they open (as.Em).
+   */
+  private togglePanels() {
+    const screens = this.ensureScreens();
+    if (screens.arsenal.isOpen) {
+      screens.closeAll();
+      for (const w of [this.help, this.uplink, this.social, this.eventHub]) w?.close();
+      return;
+    }
+    void screens.toggle(screens.arsenal);
   }
 
   /** as.DO: the Event Hub (F7) opens, or closes when it is open. */
@@ -1521,11 +1614,11 @@ class Viewer {
     void uplink.show("news").then(() => eventHub.open());
   }
 
-  /** The controls (the HUD's ? button, or H). */
-  private toggleHelp() {
+  /** The help window (the HUD's help button, F1) on its controls page, or the support page (the main menu's Support). */
+  private toggleHelp(tab: HelpTab = "controls") {
     const h = this.windows().help;
     if (!h.isOpen) this.paused = !!this.world;
-    h.toggle();
+    h.toggle(tab);
   }
 
   /** The settings menu (filled in by the settings module). */
@@ -1555,12 +1648,26 @@ class Viewer {
         return true;
       },
       returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
-      quit: () => { this.paused = false; this.stopPlaying(); if (GAME) void this.enterTitle(); },
+      quit: () => this.leaveGame(false),
+      // Logoff: back to the knight select window (the log-on screen when no knight is saved)
+      logoff: () => this.leaveGame(true),
+      awayFrom: () => (this.world && !/haven/i.test(this.scene?.name ?? "") ? "Haven" : null),
       closed: () => { this.paused = false; this.canvas.focus(); },
       playing: () => !!this.world,
       sound: f => this.uiSound(f),
       sceneNames: () => this.sceneList.map(s => s.name),
     });
+  }
+
+  /** Quit and Logoff: the windows close, play stops and the log-on screen (or, logging off, the knight select) comes back. */
+  private leaveGame(logoff: boolean) {
+    this.paused = false;
+    this.gameHud?.closeMenu();
+    this.itemScreens?.closeAll();
+    for (const w of [this.help, this.uplink, this.social, this.eventHub]) w?.close();
+    this.stopPlaying();
+    if (!GAME) return;
+    void this.enterTitle().then(() => { if (logoff && namedKnights(gameRoster()).length) void this.showPick(); });
   }
 
   /** Plays a UI feedback sound once audio exists (it starts with the first play). */
@@ -1658,6 +1765,57 @@ class Viewer {
    * duplicate sells for its price); the heat goes into every equipped heatable item, which
    * levels up. Returns lines describing found gear and level-ups.
    */
+  /** The chat overlay's lines (loot messages). */
+  private readonly chat = new ChatLog();
+
+  /**
+   * A find's loot message in the chat (dungeon m.item_awarded: "You have obtained Material
+   * (Bronze Bolt)."), its group as ItemCodes.Group names it, unless Loot Messages filters it.
+   */
+  private lootMessage(item: string, count: number) {
+    const eco = this.eco ?? this.world?.economy ?? null, info = eco?.info(item) ?? null;
+    if (!shouldReportLoot(this.options_.lootMessages, info?.rarity ?? 0, count, this.run.depth)) return;
+    const cat = info?.category ?? "";
+    const group = /^Rarity\//.test(item) ? text("item", "m.rarity", "Rarity")
+      : itemType(cat === "deposit" ? "mineral" : cat === "pickup" ? (/^Pickup\/Vial\//.test(item) ? "vial" : "capsule") : cat === "other" || !cat ? "item" : cat, "Item");
+    let name = itemName(item);
+    if (count > 1) name = hasMessage("global", "m.multiple") ? message("global", "m.multiple", count, name) : `${name} x${count}`;
+    this.chat.add(hasMessage("dungeon", "m.item_awarded") ? message("dungeon", "m.item_awarded", group, name) : `You have obtained ${group} (${name}).`);
+  }
+
+  /**
+   * The prize wheel after a floor with monsters (src/game/prizewheel.ts): the reel's prize is
+   * given when it lands, crowns and materials banked, hearts and pickups on the knight.
+   */
+  private prizeWheel(): PrizeWheel | null {
+    const w = this.world;
+    if (!w || w.arena) return null;
+    const floor = this.gate ? this.floors[this.run.depth] : null;
+    if (!floorHasWheel(floor?.kind, w.killCount)) return null;
+    const reel = buildReel(w.prizeSource());
+    const eco = this.eco ?? w.economy ?? null;
+    const slot = (p: Prize) => {
+      const icon = eco?.info(p.item)?.icon ?? null;
+      const base = itemName(p.item);
+      const name = p.kind !== "crowns" && p.count > 1 && hasMessage("global", "m.multiple") ? message("global", "m.multiple", p.count, base) : base;
+      return { name, icon, shine: !/^Instant\/Heart\//.test(p.item) };
+    };
+    const prize = reel[0];
+    return {
+      reel: reel.map(slot),
+      landed: () => {
+        if (prize.kind === "crowns") this.save.crowns += prize.count;
+        else if (prize.kind === "material") this.save.materials[prize.item] = (this.save.materials[prize.item] ?? 0) + prize.count;
+        else if (this.world === w) {
+          w.awardPrize(prize);
+          if (prize.kind === "heart") this.run.health = w.knight.health;
+        }
+        if (prize.kind !== "heart") this.lootMessage(prize.item, prize.count);
+        writeSave(this.save);
+      },
+    };
+  }
+
   private bankLoot(l: World["loot"]): string[] {
     const notes: string[] = [];
     const eco = this.eco ?? this.world?.economy ?? null;
@@ -1744,13 +1902,14 @@ class Viewer {
     this.run.floors++;
     this.runTotals.notes.push(...notes);
     const tally = `${l.crowns} crowns, ${l.heat} heat`;
+    const prize = this.prizeWheel();
     const { elevator } = this.screens();
     // a terminal's Shadow Lair elevator: down into that boss's Shadow Lair
     const lair = this.gate ? LAIR_GATES[String(this.world.exitElevator?.args["Push Gate"] ?? "")] : undefined;
     if (lair && /Shadow Lair/.test(this.world.exitElevator?.entity.name ?? "")) {
       const run = lairRun(lair, this.save.runs), first = run.floors.find(Boolean)!;
       void elevator.show({
-        title: `Depth ${this.run.depth} cleared`, next: loadingInfo(first.name, first, run.gate.name), tally, heat,
+        title: "", next: loadingInfo(first.name, first, run.gate.name), tally, heat, prize,
         advance: { label: "Advance", run: () => { this.elevator?.hide(); void this.enterGate(run.gate, run.floors, true); } },
         quit: { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } },
       });
@@ -1763,9 +1922,9 @@ class Viewer {
       if (this.gate.real && d < 29) this.floors[d + 1] = realFloor(this.gate, d + 1, lockNext(this.gate.real, d, here0?.wedge ?? 0, Date.now()));
       const next = this.floors[this.run.depth + 1];
       void elevator.show({
-        title: `Depth ${this.run.depth} cleared`,
+        title: "",
         next: next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally, heat,
+        tally, heat, prize,
         advance: { label: next ? "Advance" : "Ride Up", run: () => void this.descend() },
         quit: next ? { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } } : null,
       });
@@ -1777,9 +1936,9 @@ class Viewer {
       // past the Core the Clockworks go on: cycle the levels again, deeper
       const deeper = !nl && this.run.depth < 29;
       void elevator.show({
-        title: nl ? `Depth ${this.run.depth} cleared` : "Back to Haven",
+        title: nl ? "" : "Back to Haven",
         next: nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : deeper ? { title: "Deeper", zone: "A new floor below the Core", depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally, heat,
+        tally, heat, prize,
         advance: { label: nl || deeper ? "Advance" : "Ride Up", run: () => void this.descend(deeper) },
         quit: deeper ? { run: () => void this.descend() } : null,
       });
@@ -2473,7 +2632,7 @@ class Viewer {
         if (this.gameHud.covers(x, y)) {
           const tag = this.gameHud.pointer(x, y, true);
           if (tag === "personal_menu") this.personalMenu(x, y);
-          else if (tag === "button_menu") this.mainMenu(x, y);
+          else if (tag === "button_menu") this.mainMenu();
           else if (tag === "menu") { /* the popup menu took the press */ }
           else if (tag && tag !== "handle") this.hudAction(tag);
           else if (tag === "handle") this.uiSound("sound/feedback/ui_dropdown_activate.ogg");
@@ -2549,7 +2708,14 @@ class Viewer {
         this.target = [this.target[0] - (-ry * dx) * s, this.target[1] - (rx * dx) * s, this.target[2] + dy * s];
       }
     });
-    c.addEventListener("wheel", e => { e.preventDefault(); if (!this.staged) this.dist *= Math.exp(e.deltaY * 0.0012); }, { passive: false });
+    c.addEventListener("wheel", e => {
+      e.preventDefault();
+      if (this.staged) return;
+      // in play the wheel's turns are the weapon commands' second keys (Command: 516 down for
+      // NEXT_WEAPON, 515 up for PREV_WEAPON); the camera's distance is the zoom command's
+      if (this.world) { this.wheelWeapon(e.deltaY); return; }
+      this.dist *= Math.exp(e.deltaY * 0.0012);
+    }, { passive: false });
   }
 
   /** The left button is held on the knight creation scene (the knight turns). */

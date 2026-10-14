@@ -150,3 +150,36 @@ export function heartCount(damage: number): number {
   return Math.max(1, Math.min(15, Math.ceil(damage / 10)));
 }
 export const HEART_TYPES: Record<string, string> = { NORMAL: "Normal", PIERCING: "Piercing", ELEMENTAL: "Elemental", SHADOW: "Shadow" };
+
+/**
+ * A text label from a particle effect (particle/debuff_name.dat's status names, fx_item_fail.dat's
+ * "Health At Max!"): one particle, 0.75 above the emitter, shot at speed 5 up (buffs) or down
+ * (debuffs) against a linear drag of 5, living 2 seconds; its size rises to 1 by a tenth of
+ * its life and eases to 0.95 by nine tenths (a Multipoint from 0 back to 0). The label is
+ * Arial Black (part_ui_debuffname.dat 22, part_ui_itemfail.dat 16) with an 8 outline, wrapped
+ * to the billboard's width (160 or 120).
+ */
+export interface LabelStyle {
+  color: string; outline: string; size: number; outlineSize: number;
+  /** The billboard's width in GUI pixels (the text wraps to it). */
+  width: number;
+  /** 1 drifts up, -1 down. */
+  rise: 1 | -1;
+  life: number;
+}
+
+const LABEL_SIZE: [number, number][] = [[0.1, 1], [0.9, 0.95], [1, 0]];
+
+/** Where a label is `age` seconds in (relative to its start) and its size; null once gone. */
+export function labelPose(l: LabelStyle, age: number): { dz: number; scale: number } | null {
+  if (age < 0 || age >= l.life) return null;
+  const speed = 5, drag = 5;
+  const dz = l.rise * (speed / drag) * (1 - Math.exp(-drag * age));
+  const u = age / l.life;
+  let scale = 0, pt = 0, pv = 0;
+  for (const [t, v] of LABEL_SIZE) {
+    if (u <= t) { scale = pv + (v - pv) * (t > pt ? (u - pt) / (t - pt) : 1); break; }
+    pt = t; pv = v;
+  }
+  return { dz, scale };
+}

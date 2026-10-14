@@ -10,3 +10,7 @@ release/
 research_notes/
 reports/
 docs/outreach/
+
+# Claude project instructions stay local
+CLAUDE.md
+.claude/
