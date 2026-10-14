@@ -27,7 +27,8 @@ test("codes are the CRC-32 of the type's name in hex, as the icons are named", (
   assert.equal(find("CASINO_VIP").code, "baa4bd4");
   assert.equal(find("REACHED_HAVEN").nameKey, "m.achievement_" + (crc32("REACHED_HAVEN")).toString(16));
   assert.ok(find("MINERALS_DEPOSITED_1").obsolete && find("MINERALS_DEPOSITED_1").hidden);
-  assert.ok(find("CASINO_WHAMMIE").hidden && !find("CASINO_WHAMMIE").obsolete);
+  // Achievement.Type.isHidden: only the retired ones (the casino ones show, locked, like the rest)
+  assert.ok(!find("CASINO_WHAMMIE").hidden && !find("CASINO_WHAMMIE").obsolete);
   assert.ok(!find("FULL_RUN").hidden);
 });
 

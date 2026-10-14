@@ -52,6 +52,8 @@ export interface SpriteDef {
   name: string;
   /** Message key of the sprite's name ("m.drakon", "m.divine_sprite|m.drakon"). */
   spriteName: string;
+  /** Message key of its description in the sprites bundle (BattleSpriteConfig.desc), or "". */
+  desc: string;
   /** Models by tier (1 to 3). */
   models: [any, any, any];
   icons: [any, any, any];
@@ -66,7 +68,7 @@ const named = (n: any): NamedIcon | null => n ? { name: String(n.name ?? ""), ic
 /** A BattleSpriteConfig as a definition. */
 export function readSpriteDef(cfg: any): SpriteDef {
   return {
-    name: String(cfg.name), spriteName: String(cfg.spriteName ?? ""),
+    name: String(cfg.name), spriteName: String(cfg.spriteName ?? ""), desc: typeof cfg.desc === "string" ? cfg.desc : "",
     models: [cfg.tier1 ?? null, cfg.tier2 ?? cfg.tier1 ?? null, cfg.tier3 ?? cfg.tier2 ?? cfg.tier1 ?? null],
     icons: [cfg.icon1 ?? null, cfg.icon2 ?? null, cfg.icon3 ?? null],
     food: ((cfg.preferredFood ?? []) as any[]).map(f => f?.ref?.name).filter((n): n is string => !!n),
@@ -203,8 +205,8 @@ export const nextLevelRarity = (p: SpriteProgress) => foodTier(p.level + 1);
 
 /** Appetite left (BattleSprite.ao), 0 to 1: a fifth is one feeding. */
 export const appetite = (p: SpriteProgress, now: number) => !p.fullAt ? 1 : Math.min(APPETITE_MS, Math.max(0, now - p.fullAt)) / APPETITE_MS;
-/** Whether the sprite has room for a feeding (BattleSprite.a: twelve minutes since full). */
-export const canEat = (p: SpriteProgress, now: number) => !p.fullAt || now - p.fullAt > BITE_MS;
+/** Whether the sprite has room for a feeding (BattleSprite.a: a fifth of the hour left). */
+export const canEat = (p: SpriteProgress, now: number) => !p.fullAt || now - p.fullAt >= BITE_MS;
 /** A feeding takes a fifth of the appetite. */
 export function eat(p: SpriteProgress, now: number) { p.fullAt = Math.max(p.fullAt, now - APPETITE_MS) + BITE_MS; }
 

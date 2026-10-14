@@ -40,8 +40,6 @@ export type AchievementType = (typeof ACHIEVEMENT_TYPES)[number];
 /** Retired achievements: listed apart (the panel's obsolete table) and shown only once earned. */
 const OBSOLETE = new Set<AchievementType>(["MINERALS_DEPOSITED_1", "MINERALS_DEPOSITED_2", "MINERALS_DEPOSITED_3",
   "MINERALS_DEPOSITED_4", "MINERALS_DEPOSITED_5", "REVIVE_FRIEND_MINIMUM"]);
-/** Secret ones (shown only once earned), besides the obsolete. */
-const SECRET = new Set<AchievementType>(["CASINO_WHAMMIE", "CASINO_VIP"]);
 /** Achievements that need other players or the server's own games: never earned offline. */
 export const ONLINE_ONLY = new Set<AchievementType>(["REVIVE_FRIEND", "REVIVE_FRIEND_MINIMUM", "MECHA_KNIGHT_ACTIVATED",
   "LOCKDOWN_SNOWBALL", "CASINO_SPIN_1", "CASINO_WHAMMIE", "CASINO_SPIN_2", "CASINO_SPIN_3", "CASINO_VIP",
@@ -82,7 +80,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = ACHIEVEMENT_TYPES.map(typ
   const code = crc32(type).toString(16);
   return {
     type, code, nameKey: `m.achievement_${code}`, descKey: `d.achievement_${code}`, icon: `ui/icon/cheevos/${code}.png`,
-    obsolete: OBSOLETE.has(type), hidden: OBSOLETE.has(type) || SECRET.has(type), online: ONLINE_ONLY.has(type),
+    obsolete: OBSOLETE.has(type), hidden: OBSOLETE.has(type), online: ONLINE_ONLY.has(type),
   };
 });
 export const LOCKED_ICON = "ui/icon/cheevos/locked.png";

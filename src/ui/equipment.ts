@@ -1,19 +1,24 @@
-// The arsenal: the game's arsenal window (ui/arsenal/interface.dat) listing what the knight
-// can put on, beside the status window (ui/status/interface_v2.dat) and its tabs:
+// The character window (LoadoutPanel): the status window (ui/status/interface_v2.dat) with
+// its tabs, and the game's arsenal (ui/arsenal/interface.dat) docked full height at the
+// screen's right edge listing what the knight can put on, the HUD's energy panel under it.
+// Item pills' tooltips sit left of the pill (item/client/N), the worn item's beside them.
 //
-// - Equipment (panel_equipment_v2.dat): sockets for the helmet, armour, shield, two
-//   trinkets, three weapons and the vitapod around the knight's preview. The list shows the
-//   saved loadouts and the gear owned; clicking gear equips it (or takes it off), clicking
-//   a socket empties it, Save Loadout names the current loadout.
+// - Equipment (panel_equipment_v2.dat): the socket column (helmet, armour, shield, two
+//   trinkets, four weapons; the fourth weapon slot locked, with its padlock), the gear stats
+//   column it folds, and the knight with its rank title, name and prestige. The list shows
+//   the saved loadouts and the gear owned; clicking gear opens its item menu, clicking a
+//   socket empties it, Save Loadout names what is worn.
 // - Costume (panel_costume_v2.dat): the helmet, armour and shield costume sockets. The list
 //   shows the costumes and the accessories by location (game/accessories.ts); they change
 //   only how the knight looks.
-// - Battle Sprite (panel_battlesprite_v2.dat): the sprite in the field and its three skills,
-//   with the sprite feeding panel (interface_battlesprite-hunger.dat) or a skill's augments
-//   (panel_battlesprite-skill.dat) beside the preview. The list shows the sprites the knight
-//   has and its sprite food (game/sprites.ts through game/outfit.ts).
-// - Character Options: the list shows the knight's name (ui/rename/interface.dat) and the
-//   personal colours.
+// - Battle Sprite (panel_battlesprite_v2.dat): sockets for the sprite, its harness, its perk
+//   and its three skills, each opening its page in the left column: the feeding and level-up
+//   panel (interface_battlesprite-hunger.dat), the harnesses, the perks, or a skill's
+//   augments (panel_battlesprite-skill.dat). The view shows the sprite with "Level N" and its
+//   name, and the notice above it ("Ready to level up!", "Skill points available!"). The list
+//   shows the sprites, their food and the evo catalysts (game/sprites.ts through game/outfit.ts).
+// - Character Options pops up a menu titled with the knight's name: its name
+//   (ui/rename/interface.dat) and the personal colours.
 //
 // - Achievements (panel_cheevos.dat): an icon per achievement (interface_cheevoicon.dat), its
 //   own picture once earned and the lock before, retired ones in the lower table once earned;
@@ -29,21 +34,23 @@ import type { Outfit } from "../game/outfit";
 import { energyNow } from "../game/energy";
 import { energyOf, knightName, MAX_LOADOUTS, saveLoadout, wearableLoadout, type Loadout, type SaveData, type SavedLoadout } from "../game/save";
 import {
-  foodStars, freePoints, heatToNext, MAX_LEVEL as SPRITE_MAX, MAX_RANK, rechargeOf, SKILL_LEVELS, spriteTier, ULTIMATE_LEVELS,
-  unlockedSkills, type SpriteDef, type SpriteProgress,
+  appetite, canEat, foodStars, foodTier, freePoints, MAX_RANK, newProgress, nextLevelRarity, readyToLevel, rechargeOf, requiredItem, spriteTier,
+  ultimateReady, unlockedSkills, type SpriteDef, type SpriteProgress,
 } from "../game/sprites";
 import { validName } from "./createknight";
 import { loadoutPill, loadoutTip, wearLoadout } from "./loadouts";
 import { messageText, type Component, type Style } from "./gui";
 import { itemPreview, itemTip, ItemList, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
-import { applyItemAction, COMPARE, compareTarget, itemMenu, rankAllows, rankLimitText, SLOT_ICON } from "./itemmenu";
+import { applyItemAction, COMPARE, compareTarget, itemMenu, RANK_LIMIT, rankAllows, rankLimitText, SLOT_ICON } from "./itemmenu";
 import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
 import { styledLabel } from "./floating";
 import { freshProgress, rankName } from "../game/missions";
-import { message, text as bundleText } from "../i18n";
+import { message, text as bundleText, xlate } from "../i18n";
 import { levelLines, statusLines } from "../game/itemlines";
 import { itemFlavor } from "../game/text";
-import { buildStats, GuiScreen, row, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
+import { buildStats, GuiScreen, row, uiRef, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
+
+const TIP_PLAIN = "ui/window/tooltip.dat";
 
 export interface ArsenalHost extends ScreenHost {
   save(): SaveData;
@@ -61,18 +68,30 @@ export interface ArsenalHost extends ScreenHost {
   write(): void;
 }
 
-/** Equipment sockets by tag (panel_equipment_v2.dat's Tag1 to Tag9). */
-const SOCKETS: { tag: string; slot: Slot; index: number; label: string }[] = [
-  { tag: "slot0", slot: "helmet", index: 0, label: "Helmet" },
-  { tag: "slot1", slot: "armor", index: 0, label: "Armor" },
-  { tag: "slot2", slot: "shield", index: 0, label: "Shield" },
-  { tag: "slot10", slot: "trinket", index: 0, label: "Trinket" },
-  { tag: "slot11", slot: "trinket", index: 1, label: "Trinket" },
-  { tag: "slot6", slot: "weapon", index: 0, label: "Weapon" },
-  { tag: "slot7", slot: "weapon", index: 1, label: "Weapon" },
-  { tag: "slot8", slot: "weapon", index: 2, label: "Weapon" },
-  { tag: "slot9", slot: "vitapod", index: 0, label: "Vitapod" },
+/**
+ * Equipment sockets by tag (panel_equipment_v2.dat's Tag1 to Tag9, the client's slot
+ * numbers): helmet, armour, shield, two trinkets, four weapons. Each empty socket's tooltip is
+ * ItemCodes.bwu's text in the item bundle ("Weapon Slot"); a locked one (LoadoutPanel.e) shows
+ * the padlock and the "_locked" text. This port gives three weapon slots and both trinket
+ * slots, so the fourth weapon socket stays locked; the vitapod (the client's dungeon gear
+ * slot 12, not on this page) is put on from its item menu.
+ */
+const SOCKETS: { tag: string; slot: Slot; index: number; label: string; tip: string; locked?: boolean }[] = [
+  { tag: "slot0", slot: "helmet", index: 0, label: "Helmet", tip: "m.helm_tip" },
+  { tag: "slot1", slot: "armor", index: 0, label: "Armor", tip: "m.armor_tip" },
+  { tag: "slot2", slot: "shield", index: 0, label: "Shield", tip: "m.shield_tip" },
+  { tag: "slot10", slot: "trinket", index: 0, label: "Trinket", tip: "m.trinket_tip" },
+  { tag: "slot11", slot: "trinket", index: 1, label: "Trinket", tip: "m.trinket_tip" },
+  { tag: "slot6", slot: "weapon", index: 0, label: "Weapon", tip: "m.weapon_tip" },
+  { tag: "slot7", slot: "weapon", index: 1, label: "Weapon", tip: "m.weapon_tip" },
+  { tag: "slot8", slot: "weapon", index: 2, label: "Weapon", tip: "m.weapon_tip" },
+  { tag: "slot9", slot: "weapon", index: 3, label: "Weapon", tip: "m.weapon_tip", locked: true },
 ];
+const LOCK_ICON = "ui/icon/inventory/icon_locked.png";
+/** The arsenal docked beside the window (the screens' arsenal key: its HUD button shows pressed). */
+const ARSENAL_DOCK = "inventory";
+/** Harness.bGJ: the harness every sprite wears until another is installed. */
+const DEFAULT_HARNESS = "Iron Harness";
 
 /** Costume sockets (panel_costume_v2.dat's Tag1 to Tag3). */
 const COSTUME_SOCKETS: { tag: string; slot: CostumeSlot; label: string }[] = [
@@ -81,10 +100,13 @@ const COSTUME_SOCKETS: { tag: string; slot: CostumeSlot; label: string }[] = [
   { tag: "slot15", slot: "shield", label: "Shield Costume" },
 ];
 
-/** Battle sprite sockets (panel_battlesprite_v2.dat): the sprite and its three skills. */
-const SPRITE_SOCKETS = ["slot_sprite", "slot_attack0", "slot_attack1", "slot_attack2"];
-/** Sockets whose items this port has no data for: sprite harnesses and perks, achievement artifacts. */
-const UNUSED_SOCKETS = new Set(["", "slot_harness", "slot_perk", "slot_artifactcheevo1", "slot_artifactcheevo2"]);
+/** What the sprite page's left column shows (LoadoutPanel.SpriteTab): feeding, harnesses, perks or a skill. */
+type SpriteFocus = "sprite" | "harness" | "perk" | 0 | 1 | 2;
+/** Battle sprite sockets (panel_battlesprite_v2.dat): the sprite, its harness and perk, its three skills. */
+const SPRITE_SOCKETS: [string, SpriteFocus][] = [["slot_sprite", "sprite"], ["slot_harness", "harness"], ["slot_perk", "perk"],
+  ["slot_attack0", 0], ["slot_attack1", 1], ["slot_attack2", 2]];
+/** Sockets whose items this port has no data for: the achievement artifacts. */
+const UNUSED_SOCKETS = new Set(["slot_artifactcheevo1", "slot_artifactcheevo2"]);
 
 const CAT = "ui/icon/inventory/categories/";
 const COLOR_ICON = CAT + "icon_recolor.png";
@@ -238,8 +260,8 @@ export function ownedGroups(save: SaveData, data: GameData, eco: Economy): ListG
   return groups;
 }
 
-/** A skill or augment name from its message key ("m.extra_crispy" is "Extra Crispy"). */
-const named = (key: string) => key ? messageText(key) : "";
+/** A sprites bundle text from its key ("m.extra_crispy" is "Extra Crispy"; compound keys too). */
+const named = (key: string) => { if (!key) return ""; const t = xlate("sprites", key); return t && t !== key ? t : messageText(key, "sprites"); };
 
 export class ArsenalScreen extends GuiScreen {
   private list: ItemList | null = null;
@@ -251,8 +273,19 @@ export class ArsenalScreen extends GuiScreen {
   /** The list shows the character options (Character Options pressed). */
   private options = false;
   private wardrobe: Wardrobe | null = null;
-  /** The sprite page's selection: the sprite (feeding) or a skill (its augments). */
-  private focus: "sprite" | 0 | 1 | 2 = "sprite";
+  /** The sprite page's selection: the sprite (feeding), its harnesses or perks, or a skill (its augments). */
+  private focus: SpriteFocus = "sprite";
+  /** The sprite page's left column is folded away (its collapse toggle). */
+  private spriteFolded = false;
+  /** Where the sprite page's notice leads when pressed. */
+  private noticeAction: SpriteFocus | null = null;
+  /** The arsenal list, docked at the right edge. */
+  private arsenalList: Component | null = null;
+  /** The harness config every sprite wears here (config/harness.dat's Iron Harness). */
+  private harnessCfg: any = null;
+  /** The harness and perk pages' contents (built on first showing). */
+  private harnessPage: Component | null = null;
+  private perkPage: Component | null = null;
   /** Augment points placed but not confirmed, for the focused skill. */
   private pending = [0, 0, 0];
   /** The sprite food chosen for feeding. */
@@ -341,15 +374,25 @@ export class ArsenalScreen extends GuiScreen {
     // available!" the first skill with room (LoadoutPanel.n.Fa)
     const notice = this.pages[2]?.find("notice");
     if (notice) this.clicks.set(notice, () => { if (this.noticeAction) this.focusOn(this.noticeAction); });
-    this.harnessCfg = await this.arsenal.data().library("config/harness.dat").then(l => l.get(DEFAULT_HARNESS) ?? null).catch(() => null);
+    const data = this.arsenal.data();
+    this.harnessCfg = await data.preload("config/harness.dat").then(() => data.config("config/harness.dat", DEFAULT_HARNESS)).catch(() => null);
     this.prepareSpritePanels();
     const draw = (im: { source: unknown; width: number; height: number } | null, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
       if (im) g.drawImage(im.source as CanvasImageSource, Math.round(x + (w - im.width) / 2), Math.round(y + (h - im.height) / 2), im.width, im.height);
     };
     const tagged: Record<string, (c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => void> = {};
     for (const s of SOCKETS) tagged[s.tag] = (_c, g, x, y, w, h) => {
+      // LoadoutPanel.e.Fn: a locked slot shows the padlock at 38 pixels
+      if (s.locked) { draw(this.icon({ file: LOCK_ICON }, 38), g, x, y, w, h); return; }
       const name = this.socketItem(s), e = name ? this.entry(name) : null;
       draw(e ? this.icon(e.icon, 36) : null, g, x, y, w, h);
+    };
+    tagged.slot_harness = (_c, g, x, y, w, h) => {
+      if (this.activeSprite().def && this.harnessCfg?.icon) draw(this.icon(this.harnessCfg.icon, 38), g, x, y, w, h);
+    };
+    tagged.required_icon = (_c, g, x, y, w, h) => {
+      const { def, p } = this.activeSprite(), req = def && p ? requiredItem(def, p) : null;
+      draw(req ? this.icon(this.itemIcon(req), 36) : null, g, x, y, w, h);
     };
     for (const s of COSTUME_SOCKETS) tagged[s.tag] = (_c, g, x, y, w, h) => {
       const name = this.arsenal.outfit().appearance.costume[s.slot];
@@ -365,15 +408,24 @@ export class ArsenalScreen extends GuiScreen {
     };
     tagged.slot_feed = (_c, g, x, y, w, h) => draw(this.food ? this.icon(this.itemIcon(this.food), 36) : null, g, x, y, w, h);
     tagged.favored_icon = (_c, g, x, y, w, h) => {
-      const { def } = this.activeSprite();
-      const fav = def?.food.find(f => (this.arsenal.save().materials[f] ?? 0) > 0) ?? def?.food[0];
+      const { def, p } = this.activeSprite(), fav = def && p ? requiredItem(def, p) : null;
       draw(fav ? this.icon(this.itemIcon(fav), 36) : null, g, x, y, w, h);
     };
     this.hooks = {
-      view: (c, g, x, y, w, h) => this.host.view?.(c, g, x, y, w, h, this.viewModel(c)),
+      view: (c, g, x, y, w, h) => { if (c.viewOwner !== "icon") this.host.view?.(c, g, x, y, w, h, this.viewModel(c)); },
       tagged,
     };
-    return row([left, right], 6);
+    // the arsenal stands full height at the right edge with the energy panel under it, as by
+    // the forge and the shops (client/g)
+    this.tallDocks = true;
+    this.energy = () => energyNow(energyOf(this.arsenal.save()));
+    return right;
+  }
+
+  async open() {
+    await super.open();
+    const list = this.arsenalList;
+    if (list && this.isOpen) await this.dock(ARSENAL_DOCK, true, 0, async () => ({ ui: list, refresh: () => {} }));
   }
 
   /** Readies one tab page: names, the turnable preview, the sockets it uses. */
@@ -395,29 +447,34 @@ export class ArsenalScreen extends GuiScreen {
       c.children.forEach(walk);
     };
     walk(page);
-    // the locked-in-town notice never applies: windows open only where gear can change
+    // a locked socket's padlock stands in for its category icon
+    for (const s of SOCKETS) if (s.locked) { const b = this.socketBacking(page, s.tag); if (b) b.alpha = 0; }
+    // the notice (a FadeLabel): the locked-in-town notice never applies here (windows open
+    // only where gear can change); the sprite page shows its own (LoadoutPanel.n.Fa)
     const notice = page.find("notice");
-    if (notice) notice.visible = false;
+    if (notice) { notice.visible = index === 2; notice.alpha = 0; }
   }
 
-  /** The battle sprite page's right column: the feeding panel or a skill's augments. */
+  /**
+   * The battle sprite page's left column (LoadoutPanel.a.b: left_cont's scroll_cont, folded
+   * by the toggle beside the sockets): the feeding panel, the harnesses, the perks or a
+   * skill's augments, as the sockets choose.
+   */
   private prepareSpritePanels() {
     const page = this.pages[2];
     if (!page) return;
-    const panes: Component[] = [];
-    const walk = (c: Component) => { if (c.kind === "scrollpane" && c.tag !== "scroll_pane") panes.push(c); c.children.forEach(walk); };
-    walk(page);
-    const pane = this.spritePane = panes.at(-1) ?? null;
-    // the right column starts hidden in the base panel; this page fills it
-    const column = pane && this.parentOf(page, pane);
-    if (column) column.visible = true;
+    this.spritePane = page.find("scroll_cont");
+    const toggle = page.find("toggle_collapseleft"), left = page.find("left_cont");
+    if (toggle && left) toggle.onAction = c => {
+      this.spriteFolded = !!c.selected;
+      left.visible = !this.spriteFolded;
+      this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+    };
     const h = this.hunger, s = this.skill;
     if (h) {
-      // appetite is the server's (sprites are fed whenever the knight likes here)
-      const app = h.find("appetite");
-      if (app) { const box = this.parentOf(h, app); if (box) box.visible = false; }
-      const req = h.find("required");
-      if (req) req.visible = false;
+      const req = h.find("required_icon");
+      // drawn as an icon by the tagged hook, not as a 3D view
+      if (req) req.viewOwner = "icon";
       const flame = h.find("tooltip_heat")?.children[0];
       if (flame) flame.visible = false;
       const feed = h.find("button_feed");
@@ -432,14 +489,7 @@ export class ArsenalScreen extends GuiScreen {
       if (cancel) cancel.onAction = () => { this.pending = [0, 0, 0]; this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.refresh(); };
       if (confirm) confirm.onAction = () => this.confirmPoints();
       if (ult) ult.onAction = () => void this.openUltimate();
-      for (const tag of ["ult_divider", "ult_header", "ult_description"]) { const c = s.find(tag); if (c) c.visible = false; }
     }
-  }
-
-  private parentOf(root: Component, c: Component): Component | null {
-    if (root.children.includes(c)) return root;
-    for (const k of root.children) { const r = this.parentOf(k, c); if (r) return r; }
-    return null;
   }
 
   /** A component's style config with other arguments (a socket's icon, a pip's colour), resolved once. */
@@ -482,6 +532,7 @@ export class ArsenalScreen extends GuiScreen {
   }
 
   private socketItem(s: (typeof SOCKETS)[number]): string {
+    if (s.locked) return "";
     const l = this.arsenal.save().loadout;
     return s.slot === "weapon" ? l.weapons[s.index] ?? "" : s.slot === "trinket" ? l.trinkets[s.index] ?? "" : l[s.slot] ?? "";
   }
@@ -584,7 +635,7 @@ export class ArsenalScreen extends GuiScreen {
   }
 
   /** A name entry window over the status window (ui/rename/interface.dat). */
-  private async nameWindow(o: { title: string; lines: string[]; value: string; accept: (name: string) => string | null }) {
+  private async nameWindow(o: { title: string; lines: string[]; value: string; button?: string; accept: (name: string) => string | null }) {
     const w = await this.ui(RENAME);
     if (!w) return;
     const set = (tag: string, text: string) => { const c = w.find(tag); if (c) { c.text = text; c.visible = !!text; } };
@@ -604,18 +655,22 @@ export class ArsenalScreen extends GuiScreen {
       void this.refresh();
     };
     const ok = w.find("buttonAccept");
-    if (ok) ok.onAction = accept;
+    if (ok) { ok.onAction = accept; if (o.button) ok.text = o.button; }
     if (field) field.onAction = (_c, a) => { if (a === "enter") accept(); };
     const dismiss = w.find("dismiss");
     if (dismiss) dismiss.onAction = () => { this.host.sound("sound/feedback/ui_dismiss.ogg"); close(); };
     this.overlays.push(w);
   }
 
+  /**
+   * bH.k: Save Loadout asks for a name (client/ui/z: "Save Loadout", an empty 20-letter field,
+   * Cancel and Save) and saves what is worn under it.
+   */
   private openSaveLoadout() {
-    const save = this.arsenal.save(), n = save.loadouts?.length ?? 0;
+    const save = this.arsenal.save();
     void this.nameWindow({
-      title: "Save Loadout", value: `Loadout ${Math.min(MAX_LOADOUTS, n + 1)}`,
-      lines: ["Name the gear, costumes and battle sprite you have on.", "Saving under a loadout's name replaces it.", `${n} of ${MAX_LOADOUTS} loadouts saved.`],
+      title: bundleText("projectx", "m.save_loadout", "Save Loadout"), value: "", lines: [],
+      button: bundleText("projectx", "m.save", "Save"),
       accept: name => {
         const t = name.trim();
         if (!t) return "Give the loadout a name.";
@@ -623,6 +678,22 @@ export class ArsenalScreen extends GuiScreen {
         this.arsenal.write();
         return null;
       },
+    });
+  }
+
+  /**
+   * bh, client/cr: Character Options pops up a menu under the button titled with the knight's
+   * name. The client's own list is empty in this build; this port puts its name and personal
+   * colour choices there (the colours open in the arsenal list).
+   */
+  private async characterMenu() {
+    this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+    await this.popupMenu([
+      { action: "rename", text: "Change Name", enabled: true },
+      { action: "color", text: "Personal Color", enabled: this.arsenal.colors().length > 0 },
+    ], knightName(this.arsenal.save()), a => {
+      if (a === "rename") this.openRename();
+      if (a === "color") { this.options = true; void this.refresh(); }
     });
   }
 
@@ -648,10 +719,24 @@ export class ArsenalScreen extends GuiScreen {
     return { def: p ? this.defs.get(p.name) ?? null : null, p };
   }
 
-  /** A skill's name and icon: its ultimate's once chosen. */
+  /** BattleSprite.ac: the sprite family's name ("Drakon"). */
+  private spriteFamily(def: SpriteDef): string { return (def.spriteName && named(def.spriteName)) || def.name; }
+
+  /** A skill's name, icon and text: its ultimate's once chosen (BattleSprite.h). */
   private skillLabel(def: SpriteDef, p: SpriteProgress, i: number) {
     const s = def.skills[i], u = p.ultimates[i];
     return (u === "A" ? s?.ultimateLabels[0] : u === "B" ? s?.ultimateLabels[1] : null) ?? s?.label ?? { name: "", icon: null, desc: "" };
+  }
+
+  /** The harness's recharge modifier (HarnessConfig.rechargeModifier). */
+  private get harnessModifier(): number { return Number(this.harnessCfg?.rechargeModifier ?? 1) || 1; }
+
+  /** LoadoutPanel.a(ctx, sprite, skill, anchor) (bf): a skill socket's tooltip. */
+  private skillTip(def: SpriteDef, p: SpriteProgress, i: number): TipSpec {
+    const l = this.skillLabel(def, p, i);
+    return { anchored: 15, ref: uiRef(TIP_PLAIN, { Name: named(l.name), Type: bundleText("sprites", "m.skill", "Skill").toUpperCase(), Body: named(l.desc),
+      Flavor: message("projectx", "m.pet_skillcooldown", rechargeOf(def, p, i, this.harnessModifier)) || `Cooldown: ${rechargeOf(def, p, i, this.harnessModifier)} seconds`,
+      Rarity: "-1" }) };
   }
 
   private chooseSprite(name: string) {
@@ -664,7 +749,15 @@ export class ArsenalScreen extends GuiScreen {
     void this.refresh();
   }
 
-  private focusOn(f: "sprite" | 0 | 1 | 2) {
+  /** A socket press (LoadoutPanel.h.Fs): its page in the left column, which unfolds. */
+  private focusOn(f: SpriteFocus) {
+    const { def, p } = this.activeSprite();
+    if (!def || !p) return;
+    if (typeof f === "number" && f >= unlockedSkills(p.level)) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
+    const left = this.pages[2]?.find("left_cont"), toggle = this.pages[2]?.find("toggle_collapseleft");
+    this.spriteFolded = false;
+    if (left) left.visible = true;
+    if (toggle) toggle.selected = false;
     if (f === this.focus) return;
     this.focus = f;
     this.pending = [0, 0, 0];
@@ -673,23 +766,40 @@ export class ArsenalScreen extends GuiScreen {
     void this.refresh();
   }
 
+  /** FEED SPRITE or LEVEL UP! (LoadoutPanel.f, br): the chosen item goes to the sprite. */
   private feed() {
     const { def, p } = this.activeSprite();
     if (!def || !p || !this.food) return;
-    const before = p.level;
-    const gained = this.arsenal.outfit().sprites.feed(this.food);
-    if (gained < 0) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
-    const after = this.arsenal.outfit().sprites.active();
-    const unlocked = SKILL_LEVELS.filter(l => l > before && l <= (after?.level ?? before)).length;
-    this.spriteMessage = gained ? `${def.name} reached level ${after?.level}!${unlocked ? " A new skill is ready." : ""}` : `${def.name} ate the ${itemLabel(this.food)}.`;
-    if ((this.arsenal.save().materials[this.food] ?? 0) <= 0) this.food = "";
-    this.host.sound(gained ? "sound/feedback/ui_confirm.ogg" : "sound/feedback/ui_equip.ogg");
+    const roster = this.arsenal.outfit().sprites;
+    if (readyToLevel(p)) {
+      if (!roster.levelUp(this.food)) {
+        this.spriteMessage = bundleText("projectx", "e.wrong_level_item", "Must use required item to level up!");
+        this.host.sound("sound/feedback/ui_dismiss.ogg");
+        void this.refresh();
+        return;
+      }
+      const after = roster.active();
+      this.spriteMessage = message("sprites", "m.leveled_up") ? `${bundleText("sprites", "m.leveled_up", "Leveled Up")}: ${message("sprites", "m.level", (after?.level ?? 0) + 1)}` : "";
+      this.host.sound("sound/feedback/ui_confirm.ogg");
+    } else {
+      const err = roster.feed(this.food);
+      if (err) {
+        this.spriteMessage = bundleText("projectx", err, err === "e.not_enough_appetite" ? "Not enough appetite to consume this item." : "");
+        this.host.sound("sound/feedback/ui_dismiss.ogg");
+        void this.refresh();
+        return;
+      }
+      this.spriteMessage = "";
+      this.host.sound("sound/feedback/ui_equip.ogg");
+    }
+    // LoadoutPanel.f (bp): the slot empties once the sprite has eaten
+    this.food = "";
     void this.refresh();
   }
 
   private addPoint(power: number) {
     const { p } = this.activeSprite(), i = this.focus;
-    if (!p || i === "sprite") return;
+    if (!p || typeof i !== "number") return;
     const left = freePoints(p) - this.pending.reduce((a, b) => a + b, 0);
     if (i >= unlockedSkills(p.level) || left <= 0 || p.ranks[i][power] + this.pending[power] >= MAX_RANK) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
     this.pending[power]++;
@@ -699,7 +809,7 @@ export class ArsenalScreen extends GuiScreen {
 
   private confirmPoints() {
     const i = this.focus;
-    if (i === "sprite") return;
+    if (typeof i !== "number") return;
     const roster = this.arsenal.outfit().sprites;
     for (let j = 0; j < 3; j++) for (let k = 0; k < this.pending[j]; k++) roster.spend(i, j);
     this.pending = [0, 0, 0];
@@ -707,31 +817,26 @@ export class ArsenalScreen extends GuiScreen {
     void this.refresh();
   }
 
-  /** The ultimate choice (interface_battlesprite-ultimate.dat) for the focused skill. */
+  /** The ultimate choice (interface_battlesprite-ultimate.dat) for the focused skill, once BattleSprite.fI allows it. */
   private async openUltimate() {
     const { def, p } = this.activeSprite(), i = this.focus;
-    if (!def || !p || i === "sprite" || p.level < ULTIMATE_LEVELS[i]) return;
+    if (!def || !p || typeof i !== "number" || !ultimateReady(p, i)) return;
     const o = await this.ui(ULTIMATE);
     if (!o) return;
     const s = def.skills[i];
     for (const [k, label] of [["a", s.ultimateLabels[0]], ["b", s.ultimateLabels[1]]] as const) {
       const set = (tag: string, text: string) => { const c = o.find(tag); if (c) c.text = text; };
       set(`label_ult_${k}_name`, named(label?.name ?? "") || `Ultimate ${k.toUpperCase()}`);
-      set(`label_ult_${k}_description`, `Replaces ${named(s.label.name)} with its ultimate form ${k.toUpperCase()}.`
-        + (p.ultimates[i] === k.toUpperCase() ? " Chosen." : ""));
+      set(`label_ult_${k}_description`, named(label?.desc ?? ""));
       const icon = o.find(`icon_ult_${k}`);
       if (icon && label?.icon?.file) { const st = await this.restyle(icon, { File: label.icon.file }); if (st) icon.styles = icon.styles.map(() => st); }
       const b = o.find(`button_ult_${k}`);
-      if (b) {
-        b.text = p.ultimates[i] === k.toUpperCase() ? "Keep the normal skill" : `Upgrade to ${named(label?.name ?? "") || "Ultimate " + k.toUpperCase()}`;
-        b.onAction = () => {
-          const u = p.ultimates[i] === k.toUpperCase() ? "" : k.toUpperCase() as "A" | "B";
-          this.arsenal.outfit().sprites.ultimate(i, u);
-          this.host.sound("sound/feedback/ui_confirm.ogg");
-          this.overlays = this.overlays.filter(x => x !== o);
-          void this.refresh();
-        };
-      }
+      if (b) b.onAction = () => {
+        this.arsenal.outfit().sprites.ultimate(i, k.toUpperCase() as "A" | "B");
+        this.host.sound("sound/feedback/ui_confirm.ogg");
+        this.overlays = this.overlays.filter(x => x !== o);
+        void this.refresh();
+      };
     }
     const status = o.find("status");
     if (status) status.visible = false;
@@ -742,51 +847,187 @@ export class ArsenalScreen extends GuiScreen {
     this.overlays.push(o);
   }
 
-  /** Fills the sprite page's right column. */
+  /** LoadoutPanel.dZ: a title in the left column ("HARNESSES", "PERKS"). */
+  private async columnTitle(text: string, page: Component): Promise<Component | null> {
+    const t = await styledLabel(this.ctx, text.toUpperCase(), "Status/Gear Stats/Title", page.local);
+    if (t) { t.constraints = null; t.preferredSize = { width: 180, height: -1 }; }
+    return t;
+  }
+
+  /** LoadoutPanel.i: the harnesses (only the Iron Harness here, worn). */
+  private async buildHarnessPage(page: Component): Promise<Component> {
+    const box = row([], 0);
+    box.layout = { $class: "LayoutConfig$VerticalGroup", policy: { name: "NONE" }, justification: { name: "TOP" }, offAxisPolicy: { name: "STRETCH" }, offAxisJustification: { name: "LEFT" }, gap: 0 };
+    const kids: Component[] = [];
+    const title = await this.columnTitle(bundleText("projectx", "t.harnesses", "HARNESSES"), page);
+    if (title) kids.push(title);
+    const h = this.harnessCfg;
+    if (h) {
+      const pill = await this.ui("ui/hud_v2/parts/interface_itempill.dat", { Name: messageText(String(h.harnessName ?? ""), "sprites") || DEFAULT_HARNESS,
+        Icon: h.icon?.file ?? null, Colorization: h.icon?.colorizations ?? [], Damage: "Default", "Damage (Secondary)": "Default", "Rank Visible": false,
+        Variants: "-1", Accessory: false, Equipped: "False", Locked: "Hidden" });
+      if (pill) {
+        const sel = pill.find("entryselect");
+        if (sel) sel.selected = true;
+        this.tips.set(pill, this.harnessTip());
+        pill.constraints = null;
+        kids.push(pill);
+      }
+    }
+    box.children = kids;
+    for (const k of kids) k.constraints = null;
+    return box;
+  }
+
+  /** bd: the harness tooltip (tooltip.dat: its name, "HARNESS", its text). */
+  private harnessTip(): TipSpec {
+    const h = this.harnessCfg;
+    return { anchored: 15, ref: uiRef(TIP_PLAIN, { Name: messageText(String(h?.harnessName ?? ""), "sprites") || DEFAULT_HARNESS,
+      Type: bundleText("sprites", "m.harness", "Harness"), Body: "", Flavor: messageText(String(h?.desc ?? ""), "sprites"), Rarity: "-1" }) };
+  }
+
+  /** LoadoutPanel.k: the perks (a sprite earns them past level 100, which this port does not model). */
+  private async buildPerkPage(page: Component): Promise<Component> {
+    const box = row([], 0);
+    box.layout = { $class: "LayoutConfig$VerticalGroup", policy: { name: "NONE" }, justification: { name: "TOP" }, offAxisPolicy: { name: "STRETCH" }, offAxisJustification: { name: "LEFT" }, gap: 0 };
+    const title = await this.columnTitle(bundleText("projectx", "t.perks", "PERKS"), page);
+    box.children = title ? [title] : [];
+    return box;
+  }
+
+  /** Fills the sprite page: names, notice, sockets' tooltips and the left column. */
   private async fillSprite() {
-    const pane = this.spritePane, h = this.hunger, s = this.skill;
-    if (!pane?.parts.viewport || !h || !s) return;
+    const page = this.pages[2], pane = this.spritePane, h = this.hunger, s = this.skill;
+    if (!page || !pane || !h || !s) return;
     const { def, p } = this.activeSprite();
     if (!def || !p) this.focus = "sprite";
-    const panel = this.focus === "sprite" ? h : s;
-    if (pane.parts.viewport.children[0] !== panel) { panel.constraints = null; pane.parts.viewport.children = [panel]; }
+    const save = this.arsenal.save(), now = Date.now();
     const set = (root: Component, tag: string, text: string) => { const c = root.find(tag); if (c) c.text = text; return c; };
-    const save = this.arsenal.save();
-    if (this.focus === "sprite") {
-      set(h, "type", def ? def.name.toUpperCase() : "NO BATTLE SPRITE");
-      set(h, "tooltip_level", p ? String(p.level).padStart(2, "0") : "00");
-      const bar = h.find("tooltip_heat");
-      if (bar) bar.preferredSize = { width: Math.max(1, Math.round(120 * (p && p.level < SPRITE_MAX ? p.heat / heatToNext(p.level) : p ? 1 : 0))), height: bar.preferredSize?.height ?? -1 };
-      const fav = h.find("favored");
-      if (fav) fav.visible = !!def;
-      if (def) set(h, "favored_name", def.food.map(itemLabel).filter((n, i, a) => a.indexOf(n) === i).slice(0, 2).join(", ") + (def.food.length > 2 ? "..." : ""));
-      const count = this.food ? save.materials[this.food] ?? 0 : 0;
-      // LoadoutPanel.f: the status is the projectx bundle's m.petfood_description (a feeding's
-      // outcome shows until the next change); the button says m.feed_sprite. This port's
-      // sprites need no level-up item, so the client's m.level_up and m.required_description
-      // (a named item to level up with) never apply, and the "required" row stays hidden.
-      set(h, "status", this.spriteMessage || (!def ? "Battle sprites join you through the sprite missions."
-        : bundleText("projectx", "m.petfood_description", "Select any material from your Arsenal to feed your Sprite.")));
-      const feed = h.find("button_feed");
-      if (feed) {
-        feed.enabled = !!def && !!this.food && count > 0 && p!.level < SPRITE_MAX;
-        feed.text = bundleText("projectx", "m.feed_sprite", "FEED SPRITE");
+    // LoadoutPanel.n.Fb: the view names the sprite and its level; no prestige
+    set(page, "label_playername", def ? this.spriteFamily(def) : "");
+    set(page, "label_playerrank", p ? message("sprites", "m.level", p.level + 1) || `Level ${p.level + 1}` : "");
+    const prestige = page.find("label_prestige");
+    if (prestige) prestige.visible = false;
+    // LoadoutPanel.n.Fa: the notice
+    const notice = page.find("notice");
+    this.noticeAction = null;
+    if (notice) {
+      let text = "";
+      if (def && p && readyToLevel(p)) { text = bundleText("projectx", "m.can_level_up", "Ready to level up!"); this.noticeAction = "sprite"; }
+      else if (def && p && freePoints(p) > 0) {
+        text = bundleText("projectx", "m.available_skill_points", "Skill points available!");
+        const i = [0, 1, 2].find(k => k < unlockedSkills(p.level) && !p.ultimates[k] && p.ranks[k].reduce((a, b) => a + b, 0) < 3 * MAX_RANK);
+        this.noticeAction = (i ?? 0) as 0 | 1 | 2;
       }
-      return;
+      notice.text = text;
+      notice.alpha = text ? 1 : 0;
     }
-    const i = this.focus;
+    // the sockets' tooltips
+    const sock = (tag: string, tip: TipSpec | null) => { const c = page.find(tag); if (c) { if (tip) this.tips.set(c, tip); else this.tips.delete(c); } };
+    sock("slot_sprite", def && p ? this.spriteTip(def, p) : null);
+    sock("slot_harness", def && this.harnessCfg ? this.harnessTip() : null);
+    sock("slot_perk", null);
+    for (let i = 0; i < 3; i++) {
+      const unlocked = !!def && !!p && i < unlockedSkills(p.level);
+      const backing = this.socketBacking(page, `slot_attack${i}`);
+      // a locked skill's socket shows the padlock backing (panel_battlesprite_v2's Icon7 to 9)
+      if (backing) backing.alpha = unlocked ? 0 : 1;
+      sock(`slot_attack${i}`, unlocked ? this.skillTip(def!, p!, i) : null);
+    }
+    // the left column
+    const left = page.find("left_cont"), toggle = page.find("toggle_collapseleft");
+    if (toggle) { toggle.visible = !!def; toggle.selected = this.spriteFolded || !def; }
+    if (left) left.visible = !!def && !this.spriteFolded;
+    let panel: Component | null = this.focus === "sprite" ? h : typeof this.focus === "number" ? s : null;
+    if (this.focus === "harness") panel = this.harnessPage ??= await this.buildHarnessPage(page);
+    if (this.focus === "perk") panel = this.perkPage ??= await this.buildPerkPage(page);
+    if (panel && pane.children[0] !== panel) { panel.constraints = null; pane.children = [panel]; }
     if (!def || !p) return;
-    const sk = def.skills[i], label = this.skillLabel(def, p, i), unlocked = i < unlockedSkills(p.level);
+    if (this.focus === "sprite") this.fillHunger(h, def, p, save, now);
+    else if (typeof this.focus === "number") await this.fillSkill(s, def, p, this.focus);
+  }
+
+  /** item/client/a: the sprite socket's tooltip (tooltip_level.dat with its level, heat and form). */
+  private spriteTip(def: SpriteDef, p: SpriteProgress, worn = true): TipSpec {
+    const family = this.spriteFamily(def);
+    const type = worn ? message("item", "m.equipped", family) || `Equipped ${family}` : family;
+    const model = def.models[spriteTier(p.level) - 1];
+    return { anchored: 15, model: model ? uiRef("item/preview/model_pet.dat", { Model: model }) : undefined,
+      ref: uiRef("ui/window/tooltip_level.dat", { Type: type.toUpperCase(), Name: family.toUpperCase(), Flavor: def.desc ? messageText(def.desc, "sprites") : "",
+        Level: String(p.level + 1).padStart(2, "0"), Heat: 16 + Math.trunc(p.heat * 104), Rarity: String(foodTier(p.level)), Equipped: worn ? "True" : "False" }) };
+  }
+
+  /** LoadoutPanel.f.Fb: the feeding panel. */
+  private fillHunger(h: Component, def: SpriteDef, p: SpriteProgress, save: SaveData, now: number) {
+    const set = (tag: string, text: string) => { const c = h.find(tag); if (c) c.text = text; return c; };
+    set("type", this.spriteFamily(def).toUpperCase());
+    set("tooltip_level", String(p.level + 1).padStart(2, "0"));
+    const bar = h.find("tooltip_heat");
+    if (bar) bar.preferredSize = { width: Math.max(1, Math.round(120 * p.heat)), height: bar.preferredSize?.height ?? -1 };
+    // ArsenalPanel.a: the appetite's five pips
+    const pips = Math.floor(appetite(p, now) * 5);
+    for (let k = 0; k < 5; k++) { const pip = h.find(`spacer_pip${k}`); if (pip) pip.visible = k < pips; }
+    const ready = readyToLevel(p), req = requiredItem(def, p), reqName = req ? itemLabel(req) : "";
+    const fav = h.find("favored"), required = h.find("required");
+    if (fav) fav.visible = !ready && p.heat < 1 && !!req;
+    if (required) required.visible = ready && !!req;
+    set("favored_name", reqName);
+    set("required_name", reqName);
+    const feed = h.find("button_feed");
+    const count = this.food ? save.materials[this.food] ?? 0 : 0;
+    const rankOk = rankAllows(save, nextLevelRarity(p));
+    // the status: what went wrong last, else what to do
+    let status = this.spriteMessage;
+    if (!status) {
+      if (ready && !rankOk) {
+        const need = RANK_LIMIT[nextLevelRarity(p)];
+        status = message("projectx", "e.need_higher_rank", need ? `${need[0]}-${need[1]}` : "") || "Must be a higher rank to level up!";
+      } else if (ready && this.food && this.food !== req) status = bundleText("projectx", "e.wrong_level_item", "Must use required item to level up!");
+      else if (!ready && this.food && !canEat(p, now)) status = bundleText("projectx", "e.not_enough_appetite", "Not enough appetite to consume this item.");
+      else if (ready && reqName) status = message("projectx", "m.required_description", reqName) || `Select a ${reqName} to level up.`;
+      else status = bundleText("projectx", "m.petfood_description", "Select any material from your Arsenal to feed your Sprite.");
+    }
+    set("status", status);
+    if (feed) {
+      feed.text = ready ? bundleText("projectx", "m.level_up", "LEVEL UP!") : bundleText("projectx", "m.feed_sprite", "FEED SPRITE");
+      feed.enabled = !!this.food && count > 0 && (ready ? this.food === req && rankOk : p.heat < 1 && canEat(p, now));
+    }
+  }
+
+  /** LoadoutPanel.m.Fb: a skill's page. */
+  private async fillSkill(s: Component, def: SpriteDef, p: SpriteProgress, i: number) {
+    const set = (root: Component, tag: string, text: string) => { const c = root.find(tag); if (c) c.text = text; return c; };
+    const show = (tag: string, on: boolean) => { const c = s.find(tag); if (c) c.visible = on; };
+    const sk = def.skills[i], label = this.skillLabel(def, p, i), ult = !!p.ultimates[i];
+    show("top_divider", !ult);
+    show("label_availableskillpoints", !ult);
+    show("container_skillstats", !ult);
+    show("ult_divider", ult);
+    show("ult_header", ult);
+    show("ult_description", ult);
+    show("status", false);
     set(s, "label_skillname", named(label.name));
     const icon = s.find("spacer_icon");
     if (icon && label.icon?.file) { const st = await this.restyle(icon, { File: label.icon.file }); if (st) icon.styles = icon.styles.map(() => st); }
-    const left = freePoints(p) - this.pending.reduce((a, b) => a + b, 0);
-    set(s, "label_availableskillpoints", unlocked ? `${left} skill point${left === 1 ? "" : "s"} to spend` : `Unlocks at level ${SKILL_LEVELS[i]}`);
+    // BattleSprite.g: the cooldown of what is confirmed, harness included
+    const secs = rechargeOf(def, p, i, this.harnessModifier);
+    set(s, "label_cooldown", message("projectx", "m.pet_skillcooldown", secs) || `Cooldown: ${secs} seconds`);
+    const ultButton = s.find("button_selectultimate");
+    if (ult) {
+      for (const tag of ["button_cancel", "button_confirm"]) show(tag, false);
+      if (ultButton) ultButton.visible = false;
+      set(s, "ult_description", named(label.desc));
+      set(s, "label_description", named(sk?.label.desc ?? ""));
+      return;
+    }
+    set(s, "label_description", named(label.desc));
+    const pendingSum = this.pending.reduce((a, b) => a + b, 0), left = freePoints(p) - pendingSum;
+    set(s, "label_availableskillpoints", message("projectx", "m.pet_skillpoints", left) || `Skill Points: ${left}`);
     for (let j = 0; j < 3; j++) {
       const bar = s.find(`skill${j}`);
       if (!bar) continue;
       const power = sk?.powers[j], rank = p.ranks[i][j], add = this.pending[j];
-      set(bar, "title", `${named(power?.name ?? "") || ["Focus", "Power", "Power"][j]} +${rank + add}`);
+      set(bar, "title", named(power?.name ?? ""));
       const ic = bar.find("spacer_icon");
       if (ic && power?.icon?.file) { const st = await this.restyle(ic, { Icon: power.icon.file }); if (st) ic.styles = ic.styles.map(() => st); }
       for (let k = 1; k <= 3; k++) {
@@ -797,25 +1038,19 @@ export class ArsenalScreen extends GuiScreen {
         pip.alpha = k <= rank + add ? 1 : 0;
       }
       const up = bar.find("button_upgrade");
-      if (up) up.enabled = unlocked && left > 0 && rank + add < MAX_RANK;
+      if (up) up.enabled = rank + add < MAX_RANK && left > 0;
+      // bg: the power's tooltip on the bar and its button (by the mouse, after half a second)
+      const tip: TipSpec = { ref: uiRef(TIP_PLAIN, { Name: named(power?.name ?? ""), Type: bundleText("sprites", "m.skill_power", "Skill Power").toUpperCase(),
+        Body: named(power?.desc ?? ""), Flavor: "", Rarity: "-1" }) };
+      this.tips.set(bar, tip);
+      if (up) this.tips.set(up, tip);
     }
-    const pend = this.pending.some(n => n > 0);
-    for (const tag of ["button_cancel", "button_confirm"]) { const c = s.find(tag); if (c) c.enabled = pend; }
-    const ult = s.find("button_selectultimate");
-    if (ult) {
-      ult.enabled = p.level >= ULTIMATE_LEVELS[i] && !!(sk?.ultimateA || sk?.ultimateB);
-      ult.text = p.level >= ULTIMATE_LEVELS[i] ? "Select Ultimate" : `Ultimate at level ${ULTIMATE_LEVELS[i]}`;
-    }
-    const focus = { ...p, ranks: p.ranks.map((r, k) => k === i ? r.map((v, j) => v + this.pending[j]) : r) };
-    set(s, "label_cooldown", `Recharge: ${rechargeOf(def, focus, i)} seconds`);
-    const powers = (sk?.powers ?? []).map(x => named(x.name)).filter(Boolean);
-    set(s, "label_description", `${named(label.name)}${powers.length ? `: ${powers.join(", ")}` : ""}. Each augment takes up to ${MAX_RANK} points.`);
+    const full = p.ranks[i].reduce((a, b) => a + b, 0) >= 3 * MAX_RANK;
+    for (const tag of ["button_cancel", "button_confirm"]) { const c = s.find(tag); if (c) { c.visible = !full; c.enabled = pendingSum > 0; } }
+    if (ultButton) { ultButton.visible = ultimateReady(p, i) && !!(sk?.ultimateA || sk?.ultimateB); ultButton.enabled = true; }
   }
 
   // ------------------------------------------------------------------ the lists
-
-  /** The tooltip for an owned item: its level and heat, what the level gives, its variants. */
-  private tip(e: ItemEntry, worn: boolean) { return ownedTip(this.arsenal.save(), this.arsenal.data(), this.eco!, e, worn); }
 
   private gearGroups(): ListGroup[] {
     const save = this.arsenal.save(), l = save.loadout;
@@ -860,16 +1095,24 @@ export class ArsenalScreen extends GuiScreen {
     const groups: ListGroup[] = [];
     const owned = outfit.ownedSprites().filter(n => this.defs.has(n));
     if (owned.length) groups.push({ id: "sprites", label: "Battle Sprites", icon: CAT + "icon_battlesprite.png", entries: owned.map(n => {
-      const def = this.defs.get(n)!, p = save.sprites?.sprites[n], lv = p?.level ?? 0, worn = n === active;
-      return { key: `sprite:${n}`, label: n, rarity: lv, icon: def.icons[spriteTier(lv) - 1], look: worn ? "True" : "False",
-        tip: itemTip({ label: n, type: "Battle Sprite", rarity: 0, flavor: `Level ${lv}. ${worn ? "In the field. Click to leave it home." : "Click to take it along."}`, equipped: worn }) };
+      const def = this.defs.get(n)!, p = save.sprites?.sprites[n] ?? newProgress(n), worn = n === active;
+      return { key: `sprite:${n}`, label: this.spriteFamily(def), rarity: foodTier(p.level), icon: def.icons[spriteTier(p.level) - 1], look: worn ? "True" : "False",
+        tip: this.spriteTip(def, p, worn) };
     }) });
+    const { def: active_, p: ap } = this.activeSprite(), req = active_ && ap ? requiredItem(active_, ap) : null;
     const foods = Object.keys(save.materials).filter(n => /^Food\//.test(n) && foodStars(n) > 0 && (save.materials[n] ?? 0) > 0).sort();
-    const fav = this.activeSprite().def?.food ?? [];
+    const fav = active_?.food ?? [];
     if (foods.length) groups.push({ id: "food", label: "Sprite Food", icon: CAT + "icon_sprite.png", entries: foods.map(n => ({
       key: `food:${n}`, label: itemLabel(n), rarity: foodStars(n) - 1, icon: this.itemIcon(n), look: this.food === n ? "True" : "False",
       count: String(save.materials[n]),
-      tip: itemTip({ label: itemLabel(n), type: "Sprite Food", rarity: foodStars(n) - 1, flavor: `${fav.includes(n) ? "Your sprite's favourite. " : ""}Click to feed it to your battle sprite.` }),
+      tip: itemTip({ label: itemLabel(n), type: "Sprite Food", rarity: foodStars(n) - 1, flavor: `${n === req ? "Your sprite's favored item. " : fav.includes(n) ? "Your sprite's favourite. " : ""}Click to put it in the feeding slot.` }),
+    })) });
+    // the evo catalysts a sprite needs to reach levels 15, 50, 90, 95 and 100
+    const catalysts = Object.keys(save.materials).filter(n => /^Rarity\/Evo Catalyst\//.test(n) && (save.materials[n] ?? 0) > 0).sort();
+    if (catalysts.length) groups.push({ id: "catalyst", label: messageText("m.rarity", "item"), icon: CAT + "icon_rarity.png", entries: catalysts.map(n => ({
+      key: `food:${n}`, label: itemLabel(n), rarity: Math.max(0, this.eco?.info(n)?.rarity ?? 0), icon: this.itemIcon(n), look: this.food === n ? "True" : "False",
+      count: String(save.materials[n]),
+      tip: itemTip({ label: itemLabel(n), type: messageText("m.rarity", "item"), rarity: Math.max(0, this.eco?.info(n)?.rarity ?? 0), flavor: "", item: n }),
     })) });
     return groups;
   }
@@ -900,8 +1143,8 @@ export class ArsenalScreen extends GuiScreen {
     };
     this.list.setNotice("");
     this.list.setInfo("ARSENAL", info[mode][0], info[mode][1], save.crowns);
-    // the energy module: the mist tank and Crystal Energy together (src/game/energy.ts)
-    this.list.setEnergy(energyNow(energyOf(save)));
+    // the energy shows in the HUD's energy panel under the docked arsenal (this.energy)
+    this.list.setEnergy(null);
     const groups = mode === "equipment" || mode === "achievements" ? this.gearGroups() : mode === "costume" ? await this.costumeGroups()
       : mode === "sprite" ? this.spriteGroups() : this.optionGroups();
     // LoadoutPanel takes the battle sprite tab away while the knight has no sprite
@@ -911,10 +1154,12 @@ export class ArsenalScreen extends GuiScreen {
     this.list.sorts = mode === "equipment" || mode === "achievements" ? ["natural", "name", "stars", "level"] : [];
     await this.list.setGroups(groups);
     // the status window: names on every page, then each page's sockets
-    for (const page of this.pages) {
+    for (const [i, page] of this.pages.entries()) {
+      // the battle sprite page names the sprite instead (fillSprite)
+      if (i === 2) continue;
       const set = (tag: string, text: string) => { const c = page.find(tag); if (c) c.text = text; };
       set("label_playername", knightName(save));
-      // LoadoutPanel: the mission rank's title with the rank, and the prestige
+      // LoadoutPanel.j: the mission bundle's rank title with the rank ("Vanguard(10-3)"), and the prestige
       const m = save.missions ?? freshProgress();
       set("label_playerrank", `${rankName(m.rank)}(${m.rank}-${m.subrank})`);
       set("label_prestige", m.prestige.toLocaleString("en-US"));
@@ -932,8 +1177,10 @@ export class ArsenalScreen extends GuiScreen {
       const c = st.find(s.tag);
       if (!c) continue;
       const name = this.socketItem(s), e = name ? this.entry(name) : null;
-      if (e) this.tips.set(c, this.tip(e, true));
-      else this.tips.set(c, itemTip({ label: s.label, type: "Empty socket", rarity: 0, flavor: name ? itemLabel(name) : "Pick gear from the arsenal to fill it." }));
+      // LoadoutPanel.e: a worn item's tooltip beside the socket; an empty socket names its slot
+      // (Fm: ItemCodes.bwu's text, "_locked" for a locked one)
+      if (e) this.tips.set(c, { ...ownedTip(save, this.arsenal.data(), this.eco!, e, true, false), anchored: 15 });
+      else this.tips.set(c, { ref: null, text: bundleText("item", s.tip + (s.locked ? "_locked" : ""), `${s.label} Slot${s.locked ? " (Locked)" : ""}`) });
     }
     const app = this.arsenal.outfit().appearance;
     const worn = ACCESSORY_SLOTS.filter(s => app.accessories[s]);
@@ -945,19 +1192,6 @@ export class ArsenalScreen extends GuiScreen {
         .map(a => `${ACCESSORY_GROUPS[a].label}: ${itemLabel(app.accessories[a]!)}`);
       this.tips.set(c, itemTip({ label: name ? itemLabel(name) : s.label, type: name ? s.label : "Empty socket", rarity: 0, equipped: !!name, lines: acc,
         flavor: name ? "Click to take it off." : "Pick a costume from the list to wear it." }));
-    }
-    const { def, p } = this.activeSprite();
-    const spriteSocket = st.find("slot_sprite");
-    if (spriteSocket) this.tips.set(spriteSocket, itemTip({ label: def?.name ?? "Battle Sprite", type: def ? `Level ${p!.level}` : "Empty socket", rarity: 0,
-      flavor: def ? "Click to feed your sprite." : "Pick a battle sprite from the list." }));
-    for (let i = 0; i < 3; i++) {
-      const c = st.find(`slot_attack${i}`);
-      if (!c) continue;
-      const unlocked = !!p && i < unlockedSkills(p.level);
-      const backing = this.socketBacking(this.pages[2] ?? st, `slot_attack${i}`);
-      if (backing) backing.alpha = unlocked ? 0 : 1;
-      this.tips.set(c, itemTip({ label: def && p ? named(this.skillLabel(def, p, i).name) : "Skill", type: "Sprite skill", rarity: 0,
-        flavor: !def ? "No battle sprite." : unlocked ? "Click to see its augments." : `Unlocks at level ${SKILL_LEVELS[i]}.` }));
     }
     await this.fillSprite();
     await this.fillAchievements();
@@ -1010,7 +1244,7 @@ export class ArsenalScreen extends GuiScreen {
     const save = this.arsenal.save(), look = (n: string) => this.eco?.info(n) ?? null;
     const cells = await Promise.all(ACHIEVEMENTS.map(async d => {
       const at = save.achievements?.unlocked[d.type];
-      // secret and retired achievements show once earned
+      // client/a.a.update: hidden (retired) achievements show once earned
       if (d.hidden && !at) return null;
       const state = at ? "1" : "0";
       let cell = this.cheevos.get(d.type);
@@ -1023,8 +1257,10 @@ export class ArsenalScreen extends GuiScreen {
       const prog = at ? null : progressText(save, d.type, look);
       const lines = [at ? `Earned ${new Date(at).toLocaleDateString()}` : prog ? `Progress: ${prog}` : "",
         !at && ONLINE_ONLY.has(d.type) ? "Needs other players or the game's servers" : ""].filter(Boolean);
-      this.tips.set(cell.c, itemTip({ label: messageText(d.nameKey, "projectx"), type: at ? "Achievement" : "Locked achievement", rarity: 0,
-        flavor: messageText(d.descKey, "projectx"), lines }));
+      // client/c: tooltip.dat with the name and description (the type only for hidden ones),
+      // no stars, beside the icon 24 pixels in; the progress lines are this port's
+      this.tips.set(cell.c, { anchored: 24, lines, ref: uiRef(TIP_PLAIN, { Type: d.hidden ? bundleText("projectx", "s.hidden", "Hidden") : "",
+        Name: messageText(d.nameKey, "projectx"), Body: messageText(d.descKey, "projectx"), Flavor: "", Rarity: "-1" }) });
       return { d, c: cell.c };
     }));
     const shown = cells.filter((x): x is NonNullable<typeof x> => !!x);
