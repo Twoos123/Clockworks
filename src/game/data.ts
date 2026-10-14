@@ -152,6 +152,12 @@ export interface MonsterDef {
   hitFx?: any;
   deathFx?: any;
   collisionFlags: number;
+  /**
+   * What it collides with (ActorConfig.Original collisionMask, default 1): an actor is blocked
+   * by another whose flags meet its mask (Actor.collidesWith), so a snipe (flags 4) never
+   * blocks the knight (mask 43).
+   */
+  collisionMask: number;
   /** Handlers such as loot drops. */
   handlers: any[];
 }
@@ -537,6 +543,7 @@ export class GameData {
       hitFx: transient(sprite.hitTransient),
       deathFx: transient(sprite.destructionTransient),
       collisionFlags: m.collisionFlags ?? 8,
+      collisionMask: m.collisionMask ?? 1,
       handlers: m.handlers ?? [],
     };
   }
