@@ -150,7 +150,7 @@ export class ConfigLibrary {
     if (impl?.$class?.endsWith("MaterialConfig$Derived")) {
       return { ...this.resolveUncached(impl.material, fallbackTexture, local, depth + 1), name: ref.name };
     }
-    const technique = (impl?.techniques ?? [])[0];
+    const technique = pickTechnique(impl?.techniques ?? []);
     const enqueuer = technique?.enqueuer;
     // GroupedEnqueuer (TechniqueConfig): its enqueuers go into a group inside its own queue
     // ("Skybox" for the skybox materials), each into that group's queue of its own name;
@@ -283,6 +283,17 @@ export class ConfigLibrary {
 }
 
 /** An enqueuer's priority: a number, or a parameter's string ("-1") once arguments are applied. */
+/**
+ * The technique a material draws with at the default render scheme (Clyde's
+ * MaterialConfig.getTechnique): the first with no scheme. Techniques for another scheme ("Low
+ * Detail", "Medium Detail", "Translucent") are only used when there is no default one; the
+ * crowns' Sphere Overlay material lists its Low Detail technique first, which would drop the
+ * coin's sheen pass.
+ */
+export function pickTechnique(techniques: any[]): any {
+  return techniques.find(t => !t?.scheme) ?? techniques[0];
+}
+
 function enqueuerPriority(e: any): number {
   const n = Number(e?.priority ?? 0);
   return Number.isFinite(n) ? Math.trunc(n) : 0;

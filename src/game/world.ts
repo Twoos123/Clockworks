@@ -9,7 +9,7 @@ import { compose, multiply, readTransform, type Mat4, type Vec3 } from "../math"
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
-import { contactPoint, type CollisionMap } from "./collision";
+import { contactPoint, separationShares, type CollisionMap } from "./collision";
 import { dealt, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
@@ -144,6 +144,9 @@ abstract class Actor {
   undying = false;
   abstract radius: number;
   abstract get team(): Team;
+  /** What it is and what blocks it, for actors meeting each other (collision.ts collidesWith). */
+  abstract get collisionFlags(): number;
+  abstract get collisionMask(): number;
   constructor(public instance: ModelInstance, readonly scale = 1) {}
 
   /** Actor sprites face -y in model space (as the knight's face mesh shows). */
@@ -164,6 +167,9 @@ export interface Loadout { def: WeaponDef; instance: ModelInstance }
 export class Knight extends Actor {
   get team(): Team { return "knight"; }
   radius = KNIGHT_RADIUS;
+  // Character/PC/Default: flags 4 (nothing while dead, as the logic's knight entity), mask 43
+  get collisionFlags() { return this.dead ? 0 : 4; }
+  get collisionMask() { return KNIGHT_MASK; }
   /** The client's control rules: the activity, the combo's chain count, the dodge cooldown. */
   control = new KnightControl();
   /** The action button as the controller last saw it, and when it last changed (ms). */
@@ -210,6 +216,8 @@ export class Monster extends Actor {
   /** Allies in a cage stand still, untouchable, until released. */
   captive = false;
   get team(): Team { return this.ally ? "knight" : "monster"; }
+  get collisionFlags() { return this.def.collisionFlags; }
+  get collisionMask() { return this.def.collisionMask; }
   /** Monsters without attacks (traders, wandering townsfolk) are passive and untouchable. */
   get passive() { return this.captive || this.def.attacks.length === 0; }
   /** The monster's logic actor (tags such as its wave, handlers). */
@@ -385,7 +393,7 @@ export class World implements LogicHost {
   /** The knight talked to a townsperson: its actor name, the StartConversation action and its entity. */
   onConversation: ((actor: string, action: any, source: Entity) => void) | null = null;
   /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
-  onPortal: ((tags: string[], sceneId: number, portal: string, more: { area: string; townName?: string; sceneInternalId?: string }) => void) | null = null;
+  onPortal: ((tags: string[], sceneId: number, portal: string, more: { area: string; townName?: string; sceneInternalId?: string; floor?: number; action?: string }) => void) | null = null;
   /**
    * The level's scripted music actors alive now (spawned by its logic, src/game/musicstack.ts),
    * and a listener told when one spawns or is destroyed (the music player; the logic starts
@@ -606,6 +614,8 @@ export class World implements LogicHost {
 
   private async preloadAttacks(attacks: (AttackDef | null | undefined)[]) {
     const list = attacks.filter((a): a is AttackDef => !!a);
+    // the swing trails their fire animations spawn load with them, so the first swing shows one
+    for (const a of list) if (a.swing) this.warmEffect(swingModel(a.swing));
     await Promise.all([
       this.preload(...list.flatMap(a => [a.start, a.fire, a.end])),
       ...list.flatMap(a => a.fires).filter(f => f.spawn).map(f => this.projectileDef(f.spawn!.actor)),
@@ -940,15 +950,29 @@ export class World implements LogicHost {
     }
   }
 
+  /** Whether an action freezes, puts to sleep or stuns its activator (an ApplyStatus with no target). */
+  disablesSelf(action: any, depth = 0): boolean {
+    if (!action || depth > 6) return false;
+    const k = String(action.$class ?? "").split("$").pop();
+    if (k === "Compound") return ((action.actions ?? []) as any[]).some(a => this.disablesSelf(a, depth + 1));
+    if (k !== "ApplyStatus" || action.target || !this.conditions) return false;
+    const kind = this.conditions.get(action.condition ?? action.statusCondition, this.ctx(0))?.def.kind;
+    return kind === "Freeze" || kind === "Sleep" || kind === "Stun";
+  }
+
   /** Spiral Knights' own actions (DungeonActionConfig and friends). */
   gameAction(cfg: any, source: Entity, activator: Entity | null, logic: Logic): boolean | undefined {
     const k = String(cfg.$class ?? "").split("$").pop();
     if (cfg.$condition) return true;
     switch (k) {
       case "ScenePortal":
+      // (the guild training hall's way back to the hall, a training floor's way out: exits too)
+      case "MoveToGuildhall": case "LeaveParty":
+        if (k !== "ScenePortal" && !/^Portals\//.test(source.name)) return undefined;
         // a town exit the knight walked into: the game decides where it leads
         if (activator === this.knightEntity && !this.knight.dead) this.onPortal?.(source.tags ?? [], Number(cfg.sceneId), String(cfg.portal?.tag ?? ""),
-          { area: source.name, townName: cfg.townName, sceneInternalId: cfg.sceneInternalId });
+          { area: source.name, townName: cfg.townName, sceneInternalId: cfg.sceneInternalId,
+            ...(typeof cfg.floor === "number" ? { floor: cfg.floor } : {}), ...(k !== "ScenePortal" ? { action: k } : {}) });
         return true;
       case "SetEquipPolicy": {
         // an Arsenal Station's zone: gear can change while the knight stands on its pad
@@ -1310,6 +1334,10 @@ export class World implements LogicHost {
     this.props.push(p);
     this.updatePropCollision(p);
     const model = cfg.sprite?.model ?? cfg.model;
+    // what the prop's sprite spawns as it is struck, broken or picked up loads with it
+    const sp = cfg.sprite;
+    for (const fx of [sp?.hitTransient, sp?.destructionTransient, sp?.pickupTransient]) this.warmEffect(fx);
+    for (const m of p.stateModels) if (m) void this.loader.loadRef(m).catch(() => null);
     if (model) void this.loader.loadRef(model).catch(() => null).then(async m => {
       // models the install lacks (the prism puzzle's) get stand-ins
       const alt = m ? null : standInModel(p);
@@ -1356,13 +1384,20 @@ export class World implements LogicHost {
     const st = p.states;
     let anim: any = null, loop = true;
     if (p.obj && st.length) {
-      // dungeon objects pick their state (objects.ts)
-      anim = st[p.obj.state ?? 0] ?? null;
+      // dungeon objects pick their state (objects.ts), by the config's state index
+      anim = p.stateAnims[p.obj.state ?? 0] ?? null;
       loop = p.obj.loop ?? true;
     } else if (p.kind === "door") {
       anim = changed ? st[p.open ? 2 : 0] : st[p.open ? 3 : 1];
       loop = !changed;
     } else if (p.kind === "switch") anim = st[p.pressed ? 1 : 0];
+    else if (p.kind === "block" && st.length) {
+      // a stateful block (StatefulBlock: mineral nodes) plays its state's animation once as
+      // it enters the state, holding its last frame
+      const all = p.stateAnims;
+      anim = all[Math.min(all.length - 1, blockState(p))] ?? null;
+      loop = false;
+    }
     else if (p.kind === "trap") {
       anim = st[p.trapState] ?? null;
       loop = false;
@@ -1526,13 +1561,84 @@ export class World implements LogicHost {
   /** A hit on a prop from a knight (by 2) or a hazard, bullet or blast (by 1). */
   private damageProp(p: Prop, amount: number, by = 2) {
     if (p.entity.destroyed) return;
-    if (this.objects.hit(p, by)) return;
+    // a block's sprite answers each hit it takes (the Block's hit time) with its hit transient
+    const struck = p.struck && this.objects.accepts(p, by);
+    if (this.objects.hit(p, by)) { if (struck) this.propHitFx(p); return; }
     if (!p.breakable) return;
     this.logic.damaged(p.entity, this.knightEntity);
     // each hit runs the block's damage action (treasure boxes spill loot as they are struck)
     if (p.cfg.damageAction) this.logic.execute(p.cfg.damageAction, p.entity, this.knightEntity);
     p.health -= p.hits ? 1 : amount;
+    this.propHitFx(p);
     if (p.health <= 0) this.logic.destroy(p.entity, this.knightEntity);
+    else this.showBlockState(p);
+  }
+
+  /**
+   * The block sprite's answer to a hit (DungeonActorSpriteConfig.Block, client BlockSprite):
+   * its hit transient (fx_gethit_block.dat's dust, a mineral's chime, a stone's crack sound)
+   * at the block, unscaled.
+   */
+  private propHitFx(p: Prop) {
+    const fx = p.cfg.sprite?.hitTransient;
+    if (fx?.name) void this.spawnEffect(fx, p.matrix(), 2);
+  }
+
+  /**
+   * A stateful block entering the state for the hits it has taken: a StatefulBlock plays the
+   * state's animation (mineral nodes shrink and shake), a StatefulModelBlock takes the state's
+   * model (Block/Stone's cracked meshes).
+   */
+  private showBlockState(p: Prop) {
+    const s = blockState(p);
+    if (s === p.shownState) return;
+    p.shownState = s;
+    const models = p.stateModels;
+    if (models.length) {
+      const ref = models[Math.min(models.length - 1, s)];
+      if (ref) void this.setPropModel(p, ref);
+      return;
+    }
+    if (p.stateAnims.some(Boolean)) this.showPropState(p, true);
+  }
+
+  /** Replaces a prop's model (a state model), keeping the old one until the new one is ready. */
+  private async setPropModel(p: Prop, ref: any) {
+    const m = await this.loader.loadRef(ref).catch(() => null);
+    if (!m || !this.props.includes(p)) return;
+    const inst = await this.instantiate(m);
+    if (this.props.includes(p)) p.instance = inst;
+  }
+
+  /**
+   * Loads an effect a prop will spawn (its hit and destruction transients) ahead, with what
+   * its script spawns, and makes an instance once so its textures and meshes are ready: the
+   * first block broken in a level shows its break at once rather than frames late.
+   */
+  private warmed = new Set<string>();
+  private warmEffect(ref: any, depth = 0) {
+    if (!ref?.name || depth > 4) return;
+    const key = clipKey(ref);
+    if (this.warmed.has(key)) return;
+    this.warmed.add(key);
+    void this.loader.loadRef(ref).catch(() => null).then(m => {
+      if (!m) return;
+      for (const r of spawnedModels(m)) this.warmEffect(r, depth + 1);
+      if (!m.script) return this.renderer.instantiate(m);
+    }).catch(() => {});
+  }
+
+  /**
+   * Takes a prop off the field without its destruction (no loot, no shutdown actions): a
+   * block that vanishes (the Block's VANISHED flag) fades out with particle/fx_block_fade.dat
+   * instead of breaking.
+   */
+  vanishProp(p: Prop, fade = p.kind === "block") {
+    if (p.entity.destroyed) return;
+    this.logic.vanish(p.entity);
+    const model = p.cfg.sprite?.model;
+    if (fade && model) void this.spawnEffect(argRef("particle/fx_block_fade.dat", [["Model", model]]), p.matrix(), 2);
+    this.removeProp(p, false);
   }
 
   /**
@@ -1586,14 +1692,33 @@ export class World implements LogicHost {
           }
           break;
         }
-        case "pickup":
-          if (!k.dead && touching(p)) {
+        case "pickup": {
+          if (k.dead) break;
+          // a vacuum pickup (crowns, hearts, heat: DungeonActorConfig.Pickup vacuumSpeed) is
+          // activated when the knight comes within its shape grown by vacuumExpansion, then
+          // flies to the knight at vacuumSpeed and is taken on reaching it, or after 500 ms
+          // (client PickupSprite)
+          const vs = Number(p.cfg.vacuumSpeed ?? 0);
+          const d = Math.hypot(k.x - p.x, k.y - p.y);
+          if (p.vacuum === null && vs > 0 && d <= (p.cfg.shape?.radius ?? 0.4) + Number(p.cfg.vacuumExpansion ?? 0) + KNIGHT_RADIUS) p.vacuum = 0;
+          let take = touching(p);
+          if (p.vacuum !== null && !take) {
+            p.vacuum += dt;
+            const step = vs * dt;
+            if (d > step && p.vacuum < 0.5) {
+              p.entity.x += ((k.x - p.x) / d) * step;
+              p.entity.y += ((k.y - p.y) / d) * step;
+              p.z += (Math.max(this.collision.groundZ(p.x, p.y), k.z) - p.z) * Math.min(1, dt * 10);
+            } else take = true;
+          }
+          if (take) {
             this.collect(p);
             const fx = p.cfg.sprite?.pickupTransient;
             if (fx?.name) this.spawnEffect(fx, p.matrix(), 2);
             this.logic.destroy(p.entity, ke);
           }
           break;
+        }
         case "lift":
           if (p.carried) {
             p.entity.x = k.x; p.entity.y = k.y; p.z = k.z + 1.9;
@@ -1999,8 +2124,8 @@ export class World implements LogicHost {
     const held = input.attackHeld || input.attackDown;
     if (held !== k.attackFlag) { k.attackFlag = held; k.attackChanged = now; }
     else if (input.attackDown) k.attackChanged = now;
-    // safe places (towns, the Rescue Camp): no shield and no shield bash, as there are no weapons
-    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield && !this.safe, bash: !!input.bash && !this.safe, dodge: !!input.dash };
+    // safe places (towns, the Rescue Camp): only walking and clicking — no shield, bash or dash
+    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield && !this.safe, bash: !!input.bash && !this.safe, dodge: !!input.dash && !this.safe };
     const status: ControlStatus = {
       move: true, rotate: true, attack: true,
       defend: !!k.shield && k.shieldBroken <= 0,
@@ -2354,10 +2479,10 @@ export class World implements LogicHost {
       const charged = at.def === k.weapon?.chargedAttack;
       if (!(charged && this.weaponAnim(k, "ks_charge_attack"))) this.weaponAnim(k, "ks_attack");
     }
-    if (at.def.swing) {
-      const ref = at.def.swing.$class?.endsWith("SpawnTransient") ? at.def.swing.model : at.def.swing;
-      this.spawnEffect(ref, a.matrix(), 0.7, a);
-    }
+    // the swing trail is the fire animation's own frame action (its Swing argument: a
+    // SpawnTransient at the knight's root, raised to the blade's height and turned with the
+    // swing), spawned as the clip reaches it (runEvents); spawning the Swing again here put a
+    // second, untransformed copy on the floor at the knight's feet
   }
 
   /**
@@ -2377,10 +2502,18 @@ export class World implements LogicHost {
     const imp = at.def.impulse, d = at.def;
     if (imp && !at.lunged && at.total * 1000 >= imp.delay) {
       at.lunged = true;
-      const c = Math.cos(a.heading), sn = Math.sin(a.heading);
-      const dur = imp.duration / 1000 / (imp.speedModified ? Math.max(0.05, this.statusSpeed(a)) : 1);
-      a.lunge = { dx: imp.forward * c - imp.side * sn, dy: imp.forward * sn + imp.side * c, t: 0, dur: Math.max(0.001, dur) };
+      const knight = a === this.knight;
+      // the knight's charged attack (the advancer's charge-release activity) always stretches
+      // its impulse with the status speed; a combo swing only when it is speed-modified
+      const charged = knight && at.def === this.knight.weapon?.chargedAttack;
+      const l = attackImpulse(imp, a.heading, imp.speedModified || charged ? this.statusSpeed(a) : 1);
+      a.lunge = l;
+      // the knight's swing is the client's Impulse on the Dungeoneer (DungeonAdvancer attack
+      // activity): it merges with a knockback under way and is moved by the advancer, walls
+      // stopping it; the lunge only times its contact hits
+      if (knight) this.addImpulse(a, l.dx, l.dy, l.dur);
     }
+    if (a === this.knight && a.lunge.t < a.lunge.dur) a.lunge.t += dt / Math.max(1e-6, this.attackRate(a));
     if (d.contact && a.lunge.t < a.lunge.dur) this.contactHits(a, at);
     if (at.phase === "start") {
       if (at.t * 1000 >= d.land / d.startSpeed) this.enterFire(a);
@@ -3490,7 +3623,7 @@ export class World implements LogicHost {
     const info: MonsterInfo = {
       name, attacks: def.slots.map(a => a?.name ?? ""), speed: def.speed, targetedSpeed: def.targetedSpeed,
       melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a ? Math.max(0, this.reach(a) - m.radius) : 0)),
-      script, args: behaviorArgs(m.ref ?? { name }, lookup),
+      script, args: behaviorArgs(m.ref ?? { name }, lookup), radius: m.radius,
     };
     let cfg: Behavior = monsterBehavior(info);
     // allies (freed companions, energy turrets) fight monsters near the knight, else follow it
@@ -3626,7 +3759,11 @@ export class World implements LogicHost {
     if (act) this.logic.execute(act, at, m.entity ?? at);
   }
 
-  /** Keeps actors from overlapping each other. */
+  /**
+   * Keeps actors from overlapping each other as their collision bits say (collision.ts
+   * separationShares): the knight walks through townsfolk's snipes (flags 4, outside its mask
+   * 43), and they, standing idle, are not shoved aside.
+   */
   private separate() {
     // stationary monsters (turrets) are not pushed around
     const actors: Actor[] = [this.knight, ...this.monsters.filter(m => m.state !== "dying" && m.def.targetedSpeed > 0)];
@@ -3635,9 +3772,12 @@ export class World implements LogicHost {
         const a = actors[i], b = actors[j];
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = a.radius + b.radius;
         if (d >= min || d < 1e-4) continue;
-        const push = (min - d) / 2, nx = dx / d, ny = dy / d;
-        if (!this.collision.collides(a.x - nx * push, a.y - ny * push, a.radius, MONSTER_MASK)) { a.x -= nx * push; a.y -= ny * push; }
-        if (!this.collision.collides(b.x + nx * push, b.y + ny * push, b.radius, MONSTER_MASK)) { b.x += nx * push; b.y += ny * push; }
+        // townsfolk (passive monsters) move only as their wander takes them
+        const moves = (x: Actor) => !(x instanceof Monster && x.passive);
+        const [sa, sb] = separationShares(a, b, moves(a), moves(b));
+        const pa = (min - d) * sa, pb = (min - d) * sb, nx = dx / d, ny = dy / d;
+        if (pa > 0 && !this.collision.collides(a.x - nx * pa, a.y - ny * pa, a.radius, MONSTER_MASK)) { a.x -= nx * pa; a.y -= ny * pa; }
+        if (pb > 0 && !this.collision.collides(b.x + nx * pb, b.y + ny * pb, b.radius, MONSTER_MASK)) { b.x += nx * pb; b.y += ny * pb; }
       }
     }
   }
@@ -3824,11 +3964,55 @@ function clipKey(p: string | any): string {
 
 export type { LoadedModel, Vec3 };
 
+/**
+ * A stateful block's sprite state: the hits it has taken (Block/Stone and the mineral nodes
+ * enter states 1 and 2 on their first two hits and break on the third).
+ */
+export function blockState(p: { hits: boolean; health: number; maxHealth: number }): number {
+  if (p.maxHealth <= 0) return 0;
+  return p.hits ? Math.max(0, p.maxHealth - p.health) : Math.max(0, Math.floor((1 - p.health / p.maxHealth) * 3));
+}
+
+/**
+ * The models a loaded effect spawns as it plays: its script's SpawnTransient actions (inside
+ * Compound, Random and Conditional actions too), its attachments' and its particle layers'.
+ */
+export function spawnedModels(m: LoadedModel, depth = 0): any[] {
+  const out: any[] = [];
+  if (depth > 4) return out;
+  const walk = (a: any, d: number) => {
+    if (!a || d > 6) return;
+    const k = String(a.$class ?? "").split("$").pop();
+    if (k === "SpawnTransient" && a.model?.name) out.push(a.model);
+    for (const x of a.actions ?? []) walk(x?.action ?? x, d + 1);
+    if (a.defaultAction) walk(a.defaultAction, d + 1);
+  };
+  for (const t of m.script?.actions ?? []) walk(t.action, 0);
+  for (const a of m.attachments) out.push(...spawnedModels(a.model, depth + 1));
+  return out;
+}
+
+/** The model of an attack's Swing argument (a model reference, or a SpawnTransient action). */
+export function swingModel(swing: any): any {
+  return String(swing?.$class ?? "").endsWith("SpawnTransient") ? swing.model : swing;
+}
+
 /** Hits a block takes to break, by its config name (wiki: Exploration, Mineral). */
 export function blockHits(name: string): number {
   if (/Block\/Stone|Mineral|Gathering|Anti-vehicle Hedgehog|Ice Barrier/i.test(name)) return 3;
   if (/Empty Rocket/i.test(name)) return 2;
   return 1;
+}
+
+/**
+ * The movement an attack gives its attacker (AttackConfig impulseReceived, the client's
+ * ItemImpulse): its translation turned by the attacker's facing (x forward, y to the left),
+ * over its duration in seconds, divided by the status speed when that stretches it.
+ */
+export function attackImpulse(imp: NonNullable<AttackDef["impulse"]>, heading: number, speed = 1): { dx: number; dy: number; t: number; dur: number } {
+  const c = Math.cos(heading), s = Math.sin(heading);
+  const dur = imp.duration / 1000 / Math.max(0.05, speed);
+  return { dx: imp.forward * c - imp.side * s, dy: imp.forward * s + imp.side * c, t: 0, dur: Math.max(0.001, dur) };
 }
 
 /** A knockback as distance, duration and level (a bare number is a distance over 250 ms). */

@@ -313,6 +313,21 @@ function boundsOf(b: any): LoadedModel["bounds"] {
 
 const EDITOR_LIGHTS = /^editor\/marker\/(point|directional)light\/(model|parts\/influencer_pointlight|influencer_directionallight)\.dat$/;
 /** Editor-only helpers (spawn markers, gizmos) the game never draws; light markers are real lights. */
+/** The game camera's distance from what it looks at is within this many units. */
+export const CAMERA_NEAR = 15;
+
+/**
+ * A ConditionalConfig case that holds while the camera is near: `distance < d` (a FloatLess of
+ * the "distance" reference) with d at least the camera's distance.
+ */
+export function nearCase(cond: any): boolean {
+  if (!String(cond?.$class ?? "").endsWith("$FloatLess")) return false;
+  const a = cond.firstOperand, b = cond.secondOperand;
+  if (!String(a?.$class ?? "").endsWith("$Reference") || a.name !== "distance") return false;
+  const v = String(b?.$class ?? "").endsWith("$Constant") ? b.value ?? 0 : null;
+  return typeof v === "number" && v >= CAMERA_NEAR;
+}
+
 export const editorOnly = (name: string) => name.startsWith("editor/") && !EDITOR_LIGHTS.test(name);
 
 /** What a ComponentBillboardConfig shows: an interface component, its styles and bundle. */
@@ -504,6 +519,19 @@ export class ModelLoader {
 
     // Conditional models choose a case from runtime expressions; show the default case
     if (impl.$class.endsWith("ConditionalConfig")) {
+      // a level-of-detail switch on the distance to the camera (model/conditional/distance.dat:
+      // its near case below a distance): the game's camera sits closer than the item models'
+      // 20 to 25 units, so dropped crowns and items show their detailed models, not the far
+      // stand-ins (a flat inventory icon for a crown)
+      const near = (impl.cases ?? []).find((c: any) => nearCase(c?.condition));
+      if (near) {
+        const nm = await this.loadRef(near.model, depth, chain);
+        if (nm) {
+          model.attachments.push({ node: "", transform: readTransform(near.transform), model: nm });
+          model.animations = { ...nm.animations };
+          return model;
+        }
+      }
       const m = await this.loadRef(impl.defaultModel, depth, chain);
       if (m) {
         model.attachments.push({ node: "", transform: readTransform(impl.defaultTransform), model: m });
