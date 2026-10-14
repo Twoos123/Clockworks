@@ -6,6 +6,7 @@
 
 import { CONFIG_REF } from "../config/params";
 import { buildInterface, dispatch, pack, render, resetInput, type Component, type GuiContext, type RenderHooks } from "./gui";
+import { text } from "../i18n";
 
 export interface ReviveActions {
   sparks(): number;
@@ -100,7 +101,7 @@ export class ReviveScreen {
     const set = (tag: string, text: string) => { const c = ui.find(tag); if (c) c.text = text; };
     set("spark_count", String(this.actions.sparks()));
     set("spark_cost", String(this.actions.price()));
-    set("description", this.mode === "Use" ? "Use a Spark of Life to get back up." : `No sparks left. Buy one for ${this.actions.price()} crowns (you have ${this.actions.crowns()}).`);
+    set("description", this.mode === "Use" ? text("dungeon", "m.revive_desc", "Use a Spark of Life to regain full health and perform an ENERGY BLAST!") : `No sparks left. Buy one for ${this.actions.price()} crowns (you have ${this.actions.crowns()}).`);
     const ready = performance.now() - this.openedAt >= 1200;
     const use = ui.find("use_spark");
     if (use) use.enabled = ready && this.actions.sparks() > 0;

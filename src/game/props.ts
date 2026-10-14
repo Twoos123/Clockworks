@@ -96,6 +96,8 @@ export class Prop {
   trapCycle = "A";
   trapInterval = 1;
   trapOff = false;
+  /** The actor reference's arguments (a Shadow Lair elevator's "Push Gate"). */
+  args: Record<string, unknown> = {};
   constructor(readonly kind: PropKind, readonly entity: Entity, readonly cfg: any) {}
 
   get x() { return this.entity.x; }

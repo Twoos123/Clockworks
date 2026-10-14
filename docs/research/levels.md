@@ -193,11 +193,11 @@ arcade sets'.
 - **9-3** The King of Ashes: the Firestorm Citadel, then The Path is Sealed.
 - **10-1** Breaking in the Recruits: Operation Greenhorn, The Underworks, The Overworks.
   Crimson Chaos: Frost Chamber, The Frozen Compound, Complex 357. It Came From Below: Haunted
-  Halls, Into the Maw, The Path is Revealed (its key is `..._camefrombelow`; the wiki's A
-  Descent into Darkness is the Unknown Passage's subtitle).
+  Halls, Into the Maw, A Descent into Darkness (the Unknown Passage's subtitle, so taken as the
+  Shadow Lairs' `ultimate_swarm_trap`).
 - **10-2** Shadowplay: Greenstone Bridge, Overgrown Court, Throne Room (Firestorm Citadel keys of
-  their own). Dreams and Nightmares: A Step Beyond, Descent into Darkness, Refuge (into the
-  Core). [30] The game's text also has a Core level "Stormchasing" that nobody has cached.
+  their own). Dreams and Nightmares: The Path is Revealed (`terminal_core_camefrombelow`), A Step
+  Beyond twice, Descent into Darkness, Refuge (into the Core). [30] The game's text also has a Core level "Stormchasing" that nobody has cached.
 - **Hall of Heroes** missions (4-1, 5-2, 6-2, 8-2, 9-4) play in Haven's Hall of Heroes, one level
   per star (`hall_of_heroes_star1` to `5`: Becoming a Soldier, The Knight Elite, The Defenders,
   The Champions, The Vanguard; star 0 is the hall itself). Pairing the stars with the ranks in
@@ -211,6 +211,19 @@ levels of their own. The exchange missions have no levels at all.
 3-2 The Pioneers. It has three tiers (rank 1, 4 and 6 in the data) and six floors: Storming the
 Walls, Silence the Guns, Flank the Frontlines, Clear the Gatehouse, Engines of War (Warmaster
 Seerus) and Aftermath.
+
+## How missions play them
+
+`src/game/missionfloors.ts` keeps each mission's floors in order (names and scene keys only) and
+the first floor's depth from the wiki's rank mission list (danger and event missions: by rank).
+`missionRun` (src/game/missions.ts) plays them one depth each after the lobby: the archived level
+for each key (a fixed revision or a captured instance), else a floor generated in the style and
+status its key names (`floorStyle`). Shadow Lairs (`lairRun`) are reached from the depth-23
+terminal's `Dynamic/Elevator/Shadow Lair` elevators by their "Push Gate" (`sl_wildwoods`,
+`sl_royaljelly`, `sl_munitions`, `sl_firestorm`); the terminal gives them "Logical Floor" 26, which
+scales every lair floor, and the boss directors take up the Ultimate actors the `_ultimate` levels
+spawn (two Rabid Snarbolaxes, the Ice Queen's freeze polyps and minis, Twins/Ultimate,
+Vanaduke/Ultimate).
 
 ## Seasonal and event levels
 

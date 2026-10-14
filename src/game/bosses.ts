@@ -121,7 +121,7 @@ export function bossArena(key: BossKey, sources: { id: string; root: any }[], se
   return root;
 }
 
-const TWIN_ACTOR = /^Character\/NPC\/Monster\/Boss\/Roarmulus Twins\/(West|East)( \(\d\))?$/;
+const TWIN_ACTOR = /^Character\/NPC\/Monster\/Boss\/Roarmulus Twins\/(?:Ultimate\/)?(West|East)( \(\d\))?$/;
 
 /** The game's own factory hall: the twins' lane markers (west_top, east_middle...). */
 function realTwinGeometry(w: World): ReturnType<typeof twinGeometry> | null {
@@ -190,7 +190,11 @@ export abstract class BossFight implements BossDirector {
    * boss on and opens the way out (its platforms, triggers and Actor Removed handlers); the
    * director then takes up the boss the level spawned and runs only what is server code.
    */
-  constructor(readonly key: BossKey, protected readonly w: World, readonly plan: ArenaPlan, readonly real = false) {
+  /**
+   * `ultimate`: the boss's Shadow Lair form, as the "_ultimate" levels spawn it: the Royal Jelly's
+   * and the Twins' Ultimate configs, Darkfire Vanaduke (Vanaduke/Ultimate), two Rabid (Poison) Snarbolaxes.
+   */
+  constructor(readonly key: BossKey, protected readonly w: World, readonly plan: ArenaPlan, readonly real = false, readonly ultimate = false) {
     this.arena = (real ? realArena(key, w) : null) ?? plan.arena;
   }
 
@@ -292,9 +296,11 @@ const BOSS_NAMES: Record<BossKey, string> = { jelly: "Royal Jelly", snarbolax: "
 // ------------------------------------------------------------------ Royal Jelly
 
 const RJ = BOSS + "Royal Jelly (v2)/";
-const RJ_STAGE = /^Character\/NPC\/Monster\/Boss\/Royal Jelly \(v2\)\/Royal Jelly \(Stage (\d)\)$/;
+const RJ_STAGE = /^Character\/NPC\/Monster\/Boss\/Royal Jelly \(v2\)\/(?:Ultimate\/)?Royal Jelly \(Stage (\d)\)$/;
 const POLYP = RJ + "Parts/Royal Polyp";
 const MINI = BOSS + "Royal Jelly/Parts/Royal Mini/Royal Mini 1";
+/** The Ice Queen's (the Shadow Lair's) minis and polyps are the freeze ones. */
+const MINI_ICE = BOSS + "Royal Jelly/Parts/Royal Mini/Royal Mini Ice";
 const CUBE = "Character/NPC/Monster/Slime/Jelly Cube/Jelly Cube 1";
 /** Per stage: polyps at its start ("Polyp Startup Count"), heavy minion interval (ms), polyps respawn. */
 const RJ_STAGES: Record<number, { polyps: number; heavy: number; respawn: boolean; health: number }> = {
@@ -333,7 +339,7 @@ export class JellyFight extends BossFight {
       const ang = (i / 8) * Math.PI * 2 + Math.PI / 8;
       this.polypSpots.push([this.cx + Math.cos(ang) * (a.w / 2 - 2.5), this.cy + Math.sin(ang) * (a.h / 2 - 2.5)]);
     }
-    this.jelly = this.spawn(RJ + "Royal Jelly (Stage 1)", this.cx, this.cy + 1, -Math.PI / 2, [["Wave Tag", "boss"]]);
+    this.jelly = this.spawn(RJ + (this.ultimate ? "Ultimate/" : "") + "Royal Jelly (Stage 1)", this.cx, this.cy + 1, -Math.PI / 2, [["Wave Tag", "boss"]]);
     // the first three Jelly Cubes come with him (the only ones that drop loot)
     for (let i = 0; i < 3; i++) this.spawn(CUBE, this.cx - 3 + i * 3, this.cy - 3, -Math.PI / 2);
     this.w.say(this.cx, this.cy, "The Royal Jelly!", "#d79bff");
@@ -389,7 +395,7 @@ export class JellyFight extends BossFight {
       for (const p of this.actors(/Royal Polyp$/)) {
         if (minis.length >= 12) break;
         const pm = mon(p);
-        if (pm) { this.spawn(MINI, pm.x + (Math.random() - 0.5), pm.y + (Math.random() - 0.5), Math.atan2(m.y - pm.y, m.x - pm.x)); minis.push(pm); }
+        if (pm) { this.spawn(this.ultimate ? MINI_ICE : MINI, pm.x + (Math.random() - 0.5), pm.y + (Math.random() - 0.5), Math.atan2(m.y - pm.y, m.x - pm.x)); minis.push(pm); }
       }
     }
     // absorb: minis that touch the Jelly are eaten and heal it (Monster/Boss/Royal Jelly/Absorb)
@@ -428,7 +434,7 @@ export class JellyFight extends BossFight {
     const used = this.actors(/Royal Polyp$/).map(e => [e.x, e.y]);
     const free = this.polypSpots.filter(([x, y]) => !used.some(([ux, uy]) => Math.hypot(ux - x, uy - y) < 1));
     const [x, y] = free[Math.floor(Math.random() * free.length)] ?? this.randomPoint(3);
-    this.spawn(POLYP, x, y, Math.atan2(this.cy - y, this.cx - x), [["Variant", "Normal"], ["Wave Tag", "royal_minion"]]);
+    this.spawn(POLYP, x, y, Math.atan2(this.cy - y, this.cx - x), [["Variant", this.ultimate ? "Ice" : "Normal"], ["Wave Tag", "royal_minion"]]);
   }
 
   damage(m: Monster, dmg: number): number {
@@ -458,28 +464,40 @@ const SNARB_STUN = 8;
 /** How close it must be to the bell for the ring to stun it. */
 const BELL_RANGE = 4.5;
 
+/** One Snarbolax of the fight (the Shadow Lair has two Rabid ones). */
+interface Snarb { e: Entity; stunned: number; stunDamage: number; burrow: number; looks: { normal: any; invulnerable: any } | null; seen: boolean }
+
 export class SnarbolaxFight extends BossFight {
-  private snarb: Entity | null = null;
-  private stunned = 0;
-  private stunDamage = 0;
-  private looks: { normal: any; invulnerable: any } | null = null;
-  private burrow = 0;
+  private snarbs: Snarb[] = [];
   stuns = 0;
+  /** The first Snarbolax (tests and the HUD). */
+  get snarb(): Entity | null { return this.snarbs[0]?.e ?? null; }
+  /** Its config's variant: the Shadow Lair's are Rabid Snarbolaxes ("Poison"). */
+  private get variant() { return this.ultimate ? "Poison" : "Normal"; }
 
   /** The game's own lair: its platform's Repeat Action activates the Snarbolax's spawn table. */
   protected ready() { return this.actors(SNARB_ACTOR).length > 0; }
 
   protected begin() {
     if (this.real) {
-      this.snarb = this.actors(SNARB_ACTOR)[0] ?? null;
+      this.adopt();
       this.stage = "invulnerable";
       this.w.say(this.cx, this.cy, "The Snarbolax!", "#9fd27b");
       return;
     }
-    const [x, y] = this.corner();
-    this.snarb = this.spawn(SNARB, x, y, Math.atan2(this.cy - y, this.cx - x), [["Variant", "Normal"], ["Warp", "A"], ["Wave Tag", "boss"]]);
+    // the Shadow Lair's lair: two Rabid Snarbolaxes
+    for (let i = 0; i < (this.ultimate ? 2 : 1); i++) {
+      const [x, y] = this.corner();
+      const e = this.spawn(SNARB, x, y, Math.atan2(this.cy - y, this.cx - x), [["Variant", this.variant], ["Warp", i ? "B" : "A"], ["Wave Tag", "boss"]]);
+      if (e) this.snarbs.push({ e, stunned: 0, stunDamage: 0, burrow: 0, looks: null, seen: false });
+    }
     this.stage = "invulnerable";
     this.w.say(this.cx, this.cy, "The Snarbolax!", "#9fd27b");
+  }
+
+  /** Takes up the Snarbolaxes the level spawned (its spawn tables may bring the second on later). */
+  private adopt() {
+    for (const e of this.actors(SNARB_ACTOR)) if (!this.snarbs.some(s => s.e === e)) this.snarbs.push({ e, stunned: 0, stunDamage: 0, burrow: 0, looks: null, seen: false });
   }
 
   /** One of the arena's four corners (where it surfaces), away from the knight. */
@@ -495,26 +513,35 @@ export class SnarbolaxFight extends BossFight {
   }
 
   protected tick(dt: number) {
-    const e = this.snarb;
-    if (!e) return;
+    if (this.real) this.adopt();
+    if (!this.snarbs.length) return;
     // (the game's own lair drops the loot from its Actor Removed handler)
-    if (e.destroyed) { this.finish(this.real ? null : "Treasure/Monster/Beast/Snarbolax Loot", e.x, e.y); return; }
-    const m = mon(e);
-    if (!m) return;
-    if (this.fresh(e)) {
-      this.sizeHealth(m, 3);
-      const cfg = this.w.data.resolveSync("config/actor.dat", ref(SNARB, [["Variant", "Normal"]]), "actor");
-      this.looks = { normal: cfg?.sprite?.model, invulnerable: cfg?.sprite?.flagModels?.[0]?.model };
-      // in its shadowy, invulnerable coat until a bell stuns it
-      if (this.looks.invulnerable) void this.w.setModel(m, this.looks.invulnerable);
+    if (this.snarbs.every(s => s.e.destroyed)) {
+      const last = this.snarbs[this.snarbs.length - 1].e;
+      this.finish(this.real ? null : this.ultimate ? "Treasure/Monster/Beast/Ultimate Snarbolax Loot" : "Treasure/Monster/Beast/Snarbolax Loot", last.x, last.y);
+      return;
     }
-    if (this.stunned > 0) {
-      this.stunned -= dt;
+    for (const s of this.snarbs) if (!s.e.destroyed) this.tickOne(s, dt);
+  }
+
+  private tickOne(s: Snarb, dt: number) {
+    const e = s.e, m = mon(e);
+    if (!m) return;
+    if (!s.seen) {
+      s.seen = true;
+      this.sizeHealth(m, 3);
+      const cfg = this.w.data.resolveSync("config/actor.dat", ref(SNARB, [["Variant", this.variant]]), "actor");
+      s.looks = { normal: cfg?.sprite?.model, invulnerable: cfg?.sprite?.flagModels?.[0]?.model };
+      // in its shadowy, invulnerable coat until a bell stuns it
+      if (s.looks.invulnerable) void this.w.setModel(m, s.looks.invulnerable);
+    }
+    if (s.stunned > 0) {
+      s.stunned -= dt;
       m.attack = null;
-      if (this.stunned <= 0 || this.stunDamage >= m.maxHealth / 3) this.recover(m);
-    } else if (this.burrow > 0) {
-      this.burrow -= dt;
-      if (this.burrow <= 0) {
+      if (s.stunned <= 0 || s.stunDamage >= m.maxHealth / 3) this.recover(s, m);
+    } else if (s.burrow > 0) {
+      s.burrow -= dt;
+      if (s.burrow <= 0) {
         // it surfaces at a corner and springs out with its warp attack (barbs and a stun ring)
         const [x, y] = this.corner();
         m.x = m.homeX = e.x = x; m.y = m.homeY = e.y = y;
@@ -525,48 +552,52 @@ export class SnarbolaxFight extends BossFight {
         this.w.effectAt("particle/fx_spawn_monster.dat", x, y, 1.5, 2);
       }
     }
+    if (this.snarbs.some(x => x.stunned > 0)) this.stage = "stunned";
+    else if (this.stage === "stunned") this.stage = "invulnerable";
   }
 
-  /** A bell rang: if the Snarbolax is close, its own stun handler runs (Stun 3) and it drops. */
+  /** A bell rang: a Snarbolax close to it runs its own stun handler (Stun 3) and drops. */
   struck(p: Prop) {
-    const e = this.snarb, m = mon(e);
-    if (!e || !m || this.stunned > 0 || this.burrow > 0) return;
-    if (Math.hypot(m.x - p.x, m.y - p.y) > BELL_RANGE + m.radius) return;
-    // the first SignalStart handler: the bell-break flash and ApplyStatus "Stun 3"
-    const h = e.handlers.find(x => x.kind === "SignalStart");
-    const act = h?.cfg?.action;
-    if (act) this.w.logic.execute(act.$class?.endsWith("$Conditional") && !act.condition ? act.action : act, e, e);
-    this.stunned = SNARB_STUN;
-    this.stunDamage = 0;
-    this.stuns++;
-    this.stage = "stunned";
-    m.attack = null;
-    m.scripted = true;
-    const stun = named(m, /Snarbolax\/Stun$/);
-    if (stun?.start) this.w.playOn(m, stun.start, false, stun.startSpeed);
-    if (this.looks?.normal) void this.w.setModel(m, this.looks.normal).then(() => { if (stun?.start && this.stunned > 0) this.w.playOn(m, stun.start, false, stun.startSpeed); });
-    this.w.say(m.x, m.y, "Stunned!", "#ffe27a");
+    for (const s of this.snarbs) {
+      const e = s.e, m = mon(e);
+      if (!m || s.stunned > 0 || s.burrow > 0) continue;
+      if (Math.hypot(m.x - p.x, m.y - p.y) > BELL_RANGE + m.radius) continue;
+      // the first SignalStart handler: the bell-break flash and ApplyStatus "Stun 3"
+      const h = e.handlers.find(x => x.kind === "SignalStart");
+      const act = h?.cfg?.action;
+      if (act) this.w.logic.execute(act.$class?.endsWith("$Conditional") && !act.condition ? act.action : act, e, e);
+      s.stunned = SNARB_STUN;
+      s.stunDamage = 0;
+      this.stuns++;
+      this.stage = "stunned";
+      m.attack = null;
+      m.scripted = true;
+      const stun = named(m, /Snarbolax\/Stun$/);
+      if (stun?.start) this.w.playOn(m, stun.start, false, stun.startSpeed);
+      if (s.looks?.normal) void this.w.setModel(m, s.looks.normal).then(() => { if (stun?.start && s.stunned > 0) this.w.playOn(m, stun.start, false, stun.startSpeed); });
+      this.w.say(m.x, m.y, "Stunned!", "#ffe27a");
+    }
   }
 
-  private recover(m: Monster) {
-    this.stunned = 0;
-    this.stage = "invulnerable";
+  private recover(s: Snarb, m: Monster) {
+    s.stunned = 0;
     const stun = named(m, /Snarbolax\/Stun$/);
-    if (this.looks?.invulnerable) void this.w.setModel(m, this.looks.invulnerable);
+    if (s.looks?.invulnerable) void this.w.setModel(m, s.looks.invulnerable);
     if (stun?.fire) this.w.playOn(m, stun.fire, false, stun.fireSpeed);
     // it burrows and comes up at another corner
-    this.burrow = 1.4;
+    s.burrow = 1.4;
   }
 
   damage(m: Monster, dmg: number): number {
-    if (m.entity !== this.snarb) return dmg;
-    if (this.stunned <= 0) return 0;
-    this.stunDamage += dmg;
+    const s = this.snarbs.find(x => x.e === m.entity);
+    if (!s) return dmg;
+    if (s.stunned <= 0) return 0;
+    s.stunDamage += dmg;
     return dmg;
   }
 
   attacks(m: Monster): AttackDef[] | null {
-    if (m.entity !== this.snarb) return null;
+    if (!this.snarbs.some(x => x.e === m.entity)) return null;
     return m.def.attacks.filter(a => !/Snarbolax\/(Stun|Warp|Flee|Charge - End)/.test(a.name));
   }
 }
@@ -628,7 +659,8 @@ export class TwinsFight extends BossFight {
 
   private stageName(t: Twin) {
     const dir = t.side === "west" ? "West" : "East";
-    return t.stage === 1 ? RT + dir : `${RT}${dir} (${t.stage})`;
+    const base = RT + (this.ultimate ? "Ultimate/" : "");
+    return t.stage === 1 ? base + dir : `${base}${dir} (${t.stage})`;
   }
 
   private spawnTwin(t: Twin) {
@@ -849,14 +881,16 @@ export class TwinsFight extends BossFight {
 const VD = BOSS + "Vanaduke/";
 /** The fight's order: bodies, the kneeling transition with its mask, and the last body. */
 const VD_ORDER = ["Stage 1", "Mask Stage 1", "Stage 2", "Mask Stage 2", "Stage 3"];
-const VD_BODY = /^Character\/NPC\/Monster\/Boss\/Vanaduke\/Stage (\d)$/;
-const VD_MASK = /^Character\/NPC\/Monster\/Boss\/Vanaduke\/Mask Stage (\d)$/;
-const VD_KNEEL = /^Character\/NPC\/Monster\/Boss\/Vanaduke\/Stage (\d) Complete$/;
+const VD_BODY = /^Character\/NPC\/Monster\/Boss\/Vanaduke\/(?:Ultimate\/)?Stage (\d)$/;
+const VD_MASK = /^Character\/NPC\/Monster\/Boss\/Vanaduke\/(?:Ultimate\/)?Mask Stage (\d)$/;
+const VD_KNEEL = /^Character\/NPC\/Monster\/Boss\/Vanaduke\/(?:Ultimate\/)?Stage (\d) Complete$/;
 const WATER_POT = "Dynamic/Lift Objects/Water Pot";
 /** Seconds a doused mask stays wet (and can be hurt). */
 const WET = 5;
 
 export class VanadukeFight extends BossFight {
+  /** His configs: Darkfire Vanaduke's (Vanaduke/Ultimate/) in the Shadow Lair. */
+  private get vd() { return VD + (this.ultimate ? "Ultimate/" : ""); }
   /** Index into VD_ORDER. */
   step = 0;
   private body: Entity | null = null;
@@ -883,7 +917,8 @@ export class VanadukeFight extends BossFight {
     for (const [x, y] of spots) this.pots.push({ at: [x, y], e: this.spawn(WATER_POT, x, y), t: 0 });
     // the game's own throne room seats him on its marker ("Vanaduke Start", whose swap to the
     // first stage is server code)
-    const seated = this.real ? this.actors(/Vanaduke\/Vanaduke Start$/)[0] : null;
+    // (the Shadow Lair's: Vanaduke/Ultimate/Ultimate Vanaduke Start)
+    const seated = this.real ? this.actors(/Vanaduke\/(?:Ultimate\/Ultimate )?Vanaduke Start$/)[0] : null;
     if (seated) this.w.logic.vanish(seated);
     this.startStep(0, seated?.x ?? this.cx, seated?.y ?? this.cy + 3);
     this.w.say(this.cx, this.cy, "Lord Vanaduke!", "#ff9a5c");
@@ -897,14 +932,14 @@ export class VanadukeFight extends BossFight {
     if (what.startsWith("Mask")) {
       // he kneels (Stage N Complete) and the burning mask leaves his face
       const n = what.slice(-1);
-      this.kneel = this.spawn(`${VD}Stage ${n} Complete`, x, y, face);
-      this.mask = this.spawn(`${VD}${what}`, x + Math.cos(face) * 2.5, y + Math.sin(face) * 2.5, face);
+      this.kneel = this.spawn(`${this.vd}Stage ${n} Complete`, x, y, face);
+      this.mask = this.spawn(`${this.vd}${what}`, x + Math.cos(face) * 2.5, y + Math.sin(face) * 2.5, face);
       this.wet = 0;
       this.w.say(x, y, "The mask burns!", "#ff9a5c");
     } else {
       // the last stage carries the game's own level's tag: its Actor Removed opens the way out
       const last = i === VD_ORDER.length - 1 && this.real;
-      this.body = this.spawn(VD + what, x, y, face, last ? [["Wave Tag", "boss_stage5"]] : []);
+      this.body = this.spawn(this.vd + what, x, y, face, last ? [["Wave Tag", "boss_stage5"]] : []);
       this.minionT = 1;
     }
   }
@@ -983,7 +1018,7 @@ export class VanadukeFight extends BossFight {
     if (!m) return;
     if (this.fresh(mk)) {
       this.sizeHealth(m, 1);
-      const cfg = this.w.data.resolveSync("config/actor.dat", ref(VD + VD_ORDER[this.step]), "actor");
+      const cfg = this.w.data.resolveSync("config/actor.dat", ref(this.vd + VD_ORDER[this.step]), "actor");
       this.maskLooks = { wet: cfg?.sprite?.model, fire: cfg?.sprite?.flagModels?.[0]?.model };
       if (this.maskLooks.fire) void this.w.setModel(m, this.maskLooks.fire);
     }
@@ -1033,10 +1068,10 @@ export class VanadukeFight extends BossFight {
  * Starts a boss fight's director in a world playing that boss's level: a generated arena, or
  * (`real`) the game's own boss level from the archive.
  */
-export function startBossFight(key: BossKey, w: World, real = false): BossFight {
+export function startBossFight(key: BossKey, w: World, real = false, ultimate = false): BossFight {
   const plan = arenaPlan(key);
-  const fight = key === "jelly" ? new JellyFight(key, w, plan, real) : key === "snarbolax" ? new SnarbolaxFight(key, w, plan, real)
-    : key === "twins" ? new TwinsFight(key, w, plan, real) : new VanadukeFight(key, w, plan, real);
+  const fight = key === "jelly" ? new JellyFight(key, w, plan, real, ultimate) : key === "snarbolax" ? new SnarbolaxFight(key, w, plan, real, ultimate)
+    : key === "twins" ? new TwinsFight(key, w, plan, real, ultimate) : new VanadukeFight(key, w, plan, real, ultimate);
   w.boss = fight;
   return fight;
 }

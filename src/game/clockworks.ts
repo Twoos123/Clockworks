@@ -156,10 +156,20 @@ export interface Floor {
   /** A real gate's floor: the level this depth's elevator led to, and its place on the wheel. */
   level?: RealLevel;
   wedge?: number;
+  /**
+   * A mission's own floor (src/game/missionfloors.ts): its level's scene keys (without "m."), and
+   * the style, monsters and status of a floor generated in its place when the archive lacks it;
+   * `ultimate` for a Shadow Lair's boss.
+   */
+  mission?: { keys: string[]; style: string; family: Family; element: typeof ELEMENTS[number] | null; ultimate?: boolean };
+  /** The depth the floor's monsters and loot are scaled at, when it is not the floor's place in the run (a Shadow Lair's Logical Floor). */
+  scaleDepth?: number;
 }
 
 export interface Gate {
   id: string; name: string; seed: number; strata: Stratum[]; emblem: string;
+  /** A mission's lobby scene key ("mission_lobby_torto"); null: the mission has none (undefined: the shared Mission Lobby). */
+  lobby?: string | null;
   /** A real gate (src/game/gatemap.ts): its wheels, levels and colour. */
   real?: RealGate;
 }

@@ -346,6 +346,12 @@ export class Component {
   screen: { x: number; y: number; width: number; height: number } | null = null;
   /** Which game view draws into this RenderableView (set by the HUD). */
   viewOwner = "";
+  /** Tooltip text (Component.setTooltipText), shown in a Default/TooltipWindow by whoever draws tooltips. */
+  tooltip = "";
+  /** The tooltip sits by the mouse rather than above the component (Tooltip.setRelativeToMouse). */
+  tooltipMouse = false;
+  /** The tooltip label's style reference (ComponentConfig.tooltipStyle), or null for the default. */
+  tooltipStyle: any = null;
 
   /** A button pressed with the pointer still over it (AbstractButton._armed). */
   armed = false;
@@ -377,6 +383,11 @@ export class Component {
   popup: Component | null = null;
   /** On a root passed to dispatch(): the open popup menu, drawn over the tree. */
   overlay: Component | null = null;
+  /**
+   * A popup menu opened at a point (PopupMenu.popup(x, y, above)) rather than under a combo
+   * box: the point in canvas pixels and the display's size it is fitted within.
+   */
+  at: { x: number; y: number; above: boolean; width: number; height: number } | null = null;
   /** TextField: placeholder, maximum length, password display and keyboard focus. */
   placeholder = "";
   maxLength = 0;
@@ -567,6 +578,10 @@ async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>
   c.enabled = cfg.enabled ?? true;
   c.hoverable = cfg.hoverable ?? true;
   c.alpha = cfg.alpha ?? 1;
+  // ComponentConfig's tooltip text, its placement and its label style (Clyde's Tooltip)
+  if (cfg.tooltipText) c.tooltip = message(cfg.tooltipText, ck === "ui" ? c.bundle : opts.bundle ?? "global");
+  c.tooltipMouse = !!cfg.tooltipRelativeToMouse;
+  c.tooltipStyle = cfg.tooltipStyle ?? null;
   if (ck === "button") c.states = k === "Button" ? 4 : 8;
   const horizontal = enumName(cfg.orientation, "HORIZONTAL") === "HORIZONTAL";
   // each widget's getDefaultStyleConfig
@@ -749,6 +764,57 @@ async function buildPopup(ctx: GuiContext, combo: Component, local: Map<string, 
     menu.children = [pane];
   }
   return menu;
+}
+
+/** An entry of a popup menu built in code (projectx's client/ui/E): an item or a label. */
+export interface MenuEntry {
+  /** The item's action, reported to the menu's onAction; none makes a label. */
+  action?: string;
+  text: string;
+  icon?: GuiImage | null;
+  enabled?: boolean;
+  /** A label's style (Menu/SubTitle, Menu/Divider, Menu/Information). */
+  style?: string;
+}
+
+/**
+ * A PopupMenu built in code, as the client's menus are (client/ui/E): an optional title label
+ * styled Menu/PlayerTitle at the top, then MenuItems (Default/MenuItem, with an icon) and
+ * labels in a stretched column. A chosen item dismisses the menu and reports its action to
+ * the menu's onAction.
+ */
+export async function buildMenu(ctx: GuiContext, entries: MenuEntry[], title?: string): Promise<Component> {
+  const local = new Map<string, any>();
+  const menu = await part(ctx, "popup", null, local, null);
+  menu.layout = vgroup("STRETCH", "CENTER", "STRETCH", 0);
+  const kids: Component[] = [];
+  if (title) {
+    const t = await part(ctx, "label", "Menu/PlayerTitle", local, menu);
+    t.text = title;
+    kids.push(t);
+  }
+  for (const e of entries) {
+    const item = e.action !== undefined ? await part(ctx, "menuitem", null, local, menu) : await part(ctx, "label", e.style ?? null, local, menu);
+    item.text = e.text;
+    item.icon = e.icon ?? null;
+    item.fit = "WRAP";
+    item.action = e.action ?? "";
+    item.enabled = e.enabled ?? true;
+    kids.push(item);
+  }
+  for (const k of kids) k.constraints = FIXED;
+  menu.children = kids;
+  return menu;
+}
+
+/**
+ * PopupMenu.popup(x, y, above): opens a menu over `root` with its top left at the point
+ * (its bottom left when `above`), moved to stay within a display of the given size.
+ */
+export function openMenu(root: Component, menu: Component, x: number, y: number, width: number, height: number, above = false) {
+  pack(menu);
+  menu.at = { x, y, above, width, height };
+  root.overlay = menu;
 }
 
 /** ComboBox.setItems: new text items, the popup rebuilt for them, one selected. */
@@ -1286,6 +1352,16 @@ function drawFrob(c: Component, g: CanvasRenderingContext2D, bx: number, by: num
 
 /** PopupMenu.packAndFit: the menu hangs below its combo box and stays on the canvas. */
 function renderPopup(menu: Component, g: CanvasRenderingContext2D, hooks: RenderHooks) {
+  const at = menu.at;
+  if (at) {
+    // PopupMenu.packAndFit: below the point (or above it), flipped and clamped to the display
+    let top = at.above ? at.y - menu.height : at.y;
+    if (top + menu.height > at.height) top = at.y - menu.height;
+    top = Math.max(0, Math.min(at.height - menu.height, top));
+    const x = Math.max(0, Math.min(at.width - menu.width, at.x));
+    render(menu, g, x - menu.x, top + menu.height + menu.y, hooks);
+    return;
+  }
   const r = menu.owner?.screen;
   if (!r) return;
   const x = Math.max(0, Math.min(g.canvas.width - menu.width, r.x));
@@ -1718,6 +1794,12 @@ function release(root: Component, c: Component) {
 /** AbstractButton.fireAction and the listeners Clyde's widgets put on their own buttons. */
 function fire(root: Component, c: Component) {
   const o = c.owner;
+  if (c.kind === "menuitem" && o?.kind === "popup") {
+    // PopupMenu.itemSelected: dismiss the menu, then report the item's action
+    root.overlay = null;
+    o.onAction?.(c, c.action);
+    return;
+  }
   if (c.kind === "menuitem" && o?.kind === "combo") {
     // ComboPopupMenu.itemSelected: select the item and dismiss the menu
     root.overlay = null;
