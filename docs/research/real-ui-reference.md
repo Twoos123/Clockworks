@@ -491,3 +491,34 @@ From a 20-second recording; frames are in `.scratch/vid9` (one every 2 seconds, 
 - **EXPANSION tab:** Operation Crimson Hammer cards (red), with long briefing text.
 - **RANK tab:** as described earlier.
 - **Featured Items timer:** it counts down ("1 more hour").
+
+## Character window tabs and item tooltips
+
+From a 40-second recording; frames are in `.scratch/vid10` (one every 2 seconds, git-ignored).
+
+- **Compare tooltips** (hovering an arsenal pill): two tooltip cards sit side by side to the
+  left of the ARSENAL. The worn item is on the left with "EQUIPPED SWORD" in its footer, the
+  hovered item on the right with "SWORD".
+  - Each card has a gold title bar with the name and "NN LEVEL" (or "-COMPLETE-" under the name
+    once maxed), the heat bar, and the attack bars (NORMAL, ELEMENTAL, SPEED).
+  - Then the bonus rows, each with an up-arrow badge: "Good chance of causing Strong FIRE",
+    "Attack Speed Increased: High", "Charge Time Reduction: Medium", "Damage Bonus vs Beast:
+    High".
+  - Then "This item is bound to you.", the description, the star rank, and the 3D model.
+- **Character window (P)**, titled "<Current Equipment>" with Save Loadout and "Character
+  Options ▼":
+  - **Equipment tab:**
+    - A narrow slot column at the left, with the worn items' icons and padlocks on locked
+      slots.
+    - A big 3D view of the knight in a blue room.
+    - Under the knight: "Vanguard(10-3)", the name in gold ("Twoos") and "★ 11,995" (prestige).
+  - **Battle Sprite tab, skills page:**
+    - A skill ("Firestorm") with its icon, then "Skill Points: 0".
+    - Three upgrade rows, each with a bar, a "+" button and a tooltip ("Extra Crispy" /
+      "Increases the potency of the fire and chance of …", "SKILL POWER").
+    - Cancel and Confirm buttons.
+    - "Cooldown: 55 seconds" and the skill text ("Summon the power of true dragon fire to burn
+      everything in your path.").
+    - The sprite's skill icons in a column, and the sprite in its view ("Level 59 / Corona").
+  - **Achievements tab:** a grid of square achievement icons. Earned ones are coloured (gold,
+    red, purple), unearned ones grey-blue, and some show padlocks. It scrolls.
