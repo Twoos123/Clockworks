@@ -33,3 +33,14 @@ test("prestige ranks: no icon below 5000, then prank_001 to prank_005", () => {
   assert.equal(prestigeIcon(24999), "ui/icon/prestige/prank_003.png");
   assert.equal(prestigeIcon(45000), "ui/icon/prestige/prank_005.png");
 });
+
+test("arrival title bands: the Core's white band with an unknown depth, other floors the plain band, towns their own", async () => {
+  const { loadingInfo } = await import("../src/ui/loading.ts");
+  const floor = (kind: string, depth: number) => ({ kind, depth, name: "Floor", zone: "Zone", stratum: null }) as any;
+  const core = loadingInfo("", floor("core", 29));
+  assert.equal(core.band, "-wht");
+  assert.match(core.depth, /\?\?\?/);
+  assert.equal(loadingInfo("", floor("level", 3)).band, "");
+  assert.equal(loadingInfo("", floor("lobby", 0)).depth, "");
+  assert.equal(loadingInfo("Haven", null).band, undefined);
+});
