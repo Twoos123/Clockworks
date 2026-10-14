@@ -2628,6 +2628,16 @@ export class World implements LogicHost {
     this.play(k, "character/pc/idle.dat");
   }
 
+  /**
+   * The Spark of Life's ENERGY BLAST (dungeon bundle m.revive_desc): the game's Bomb/Revive/Revive
+   * actor at the knight's feet, its lifestorm wind-up and blast, damaging, stunning and
+   * throwing back the monsters around (radius 4 by its default option).
+   */
+  energyBlast() {
+    const k = this.knight;
+    void this.spawnProjectileAt({ name: "Bomb/Revive/Revive" }, k.x, k.y, k.heading, "knight", this.attackerCtx(k));
+  }
+
   // ---------------------------------------------------------------- for boss directors
 
   /** Makes a monster start one of its attacks now (facing as it is). */

@@ -1498,6 +1498,7 @@ class Viewer {
         recordRevive(this.save);
         this.achieve();
         this.world.revive();
+        this.world.energyBlast();
         this.knockedOut = false;
         this.uiSound("sound/feedback/ui_confirm.ogg");
         this.canvas.focus();
