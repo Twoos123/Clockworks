@@ -64,6 +64,11 @@ export interface ElevatorChoice {
   quit?: { run(): void } | null;
   /** The floor's heat report, when the floor gave heat to items that can take it. */
   heat?: HeatReport | null;
+  /**
+   * A safe level's elevator (a lobby, a terminal: LevelType.isSafe): the stripe shows without
+   * its "Level Complete" title (EndOfLevelWindow.a).
+   */
+  safe?: boolean;
   /** The prize wheel, after a floor with monsters. */
   prize?: PrizeWheel | null;
 }
@@ -349,7 +354,7 @@ export class ElevatorScreen extends OverlayScreen {
     };
     const m = this.main!, s = this.stripe!, n = ch.next;
     const own = (tag: string, fallback: string) => this.defaults.get(tag) || fallback;
-    set(s, "labelTitle", ch.title || say("m.levelcomplete", "", own("labelTitle", "Level Complete!")));
+    set(s, "labelTitle", ch.title || say("m.levelcomplete", "", own("labelTitle", "Level Complete!")), !ch.safe);
     set(m, "labelNextUp", n ? own("labelNextUp", "Advancing to:") : "");
     set(m, "labelLevelType", n?.title ?? "");
     set(m, "labelLevelSubtype", n?.zone ?? "");
