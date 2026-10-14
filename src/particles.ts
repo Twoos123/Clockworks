@@ -161,6 +161,13 @@ export interface ParticleLayer {
   alphaMode: string;
   alignment: string;
   geometry: string;
+  /** Quads or Lines drawn as trails of this many segments (0: plain). */
+  segments: number;
+  /**
+   * GroupPriority: the layer sorts at its group's centre, nudged toward the camera by its
+   * priority, so a system's layers draw in rising priority (null: sorted by its own centre).
+   */
+  priority: number | null;
   material: ResolvedMaterial;
   divisionsS: number;
   divisionsT: number;
@@ -278,6 +285,8 @@ export function readParticleLayers(impl: any, resolveMaterial: (ref: any) => Res
       alphaMode: l.alphaMode?.name ?? "TRANSLUCENT",
       alignment: l.alignment?.name ?? (meta ? "FIXED" : "BILLBOARD"),
       geometry: l.geometry ? kind(l.geometry) : "Points",
+      segments: l.geometry?.segments ?? 0,
+      priority: l.priorityMode ? l.priorityMode.priority ?? 0 : null,
       material: resolveMaterial(l.material ?? { $class: "com.threerings.config.ConfigReference", name: "Model/Translucent" }),
       divisionsS: l.textureDivisionsS ?? 1,
       divisionsT: l.textureDivisionsT ?? 1,
@@ -338,8 +347,11 @@ class LayerState {
 /** One placed particle system. */
 export class Emitter {
   readonly states: LayerState[];
+  /** Layer indices in drawing order: GroupPriority layers by rising priority (see layerOrder). */
+  readonly order: number[];
   constructor(layers: ParticleLayer[]) {
     this.states = layers.map(l => new LayerState(l));
+    this.order = layerOrder(layers);
   }
 
   update(dt: number, emitter: Mat4) {
@@ -428,7 +440,9 @@ export class Emitter {
       const a = col[3];
       col = L.alphaMode === "PREMULTIPLIED" ? col
         : [col[0] * a, col[1] * a, col[2] * a, L.alphaMode === "OPAQUE" ? 1 : L.alphaMode === "ADDITIVE" ? 0 : a];
-      const size = (p.size(t) / 2) * scale;
+      // a quad reaches its size each way from the particle (Clyde's quad geometry writes
+      // position ± s ± t, with s and t the oriented axes times the size)
+      const size = p.size(t) * scale;
       if (size <= 0) continue;
       const center = L.moveWithEmitter ? transformPoint(toWorld, p.pos) : p.pos;
       let ax: Vec3, ay: Vec3;
@@ -440,7 +454,9 @@ export class Emitter {
         const v = L.moveWithEmitter ? transformVector(toWorld, p.vel) : p.vel;
         const vl = Math.hypot(...v) || 1;
         const dirv: Vec3 = [v[0] / vl, v[1] / vl, v[2] / vl];
-        const len = (p.length(t) / 2) * scale || size;
+        // a plain velocity-aligned quad is as long as it is wide (its size); lines and trails
+        // take their length
+        const len = L.geometry === "Quads" && !L.segments ? size : (p.length(t) / 2) * scale || size;
         ay = [dirv[0] * len / size, dirv[1] * len / size, dirv[2] * len / size];
         // perpendicular to both the velocity and the view
         const fwd: Vec3 = [right[1] * up[2] - right[2] * up[1], right[2] * up[0] - right[0] * up[2], right[0] * up[1] - right[1] * up[0]];
@@ -463,6 +479,16 @@ export class Emitter {
       corner(-1, -1, u0, v1); corner(1, 1, u1, v0); corner(-1, 1, u0, v0);
     }
   }
+}
+
+/**
+ * The order a system's layers draw in. Clyde sorts transparent layers back to front; a layer
+ * with a GroupPriority sorts at its group's centre moved toward the camera by priority x 1e-4,
+ * so within one system they draw by rising priority. Layers without one sort at their own
+ * centre, taken here as the group's (priority 0); ties keep the config's order.
+ */
+export function layerOrder(layers: { priority: number | null }[]): number[] {
+  return layers.map((_, i) => i).sort((a, b) => (layers[a].priority ?? 0) - (layers[b].priority ?? 0) || a - b);
 }
 
 function transformPoint(m: Mat4, p: Vec3): Vec3 {
