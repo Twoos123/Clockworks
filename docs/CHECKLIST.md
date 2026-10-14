@@ -51,7 +51,7 @@ be done fully, with the reason.
   - News and mail in the uplink window (`ui/uplink`: news as `ui/newsfeed` entries, mail headers and bodies) (`src/ui/uplink.ts`)
   - Help window (`ui/help`, H or the HUD's ?) with the bound keys and the mouse, replacing the HTML controls bar (`src/ui/help.ts`)
   - Run summary in the mission results window (`src/ui/summary.ts`); notices in the game's alert frame on a click-through canvas (`src/ui/notice.ts`)
-  - Guild console (`ui/guild/interface_console.dat`: name, emblem, vault, hall), furniture mode as a click-through side window, knight creation (`ui/create`), the Ready Room bar (`src/ui/guild.ts`, `furniture.ts`, `createknight.ts`, `readybar.ts`, `floating.ts`)
+  - Guild console (`ui/guild/interface_console.dat`: name, emblem, vault, hall), furniture mode as a click-through side window, knight creation (`ui/create`) (`src/ui/guild.ts`, `furniture.ts`, `createknight.ts`, `floating.ts`)
   - The HTML settings menu is gone: master volume, mute, graphics toggles, minimap, camera, dead zone, key bindings (`ui/options/customcontrols.dat`) and save data (in the Steam tab's place) live in `ui/options`; the Levels checklist moved to the Prompts tab's place
   - FLAG: the gate board and the floor-cleared / knocked-out cards are another branch's work
 

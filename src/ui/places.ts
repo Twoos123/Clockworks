@@ -4,33 +4,41 @@
 //  - Guild Hall (HUD activity): the player's hall, with its furniture layer.
 //  - Furniture (HUD activity): furniture mode in the hall (goes there first).
 //  - Social (HUD menu button, G): the guild window (name, emblem, vault, hall furniture).
-//  - Ready Room (HUD activity): rsrc/world/readyroom/scene.dat with the arsenal open.
+//  - Ready Room (HUD activity): rsrc/world/readyroom/scene.dat as the client shows it, a stage
+//    and not a place to walk: the knight posed at the room's console (READY_ROOM_POSE), the
+//    room's own fixed camera (its Camera/Default placeable), the HUD without its minimap, and
+//    the HUD's Haven activity leading back to where the player came from.
 //  - Knight creation: rsrc/world/createknight/scene.dat, on a fresh save before Haven.
 
 import type { Mat4 } from "../math";
+import type { CameraView } from "../environment";
 import type { Renderer } from "../render/renderer";
 import type { Vfs } from "../vfs";
 import type { World } from "../game/world";
 import type { ColorPository } from "../colors";
 import type { Economy } from "../game/economy";
 import { cachedPlacements, guildOf } from "../game/guild";
-import { cachedHallId, CREATE_KNIGHT, GUILD_HALL, placeRoot, PLACE_SPAWN, READY_ROOM } from "../game/places";
+import { cachedHallId, CREATE_KNIGHT, GUILD_HALL, placeCamera, placeRoot, PLACE_SPAWN, READY_ROOM, READY_ROOM_POSE } from "../game/places";
 import { writeSave } from "../game/save";
 import { FurnitureLayer, FurnitureWindow, type FurnitureHost } from "./furniture";
 import { GuildWindow } from "./guild";
 import { CreateKnight, starterGear, type KnightLook } from "./createknight";
-import { ReadyBar } from "./readybar";
+
+/** Where the knight stood, to come back to. */
+export interface StandPoint { x: number; y: number; heading: number }
 
 export interface PlacesHost extends FurnitureHost {
   vfs: Vfs;
   sceneList(): { id: string; name: string }[];
-  /** Leaves the current scene and plays in another (selectScene, then startPlaying). */
-  go(id: string): Promise<void>;
+  /** Leaves the current scene and plays in another (selectScene, then startPlaying), standing at `at` when given. */
+  go(id: string, at?: StandPoint): Promise<void>;
   /** Restarts play in the current scene (a new look for the knight). */
   restart(): Promise<void>;
   world(): World | null;
   /** Sets the play camera (azimuth and elevation in the viewer's terms, distance). */
   camera(az: number, el: number, dist: number): void;
+  /** Fixes the play camera at a scene's CameraConfig as it stands (no zoom option, no turning). */
+  stageCamera(view: CameraView): void;
   openArsenal(): Promise<void>;
   arsenalOpen(): boolean;
   colors(): Promise<ColorPository | null>;
@@ -48,7 +56,10 @@ export class Places {
   readonly furniture: FurnitureWindow;
   readonly guild: GuildWindow;
   readonly create: CreateKnight;
-  private readonly readyBar: ReadyBar;
+  /** The Ready Room's camera (read from its scene file when it loads). */
+  private stageView: CameraView | null = null;
+  /** The scene and spot the player went to the Ready Room from. */
+  private from: { id: string; at: StandPoint | undefined } | null = null;
   private swatches: { print: number; name: string; rgb: [number, number, number] }[] = [];
   /** Called when knight creation finishes (the viewer enters Haven). */
   onCreated: (() => void) | null = null;
@@ -78,7 +89,6 @@ export class Places {
       done: (name, look) => this.created(name, look),
       sound: f => host.sound(f),
     });
-    this.readyBar = new ReadyBar(host.gui(), { arsenal: () => void host.openArsenal(), leave: () => host.returnToHaven() });
     void host.colors().then(pos => {
       const cls = pos?.classes.get(host.save().color >> 8);
       if (!pos || !cls) return;
@@ -92,27 +102,33 @@ export class Places {
   // ------------------------------------------------------------ scenes
 
   /** The root of a special scene (guild hall, rsrc scene files), or null for cached scenes. */
-  sceneRoot(id: string): Promise<any | null> {
-    return placeRoot(id, this.host.vfs, this.host.sceneLoader, this.host.sceneList(), this.host.save());
+  async sceneRoot(id: string): Promise<any | null> {
+    const root = await placeRoot(id, this.host.vfs, this.host.sceneLoader, this.host.sceneList(), this.host.save());
+    if (id === READY_ROOM) this.stageView = placeCamera(root);
+    return root;
   }
+
+  /** The scene is a stage (the Ready Room): the knight is shown, not played. */
+  staged(id: string | undefined) { return id === READY_ROOM; }
 
   /** Where the knight stands in a special scene without a start platform. */
   spawn(id: string | undefined): [number, number] | null {
     return (id && PLACE_SPAWN[id]) || null;
   }
 
-  /** After play starts in a scene: the hall's furniture, the Ready Room's camera and bar. */
+  /** After play starts in a scene: the hall's furniture, the Ready Room's stage. */
   started(id: string) {
     const scene = this.host.scene();
     if (id === GUILD_HALL && scene) void this.layer.attach(scene).then(() => this.furniture.refresh());
     else this.layer.detach();
     if (id !== GUILD_HALL) this.furniture.close();
     if (id === READY_ROOM) {
-      // the room's Camera/Default placeable looks from azimuth -120 degrees, 11 degrees up, with
-      // a narrow lens; this wider lens looks from a little higher to clear the crates
-      this.host.camera(0.15, 0.55, 6.5);
-      void this.readyBar.show();
-    } else this.readyBar.hide();
+      // the client's ready room view: its own knight at the origin in the inventory pose, seen
+      // through the room's Camera/Default (azimuth -120 degrees, 11 up, a 30 degree lens)
+      const p = READY_ROOM_POSE;
+      this.host.world()?.stage(p.heading, p.start, p.loop);
+      if (this.stageView) this.host.stageCamera(this.stageView);
+    } else this.from = null;
     if (id === CREATE_KNIGHT) this.host.camera(-Math.PI / 2 + 0.35, 0.2, 6.5);
   }
 
@@ -136,12 +152,33 @@ export class Places {
     this.furniture.refresh();
   }
 
+  /**
+   * The Ready Room activity (client dt "readyroom": the zone director moves to the local ready
+   * room scene). The arsenal open on leaving opens again on arrival, as the client's HUD
+   * reopens its inventory window after a move.
+   */
   async readyRoom() {
-    if (this.host.scene()?.id !== READY_ROOM) await this.host.go(READY_ROOM);
-    if (!this.host.arsenalOpen()) await this.host.openArsenal();
+    const scene = this.host.scene();
+    if (scene?.id === READY_ROOM) return;
+    const k = this.host.world()?.knight;
+    this.from = scene ? { id: scene.id, at: k ? { x: k.x, y: k.y, heading: k.heading } : undefined } : null;
+    const arsenal = this.host.arsenalOpen();
+    await this.host.go(READY_ROOM);
+    if (arsenal && !this.host.arsenalOpen()) await this.host.openArsenal();
   }
 
-  /** The arsenal closed: in the Ready Room the knight changes into the new loadout at once. */
+  /**
+   * Out of the Ready Room (the client's HUD Haven activity there, which asks the server to
+   * return the player): back to the scene and spot the player came from, else Haven.
+   */
+  async leaveReadyRoom() {
+    const from = this.from;
+    this.from = null;
+    if (from && from.id !== READY_ROOM) await this.host.go(from.id, from.at);
+    else this.host.returnToHaven();
+  }
+
+  /** The arsenal closed: in the Ready Room the knight changes into the new loadout at once (client dQ: "equipment" updates). */
   arsenalClosed() {
     if (this.host.scene()?.id === READY_ROOM && this.host.world()) void this.host.restart();
   }
@@ -195,6 +232,8 @@ export class Places {
       case "button_guildhall": void this.goToHall(); return true;
       case "button_furni": void this.openFurniture(); return true;
       case "button_readyroom": void this.readyRoom(); return true;
+      // in the Ready Room the Haven activity leaves it (client hud/b: the "readyroom" case)
+      case "button_haven": if (!this.staged(this.host.scene()?.id)) return false; void this.leaveReadyRoom(); return true;
       case "button_social": this.host.pause(true); this.guild.open(); return true;
       default: return false;
     }

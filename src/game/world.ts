@@ -1912,9 +1912,29 @@ export class World implements LogicHost {
     this.play(k, `character/pc/${m.set}_${m.side}.dat`, { speed: m.rate });
   }
 
+  /**
+   * A staged knight's pose in place of the idles (the Ready Room's: a start clip, then a loop),
+   * or null. Set with stage().
+   */
+  private pose: { start: string; loop: string } | null = null;
+
+  /** Poses the knight (facing `heading`): its idle becomes `start` played once, then `loop`. */
+  stage(heading: number, start: string, loop: string) {
+    this.pose = { start, loop };
+    this.knight.heading = heading;
+    void this.preload(start, loop);
+  }
+
   /** Weighted idle variations (Character/PC/Default idles): mostly 001, now and then another. */
   private playIdle(k: Knight) {
     const cur = k.instance.clip, path = cur?.path ?? "";
+    if (this.pose) {
+      // (until the pose's clips load, the plain idle below holds)
+      const { start, loop } = this.pose;
+      if (path === loop) return;
+      if (path === start) { if (k.instance.finished) this.play(k, loop, { loop: true, blend: 0.2 }); return; }
+      if (this.clip(start)) { this.play(k, start, { loop: false, blend: 0.2 }); return; }
+    }
     if (path.endsWith("idle/default/001.dat")) {
       // after a while in the main idle, now and then play a variation (weights 2:1:1:2)
       if (k.instance.time < 7 || Math.random() > 0.01) return;

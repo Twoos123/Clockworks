@@ -179,7 +179,9 @@ void main() {
   if (!alphaPasses(c.a)) discard;
   if (u_fogMode > 0) {
     float d = length(v_eye), f;
-    if (u_fogMode == 1) f = clamp((u_fogEnd - d) / max(u_fogEnd - u_fogStart, 1e-4), 0.0, 1.0);
+    // GL's linear fog, (end - d) / (end - start), keeps the span's sign: a fog whose end comes
+    // before its start (the Ready Room's 4.8 to 3) fogs what is near and clears what is far
+    if (u_fogMode == 1) { float span = u_fogEnd - u_fogStart; f = clamp((u_fogEnd - d) / (abs(span) < 1e-4 ? 1e-4 : span), 0.0, 1.0); }
     else if (u_fogMode == 2) f = exp(-u_fogDensity * d);
     else f = exp(-pow(u_fogDensity * d, 2.0));
     c.rgb = mix(u_fogColor, c.rgb, f);
