@@ -1610,6 +1610,8 @@ class Viewer {
 
   private async returnToHaven() {
     this.inLobby = false;
+    // the last boss floor's boss is not this level's (its music, locked exit, records)
+    this.bossFloor = null;
     // the end of a gate run: a summary of what it brought home
     const t = this.runTotals;
     const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
@@ -1674,6 +1676,7 @@ class Viewer {
   /** Starts a gate at depth 1. */
   private async enterGate(g: Gate, floors = gateFloors(g), keepTotals = false) {
     this.gate = g;
+    this.bossFloor = null;
     if (keepTotals) this.runTotals.gate = g.name;
     else this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
     this.usedScenes.clear();
