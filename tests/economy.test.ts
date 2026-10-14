@@ -101,7 +101,8 @@ test("shops: keepers sell their kinds within the star range; buying, recipes and
   const any = e.catalogue("Shop/Elsewhere/Swords", { maxRarity: 5 });
   assert.ok(any.length > swords.length && any.every(s => s.category === "sword" && s.rarity >= 1 && s.rarity <= 5));
   const basil = e.catalogue("Shop/Traveler/Terminal Tier 1", { tier: 1, seed: 3 });
-  assert.ok(basil.length > 0 && basil.length <= 12 && basil.every(s => s.category === "recipe" && s.rarity <= 2));
+  // the wiki: six to twenty-five recipes at a terminal
+  assert.ok(basil.length >= 6 && basil.length <= 25 && basil.every(s => s.category === "recipe" && s.rarity <= 2));
   assert.deepEqual(basil, e.catalogue("Shop/Traveler/Terminal Tier 1", { tier: 1, seed: 3 }));
   const depot = e.catalogue("Supply Depot", { tier: 1 });
   assert.ok(depot.some(d => d.name === "Pickup/Capsule/Health Capsule"));

@@ -136,7 +136,7 @@ export interface HudState {
 }
 
 /** A DescriptionConfig shown in the target panel (a townsperson, shop or item the knight can act on). */
-export interface HudDescription { key: string; name: string; title: string; info: string; icon: string | null }
+export interface HudDescription { key: string; name: string; title: string; info: string; icon: string | null; /** The name label's icon (Descriptive.nameIcon). */ nameIcon?: string | null }
 
 /** What the status panel is built for: its heat meter's level, the portrait's colour and the prestige icon. */
 const statusKey = (s: HudState) => `${heatLevel(s.heat)}|${s.color ?? ""}|${prestigeIcon(s.prestige ?? 0)}`;

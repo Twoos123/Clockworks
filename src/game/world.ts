@@ -305,6 +305,8 @@ export class World implements LogicHost {
    */
   gateDisplay: { themes: string[]; active: boolean } | null = null;
   onOpenShop: ((keeper: string, portrait: { ref: any; idle: any } | null) => void) | null = null;
+  /** The knight used an alchemy machine (its actor name). */
+  onOpenCrafter: ((machine: string) => void) | null = null;
   /** The knight talked to a townsperson: its actor name, the StartConversation action and its entity. */
   onConversation: ((actor: string, action: any, source: Entity) => void) | null = null;
   /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
@@ -581,9 +583,23 @@ export class World implements LogicHost {
   }
 
   /** The knight's body model as worn (armour and helmet, no weapon), for the HUD portrait. */
-  portraitRef(): any {
+  /**
+   * The knight's portrait with an item tried on (the shop's Preview, cL's preview equipment):
+   * an armour or helmet in its place; null for items the portrait does not show.
+   */
+  previewRef(item: string): any {
+    const cfg = this.data.resolveSync("config/item.dat", { name: item }, "item");
+    const k = String(cfg?.$class ?? "").split("$").pop();
+    if (!cfg?.model || (k !== "Armor" && k !== "Helm")) return null;
+    return this.portraitRef({ [k === "Helm" ? "Helmet" : "Armor"]: cfg.model });
+  }
+
+  portraitRef(over: Record<string, any> = {}): any {
     const args: [string, any][] = [["Colorization", this.color]];
-    for (const a of this.knight?.armor ?? []) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
+    for (const a of this.knight?.armor ?? []) {
+      const slot = a.slot === "helmet" ? "Helmet" : "Armor";
+      args.push([slot, this.colored(over[slot] ?? a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
+    }
     return { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
   }
@@ -831,6 +847,10 @@ export class World implements LogicHost {
         this.onOpenShop?.(source.name, model?.name ? { ref: model, idle } : null);
         return true;
       }
+      case "OpenCrafter":
+        // an alchemy machine (CraftActionConfig$OpenCrafter): the crafting window
+        if (activator === this.knightEntity) this.onOpenCrafter?.(source.name);
+        return true;
       case "NextFloor":
         this.finishLevel();
         return true;
@@ -2612,8 +2632,13 @@ export class World implements LogicHost {
     const near = this.props.filter(p => p !== carried && Math.hypot(p.x - fx, p.y - fy) < 1.6)
       .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y));
     const door = near.find(p => p.kind === "door" && !p.open);
+    // the server's ActionDesc.Shop for what opens goods (a shop, an alchemy machine, the
+    // exchange): "Press ATTACK to browse vendor goods", as the client shows at both
+    const vendor = (p: Prop | Monster) => p.entity?.handlers.some(h => h.kind === "Interaction"
+      && (/\$(OpenShop|OpenCrafter|OpenExchange)$/.test(String(h.cfg.action?.$class ?? "")) || (h.cfg.action?.actions ?? []).some((a: any) => /\$(OpenShop|OpenExchange)$/.test(String(a?.$class ?? "")))
+        || (h.cfg.action == null && /Spiral Quartermaster$/.test(p.entity?.name ?? "")))) ?? false;
     const target = (p: Prop | Monster, cfg: any, fallback: string) =>
-      ({ hint: actionHint(cfg?.actionDesc, fallback), desc: this.describe(p.entity?.name ?? "", cfg) });
+      ({ hint: actionHint(cfg?.actionDesc, vendor(p) ? "m.shop" : fallback), desc: this.describe(p.entity?.name ?? "", cfg) });
     if (door && /\$Energy$/.test(door.cfg.actionDesc?.$class ?? "") && !carried) return target(door, door.cfg, "m.energy");
     if (door && carried?.cfg.actionableSignal && carried.cfg.actionableSignal === door.cfg.actionableSignal) return target(door, door.cfg, "m.unlock");
     if (carried) return null;
@@ -2629,6 +2654,28 @@ export class World implements LogicHost {
   /** The knight stands on the exit elevator, waiting for it to go (the party status the client shows m.elevator for). */
   get onElevator(): boolean { return this.props.some(p => p.kind === "elevator" && p.standTime > 0) && !this.finished; }
 
+  /**
+   * The names over the townsfolk and machines (client/sprite/g, the NameLabel): an actor whose
+   * sprite is a named one (ProjectXActorSpriteConfig Named, Stranger, NamedStatefulEntry) or a
+   * named placeable (ProjectXPlaceableConfig$Named) shows character/label.dat at its
+   * nameOffset above its root, with its description's name and title.
+   */
+  nameplates(): { x: number; y: number; z: number; name: string; title: string; icon: string | null }[] {
+    const out: { x: number; y: number; z: number; name: string; title: string; icon: string | null }[] = [];
+    const add = (name: string, cfg: any, holder: any, x: number, y: number, z: number, scale: number) => {
+      if (typeof holder?.nameOffset !== "number" || !holder.description) return;
+      const d = this.describe(name, cfg);
+      if (d?.name) out.push({ x, y, z: z + holder.nameOffset * scale, name: d.name, title: d.title, icon: d.nameIcon ?? null });
+    };
+    for (const m of this.monsters) {
+      if (m.state === "dying" || !m.entity?.name) continue;
+      const cfg = this.npcs.get(m)?.cfg ?? (m.passive ? this.data.resolveSync("config/actor.dat", { name: m.entity.name }, "actor") : null);
+      if (cfg) add(m.entity.name, cfg, cfg.sprite, m.x, m.y, m.z, m.scale);
+    }
+    for (const p of this.props) if (p.entity?.name && /\$Named$/.test(String(p.cfg?.$class ?? ""))) add(p.entity.name, p.cfg, p.cfg, p.x, p.y, p.z, 1);
+    return out;
+  }
+
   /** A thing's DescriptionConfig for the target panel, loaded in the background on first ask. */
   private describe(name: string, cfg: any): import("../ui/hud").HudDescription | null {
     if (!name) return null;
@@ -2639,7 +2686,7 @@ export class World implements LogicHost {
         .then(d => {
           if (!d || !d.dname) return;
           const tr = (key: string) => key ? (key.startsWith("~") ? key.slice(1) : message(d.bundle, key) || key) : "";
-          this.actionDescs.set(name, { key: name, name: tr(d.dname), title: tr(d.title), info: tr(d.description), icon: d.icon });
+          this.actionDescs.set(name, { key: name, name: tr(d.dname), title: tr(d.title), info: tr(d.description), icon: d.icon, nameIcon: d.nameIcon });
         }).catch(() => undefined);
     }
     return this.actionDescs.get(name) ?? null;

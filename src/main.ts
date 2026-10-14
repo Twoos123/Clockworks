@@ -917,6 +917,7 @@ class Viewer {
     world.elevatorAllowed = p => this.lairElevator(p);
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = (keeper, portrait) => void this.openShop(keeper, portrait);
+    world.onOpenCrafter = () => void this.openCrafter();
     world.onConversation = (actor, action, source) => void this.openConversation(actor, action, source);
     // the exit elevator animates the scene's elevator model where it stands
     world.rideModel = (x, y) => {
@@ -1203,6 +1204,7 @@ class Viewer {
       paused: on => { this.paused = (on || !!this.missionBoard?.isOpen) && !!this.world; if (!on && !this.missionBoard?.isOpen) this.canvas.focus(); },
       arsenalClosed: () => { this.places.arsenalClosed(); this.achieve(); },
       outfit: () => this.outfit,
+      previewModel: async item => { const ref = this.world?.previewRef(item); return ref ? { ref, idle: "character/pc/idle.dat" } : null; },
       // the equipment window's knight preview, the battle sprite page's sprite, the vendor's keeper
       view: (c, g, x, y, w, h, model) => {
         const ref = model ? model.ref : this.world?.portraitRef();
@@ -1294,6 +1296,10 @@ class Viewer {
       // the help notice: m.elevator while waiting on a dungeon's elevator, else the knight's action
       // hint (none while a window is open over the game); the action's description for the target panel
       action: (() => {
+        // a vendor or alchemy machine the knight is using keeps its hint and target panel while
+        // its windows are open (the client's stay up over the shop)
+        if (w && this.vendorAction && (this.itemScreens?.shop.isOpen || this.itemScreens?.recipes.isOpen)) return this.vendorAction;
+        if (!this.paused) this.vendorAction = null;
         if (!w || this.paused || this.anyWindowOpen() || this.talking) return null;
         const dungeon = !!this.scene && !TOWN.test(this.scene.name);
         if (dungeon && w.onElevator) return { hint: "m.elevator", desc: null };
@@ -1608,8 +1614,19 @@ class Viewer {
   /** The NPC in the conversation: its model and idle animation. */
   private talking: { ref: any; idle: any } | null = null;
 
+  /** The vendor or machine in use: its hint and description stay on the HUD while its windows are open. */
+  private vendorAction: ReturnType<World["actionTarget"]> = null;
+
+  /** An alchemy machine: the crafting window (craft/a/o), its hint and target panel staying up. */
+  private async openCrafter() {
+    this.vendorAction = this.world?.actionTarget() ?? null;
+    const screens = this.ensureScreens();
+    if (!screens.recipes.isOpen) await screens.toggleRecipes();
+  }
+
   /** A shopkeeper's stock, by what the NPC's config name says it sells. */
   private async openShop(keeper: string, portrait: { ref: any; idle: any } | null = null) {
+    this.vendorAction = this.world?.actionTarget() ?? null;
     this.paused = true;
     const eco = await this.economy();
     // in the Clockworks a terminal's keepers stock their tier (Basil sells its recipes, the
@@ -1617,7 +1634,8 @@ class Viewer {
     const f = this.gate ? this.floors[this.run.depth] : null;
     const tier = f && f.depth > 0 ? f.tier : 0;
     const maxRarity = f ? Math.max(shopTier(this.save), tierStars(f.tier)) : shopTier(this.save);
-    const kp = eco.keeper(keeper, { tier, maxRarity });
+    // Basil in a mission's lobby stocks that mission's recipes (src/game/vendors.ts)
+    const kp = eco.keeper(keeper, { tier, maxRarity, mission: this.gate?.id.startsWith("mission:") ? this.gate.name : null });
     // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth;
     // Haven's Strangers draw the random part of their wiki lists per knight and day
     const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000), player: knightName(this.save) });

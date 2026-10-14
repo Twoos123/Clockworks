@@ -5,6 +5,11 @@ import { multiply, type Mat4 } from "../math";
 import type { Floater, World } from "./world";
 import { NUMBER_FONTS, numberPose } from "./feedback";
 
+/** character/label.dat's ComponentBillboardConfig scale: world units a GUI pixel. */
+const NAME_SCALE = 0.008;
+/** sprite/g's label colour: ColorPository print 514 (item_1 grey_lite), its colorized root. */
+const NAME_COLOR = "rgb(191,191,191)";
+
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D;
   /** Display options from the options menu. */
@@ -43,6 +48,47 @@ export class Hud {
     g.strokeText(f.text, 0, 0);
     g.fillStyle = st.color;
     g.fillText(f.text, 0, 0);
+    g.restore();
+  }
+
+  /**
+   * character/label.dat, the NameLabel billboard (0.008 world units a GUI pixel): the name in
+   * its Label style (Arial Black 26, a 4 pixel black outline) with the description's name icon
+   * before it, and the title under it in its Sublabel style (Arial Black 20), both in the
+   * colour sprite/g gives them: colour print 514 (item_1 grey_lite, 191 grey).
+   */
+  private drawNameplates(g: CanvasRenderingContext2D, world: World, project: (x: number, y: number, z: number) => [number, number] | null,
+    unitPx: (x: number, y: number, z: number) => number) {
+    const plates = world.nameplates();
+    if (!plates.length) return;
+    g.save();
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.lineJoin = "round";
+    for (const n of plates) {
+      const p = project(n.x, n.y, n.z), k = unitPx(n.x, n.y, n.z) * NAME_SCALE;
+      if (!p || k * 26 < 6) continue;
+      const nameH = 26 * k, subH = n.title ? 20 * k : 0;
+      // the label's vertical group is centred on its root
+      let y = p[1] - (nameH + subH) / 2 + nameH / 2;
+      const line = (text: string, size: number, yy: number) => {
+        g.font = `${(size * k).toFixed(1)}px "Arial Black", "Arial", sans-serif`;
+        g.lineWidth = 2 * 4 * k;
+        g.strokeStyle = "#000";
+        g.strokeText(text, p[0] + (size === 26 && icon ? (icon.width * (size * k / icon.height) + 2 * k) / 2 : 0), yy);
+        g.fillStyle = NAME_COLOR;
+        g.fillText(text, p[0] + (size === 26 && icon ? (icon.width * (size * k / icon.height) + 2 * k) / 2 : 0), yy);
+        return g.measureText(text).width;
+      };
+      const icon = n.icon ? this.img(n.icon) : null;
+      const w = line(n.name, 26, y);
+      if (icon) {
+        const ih = 26 * k, iw = icon.width * (ih / icon.height);
+        g.drawImage(icon.source, p[0] - (w + iw + 2 * k) / 2, y - ih / 2, iw, ih);
+      }
+      y += nameH / 2 + subH / 2;
+      if (n.title) line(n.title, 20, y);
+    }
     g.restore();
   }
 
@@ -85,6 +131,9 @@ export class Hud {
       return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
     };
     this.unitPx = unitPx;
+
+    // the names over townsfolk and machines (client/sprite/g on character/label.dat)
+    this.drawNameplates(g, world, project, unitPx);
 
     // monster health bars
     for (const m of this.options.healthBars ? world.liveMonsters : []) {
