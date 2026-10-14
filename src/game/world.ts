@@ -1274,6 +1274,10 @@ export class World implements LogicHost {
     this.props.push(p);
     this.updatePropCollision(p);
     const model = cfg.sprite?.model ?? cfg.model;
+    // what the prop's sprite spawns as it is struck, broken or picked up loads with it
+    const sp = cfg.sprite;
+    for (const fx of [sp?.hitTransient, sp?.destructionTransient, sp?.pickupTransient]) this.warmEffect(fx);
+    for (const m of p.stateModels) if (m) void this.loader.loadRef(m).catch(() => null);
     if (model) void this.loader.loadRef(model).catch(() => null).then(async m => {
       // models the install lacks (the prism puzzle's) get stand-ins
       const alt = m ? null : standInModel(p);
@@ -1320,13 +1324,20 @@ export class World implements LogicHost {
     const st = p.states;
     let anim: any = null, loop = true;
     if (p.obj && st.length) {
-      // dungeon objects pick their state (objects.ts)
-      anim = st[p.obj.state ?? 0] ?? null;
+      // dungeon objects pick their state (objects.ts), by the config's state index
+      anim = p.stateAnims[p.obj.state ?? 0] ?? null;
       loop = p.obj.loop ?? true;
     } else if (p.kind === "door") {
       anim = changed ? st[p.open ? 2 : 0] : st[p.open ? 3 : 1];
       loop = !changed;
     } else if (p.kind === "switch") anim = st[p.pressed ? 1 : 0];
+    else if (p.kind === "block" && st.length) {
+      // a stateful block (StatefulBlock: mineral nodes) plays its state's animation once as
+      // it enters the state, holding its last frame
+      const all = p.stateAnims;
+      anim = all[Math.min(all.length - 1, blockState(p))] ?? null;
+      loop = false;
+    }
     else if (p.kind === "trap") {
       anim = st[p.trapState] ?? null;
       loop = false;
@@ -1490,13 +1501,84 @@ export class World implements LogicHost {
   /** A hit on a prop from a knight (by 2) or a hazard, bullet or blast (by 1). */
   private damageProp(p: Prop, amount: number, by = 2) {
     if (p.entity.destroyed) return;
-    if (this.objects.hit(p, by)) return;
+    // a block's sprite answers each hit it takes (the Block's hit time) with its hit transient
+    const struck = p.struck && this.objects.accepts(p, by);
+    if (this.objects.hit(p, by)) { if (struck) this.propHitFx(p); return; }
     if (!p.breakable) return;
     this.logic.damaged(p.entity, this.knightEntity);
     // each hit runs the block's damage action (treasure boxes spill loot as they are struck)
     if (p.cfg.damageAction) this.logic.execute(p.cfg.damageAction, p.entity, this.knightEntity);
     p.health -= p.hits ? 1 : amount;
+    this.propHitFx(p);
     if (p.health <= 0) this.logic.destroy(p.entity, this.knightEntity);
+    else this.showBlockState(p);
+  }
+
+  /**
+   * The block sprite's answer to a hit (DungeonActorSpriteConfig.Block, client BlockSprite):
+   * its hit transient (fx_gethit_block.dat's dust, a mineral's chime, a stone's crack sound)
+   * at the block, unscaled.
+   */
+  private propHitFx(p: Prop) {
+    const fx = p.cfg.sprite?.hitTransient;
+    if (fx?.name) void this.spawnEffect(fx, p.matrix(), 2);
+  }
+
+  /**
+   * A stateful block entering the state for the hits it has taken: a StatefulBlock plays the
+   * state's animation (mineral nodes shrink and shake), a StatefulModelBlock takes the state's
+   * model (Block/Stone's cracked meshes).
+   */
+  private showBlockState(p: Prop) {
+    const s = blockState(p);
+    if (s === p.shownState) return;
+    p.shownState = s;
+    const models = p.stateModels;
+    if (models.length) {
+      const ref = models[Math.min(models.length - 1, s)];
+      if (ref) void this.setPropModel(p, ref);
+      return;
+    }
+    if (p.stateAnims.some(Boolean)) this.showPropState(p, true);
+  }
+
+  /** Replaces a prop's model (a state model), keeping the old one until the new one is ready. */
+  private async setPropModel(p: Prop, ref: any) {
+    const m = await this.loader.loadRef(ref).catch(() => null);
+    if (!m || !this.props.includes(p)) return;
+    const inst = await this.instantiate(m);
+    if (this.props.includes(p)) p.instance = inst;
+  }
+
+  /**
+   * Loads an effect a prop will spawn (its hit and destruction transients) ahead, with what
+   * its script spawns, and makes an instance once so its textures and meshes are ready: the
+   * first block broken in a level shows its break at once rather than frames late.
+   */
+  private warmed = new Set<string>();
+  private warmEffect(ref: any, depth = 0) {
+    if (!ref?.name || depth > 4) return;
+    const key = clipKey(ref);
+    if (this.warmed.has(key)) return;
+    this.warmed.add(key);
+    void this.loader.loadRef(ref).catch(() => null).then(m => {
+      if (!m) return;
+      for (const r of spawnedModels(m)) this.warmEffect(r, depth + 1);
+      if (!m.script) return this.renderer.instantiate(m);
+    }).catch(() => {});
+  }
+
+  /**
+   * Takes a prop off the field without its destruction (no loot, no shutdown actions): a
+   * block that vanishes (the Block's VANISHED flag) fades out with particle/fx_block_fade.dat
+   * instead of breaking.
+   */
+  vanishProp(p: Prop, fade = p.kind === "block") {
+    if (p.entity.destroyed) return;
+    this.logic.vanish(p.entity);
+    const model = p.cfg.sprite?.model;
+    if (fade && model) void this.spawnEffect(argRef("particle/fx_block_fade.dat", [["Model", model]]), p.matrix(), 2);
+    this.removeProp(p, false);
   }
 
   /**
@@ -2330,10 +2412,18 @@ export class World implements LogicHost {
     const imp = at.def.impulse, d = at.def;
     if (imp && !at.lunged && at.total * 1000 >= imp.delay) {
       at.lunged = true;
-      const c = Math.cos(a.heading), sn = Math.sin(a.heading);
-      const dur = imp.duration / 1000 / (imp.speedModified ? Math.max(0.05, this.statusSpeed(a)) : 1);
-      a.lunge = { dx: imp.forward * c - imp.side * sn, dy: imp.forward * sn + imp.side * c, t: 0, dur: Math.max(0.001, dur) };
+      const knight = a === this.knight;
+      // the knight's charged attack (the advancer's charge-release activity) always stretches
+      // its impulse with the status speed; a combo swing only when it is speed-modified
+      const charged = knight && at.def === this.knight.weapon?.chargedAttack;
+      const l = attackImpulse(imp, a.heading, imp.speedModified || charged ? this.statusSpeed(a) : 1);
+      a.lunge = l;
+      // the knight's swing is the client's Impulse on the Dungeoneer (DungeonAdvancer attack
+      // activity): it merges with a knockback under way and is moved by the advancer, walls
+      // stopping it; the lunge only times its contact hits
+      if (knight) this.addImpulse(a, l.dx, l.dy, l.dur);
     }
+    if (a === this.knight && a.lunge.t < a.lunge.dur) a.lunge.t += dt / Math.max(1e-6, this.attackRate(a));
     if (d.contact && a.lunge.t < a.lunge.dur) this.contactHits(a, at);
     if (at.phase === "start") {
       if (at.t * 1000 >= d.land / d.startSpeed) this.enterFire(a);
@@ -3683,11 +3773,50 @@ function clipKey(p: string | any): string {
 
 export type { LoadedModel, Vec3 };
 
+/**
+ * A stateful block's sprite state: the hits it has taken (Block/Stone and the mineral nodes
+ * enter states 1 and 2 on their first two hits and break on the third).
+ */
+export function blockState(p: { hits: boolean; health: number; maxHealth: number }): number {
+  if (p.maxHealth <= 0) return 0;
+  return p.hits ? Math.max(0, p.maxHealth - p.health) : Math.max(0, Math.floor((1 - p.health / p.maxHealth) * 3));
+}
+
+/**
+ * The models a loaded effect spawns as it plays: its script's SpawnTransient actions (inside
+ * Compound, Random and Conditional actions too), its attachments' and its particle layers'.
+ */
+export function spawnedModels(m: LoadedModel, depth = 0): any[] {
+  const out: any[] = [];
+  if (depth > 4) return out;
+  const walk = (a: any, d: number) => {
+    if (!a || d > 6) return;
+    const k = String(a.$class ?? "").split("$").pop();
+    if (k === "SpawnTransient" && a.model?.name) out.push(a.model);
+    for (const x of a.actions ?? []) walk(x?.action ?? x, d + 1);
+    if (a.defaultAction) walk(a.defaultAction, d + 1);
+  };
+  for (const t of m.script?.actions ?? []) walk(t.action, 0);
+  for (const a of m.attachments) out.push(...spawnedModels(a.model, depth + 1));
+  return out;
+}
+
 /** Hits a block takes to break, by its config name (wiki: Exploration, Mineral). */
 export function blockHits(name: string): number {
   if (/Block\/Stone|Mineral|Gathering|Anti-vehicle Hedgehog|Ice Barrier/i.test(name)) return 3;
   if (/Empty Rocket/i.test(name)) return 2;
   return 1;
+}
+
+/**
+ * The movement an attack gives its attacker (AttackConfig impulseReceived, the client's
+ * ItemImpulse): its translation turned by the attacker's facing (x forward, y to the left),
+ * over its duration in seconds, divided by the status speed when that stretches it.
+ */
+export function attackImpulse(imp: NonNullable<AttackDef["impulse"]>, heading: number, speed = 1): { dx: number; dy: number; t: number; dur: number } {
+  const c = Math.cos(heading), s = Math.sin(heading);
+  const dur = imp.duration / 1000 / Math.max(0.05, speed);
+  return { dx: imp.forward * c - imp.side * s, dy: imp.forward * s + imp.side * c, t: 0, dur: Math.max(0.001, dur) };
 }
 
 /** A knockback as distance, duration and level (a bare number is a distance over 250 ms). */

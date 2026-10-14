@@ -11,6 +11,8 @@ export interface SweepArgs {
   weapons: RegExp | null;
   monsters: RegExp | null;
   knight: boolean;
+  /** Break a set of block actors hit by hit (`--blocks`). */
+  blocks: boolean;
   out: string;
   url: string;
   workers: number;
@@ -31,7 +33,7 @@ export interface SweepArgs {
 const ANY = /.*/;
 
 /**
- * `--weapons [regex]`, `--monsters [regex]`, `--knight`: what to sweep (all three when none
+ * `--weapons [regex]`, `--monsters [regex]`, `--knight`, `--blocks`: what to sweep (all when none
  * is named); a flag without a value takes every item of its kind.
  */
 export function parseArgs(argv: string[]): SweepArgs {
@@ -43,10 +45,10 @@ export function parseArgs(argv: string[]): SweepArgs {
   };
   const filter = (k: string) => (has(k) ? (value(k) ? new RegExp(value(k)!, "i") : ANY) : null);
   let weapons = filter("weapons"), monsters = filter("monsters");
-  let knight = has("knight");
-  if (!weapons && !monsters && !knight) { weapons = ANY; monsters = ANY; knight = true; }
+  let knight = has("knight"), blocks = has("blocks");
+  if (!weapons && !monsters && !knight && !blocks) { weapons = ANY; monsters = ANY; knight = true; blocks = true; }
   return {
-    weapons, monsters, knight,
+    weapons, monsters, knight, blocks,
     out: value("out") ?? ".scratch/sweep",
     url: value("url") ?? process.env.SWEEP_URL ?? "http://localhost:5183/",
     workers: Math.max(1, Number(value("workers") ?? 1) || 1),
@@ -94,8 +96,8 @@ export interface WeaponRecord {
   chargeTime?: number;
   attackNames?: string[];
   chargedName?: string | null;
-  chain?: RunLog | null;
-  charge?: (RunLog & { full: boolean; pose: string | null }) | null;
+  chain?: (RunLog & { travel?: number; impulse?: number }) | null;
+  charge?: (RunLog & { full: boolean; pose: string | null; travel?: number; impulse?: number }) | null;
   shots: Shot[];
   console: string[];
   problems: string[];
@@ -121,6 +123,31 @@ export interface MonsterRecord {
   died?: boolean;
   removedAfter?: number | null;
   deathEffects?: string[];
+  shots: Shot[];
+  console: string[];
+  problems: string[];
+}
+
+/** One block broken in the blocks sweep: what each hit and the break spawned. */
+export interface BlockRun {
+  name: string;
+  error?: string;
+  /** Hits it takes (its health counted in hits). */
+  hits?: number;
+  broke?: boolean;
+  /** Its sprite config names a hit transient and a destruction transient. */
+  hasHitFx?: boolean;
+  hasBreakFx?: boolean;
+  /** Effects spawned by each hit that did not break it, and by the breaking one. */
+  hitEffects?: string[][];
+  breakEffects?: string[];
+  /** What the block played (or which model it showed) after each hit. */
+  states?: string[];
+}
+
+export interface BlocksRecord {
+  error?: string;
+  blocks: BlockRun[];
   shots: Shot[];
   console: string[];
   problems: string[];
@@ -164,6 +191,13 @@ export function judgeWeapon(r: WeaponRecord): string[] {
     p.push(...failedEffects(x.effects).map(e => `${label}: ${e}`));
   };
   run("chain", r.chain);
+  // a combo whose swings carry the knight (their impulses) should move it
+  const still = (label: string, x: { travel?: number; impulse?: number } | null | undefined) => {
+    if (x && (x.impulse ?? 0) >= 0.5 && (x.travel ?? 0) < Math.abs(x.impulse!) * 0.25)
+      p.push(`${label}: the knight moved ${(x.travel ?? 0).toFixed(2)} of its attacks' ${x.impulse!.toFixed(2)} units`);
+  };
+  still("chain", r.chain);
+  still("charge", r.charge);
   if (r.chargedName) {
     run("charge", r.charge);
     if (r.charge && !r.charge.full) p.push("charge: never reached full charge");
@@ -193,6 +227,21 @@ export function judgeMonster(r: MonsterRecord): string[] {
     else if (r.died && r.removedAfter == null) p.push("its body stays after death");
     if (r.died && !(r.deathEffects ?? []).length) p.push("no death effect");
     p.push(...failedEffects(r.deathEffects ?? []).map(e => `death: ${e}`));
+  }
+  p.push(...consoleProblems(r.console));
+  return [...new Set(p)];
+}
+
+export function judgeBlocks(r: BlocksRecord): string[] {
+  const p: string[] = [];
+  if (r.error) p.push(`sweep error: ${r.error}`);
+  for (const b of r.blocks) {
+    const n = b.name.replace(/^Block\//, "");
+    if (b.error) { p.push(`${n}: ${b.error}`); continue; }
+    if (!b.broke) p.push(`${n}: did not break`);
+    else if (b.hasBreakFx && !(b.breakEffects ?? []).length) p.push(`${n}: no break effect`);
+    if (b.hasHitFx && (b.hitEffects ?? []).some(fx => !fx.length)) p.push(`${n}: a hit without its hit effect`);
+    p.push(...failedEffects([...(b.breakEffects ?? []), ...(b.hitEffects ?? []).flat()]).map(e => `${n}: ${e}`));
   }
   p.push(...consoleProblems(r.console));
   return [...new Set(p)];
@@ -231,7 +280,7 @@ function damageCell(x: RunLog | null | undefined): string {
   return `${dmg} · kb ${kb}${st.length ? ` · ${st.join(",")}` : ""}`;
 }
 
-export function reportMarkdown(data: { weapons: WeaponRecord[]; monsters: MonsterRecord[]; knight: KnightRecord | null; sheets: string[]; generated: string }): string {
+export function reportMarkdown(data: { weapons: WeaponRecord[]; monsters: MonsterRecord[]; knight: KnightRecord | null; blocks?: BlocksRecord | null; sheets: string[]; generated: string }): string {
   const L: string[] = ["# Test Range sweep", "",
     `Generated ${data.generated} by \`tools/audit/sweep.ts\` (Playwright, SwiftShader, muted) in the Test Range (docs/research/test-range.md).`,
     "Each weapon is equipped and put through its basic chain and a full charge against the frozen, undying dummy; each monster is",
@@ -259,6 +308,11 @@ export function reportMarkdown(data: { weapons: WeaponRecord[]; monsters: Monste
   if (data.knight) {
     L.push("## Knight", "", "| Action | Playing |", "|---|---|", ...data.knight.actions.map(a => `| ${a.label} | ${esc(a.playing)} |`), "",
       data.knight.problems.length ? `Flags: ${data.knight.problems.join("; ")}` : "No flags.", "");
+  }
+  if (data.blocks) {
+    L.push("## Blocks", "", "| Block | Hits | Hit effects | Break effects | States |", "|---|---|---|---|---|",
+      ...data.blocks.blocks.map(b => `| ${esc(b.name)} | ${b.hits ?? "-"} | ${esc((b.hitEffects ?? []).map(x => x.join(", ") || "none").join(" / ") || "-")} | ${esc((b.breakEffects ?? []).join(", ") || (b.broke ? "none" : "did not break"))} | ${esc((b.states ?? []).join(" / ") || "-")} |`), "",
+      data.blocks.problems.length ? `Flags: ${data.blocks.problems.join("; ")}` : "No flags.", "");
   }
   if (data.sheets.length) L.push("## Contact sheets", "", ...data.sheets.map(s => `- [${s}](sheets/${s})`), "");
   return L.join("\n");
