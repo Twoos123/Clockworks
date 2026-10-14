@@ -6,8 +6,8 @@
 // path taken drawn in the client's dark red with the selected border, the level the elevator
 // leads to next in its pale red, and the knight's place marked "you are here".
 
-import { BOSSES, floorIcon, gateFloors, type Floor, type Gate } from "../game/clockworks";
-import { displayOrder, predictedPath, themeColours, fixedLevel, type RealLevel } from "../game/gatemap";
+import { BOSSES, gateFloors, type Gate } from "../game/clockworks";
+import { displayOrder, predictedPath, fixedLevel, floorMapLevel, type RealLevel } from "../game/gatemap";
 import { tierLock, type MissionProgress } from "../game/missions";
 import { levelText } from "../game/text";
 import { Component, type GuiContext, type GuiImage, type RenderHooks } from "./gui";
@@ -127,7 +127,7 @@ export class GateMapView {
   }
 
   private async buildRows(g: Gate, locks: boolean[]): Promise<MapRows> {
-    const levels: RealLevel[][] = g.real ? g.real.wheels.map(w => w.options) : gateFloors(g).map(f => [this.floorLevel(f)]);
+    const levels: RealLevel[][] = g.real ? g.real.wheels.map(w => w.options) : gateFloors(g).map(f => [floorMapLevel(f)]);
     const tierOf = (d: number) => (d >= 18 ? 3 : d >= 8 ? 2 : 1);
     const haven = await this.cell(fixedLevel(-1), -1, 0, false, g);
     const cells = await Promise.all(levels.map((opts, d) => Promise.all(opts.map((l, w) => this.cell(l, d, w, locks[tierOf(d) - 1], g)))));
@@ -143,17 +143,6 @@ export class GateMapView {
     });
     const rows = [row([haven!.ui], 0, "CENTER"), ...cells.map(r => row(r.map(c => c.ui), 0, "CENTER"))];
     return { rows, cells, haven, spacers };
-  }
-
-  /** A generated gate's floor as a map level. */
-  private floorLevel(f: Floor): RealLevel {
-    const s = f.stratum;
-    const fam = s && ["Beast", "Construct", "Fiend", "Gremlin", "Slime", "Undead"].includes(s.theme) ? s.theme as any : null;
-    const el = s && ["Fire", "Freeze", "Poison", "Shock"].includes(s.theme) ? s.theme as any : null;
-    const kind = f.kind === "subtown" ? "town" : f.kind;
-    if (kind === "lobby" || kind === "terminal" || kind === "town" || kind === "core") return fixedLevel(f.depth);
-    return { code: "", key: f.levelKey ?? "", title: f.name, subtitle: f.zone ?? "", icon: floorIcon(f), colorizations: themeColours(el, fam),
-      kind: kind === "boss" ? "boss" : "level", style: s?.style.key ?? null, family: fam, element: el, ...(kind === "boss" && s?.boss ? { boss: s.boss } : {}) };
   }
 
   /** One map icon (map_levelicon.dat) with its level's colours and tooltip. */
