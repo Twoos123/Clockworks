@@ -88,6 +88,8 @@ export interface LoadedModel {
   skybox?: SkyboxDef;
   /** ViewerAffecterConfig BackgroundColor. */
   background?: [number, number, number];
+  /** ViewerAffecterConfig RenderEffect: the render effect's name (e.g. "Uniform Blur (Skybox)"). */
+  renderEffect?: string;
   /** False when the model's InfluenceFlagConfig turns light influences off. */
   receivesLights?: boolean;
 }
@@ -99,14 +101,15 @@ export interface SkyboxDef {
   origin: [number, number, number];
 }
 
-/** The skybox and background effects anywhere in a model's tree (attachments included). */
-export function viewerEffects(m: LoadedModel, out: { skyboxes: SkyboxDef[]; background: [number, number, number] | null } =
-  { skyboxes: [], background: null }, depth = 0) {
+/** The skybox, background and render effects anywhere in a model's tree (attachments included). */
+export function viewerEffects(m: LoadedModel, out: { skyboxes: SkyboxDef[]; background: [number, number, number] | null; effects: string[] } =
+  { skyboxes: [], background: null, effects: [] }, depth = 0) {
   if (depth > 12) return out;
   // a skybox model may hold viewer affecters of its own ("Environment/Skybox" around the
   // clockwork tunnels' model): they act on the view just the same
   if (m.skybox) { out.skyboxes.push(m.skybox); viewerEffects(m.skybox.model, out, depth + 1); }
   if (m.background) out.background = m.background;
+  if (m.renderEffect) out.effects.push(m.renderEffect);
   for (const a of m.attachments) viewerEffects(a.model, out, depth + 1);
   return out;
 }
@@ -350,6 +353,8 @@ export class ModelLoader {
         if (m) model.skybox = { model: m, scale: v(eff.translationScale), origin: v(eff.translationOrigin) };
       } else if (ek === "BackgroundColor" && eff.color) {
         model.background = [eff.color.r ?? 0, eff.color.g ?? 0, eff.color.b ?? 0];
+      } else if (ek === "RenderEffect" && eff.renderEffect?.name) {
+        model.renderEffect = String(eff.renderEffect.name);
       } else model.skipped.push("ViewerEffect " + ek);
       return model;
     }

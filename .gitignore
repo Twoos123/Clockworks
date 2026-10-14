@@ -6,3 +6,7 @@ tools/.scan-*
 engine-spike/
 .claude/worktrees/
 .decompiled/
+release/
+research_notes/
+reports/
+docs/outreach/
