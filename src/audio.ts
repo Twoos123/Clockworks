@@ -339,6 +339,40 @@ export class AudioSystem {
     src.start();
   }
 
+  /**
+   * A looping stream of its own on the music bus, over whatever music plays (ProjectXApp's
+   * streams: the gain times the music volume), faded in over `fadeIn` seconds. The returned
+   * function fades it out over `fadeOut` seconds and stops it.
+   */
+  playStream(file: string, gain = 1, fadeIn = 2): (fadeOut?: number) => void {
+    let stopped = false, node: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+    void (async () => {
+      if (!this.ctx || !this.musicBus) return;
+      const buf = await this.buffer(file);
+      if (!buf || !this.ctx || !this.musicBus || stopped) return;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      const t = this.ctx.currentTime;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(gain, t + Math.max(0.05, fadeIn));
+      src.connect(g).connect(this.musicBus);
+      src.start();
+      node = { src, g };
+    })();
+    return (fadeOut = 2) => {
+      if (stopped) return;
+      stopped = true;
+      if (!node || !this.ctx) return;
+      const t = this.ctx.currentTime, gg = node.g.gain;
+      gg.cancelScheduledValues(t);
+      gg.setValueAtTime(gg.value, t);
+      gg.linearRampToValueAtTime(0, t + fadeOut);
+      node.src.stop(t + fadeOut + 0.05);
+    };
+  }
+
   /** Fades the current track out; it stops once silent. */
   private fadeOutMusic(fadeOut: number) {
     const m = this.music;

@@ -272,9 +272,9 @@ export class GameHud {
 
   constructor(private readonly ctx: GuiContext, readonly hooks: RenderHooks = {}) {
     this.minimap = new Minimap(ctx);
-    // the map draws over the map background, under the hash marks and gloss (the map layer
-    // spacer has no size of its own)
-    hooks.tagged = { ...(hooks.tagged ?? {}), mapbackground: (_c, g, x, y, w, h) => this.minimap.draw(g, x, y, w, h) };
+    // the map draws in the map layer (after the faceplate, under the hash marks and gloss), in
+    // the mask's square at the layer's upper-right corner
+    hooks.tagged = { ...(hooks.tagged ?? {}), maplayer: (_c, g, x, y, w, h) => this.minimap.draw(g, x, y, w, h) };
   }
 
   /** Starts loading the interfaces; draw() shows them once ready. */

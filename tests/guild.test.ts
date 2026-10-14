@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  buyFurniture, cachedPlacements, furniEntry, furnitureCatalogue, guildOf, hallRoot, nextRotation, place, snap, transfer, unplace,
+  bagStore, buyFurniture, cachedPlacements, commitCart, furniEntry, furnitureCatalogue, guildOf, hallRoot, nextRotation, place, snap, transfer, unplace,
 } from "../src/game/guild.ts";
 import { loadSave } from "../src/game/save.ts";
 import { starterGear, validName } from "../src/ui/createknight.ts";
@@ -41,6 +41,27 @@ test("the vault moves materials and crowns both ways", () => {
   assert.ok(!transfer(s, "Material/A", 4, false));
   assert.ok(transfer(s, "crowns", 250, true));
   assert.deepEqual([s.crowns, s.guild!.treasury], [750, 250]);
+});
+
+test("guild bags: storages move gear and materials both ways, the treasury only takes", () => {
+  const s = fresh();
+  s.materials = { "Material/A": 5 };
+  s.owned = [...s.owned, "Weapon/Sword/Spare"];
+  s.gear["Weapon/Sword/Spare"] = { heat: 40, level: 3, variants: [] };
+  const worn = s.loadout.weapons[0];
+  // worn gear cannot be given; a refused line moves nothing
+  assert.ok(!commitCart(s, "member", [{ item: worn, count: 1, give: true, gear: true }, { item: "Material/A", count: 2, give: true, gear: false }]));
+  assert.equal(s.materials["Material/A"], 5);
+  assert.ok(commitCart(s, "member", [{ item: "Weapon/Sword/Spare", count: 1, give: true, gear: true }, { item: "Material/A", count: 2, give: true, gear: false }]));
+  assert.ok(!s.owned.includes("Weapon/Sword/Spare"));
+  assert.deepEqual(bagStore(guildOf(s), "member").gear["Weapon/Sword/Spare"], { heat: 40, level: 3, variants: [] });
+  assert.ok(commitCart(s, "member", [{ item: "Weapon/Sword/Spare", count: 1, give: false, gear: true }]));
+  assert.equal(s.gear["Weapon/Sword/Spare"].level, 3);
+  // the treasury: materials and crowns in, nothing out, no gear
+  assert.ok(commitCart(s, "treasury", [{ item: "Material/A", count: 3, give: true, gear: false }], 100));
+  assert.deepEqual([s.materials["Material/A"], guildOf(s).vault["Material/A"], s.crowns, guildOf(s).treasury], [undefined, 3, 900, 100]);
+  assert.ok(!commitCart(s, "treasury", [{ item: "Material/A", count: 1, give: false, gear: false }]));
+  assert.ok(!commitCart(s, "veteran", [], 10));
 });
 
 test("the hall drops the cached furniture and round-trips the player's as Furni Placers", () => {

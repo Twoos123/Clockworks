@@ -30,7 +30,7 @@ import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, commandKeys, gameKeyName, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, commandKeys, gameKeyName, keyName, loadSettings, saveSettings, uiScale, type Action, type Settings } from "./ui/settings";
 import { hasMessage, loadMessages, message, messages, text } from "./i18n";
 import { itemName, levelText } from "./game/text";
 import { OptionsScreen } from "./ui/options";
@@ -1020,7 +1020,8 @@ class Viewer {
       data: () => this.world?.data ?? new GameData(this.loader),
       save: () => this.save, sound: f => this.uiSound(f),
       write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); this.achieve(); },
-      paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
+      // the mission board's arsenal toggle opens the arsenal over the board, which keeps the game paused
+      paused: on => { this.paused = (on || !!this.missionBoard?.isOpen) && !!this.world; if (!on && !this.missionBoard?.isOpen) this.canvas.focus(); },
       arsenalClosed: () => { this.places.arsenalClosed(); this.achieve(); },
       outfit: () => this.outfit,
       // the equipment window's knight preview, the battle sprite page's sprite, the vendor's keeper
@@ -1055,7 +1056,7 @@ class Viewer {
       this.audio.applyVolumes();
     }
     this.renderer.particlesOn = o.particles;
-    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, hudScale: o.hudScale, fps: o.showFps };
+    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, get hudScale() { return uiScale(o); }, fps: o.showFps };
     if (this.gameHud) this.gameHud.options = { minimap: o.minimap, screenFlash: o.screenFlash };
     if (this.world) this.world.autoAimOn = o.autoAim;
     padOptions.deadZone = o.deadZone;
@@ -1185,6 +1186,7 @@ class Viewer {
       openArsenal: async () => { if (!this.itemScreens?.arsenal.isOpen) await this.toggleArsenal(); },
       arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
       colors: () => this.renderer.colors,
+      eco: () => this.economy(),
       returnToHaven: () => void this.returnToHaven(),
       pause: on => { this.paused = on && !!this.world; },
       focus: () => this.canvas.focus(),
@@ -1202,6 +1204,10 @@ class Viewer {
     return this.missionBoard ??= new MissionBoard({
       data: this.world?.data ?? new GameData(this.loader), gui: this.gui,
       save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
+      stream: (f, gain) => this.ensureAudio().playStream(f, gain, 2),
+      toggleArsenal: () => this.toggleArsenal(),
+      arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
+      openForge: () => { if (!this.itemScreens?.forge.isOpen) void this.toggleArsenal("craft"); },
       pause: on => { this.paused = on && !!this.world; },
       startRun: (g, floors) => void this.enterGate(g, floors),
       openGates: () => this.openGates(),
@@ -2151,7 +2157,7 @@ class Viewer {
     c.addEventListener("pointerdown", e => {
       // clicks on the HUD's menus go to the HUD, not the sword
       if (this.world && this.gameHud && e.button === 0) {
-        const r = c.getBoundingClientRect(), s = this.options_.hudScale;
+        const r = c.getBoundingClientRect(), s = uiScale(this.options_);
         const x = (e.clientX - r.left) / s, y = (e.clientY - r.top) / s;
         if (this.gameHud.covers(x, y)) {
           const tag = this.gameHud.pointer(x, y, true);
@@ -2200,7 +2206,7 @@ class Viewer {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
       // hovering the HUD's buttons
-      const s = this.options_.hudScale;
+      const s = uiScale(this.options_);
       if (this.gameHud) { this.gameHud.pointer(this.mouse[0] / s, this.mouse[1] / s, false); c.style.cursor = this.gameHud.covers(this.mouse[0] / s, this.mouse[1] / s) ? "pointer" : ""; }
     });
     c.addEventListener("pointerup", () => { drag = null; });
@@ -2304,7 +2310,7 @@ class Viewer {
       ];
       const proj = perspective(this.fov, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
       // camera shakes (ShakeCamera actions: hits, explosions) move the camera, not its aim
-      const shake = this.world?.cameraShake() ?? [0, 0, 0];
+      const shake: [number, number, number] = this.world && !this.options_.noShake ? this.world.cameraShake() : [0, 0, 0];
       const aimAt: Vec3 = [this.target[0] + shake[0], this.target[1] + shake[1], this.target[2] + shake[2]];
       for (let i = 0; i < 3; i++) eye[i] += shake[i];
       const view = lookAt(eye, aimAt, [0, 0, 1]);
@@ -2328,9 +2334,14 @@ class Viewer {
         this.lastView = view;
         if (this.world && this.hud) {
           const gh = this.gameHud;
-          gh?.minimap.setWorld(this.world);
+          const dungeon = !!this.scene && !TOWN.test(this.scene.name);
+          // the client's map types: Clockworks levels reveal their map as the knight explores
+          // (DISCOVER); terminals, towns and arenas show it all (FULL)
+          const floor = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] : null;
+          const discover = dungeon && !this.world.arena && !(floor && (floor.kind === "terminal" || floor.kind === "subtown" || floor.kind === "core"));
+          gh?.minimap.setWorld(this.world, this.scene, { discover, dungeon });
           gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
-            dungeon: !!this.scene && !TOWN.test(this.scene.name),
+            dungeon,
             pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))), ...this.hudExtras() }, dt);
           // items the knight gained come up as the HUD's acquire icons
           while (this.world.acquired.length) { const a = this.world.acquired.shift()!; gh?.acquire(a); }

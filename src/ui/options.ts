@@ -12,10 +12,10 @@ import { CONFIG_REF } from "../config/params";
 import { loadSave, writeSave, type SaveData } from "../game/save";
 import { checklist } from "../game/levels";
 import { messages, text } from "../i18n";
-import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, setComboItems, type GuiContext } from "./gui";
+import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, restyle, setComboItems, type GuiContext, type GuiImage } from "./gui";
 import { findParent, KeyBindings } from "./keybinds";
 import { buildUi, uiRef } from "./screen";
-import type { Settings, Tab } from "./settings";
+import { UI_MIN_SCALE, uiMaxScale, uiScale, uiScaleLimit, type Settings, type Tab } from "./settings";
 
 export interface OptionsActions {
   changed(): void;
@@ -52,6 +52,8 @@ const RANGES: Record<Range, { min: number; max: number; fmt: (v: number) => stri
 };
 
 const SAVE_KEY = "clyde-web-save";
+/** OptionsDialog's fixed UI scale buttons. */
+const SCALES: [string, number][] = [["scale100", 1], ["scale150", 1.5], ["scale200", 2], ["scale250", 2.5]];
 
 export class OptionsScreen {
   private ui: Component | null = null;
@@ -67,6 +69,11 @@ export class OptionsScreen {
   private flags = new Map<Flag, Component[]>();
   private ranges = new Map<Range, { slider: Component; label: Component | null }>();
   private summary = new Map<string, Component>();
+  /** The UI scale buttons' mark (ui/icon/check.png). */
+  private check: GuiImage | null = null;
+  /** The scale the slider is held at, applied when the button is let go. */
+  private pendingScale: number | null = null;
+  private scaleUp = false;
 
   constructor(private readonly ctx: GuiContext, private readonly canvas: HTMLCanvasElement, private readonly settings: Settings,
     private readonly actions: OptionsActions) {
@@ -79,7 +86,7 @@ export class OptionsScreen {
       if (type === "wheel") e.preventDefault();
     };
     canvas.addEventListener("pointerdown", ev("down"));
-    canvas.addEventListener("pointerup", ev("up"));
+    canvas.addEventListener("pointerup", e => { ev("up")(e); this.releaseScale(); });
     canvas.addEventListener("pointermove", ev("move"));
     canvas.addEventListener("wheel", ev("wheel"), { passive: false });
     canvas.addEventListener("contextmenu", e => e.preventDefault());
@@ -187,10 +194,14 @@ export class OptionsScreen {
     slider("effect_volume", "effectsVolume");
     slider("interface_volume", "uiVolume");
     on("render_quality", c => { s.renderScale = 0.5 + this.fraction(c); this.setQualityLabel(ui); act.changed(); });
-    on("camera_shake", c => { s.screenFlash = !!c.value; act.changed(); });
-    const scales: [string, number][] = [["scale100", 1], ["scale150", 1.25], ["scale200", 1.5], ["scale250", 1.5], ["scalemax", 1.5]];
-    for (const [tag, v] of scales) on(tag, () => { s.hudScale = v; this.setScaleLabel(ui); act.changed(); });
-    on("ui_scale", c => { s.hudScale = 0.75 + 0.75 * this.fraction(c); this.setScaleLabel(ui); act.changed(); });
+    // OptionsDialog: the check box shows camera shake on; the preference kept is its inverse
+    on("camera_shake", c => { s.noShake = !c.value; act.changed(); });
+    // the UI scale: the fixed scales, Max! (the screen's largest, toggled), and the slider,
+    // whose label reads the dragged scale in display_label_up until the button is let go
+    this.check = await this.ctx.image("ui/icon/check.png");
+    for (const [tag, v] of SCALES) on(tag, () => { s.hudScale = v; this.showScale(ui); act.changed(); });
+    on("scalemax", () => { s.hudScaleMax = !s.hudScaleMax; this.showScale(ui); act.changed(); });
+    on("ui_scale", c => { this.pendingScale = Number(c.value) / 100; this.scaleLabel(ui, Math.round(Number(c.value)), true); });
     const check = (tag: string, key: "damageNumbers" | "healthBars" | "autoAim" | "screenFlash") =>
       on(tag, c => { s[key] = !!c.value; act.sound("sound/feedback/ui_confirm.ogg"); act.changed(); });
     check("show_damage", "damageNumbers");
@@ -557,14 +568,13 @@ export class OptionsScreen {
     toSlider(ui.find("effect_volume"), s.effectsVolume);
     toSlider(ui.find("interface_volume"), s.uiVolume);
     toSlider(ui.find("render_quality"), Math.max(0, Math.min(1, s.renderScale - 0.5)));
-    toSlider(ui.find("ui_scale"), Math.max(0, Math.min(1, (s.hudScale - 0.75) / 0.75)));
     for (const [key, { slider, label }] of this.ranges) {
       const r = RANGES[key];
       toSlider(slider, Math.max(0, Math.min(1, (s[key] - r.min) / (r.max - r.min))));
       if (label) label.text = r.fmt(s[key]);
     }
     for (const [key, list] of this.flags) for (const c of list) c.value = s[key];
-    set("camera_shake", s.screenFlash);
+    set("camera_shake", !s.noShake);
     set("show_damage", s.damageNumbers);
     set("monster_health", s.healthBars);
     set("auto_target", s.autoAim);
@@ -572,7 +582,7 @@ export class OptionsScreen {
     set("keyboard_mouse", true);
     if (ui === this.ui) {
       this.setQualityLabel(ui);
-      this.setScaleLabel(ui);
+      this.showScale(ui);
       this.refreshSummary();
       this.keys?.refresh();
     }
@@ -592,9 +602,55 @@ export class OptionsScreen {
     if (l) l.text = text("projectx", `m.${q}`, q[0].toUpperCase() + q.slice(1));
   }
 
-  private setScaleLabel(ui: Component) {
+  /**
+   * OptionsDialog's UI scale state: the slider runs from 70% to the screen's largest scale (or
+   * the 1024 x 600 share when that is under the scale in use); 150%, 200% and 250% show when
+   * the screen reaches them; Max! on disables the slider and the fixed scales; the scale in use
+   * is marked with the check icon (Max! while it is on); the label reads the scale.
+   */
+  private showScale(ui: Component) {
+    const s = this.settings, cur = uiScale(s);
+    let max = uiMaxScale();
+    const curPct = Math.round(100 * cur);
+    if (Math.round(100 * max) < curPct) max = uiScaleLimit();
+    const slider = ui.find("ui_scale");
+    if (slider?.model) {
+      const m = slider.model;
+      m.min = Math.round(100 * UI_MIN_SCALE); m.extent = 0; m.max = Math.round(100 * max); m.snap = 0;
+      m.value = Math.max(m.min, Math.min(m.max, curPct));
+    }
+    for (const [tag, v] of SCALES) {
+      const b = ui.find(tag);
+      if (!b) continue;
+      if (v > 1) b.visible = max >= v;
+      b.enabled = !s.hudScaleMax;
+      b.icon = !s.hudScaleMax && cur === v ? this.check : null;
+    }
+    if (slider) slider.enabled = !s.hudScaleMax;
+    const maxButton = ui.find("scalemax");
+    if (maxButton) maxButton.icon = s.hudScaleMax ? this.check : null;
+    this.pendingScale = null;
+    this.scaleLabel(ui, curPct, false);
+  }
+
+  /** The scale label: "N%", styled display_label_up while the slider is held, else display_label. */
+  private scaleLabel(ui: Component, pct: number, up: boolean) {
     const l = ui.find("ui_scale_label");
-    if (l) l.text = `${Math.round(this.settings.hudScale * 100)}%`;
+    if (!l) return;
+    l.text = `${pct}%`;
+    if (this.scaleUp !== up) {
+      this.scaleUp = up;
+      void restyle(this.ctx, l, up ? "display_label_up" : "display_label").catch(() => undefined);
+    }
+  }
+
+  /** The slider was let go: its scale applies (OptionsDialog applies it on the mouse release). */
+  private releaseScale() {
+    const v = this.pendingScale;
+    if (v == null || !this.ui) return;
+    this.settings.hudScale = v;
+    this.showScale(this.ui);
+    this.actions.changed();
   }
 
   private hideTabs(ui: Component, titles: string[]) {

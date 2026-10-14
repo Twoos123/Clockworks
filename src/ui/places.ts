@@ -12,6 +12,7 @@ import type { Renderer } from "../render/renderer";
 import type { Vfs } from "../vfs";
 import type { World } from "../game/world";
 import type { ColorPository } from "../colors";
+import type { Economy } from "../game/economy";
 import { cachedPlacements, guildOf } from "../game/guild";
 import { cachedHallId, CREATE_KNIGHT, GUILD_HALL, placeRoot, PLACE_SPAWN, READY_ROOM } from "../game/places";
 import { writeSave } from "../game/save";
@@ -33,6 +34,8 @@ export interface PlacesHost extends FurnitureHost {
   openArsenal(): Promise<void>;
   arsenalOpen(): boolean;
   colors(): Promise<ColorPository | null>;
+  /** The economy (the guild storages list items as the arsenal does). */
+  eco(): Promise<Economy>;
   returnToHaven(): void;
   pause(on: boolean): void;
   focus(): void;
@@ -57,6 +60,7 @@ export class Places {
     this.guild = new GuildWindow(host.gui(), {
       save: () => host.save(), write: () => host.write(), sound: f => host.sound(f),
       icon: item => host.data().resolveSync("config/item.dat", { name: item }, "item")?.icon ?? null,
+      data: () => host.data(), eco: () => host.eco(),
       goToHall: () => void this.goToHall(),
       openFurniture: () => void this.openFurniture(),
       furnish: cached => void this.furnish(cached),

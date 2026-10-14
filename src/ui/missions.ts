@@ -33,6 +33,14 @@ export interface MissionHost {
   save(): SaveData;
   write(): void;
   sound(file: string): void;
+  /** Plays a looping stream over the music at a gain; the function returned fades it out. */
+  stream?(file: string, gain: number): (fadeOut?: number) => void;
+  /** The exchange pane's TOGGLE ARSENAL: opens or closes the arsenal over the board. */
+  toggleArsenal?(): Promise<void> | void;
+  /** True while the arsenal is open. */
+  arsenalOpen?(): boolean;
+  /** The crafting tutorial's Craft Items: the forge (the game's servers craft them for the knight). */
+  openForge?(): void;
   /** Pauses the game while the board is open. */
   pause(on: boolean): void;
   /** Starts a mission's floors through the gate descent. */
@@ -54,6 +62,15 @@ const PRESTIGE_PILL = "ui/mission/parts/interface_prestigepill.dat";
 const PILL = "ui/recipes/parts/pill_recipe/interface.dat";
 const MATERIAL = "ui/recipes/parts/material/interface.dat";
 const PROMPT = "ui/window/confirm_prompt/interface.dat";
+const EXCHANGE = "ui/mission/interface_exchange.dat";
+const SPECIAL = "ui/recipes/parts/special/interface.dat";
+const MUSIC = "sound/music/mission_ui.ogg";
+/** ProjectXPrefs.ConfirmPrompt.MISSION_INTRO: show the intro page when the board opens (on by default). */
+const INTRO_PREF = "clyde-web-pref-mission_intro";
+/** MissionPanel.g: the categories other than rank, the mission that opens each, and its intro text's name. */
+const UNLOCKS: [Tab | "arcade", string, string][] = [["prestige", "prestigious_opportunity", "prestige"], ["arcade", "reporting_duty", "arcade"], ["operations", "pioneers", "expansion"]];
+/** The crafting tutorial, whose exchange button helps get the items (MissionPanel.d). */
+const CRAFT_TUTORIAL = "time_to_crafty";
 const EMPTY_CARD = "ui/mission/images/cards/empty.png";
 const UNKNOWN_CARD = "ui/mission/images/cards/images/unknown.png";
 const CROWN = "ui/icon/crown_32.png";
@@ -76,15 +93,24 @@ export function progressOf(save: SaveData): MissionProgress {
   return p;
 }
 
+function introPref(): boolean {
+  try { return localStorage.getItem(INTRO_PREF) !== "0"; } catch { return true; }
+}
+function setIntroPref(on: boolean) {
+  try { localStorage.setItem(INTRO_PREF, on ? "1" : "0"); } catch { /* storage unavailable */ }
+}
+
 export class MissionBoard {
   private readonly screen: MissionScreen;
+  /** The board's music (MissionPanel: mission_ui.ogg at half volume while it is open). */
+  private stopMusic: ((fadeOut?: number) => void) | null = null;
   private missions: Mission[] = [];
   private loading: Promise<void> | null = null;
   /** The dungeon mission being played, if any. */
   private active: Mission | null = null;
 
   constructor(private readonly host: MissionHost) {
-    this.screen = new MissionScreen(host.gui, { sound: f => host.sound(f), closed: () => host.pause(false) }, this);
+    this.screen = new MissionScreen(host.gui, { sound: f => host.sound(f), closed: () => { host.pause(false); this.music(false); } }, this);
   }
 
   get list(): readonly Mission[] { return this.missions; }
@@ -103,10 +129,39 @@ export class MissionBoard {
 
   async open(tab?: Tab) {
     await this.load();
-    if (tab || !this.screen.isOpen) this.screen.choose(tab ?? this.screen.tab);
+    const fresh = !this.screen.isOpen;
+    // MissionPanel.wasAdded: the intro page while its preference is on, else the categories
+    if (tab) this.screen.choose(tab, false);
+    else if (fresh && introPref()) this.screen.intro();
+    else if (fresh) this.screen.choose(this.screen.tab ?? "rank", false);
+    await this.show();
+  }
+
+  /** Opens the window as it stands (pausing the game and starting the board's music). */
+  private async show() {
+    if (!this.screen.isOpen) this.music(true);
     this.host.pause(true);
     await this.screen.open();
   }
+
+  /**
+   * MissionPanel plays sound/music/mission_ui.ogg looping at half the music volume over the
+   * music while it is open, fading in and out over two seconds. (It does not in two zones, the
+   * ready room's and knight creation's, which the board is not opened from in this port.)
+   */
+  private music(on: boolean) {
+    if (on && !this.stopMusic) this.stopMusic = this.host.stream?.(MUSIC, 0.5) ?? null;
+    else if (!on && this.stopMusic) { this.stopMusic(2); this.stopMusic = null; }
+  }
+
+  /** @internal Whether a category is open (MissionPanel.g): by the mission that unlocks it. */
+  unlocked(tab: Tab | "arcade"): boolean {
+    const u = UNLOCKS.find(x => x[0] === tab);
+    return !u || this.progress.completed.includes(u[1]);
+  }
+
+  /** @internal A mission by id. */
+  byId(id: string): Mission | null { return this.missions.find(m => m.id === id) ?? null; }
 
   close() {
     if (this.screen.isOpen) this.screen.close();
@@ -209,13 +264,39 @@ export class MissionBoard {
     const after = rankLabel(p);
     this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
     void (async () => {
-      if (!this.screen.isOpen) { this.host.pause(true); await this.screen.open(); }
+      if (!this.screen.isOpen) await this.show();
       await this.screen.completed(m, crowns, [...got].map(([item, count]) => ({ item, count })), after !== before ? `${p.rank}-${p.subrank} ${rankName(p.rank)}` : null);
     })();
   }
 
   /** @internal */
   needs(m: Mission): Ingredient[] { return exchangeNeeds(m, this.host.data.library_("config/recipe.dat")); }
+
+  /**
+   * @internal The crafting tutorial's button (MissionPanel.d), from the items it asks for:
+   * all owned but worn -> Unequip Items; some not owned: with no recipe for one, known or held,
+   * Get Recipes; else with a recipe item held for one, Learn Recipes; else Craft Items. Null
+   * (the button hidden) when every item is owned and free.
+   */
+  craftHelp(m: Mission): "unequip_items" | "craft_items" | "learn_recipes" | "get_recipes" | null {
+    const save = this.host.save(), data = this.host.data;
+    const l = save.loadout, worn = new Set([...l.weapons, l.shield, l.armor, l.helmet, ...l.trinkets, l.vitapod]);
+    const recipeOutput = (recipe: string) => data.resolveSync("config/recipe.dat", { name: recipe }, "recipe")?.item?.name ?? null;
+    const heldRecipes = Object.keys(save.materials).filter(k => (save.materials[k] ?? 0) > 0 && /^Recipe\//.test(k))
+      .map(k => data.resolveSync("config/item.dat", { name: k }, "item")?.recipe?.name).filter((r): r is string => !!r);
+    let unequip = false, missing = false, learn = false, none = false;
+    for (const g of this.needs(m)) {
+      const gear = g.level !== undefined || isGear(g.item);
+      const owned = gear ? save.owned.includes(g.item) : (save.materials[g.item] ?? 0) > 0;
+      if (owned) { if (gear && worn.has(g.item)) unequip = true; continue; }
+      missing = true;
+      if (save.recipes.some(r => recipeOutput(r) === g.item)) continue;
+      if (heldRecipes.some(r => recipeOutput(r) === g.item)) learn = true;
+      else none = true;
+    }
+    if (!missing) return unequip ? "unequip_items" : null;
+    return none ? "get_recipes" : learn ? "learn_recipes" : "craft_items";
+  }
 
   /** @internal */
   ownedLevel(name: string): number {
@@ -265,7 +346,19 @@ export class MissionBoard {
 
 /** The mission window on its canvas. */
 class MissionScreen extends GuiScreen {
-  tab: Tab = "rank";
+  /** The category shown; null on the intro page, before one is picked. */
+  tab: Tab | null = "rank";
+  /** MissionPanel's intro page (top_intro) is up: no category picked yet. */
+  private introTop = false;
+  /**
+   * The intro's hint mode: a category's cards show with none chosen and the bottom reads the
+   * intro's m.intro_reward_<category> hint, until a card is picked.
+   */
+  private introHint = false;
+  /** The intro's "Show mission introduction" check box (moved under the hint after the intro). */
+  private introBox: Component | null = null;
+  /** Exchanges whose items the knight confirmed (the m.verify_exchange check box), by mission id. */
+  private verified = new Set<string>();
   private page = 0;
   private chosen: Mission | null = null;
   private shown: Mission[] = [];
@@ -280,15 +373,47 @@ class MissionScreen extends GuiScreen {
     super(ctx, host, "missionsCanvas");
   }
 
-  /** Picks a tab and pages to the knight's current missions. */
-  choose(tab: Tab) {
+  /**
+   * Picks a tab and pages to the knight's current missions, choosing the first one there
+   * unless the intro's hint is showing. `hint` false ends the intro (a tab picked from code,
+   * as MissionPanel.b does); a locked tab shows the mission that opens it instead (MissionPanel.b).
+   */
+  choose(tab: Tab, hint = this.introHint) {
+    this.introTop = false;
+    this.introHint = hint;
+    if (!this.board.unlocked(tab)) {
+      const key = UNLOCKS.find(u => u[0] === tab)?.[1];
+      const m = key ? this.board.byId(key) : null;
+      if (m) { this.showMission(m); return; }
+      tab = "rank";
+    }
     this.tab = tab;
     const ms = this.board.tabMissions(tab), p = this.board.progress;
     const at = Math.max(0, ms.findIndex(m => missionStatus(m, p) === "available"));
     const cur = tab === "rank" ? ms.findIndex(m => m.rank === p.rank) : -1;
     const i = ms[at] && missionStatus(ms[at], p) === "available" ? at : Math.max(0, cur);
     this.page = Math.floor(i / PER_PAGE);
-    this.chosen = ms[i] ?? null;
+    this.chosen = hint ? null : ms[i] ?? null;
+  }
+
+  /** MissionPanel.wasAdded with the intro preference on: the intro page, no category picked. */
+  intro() {
+    this.tab = null;
+    this.introTop = true;
+    this.introHint = true;
+    this.chosen = null;
+    this.page = 0;
+  }
+
+  /** Shows one mission's card and briefing (MissionPanel.fA): its category, its page, it chosen. */
+  showMission(m: Mission) {
+    const tab: Tab = m.cls === "Prestige" ? "prestige" : m.cls === "Expansion" ? "operations" : "rank";
+    this.introTop = false;
+    this.introHint = false;
+    this.tab = tab;
+    const i = Math.max(0, this.board.tabMissions(tab).indexOf(m));
+    this.page = Math.floor(i / PER_PAGE);
+    this.chosen = m;
   }
 
   protected async build(): Promise<Component | null> {
@@ -302,8 +427,11 @@ class MissionScreen extends GuiScreen {
     this.on(ui, "btn_arcade", () => { this.close(); this.board.game.openGates(); });
     this.on(ui, "btn_prev", () => this.turn(-1));
     this.on(ui, "btn_next", () => this.turn(1));
-    // the intro (shown before a category is picked) and the empty bottom are not used
-    for (const tag of ["top_intro", "bottom_empty", "ui_mission_arc"]) { const c = ui.find(tag); if (c) c.visible = false; }
+    // the intro's check box keeps ConfirmPrompt.MISSION_INTRO
+    this.introBox = this.on(ui, "intro_pref", c => setIntroPref(!!c.value));
+    if (this.introBox) this.introBox.selected = introPref();
+    const arc = ui.find("ui_mission_arc");
+    if (arc) arc.visible = false;
     for (const t of ["rank", "prestige", "expansion", "arcade"]) {
       const n = ui.find(`new_${t}`); if (n) n.visible = false;
     }
@@ -322,7 +450,7 @@ class MissionScreen extends GuiScreen {
     const page = Math.max(0, Math.min(pages - 1, this.page + d));
     if (page === this.page) return;
     this.page = page;
-    this.chosen = this.shown[page * PER_PAGE] ?? null;
+    this.chosen = this.introHint ? null : this.shown[page * PER_PAGE] ?? null;
     this.host.sound("sound/feedback/ui_dropdown_select.ogg");
     void this.refresh();
   }
@@ -403,7 +531,7 @@ class MissionScreen extends GuiScreen {
     const ui = this.root;
     if (!ui) return;
     const gen = ++this.generation;
-    const b = this.board, p = b.progress, save = b.game.save();
+    const b = this.board, p = b.progress;
     // header: prestige and rank sockets, the rank bar
     const set = (root: Component, tag: string, text: string) => { const c = root.find(tag); if (c) c.text = text; };
     set(ui, "prestige", message("mission", "m.prestige_header", p.prestige.toLocaleString("en-US")) || `Prestige: ${p.prestige.toLocaleString("en-US")}`);
@@ -413,16 +541,52 @@ class MissionScreen extends GuiScreen {
     for (const [tab, tag] of TABS) { const c = ui.find(tag); if (c) c.selected = tab === this.tab; }
     const arcade = ui.find("btn_arcade");
     if (arcade) arcade.selected = false;
-    for (const t of ["rank", "expansion", "arcade"]) { const l = ui.find(`locked_${t}`); if (l) l.visible = false; }
-    const lockP = ui.find("locked_prestige");
-    if (lockP) lockP.visible = p.rank < 3;
+    // MissionPanel.g: a category opens with the mission that unlocks it (rank is always open);
+    // a closed one is disabled with its lock shown, and its intro text is the _locked one
+    const lockRank = ui.find("locked_rank");
+    if (lockRank) lockRank.visible = false;
+    for (const [tab, , name] of UNLOCKS) {
+      const open = b.unlocked(tab), btn = ui.find(`btn_${name}`), lock = ui.find(`locked_${name}`), intro = ui.find(`intro_${name}`);
+      if (btn) btn.enabled = open;
+      if (lock) lock.visible = !open;
+      if (intro) intro.text = text("mission", `m.intro_${name}${open ? "" : "_locked"}`, intro.text);
+    }
+
+    // the intro page (top_intro) in the cards' place until a category is picked; the bottom
+    // stays empty (bottom_empty) until a card is, with the hint and the check box under it
+    // after the intro
+    const top = ui.find("top_intro"), middle = ui.find("middle_container");
+    if (top) top.visible = this.introTop;
+    if (middle) middle.visible = !this.introTop;
+    const bottom = ui.find("bottom_container"), empty = ui.find("bottom_empty"), hint = ui.find("bottom_intro");
+    if (bottom) bottom.visible = !!this.chosen && !this.introTop;
+    if (empty) empty.visible = !this.chosen || this.introTop;
+    const box = this.introBox;
+    if (box && top && !this.introTop) {
+      const holder = findHolder(top, box);
+      if (holder) holder.children = holder.children.filter(k => k !== box);
+    }
+    if (hint) {
+      hint.children = [];
+      if (box && this.introHint && !this.introTop && this.tab) {
+        const name = this.tab === "operations" ? "expansion" : this.tab;
+        const line = await buildComponentConfig(this.ctx, { $class: COMPONENT + "Label", text: text("mission", `m.intro_reward_${name}`, "") }, this.root?.local ?? new Map());
+        if (gen !== this.generation) return;
+        line.constraints = null;
+        box.constraints = null;
+        hint.children = [line, box];
+      }
+    }
+    if (!this.tab || this.introTop) return;
 
     // the cards of this page
     const ms = this.shown = b.tabMissions(this.tab);
     const pages = Math.max(1, Math.ceil(ms.length / PER_PAGE));
     this.page = Math.min(this.page, pages - 1);
     if (this.chosen && !ms.includes(this.chosen)) this.chosen = null;
-    this.chosen ??= ms[this.page * PER_PAGE] ?? null;
+    if (!this.introHint) this.chosen ??= ms[this.page * PER_PAGE] ?? null;
+    if (bottom) bottom.visible = !!this.chosen;
+    if (empty) empty.visible = !this.chosen;
     const prev = ui.find("btn_prev"), next = ui.find("btn_next");
     if (prev) prev.enabled = this.page > 0;
     if (next) next.enabled = this.page < pages - 1;
@@ -444,6 +608,7 @@ class MissionScreen extends GuiScreen {
           btn.onAction = () => {
             if (!m) return;
             this.chosen = m;
+            this.introHint = false;
             this.host.sound("sound/feedback/ui_dropdown_select.ogg");
             void this.refresh();
           };
@@ -460,7 +625,7 @@ class MissionScreen extends GuiScreen {
       // reward pills
       set(brief, "briefing", m ? m.title.toUpperCase() : "BRIEFING");
       const body = brief.children.find(k => k.kind === "label" && k.tag !== "briefing");
-      if (body) body.text = m ? b.briefingOf(m) +(npcName(m) ? `\n\nWith ${npcName(m)}.` : "") : b.tabNote(this.tab);
+      if (body) body.text = m ? b.briefingOf(m) + (npcName(m) ? `\n\nWith ${npcName(m)}.` : "") : "";
       const fixed = brief.children.filter(k => !k.tag?.startsWith("brief_extra"));
       brief.children = fixed;
       if (m) {
@@ -482,32 +647,95 @@ class MissionScreen extends GuiScreen {
       const kids: Promise<Component | null>[] = [];
       if (m) {
         const st = missionStatus(m, p);
-        // the START button (Comlink style; an exchange's own style), enabled while the mission can start
-        const ok = st === "available" && (m.kind !== "exchange" || canExchange(b.needs(m), save.materials, n => b.ownedLevel(n)));
-        kids.push(this.button(text("mission", "m.start", "START"), () => b.start(m), ok,
-          m.kind === "exchange" ? "Adventure Board/Start Button/Exchange/Start" : "Adventure Board/Start Button/Comlink/Start"));
-        kids.push(this.text(this.statusLine(m, st)));
-        if (m.cls === "Rank") kids.push(this.text(`Rank ${m.rank}-${m.subrank}: ${rankName(m.rank)}`));
-        if (m.needs.length && st === "locked") kids.push(this.text("After: " + m.needs.map(id => b.list.find(x => x.id === id)?.title ?? id).join(", ")));
-        if (m.kind === "exchange") {
-          kids.push(this.text("NEEDS", "Briefing Styles/Header"));
-          for (const g of b.needs(m)) {
-            const gear = g.level !== undefined || isGear(g.item), icon = b.iconOf(g.item);
-            const have = gear ? (b.ownedLevel(g.item) ? 1 : 0) : save.materials[g.item] ?? 0, need = gear ? 1 : g.count;
-            kids.push(this.part(MATERIAL, { Name: `${label(g.item)}${g.level ? ` (level ${g.level})` : ""}`, "Amount Have": String(have),
-              "Amount Needed": String(need), Ready: have >= need, Icon: icon?.file ?? BLANK, Colorization: icon?.colorizations ?? [] }).then(c => {
-              const find = c?.find("find_materials");
-              if (find) find.visible = false;
-              return c;
-            }));
-          }
+        if (m.kind === "exchange") kids.push(...this.exchangePane(m, st));
+        else {
+          // the START button (Comlink style), enabled while the mission can start
+          kids.push(this.button(text("mission", "m.start", "START"), () => b.start(m), st === "available", "Adventure Board/Start Button/Comlink/Start"));
+          kids.push(this.text(this.statusLine(m, st)));
+          if (m.cls === "Rank") kids.push(this.text(`Rank ${m.rank}-${m.subrank}: ${rankName(m.rank)}`));
+          if (m.needs.length && st === "locked") kids.push(this.text("After: " + m.needs.map(id => b.list.find(x => x.id === id)?.title ?? id).join(", ")));
         }
-      } else kids.push(this.text("No missions here yet."));
+      }
       const done = (await Promise.all(kids)).filter((c): c is Component => !!c);
       if (gen !== this.generation) return;
       for (const c of done) c.constraints = null;
       mission.children = [head, ...done];
     }
+  }
+
+  /**
+   * MissionPanel.c: an exchange's mission pane. The exchange's materials window
+   * (ui/mission/interface_exchange.dat: stacked materials under t.materials, single items under
+   * t.special), the TOGGLE ARSENAL button (the crafting tutorial's: Unequip Items, Craft Items,
+   * Learn Recipes or Get Recipes, hidden when nothing is needed), the m.verify_exchange check
+   * box once everything is there, and START, enabled when that box is checked.
+   */
+  private exchangePane(m: Mission, st: MissionStatus): Promise<Component | null>[] {
+    const b = this.board, save = b.game.save(), needs = b.needs(m);
+    const ready = st === "available" && canExchange(needs, save.materials, n => b.ownedLevel(n));
+    if (!ready) this.verified.delete(m.id);
+    const kids: Promise<Component | null>[] = [];
+    kids.push((async () => {
+      const ui = await this.part(EXCHANGE, {}, m.id);
+      if (!ui) return null;
+      const rows = await Promise.all(needs.map(g => {
+        const icon = b.iconOf(g.item), name = `${label(g.item)}${g.level ? ` (level ${g.level})` : ""}`;
+        if (g.level !== undefined || isGear(g.item)) {
+          const have = b.ownedLevel(g.item) > 0 && b.ownedLevel(g.item) >= (g.level ?? 0);
+          return this.part(SPECIAL, { Name: name, Ready: have, Icon: icon?.file ?? BLANK, Colorization: icon?.colorizations ?? [] })
+            .then(c => ({ special: true, c }));
+        }
+        const have = save.materials[g.item] ?? 0;
+        return this.part(MATERIAL, { Name: name, "Amount Have": String(have), "Amount Needed": String(g.count), Ready: have >= g.count,
+          Icon: icon?.file ?? BLANK, Colorization: icon?.colorizations ?? [] }).then(c => {
+          const find = c?.find("find_materials");
+          if (find) find.visible = false;
+          return { special: false, c };
+        });
+      }));
+      const fill = (tag: string, title: string, special: boolean) => {
+        const list = ui.find(tag), t = ui.find(title);
+        const kidsOf = rows.filter(r => r.special === special && r.c).map(r => r.c!);
+        for (const c of kidsOf) c.constraints = null;
+        if (list) list.children = kidsOf;
+        if (t) t.visible = kidsOf.length > 0;
+      };
+      fill("list_basic", "title_basic", false);
+      fill("list_special", "title_special", true);
+      return ui;
+    })());
+    // the arsenal toggle; the crafting tutorial's becomes the step the knight needs next
+    const help = m.id === CRAFT_TUTORIAL ? b.craftHelp(m) : undefined;
+    if (help !== null) {
+      kids.push(buildComponentConfig(this.ctx, { $class: COMPONENT + "ToggleButton", text: text("mission", `b.${help ?? "toggle_arsenal"}`, "") },
+        this.root?.local ?? new Map()).then(t => {
+        t.selected = !!b.game.arsenalOpen?.();
+        t.onAction = () => {
+          if (help === "craft_items") { this.close(); b.game.openForge?.(); return; }
+          if (help === "get_recipes") {
+            const how = b.byId("alchemy_beginners");
+            if (how) { this.showMission(how); this.host.sound("sound/feedback/ui_dropdown_select.ogg"); void this.refresh(); }
+            return;
+          }
+          void Promise.resolve(b.game.toggleArsenal?.()).then(() => this.refresh());
+        };
+        return t;
+      }));
+    }
+    if (ready) {
+      kids.push(buildComponentConfig(this.ctx, { $class: COMPONENT + "CheckBox", text: text("mission", "m.verify_exchange", "") },
+        this.root?.local ?? new Map()).then(c => {
+        c.selected = this.verified.has(m.id);
+        c.onAction = () => {
+          if (c.selected) this.verified.add(m.id); else this.verified.delete(m.id);
+          void this.refresh();
+        };
+        return c;
+      }));
+    }
+    kids.push(this.button(text("mission", "m.start", "START"), () => { this.verified.delete(m.id); b.start(m); },
+      ready && this.verified.has(m.id), "Adventure Board/Start Button/Exchange/Start"));
+    return kids;
   }
 
   /** A card for a mission (or an empty slot). */
@@ -646,4 +874,11 @@ class MissionScreen extends GuiScreen {
     show();
     this.overlays.push(o);
   }
+}
+
+/** The container directly holding `c` under `root`. */
+function findHolder(root: Component, c: Component): Component | null {
+  if (root.children.includes(c)) return root;
+  for (const k of root.children) { const r = findHolder(k, c); if (r) return r; }
+  return null;
 }

@@ -200,6 +200,12 @@ export abstract class GuiScreen {
   protected abstract refresh(): void | Promise<void>;
 
   async open() {
+    // the window opened last is drawn over the others (the mission board's arsenal toggle
+    // opens the arsenal over the board)
+    if (this.canvas.hidden) {
+      const anchor = document.getElementById("optionsCanvas");
+      if (anchor?.parentElement && this.canvas.nextElementSibling !== anchor) anchor.parentElement.insertBefore(this.canvas, anchor);
+    }
     this.canvas.hidden = false;
     this.host.sound("sound/feedback/ui_open.ogg");
     if (!this.running) { this.running = true; requestAnimationFrame(this.frame); }

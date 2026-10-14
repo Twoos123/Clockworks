@@ -6,6 +6,7 @@
 // FLAG: hall layouts (expansions, themes, room doors) are bought and stored on the game's
 // servers; only the one cached hall exists here, so every guild gets that layout.
 
+import type { GearState } from "./economy";
 import type { SaveData } from "./save";
 import { itemName } from "./text";
 
@@ -38,6 +39,72 @@ export interface GuildSave {
   /** Furniture owned and not placed: item name and count. */
   furni: Record<string, number>;
   placements: Placement[];
+  /** The rank storages (GuildBagType MEMBER, VETERAN and OFFICER_STORAGE): gear and materials left there. */
+  storage?: Partial<Record<StorageBag, BagStore>>;
+}
+
+/**
+ * GuildBagType: the treasury (crowns, materials and furniture, given and never taken back) and
+ * the three storages by the rank that may use them (gear and materials, both ways). The knight
+ * leads its own guild, so it may use all four.
+ */
+export type GuildBag = "treasury" | StorageBag;
+export type StorageBag = "member" | "veteran" | "officer";
+export const GUILD_BAGS: GuildBag[] = ["treasury", "member", "veteran", "officer"];
+
+/** What a storage holds: gear with its heat, level and variants, and material counts. */
+export interface BagStore { gear: Record<string, GearState>; materials: Record<string, number> }
+
+export function bagStore(g: GuildSave, bag: StorageBag): BagStore {
+  const s = (g.storage ??= {});
+  const b = (s[bag] ??= { gear: {}, materials: {} });
+  b.gear ??= {}; b.materials ??= {};
+  return b;
+}
+
+/** GuildBagType.canRemove: everything but the treasury gives back. */
+export const bagGivesBack = (bag: GuildBag) => bag !== "treasury";
+
+/** One line of the trade cart: an item and count given to the bag (`give`) or taken from it. */
+export interface CartLine { item: string; count: number; give: boolean; gear: boolean }
+
+/**
+ * Commits a trade cart (the client's trade cart confirm): gives and takes the lines and gives
+ * `crowns` (the treasury's crowns slot). The treasury takes materials and crowns only (its
+ * furniture is bought straight into it); worn gear cannot be given. False, with nothing moved,
+ * when any line cannot be done.
+ */
+export function commitCart(save: SaveData, bag: GuildBag, lines: CartLine[], crowns = 0): boolean {
+  const g = guildOf(save);
+  crowns = Math.max(0, Math.floor(crowns));
+  if (crowns && (bag !== "treasury" || save.crowns < crowns)) return false;
+  const l = save.loadout, worn = new Set([...l.weapons, l.shield, l.armor, l.helmet, ...l.trinkets, l.vitapod]);
+  const store = bag === "treasury" ? null : bagStore(g, bag);
+  for (const c of lines) {
+    if (c.count <= 0) return false;
+    if (!c.give && !store) return false;
+    if (c.gear) {
+      if (!store) return false;
+      if (c.give ? !save.owned.includes(c.item) || worn.has(c.item) : !store.gear[c.item] || save.owned.includes(c.item)) return false;
+    } else {
+      const from = c.give ? save.materials : store!.materials;
+      if ((from[c.item] ?? 0) < c.count) return false;
+    }
+  }
+  for (const c of lines) {
+    if (c.gear && store) {
+      if (c.give) { store.gear[c.item] = save.gear[c.item] ?? { heat: 0, level: 1, variants: [] }; save.owned = save.owned.filter(o => o !== c.item); delete save.gear[c.item]; }
+      else { save.owned.push(c.item); save.gear[c.item] = store.gear[c.item]; delete store.gear[c.item]; }
+      continue;
+    }
+    const from = c.give ? save.materials : store!.materials, to = c.give ? (store ? store.materials : g.vault) : save.materials;
+    from[c.item] -= c.count;
+    if (!from[c.item]) delete from[c.item];
+    to[c.item] = (to[c.item] ?? 0) + c.count;
+  }
+  save.crowns -= crowns;
+  g.treasury += crowns;
+  return true;
 }
 
 /** Heraldry the emblem can use: the gate icons in ui/icon/gate. */
