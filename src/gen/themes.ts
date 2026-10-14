@@ -111,7 +111,9 @@ export const THEMES: ThemeDef[] = [
     source: { kind: "mirror", of: "castle-light", rules: castleRules("Castle, Fire", "Floor/Cobblestone 0$1") },
     globalsFrom: /^dark halls/i, globals: ["Environment/Custom/Universal/Fire/Music (Fire)", ...UNIVERSAL.Fire,
       // the Firestorm Citadel's sky: the burning skywall and the magma sea below
-      envModel("Model", "world/skybox/castle_firestorm/model.dat"), envModel("Model", "world/skybox/visionfog/skybox.dat")] },
+      envModel("Model", "world/skybox/castle_firestorm/model.dat"), bg(0, 0, 0),
+      envModel("Model", "world/skybox/visionfog/skybox.dat", [["Color", { $class: "com.threerings.opengl.renderer.Color4f", r: 0.2, g: 0, b: 0, a: 1 }],
+        ["Mode", "Ground Fog"]])] },
   { key: "graveyard", label: "Graveyard", tileset: "Graveyard",
     source: { kind: "mirror", of: "castle-light", rules: castleRules("Graveyard", "Floor/Grass 0$1") }, globalsFrom: /^dark halls/i,
     globals: ["Environment/Custom/Graveyard/Camera", "Environment/Custom/Graveyard/Default/Fog", "Environment/Custom/Graveyard/Default/Light Set",
