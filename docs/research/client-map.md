@@ -86,7 +86,7 @@ output stays in `.decompiled/` outside the repository.
 |---|---|
 | `tudey/config/BehaviorConfig` | Upstream behaviours (Wander, GridWander, Patrol, Follow, Random, Scripted, Combined) with defaults; logic-class names stripped |
 | `dungeon/config/DungeonBehaviorConfig` | Targeting (acquire, weights, target action, release), Cascading, Attack, Dodging (minDodgeInterval 1000), RailRider: fields only |
-| (none) | No AI logic: monsters are interpolated from server snapshots; behavior.dat ships empty and actor.dat holds almost no behaviour configs |
+| (none) | No AI logic: monsters are interpolated from server snapshots; behavior.dat ships empty and actor.dat holds almost no behaviour configs (Blastcores' scripts survive as arguments). See docs/research/monster-ai.md |
 
 ## Status conditions
 

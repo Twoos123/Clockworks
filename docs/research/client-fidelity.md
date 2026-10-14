@@ -116,8 +116,9 @@ signal names that would decide them are stripped from the export.
 | Floor trap cycle | 3.2 s period, ours, B half a period later | the client's cycle table: down, warn and up times plus an offset, in units of the trap's `interval` (default 1000 ms); A is 3/1/4, B the same 4 intervals later, SLOW 7/1/8, QUICK 1/1/2, the CROSS and _SLOW variants, UP and DOWN fixed | `DungeonActorConfig$Trap$Cycle` |
 
 The client does not run monster AI (monsters are interpolated from the server), and
-behavior.dat ships empty; the AI in world.ts stays ours apart from the class defaults above
-and in section 8.
+behavior.dat ships empty. The behaviour engine is Clyde's open-source Tudey server logic with
+Spiral Knights' Targeting behaviours rebuilt from their config classes; which behaviour each
+family runs is ours (docs/research/monster-ai.md).
 
 ## 8. Config defaults the export leaves out (src/game/data.ts)
 

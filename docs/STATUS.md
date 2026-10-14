@@ -86,7 +86,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Heat and levels | Equipped weapons, shields, armour and helmets absorb a floor's heat and level 1 to 10 (`item_property.dat` heat by star); level bonuses from `level_table.dat`: damage and charge time on weapons, defence and heart pips on gear |
 | Economy (`src/game/economy.ts`) | Prices and sell prices from `item_property.dat`; Haven keepers, Basil (recipes, per visit) and the Supply Depot (capsules and vials the treasure tables give); selling back; recipes are bought before crafting; crafting costs `recipe_property.dat` crowns, the recipe's materials and the base item at its level; unique variants rolled from `variant_table.dat` on crafted and found gear, stored per item, shown in names and applied |
 | Drops | Materials by depth weight (`item_depth_weight.dat`) and the monster's family tags; rare gear drops; mineral deposits (1, 2, 4 or 6 minerals); crowns and heat by depth on the tables' per-tier curves, coins and embers worth their denominations |
-| Monsters | Data-driven spawns, tiers by depth, loot, a clean-room AI (turrets, ranged spacing, melee), A* pathing around walls |
+| Monsters | Data-driven spawns, tiers by depth, loot; Tudey's behaviour engine (Clyde's BehaviorLogic, AgentLogic, ScriptLogic and Pathfinder) with Spiral Knights' Targeting behaviours and target actions rebuilt from the client's config classes; each family's behaviour from its attack list and the wiki (docs/research/monster-ai.md); Blastcores run their surviving behaviour scripts |
 | Treasure and blocks | Breakable blocks break after a few hits; treasure boxes spill crowns and items from their damage action |
 | Pocket items | Capsules (health, remedy, buffs, barriers) and vials (thrown, splash damage and status), four slots on keys 4 to 7 |
 | Buffs | Attack, defence and speed buffs from `Buff` status conditions, with their HUD icons |
@@ -151,7 +151,7 @@ A single-player loop runs in the browser, built from the install's own data:
    knockback impulses, attack timing, the dash, shield regeneration, config class defaults,
    monster and boss health, trap cycles; the knight's controls and their timing, the camera,
    and hit feedback (flash, shake, damage numbers, hit particles, charge effects).
-9. **Still ours.** The client runs no game logic (it is server code): monster AI, the boss
+9. **Still ours.** The client runs no game logic (it is server code): which behaviour each monster ran and its distances and weights (the engine is Clyde's, the families are rebuilt: docs/research/monster-ai.md), the boss
    directors' sequencing (bell range, Vanaduke's wet time), how power and resistance turn into
    a status's duration and chance, freeze breaking, invulnerability windows, forging levels.
 10. **Unread defaults.** The export drops default-valued fields, and some game defaults
