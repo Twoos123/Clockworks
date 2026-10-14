@@ -5,7 +5,7 @@
 
 import { CONFIG_REF } from "../config/params";
 import type { World } from "../game/world";
-import { buildInterface, hitTest, loadPseudo, pack, render, type Component, type GuiContext, type RenderHooks } from "./gui";
+import { restyle, buildInterface, hitTest, loadPseudo, pack, render, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { ScriptRunner } from "./script";
 import { Minimap } from "./minimap";
 
@@ -146,9 +146,35 @@ export class GameHud {
       ]);
       const ui = await buildInterface(this.ctx, ref(STATUS, { Name: state.name, "Dungeon UI": true, Shield: choice,
         HeatPower: `Level ${Math.max(1, state.heatLevel)}` }), { overrides });
-      if (ui) { this.status = ui; this.built = built; }
+      if (ui) {
+        await this.stackRows(ui, choice === "Idle" ? "Pip" : "Pip Half");
+        this.status = ui; this.built = built; this.heartVariant = "";
+      }
     } finally { this.building = false; }
   }
+
+  /**
+   * The health part's three stacked rows (the client's status panel): red pips to 30, then
+   * silver pips drawn over them, then gold, each row's style recoloured for its tier.
+   */
+  private async stackRows(ui: Component, variant: string) {
+    const part = ui.find("health_ui");
+    if (!part) return;
+    await Promise.all(["health", "health1", "health2", "health_difference", "health_difference1", "health_difference2"].map(tag => {
+      const c = part.find(tag);
+      const tier = tag.endsWith("1") ? " Silver" : tag.endsWith("2") ? " Gold" : "";
+      return c ? restyle(this.ctx, c, "Health-Recolor", { Variant: variant + tier, Colorization: 261 }) : undefined;
+    }));
+    const back = part.find("health_backing");
+    if (back) await restyle(this.ctx, back, "Backing", { Variant: variant });
+    await Promise.all(["health_difference", "health_difference1", "health_difference2"].map(tag => {
+      const c = part.find(tag);
+      return c ? restyle(this.ctx, c, "Health", { Color: "Damage", Variant: variant }) : undefined;
+    }));
+  }
+
+  /** The vitapod heart's tier: silver past 30 pips of maximum health, gold past 60. */
+  private heartVariant = "";
 
   private async buildQuickbar() {
     const ui = await buildInterface(this.ctx, ref(QUICKBAR));
@@ -345,7 +371,13 @@ export class GameHud {
 
   private bindStatus(ui: Component, s: HudState) {
     const px = (v: number) => Math.round(Math.max(0, v) / HEALTH_PER_PIP * PIP_WIDTH);
-    bar(ui.find("health_ui"), px(s.maxHealth), px(s.health), px(s.recentDamage));
+    stackedBar(ui.find("health_ui"), px(s.maxHealth), px(s.health), px(s.health + s.recentDamage));
+    const heartTier = px(s.maxHealth) > 2 * ROW ? "Gold" : px(s.maxHealth) > ROW ? "Silver" : "Default";
+    const heartC = ui.find("vitapod");
+    if (heartC && heartTier !== this.heartVariant) {
+      this.heartVariant = heartTier;
+      void restyle(this.ctx, heartC, "Hud/Status/Health/Heart/Heart", { Variant: heartTier });
+    }
     bar(ui.find("shield_ui"), px(s.shieldMax), s.shieldBroken ? 0 : px(s.shield), 0);
     const rank = s.rank ? ui.find("rank_label") : null;
     if (rank) rank.text = s.rank!;
@@ -479,6 +511,24 @@ export class GameHud {
     // the target panel hangs from the top, 200 pixels in from the right edge
     if (this.target) { const s = pack(this.target); render(this.target, g, cw - 200 - s.width, s.height, this.hooks); }
   }
+}
+
+/** One health row's width in pixels: 30 pips; more health stacks silver, then gold, rows over it. */
+const ROW = 360;
+
+/** Sizes the knight's stacked health rows (client status panel): each row holds at most ROW pixels. */
+function stackedBar(part: Component | null, max: number, current: number, withDamage: number) {
+  if (!part) return;
+  const set = (tag: string, w: number) => {
+    const c = part.find(tag);
+    if (c?.preferredSize) c.preferredSize.width = Math.max(0, Math.min(ROW, w));
+  };
+  const lo = Math.min(current, withDamage), hi = Math.max(current, withDamage);
+  ["", "1", "2"].forEach((n, i) => {
+    set("health" + n, lo - i * ROW);
+    set("health_difference" + n, hi - i * ROW);
+  });
+  set("health_backing", max);
 }
 
 /** Sizes a health part (ui/hud_v2/parts/interface_health.dat): its backing, fill and damage segment. */
