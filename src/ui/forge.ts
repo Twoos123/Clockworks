@@ -1,276 +1,337 @@
-// Crafting: the game's recipe window (ui/recipes/interface.dat, the client's craft/a/o), not
-// the crystal forge (ui/forge, item/client/n, which levels finished gear with crystals and is
-// not part of this port). As the client lays it out:
+// The Forge (the HUD's U button, TOGGLE_FORGE: item/client/q on ui/forge/interface_forge.dat),
+// docked at the screen's left, as the client lays it out:
 //
-// - The recipe list (craft/a/x on ui/arsenal/interface.dat in Window mode, titled
-//   "RECIPES"): the recipes the knight has learned, grouped by what they make, sorted
-//   natural, by name or by stars, the picked pill staying pressed. With none learned it says
-//   so; a notice offers the recipes the knight could still learn.
-// - The ingredients (craft/a/s on ui/recipes/interface_ingredients.dat): the item's name,
-//   the materials (ui/recipes/parts/material) and the three orbs of alchemy of the recipe's
-//   star (bought for energy as it is made when the knight holds none), the special ingredient (the base item,
-//   ui/recipes/parts/special), "Items must be unequipped" when the base item is worn, the
-//   crowns (dimmed when short) and Transmute, enabled when everything is at hand.
-// - Transmuting (craft/a/G on ui/recipes/interface_success.dat): "You have created..." or
-//   "Your X has become...", then after three seconds SUCCESS!, the new item's name and icon,
-//   "Unique Variant Acquired!" when it rolled variants, where it went, and Equip and OK.
+// - FORGE (q.a, an ArsenalPanel on ui/arsenal/interface.dat titled t.forge): the search field,
+//   the sort header and the Sword, Handgun, Bomb, Helmet, Armor and Shield groups, listing only
+//   the items ready to level (LevelItem.N: a full heat bar below level 10).
+// - The dial (item/client/n on ui/forge/interface.dat): the item's name, heat bar and level
+//   (ui/status/parts/panel_name_heat.dat), "Required Item" with the fire crystal of its star
+//   and how many the knight holds (m.crystals_available), the big crystal count (x48), APPLY
+//   CRYSTALS with the minimal, medium and maximum buttons, the status line (red "Insufficient
+//   crystals to forge this item.") and FORGE, enabled with at least the minimal crystals in
+//   hand. Under it, when the crystals fall short, the Supply Depot's buy panel
+//   (ui/supplydepot/interface_mini_buy_item.dat, exchange/client/F) offers a stack of them.
+// - RESULTS: Chance for Forge Success (m.success_pct, m.guaranteed_success or
+//   m.add_more_success), Enhancements (m.power_increase for the item's type, the next level's
+//   charge time and health changes) and Possible Bonuses for the chosen amount
+//   (ui/window/tooltip_parts/bonus.dat; none: m.add_more_bonuses).
+// - Forging (item/client/r on ui/forge/interface_forging.dat with its Power argument): the
+//   item's name and icon, then after three seconds the interface's Success or Failure script,
+//   "Forging successful!" with what was gained, or "Forging failed!", and OK.
+//
+// The rules (src/game/forge.ts, Economy.forge): the crystals are spent either way, success
+// raises the level (two with a skip), failure keeps the heat. The arsenal and loadouts dock at
+// the right beside it (the HUD's I and L).
 
-import { recordCraft } from "../game/achievements";
 import type { GameData } from "../game/data";
-import type { Economy, Recipe } from "../game/economy";
-import { catalogue, CATEGORIES, isEquipped, itemLabel, toggleEquip } from "../game/items";
-import { itemStats, pillDamage } from "../game/itemstats";
-import { energyOf, type SaveData } from "../game/save";
+import { MAX_LEVEL, type Economy, type ForgeResult } from "../game/economy";
+import { bonusesAt, crystalBand, crystalFor, successChance, type ForgeBonus, type ForgeStep } from "../game/forge";
 import { energyNow } from "../game/energy";
-import type { Outfit } from "../game/outfit";
-import { InventoryPanel } from "./backpack";
+import { catalogue, itemLabel } from "../game/items";
+import { energyOf, type SaveData } from "../game/save";
 import { message, text } from "../i18n";
-import type { Component } from "./gui";
-import { itemPreview, itemTip, ItemList, type ListGroup } from "./itemlist";
+import { messageText, type Component } from "./gui";
+import { gradeText, ItemList, pillRef, type ListEntry, type ListGroup } from "./itemlist";
+import { ownedGroups } from "./equipment";
 import { buildUi, GuiScreen, uiRef, type ScreenHost } from "./screen";
 
 export interface ForgeHost extends ScreenHost {
   save(): SaveData;
   data(): GameData;
-  /** The save changed (crafting, equipping). */
-  changed(): void;
   eco(): Promise<Economy>;
-  /** The costumes (the inventory panel's item menus). */
-  outfit(): Outfit;
+  /** The save changed (a forging, crystals bought). */
+  changed(): void;
 }
 
-const MATERIAL = "ui/recipes/parts/material/interface.dat";
-const SPECIAL = "ui/recipes/parts/special/interface.dat";
-const SUCCESS = "ui/recipes/interface_success.dat";
-/** craft/a/G: the server's reply is shown no sooner than this. */
+const FORGE = "ui/forge/interface_forge.dat";
+const PANEL = "ui/forge/interface.dat";
+const FORGING = "ui/forge/interface_forging.dat";
+const BUY = "ui/supplydepot/interface_mini_buy_item.dat";
+const BONUS = "ui/window/tooltip_parts/bonus.dat";
+/** item/client/r: the result shows no sooner than this. */
 const RESULT_DELAY = 3000;
+/** q.a.y: the forge list's groups, in ItemCodes.Group order. */
+const GROUPS = ["sword", "gun", "bomb", "helmet", "armor", "shield"];
+/** The item bundle's word for each group's type (m.power_increase's argument). */
+const TYPE_KEY: Record<string, string> = { sword: "m.sword", gun: "m.handgun", bomb: "m.bomb", helmet: "m.helm", armor: "m.armor", shield: "m.shield" };
+const BUTTONS = ["min", "mid", "max"];
 
-/** The recipe list's groups (ItemCodes.Group order) and their names in the craft bundle. */
-const GROUPS: { id: string; key: string }[] = [
-  { id: "sword", key: "m.sword" }, { id: "gun", key: "m.handgun" }, { id: "bomb", key: "m.bomb" }, { id: "helmet", key: "m.helm" },
-  { id: "armor", key: "m.armor" }, { id: "shield", key: "m.shield" }, { id: "trinket", key: "m.trinket" },
-];
-const CAT = "ui/icon/inventory/categories/";
+const itemText = (key: string, fallback: string) => text("item", key, fallback);
 
-const craftText = (key: string, fallback: string) => text("craft", key, fallback);
+/** Replaces a tagged placeholder in a tree with another component (UserInterface.replace). */
+function replaceTag(root: Component, tag: string, by: Component): boolean {
+  for (const c of [root, ...root.children]) {
+    const i = c.children.findIndex(k => k.tag === tag);
+    if (i >= 0) { by.constraints = c.children[i].constraints; c.children[i] = by; return true; }
+  }
+  return root.children.some(k => replaceTag(k, tag, by));
+}
 
 export class ForgeScreen extends GuiScreen {
   private list: ItemList | null = null;
-  private ingredients: Component | null = null;
-  private all: Recipe[] = [];
+  private panel: Component | null = null;
+  private buy: Component | null = null;
   private eco: Economy | null = null;
-  private chosen: Recipe | null = null;
-  private parts = new Map<string, Promise<Component | null>>();
+  /** The item on the dial. */
+  private chosen: string | null = null;
+  /** The crystals to apply (btX) and the step they apply to. */
+  private crystals = 0;
+  private step: ForgeStep | null = null;
+  /** A forging is under way (n.btT): the dial keeps its item until the result is dismissed. */
+  private forging = false;
+  /** The item the forging overlay shows. */
+  private shown: string | null = null;
+  private buyMessage = "";
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly host_: ForgeHost) {
     super(ctx, host_, "forgeCanvas");
+    // q.BH: the forge sits at the screen's left
+    this.dockLeft = true;
   }
 
   protected async build(): Promise<Component | null> {
-    const [root, eco] = await Promise.all([this.ui("ui/recipes/interface.dat"), this.host_.eco()]);
-    if (!root) return null;
+    const [root, left, panel, buy, eco] = await Promise.all([this.ui(FORGE), this.ui("ui/arsenal/interface.dat", { Mode: "Window" }),
+      this.ui(PANEL), this.ui(BUY), this.host_.eco()]);
+    if (!root || !left || !panel) return null;
     this.eco = eco;
-    this.all = eco.recipes().filter(r => !!this.iconOf(r.output));
-    const left = root.find("recipes"), right = root.find("ingredients");
-    if (!left || !right) return null;
-    this.ingredients = right;
+    this.panel = panel;
+    if (!replaceTag(root, "arsenal", left) || !replaceTag(root, "forge", panel)) return null;
     this.list = new ItemList(this.ctx, left, this.tips, f => this.host.sound(f));
     this.list.showSelection = true;
-    this.list.sorts = ["natural", "name", "stars"];
-    this.list.bundle = "craft";
+    this.list.sorts = ["natural", "name", "stars", "level"];
     this.list.clicks = this.clicks;
     this.list.menu = (e, t, c) => void this.popupMenu(e, t, c);
-    this.list.onPick = e => {
-      this.chosen = this.all.find(r => r.name === e.key) ?? null;
-      this.host.sound("sound/feedback/ui_dropdown_select.ogg");
-      void this.refresh();
-    };
+    this.list.onPick = e => { this.choose(e.key); this.host.sound("sound/feedback/ui_dropdown_select.ogg"); void this.refresh(); };
     this.on(left, "dismiss", () => this.close());
-    // craft/a/o.LW: the inventory window opens beside the recipes, at the screen's right; its
-    // own dismiss closes only it
-    this.inventory = await InventoryPanel.create(this, this.ctx, { ...this.host_, write: () => this.host_.changed() }, eco, this.tips, this.clicks,
-      () => { this.side = null; this.host.sound("sound/feedback/ui_dismiss.ogg"); }, () => void this.refresh());
-    // the item preview on the knight, the market's buy widget, unbinding: not in this port
-    for (const tag of ["buy_item_widget", "keep_variants", "result_bound"]) { const c = right.find(tag); if (c) c.visible = false; }
-    this.on(right, "confirm", () => void this.transmute());
+    // the crystal amount buttons (n.btS, always one pressed)
+    BUTTONS.forEach((tag, i) => {
+      const b = panel.find(tag);
+      if (!b) return;
+      b.states = 8;
+      b.onAction = () => { if (this.step) { this.crystals = this.step.crystals[i]; this.host.sound("sound/feedback/ui_dropdown_select.ogg"); void this.refresh(); } };
+    });
+    this.on(panel, "btn_forge", () => void this.forge());
+    // the buy panel sits under the dial (the interface's own buy_item_widget placeholder)
+    if (buy) {
+      this.buy = buy;
+      replaceTag(panel, "buy_item_widget", buy);
+      this.on(buy, "get_item_button", () => this.buyCrystals());
+    }
+    if (panel.addAction) this.runner(panel).execute(panel.addAction);
+    const draw = (name: string | null, size: number) => (_c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
+      const im = name ? this.icon(this.eco?.info(name)?.icon, size) : null;
+      if (im) g.drawImage(im.source as CanvasImageSource, Math.round(x + (w - im.width) / 2), Math.round(y + (h - im.height) / 2), im.width, im.height);
+    };
+    // the forge's 3D frames (renderview1-3) are not drawn: the view hook is left out
     this.hooks = {
       tagged: {
-        // the new item's icon on the transmute result
-        icon: (_c, g, x, y, w, h) => {
-          const im = this.shown ? this.icon(this.iconOf(this.shown), 75) : null;
-          if (im) g.drawImage(im.source as CanvasImageSource, Math.round(x + (w - im.width) / 2), Math.round(y + (h - im.height) / 2), im.width, im.height);
-        },
+        required_icon: (c, g, x, y, w, h) => draw(this.chosen ? crystalFor(this.eco?.info(this.chosen)?.rarity ?? 0) : null, 36)(c, g, x, y, w, h),
+        icon: (c, g, x, y, w, h) => draw(this.shown, 128)(c, g, x, y, w, h),
       },
     };
     return root;
   }
 
-  /** The item the transmute result shows. */
-  private shown: string | null = null;
-  /** The inventory window beside the recipes. */
-  private inventory: InventoryPanel | null = null;
-
-  async open() {
-    // each opening brings the inventory window back
-    this.side = this.inventory?.ui ?? null;
-    await super.open();
-    if (!this.side && this.inventory) this.side = this.inventory.ui;
-  }
-
-  private iconOf(name: string | null | undefined) { return name ? this.eco?.info(name)?.icon ?? null : null; }
-  private catOf(r: Recipe) { const c = this.eco?.info(r.output)?.category; return CATEGORIES.find(k => k.eco === c) ?? null; }
-
-  private part(key: string, ref: any): Promise<Component | null> {
-    let p = this.parts.get(key);
-    if (!p) { p = buildUi(this.ctx, ref); this.parts.set(key, p); }
-    return p;
+  /** Puts an item on the dial with the minimal crystals (n.Fk: btR.doClick). */
+  private choose(name: string | null) {
+    this.chosen = name;
+    const save = this.host_.save(), lv = name ? this.eco!.level(save, name) : 0;
+    this.step = name ? this.eco!.forgeStep(name, lv) : null;
+    this.crystals = this.step?.crystals[0] ?? 0;
+    this.buyMessage = "";
   }
 
   protected async refresh() {
-    if (!this.list || !this.ingredients) return;
-    void this.inventory?.refresh();
-    const save = this.host_.save(), eco = this.eco!, data = this.host_.data();
-    // craft/a/x lists the recipes the knight has learned
-    const known = this.all.filter(r => save.recipes.includes(r.name));
-    if (this.chosen && !known.includes(this.chosen)) this.chosen = null;
-    this.list.selected = this.chosen?.name ?? null;
-    const groups: ListGroup[] = GROUPS.map(g => {
-      const cat = CATEGORIES.find(c => c.id === g.id)!;
-      return {
-        id: g.id, label: craftText(g.key, cat.label), icon: cat.icon, showEmpty: true,
-        entries: known.filter(r => this.catOf(r)?.id === g.id).map(r => ({
-          key: r.name, label: itemLabel(r.output), rarity: r.rarity, icon: this.iconOf(r.output),
-          damage: pillDamage(data, eco, r.output),
-          tip: itemTip({ label: itemLabel(r.output), type: cat.label.replace(/s$/, ""), rarity: r.rarity, item: r.output, kind: cat.eco,
-            flavor: "", level: eco.info(r.output)?.heatable ? 1 : undefined, noLevel: g.id === "trinket", stats: itemStats(data, eco, r.output, 1),
-            model: itemPreview(data, r.output, save.color) }),
-        })),
-      };
-    });
-    const other = known.filter(r => !GROUPS.some(g => g.id === this.catOf(r)?.id));
-    if (other.length) groups.push({ id: "other", label: craftText("m.item", "Item"), icon: CAT + "icon_recipe.png", entries: other.map(r => ({
-      key: r.name, label: itemLabel(r.output), rarity: r.rarity, icon: this.iconOf(r.output),
-      tip: itemTip({ label: itemLabel(r.output), type: "Item", rarity: r.rarity, item: r.output, flavor: "", plain: true }) })) });
-    this.list.setInfo(craftText("t.recipes", "RECIPES"), "", "", null);
-    // the client's "You have new Recipes" notice points at recipe items not yet learned; recipes
-    // bought here are learned at once, so it never shows
-    this.list.setNotice("");
-    await this.list.setGroups(groups);
-    await this.fillIngredients(save);
+    const list = this.list, eco = this.eco, panel = this.panel;
+    if (!list || !eco || !panel) return;
+    const save = this.host_.save(), data = this.host_.data();
+    const ready = new Set(eco.forgeable(save));
+    // n.Fk: an item no longer ready leaves the dial; q.a.b: the next ready item takes its place
+    if (!this.forging && (!this.chosen || !ready.has(this.chosen))) this.choose(this.firstReady(save, ready));
+    list.selected = this.chosen;
+    list.setInfo(itemText("t.forge", "FORGE"), "", "", null);
+    const groups: ListGroup[] = ownedGroups(save, data, eco).filter(g => GROUPS.includes(g.id))
+      .sort((a, b) => GROUPS.indexOf(a.id) - GROUPS.indexOf(b.id))
+      .map(g => ({ ...g, showEmpty: true, entries: g.entries.filter(e => ready.has(e.key)) }));
+    await list.setGroups(groups);
+    await this.fillDial(save);
   }
 
-  private async fillIngredients(save: SaveData) {
-    const f = this.ingredients!, r = this.chosen, eco = this.eco!;
-    // craft/a/s: hidden until a recipe is picked
-    f.visible = !!r;
-    if (!r) return;
-    const set = (tag: string, t: string) => { const c = f.find(tag); if (c) c.text = t; return c; };
-    set("titlebar_itemname", itemLabel(r.output).toUpperCase());
-    const crowns = set("cost_crowns", r.crowns.toLocaleString("en-US"));
-    if (crowns) crowns.enabled = save.crowns >= r.crowns;
-    // the materials
-    // the orbs of alchemy (three of the recipe's star) after them: the knight's own, else a
-    // pack bought for energy as the craft is made (src/game/economy.ts orbEnergy)
-    const orbEnergy = eco.orbEnergy(save, r), energy = energyNow(energyOf(save));
-    const mats = await Promise.all([...r.materials, ...(r.orbs ? [r.orbs] : [])].map(([n, k]) => {
-      const have = save.materials[n] ?? 0, info = eco.info(n), orb = n === r.orbs?.[0];
-      const name = orb && orbEnergy > 0 ? `${itemLabel(n)} (or ${orbEnergy} energy; you have ${energy})` : itemLabel(n);
-      const args = { Name: name, "Amount Have": String(have), "Amount Needed": String(k), Ready: have >= k || (orb && energy >= orbEnergy),
-        Icon: info?.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: info?.icon?.colorizations ?? [] };
-      return this.part(JSON.stringify(args, (kk, v) => (kk === "$outer" ? undefined : v)), uiRef(MATERIAL, args)).then(c => {
-        // "find this material" opens the gates that drop it (a market of gates this port lacks): a blank of its size
-        const find = c?.find("find_materials");
-        if (find) find.alpha = 0;
-        if (find) find.enabled = false;
-        return c;
-      });
-    }));
-    const basic = f.find("list_basic");
-    if (basic) { basic.children = mats.filter((c): c is Component => !!c); basic.children.forEach(c => { c.constraints = null; }); }
-    // the special ingredient: the base item, ready when owned at its level and not worn
-    const special = f.find("list_special");
-    const unequip = f.find("unequip_label");
-    let worn = false, baseReady = true;
-    if (special) {
-      const kids: Component[] = [];
-      if (r.base) {
-        const entry = catalogue(this.host_.data()).find(e => e.name === r.base);
-        worn = !!entry && isEquipped(save.loadout, entry);
-        baseReady = save.owned.includes(r.base) && eco.level(save, r.base) >= r.baseLevel && !worn;
-        const info = eco.info(r.base);
-        const name = r.baseLevel > 1 ? message("craft", "m.level_item_name", r.baseLevel, itemLabel(r.base)) || `${itemLabel(r.base)} (Lv ${r.baseLevel})` : itemLabel(r.base);
-        const args = { Name: name, Ready: baseReady, Icon: info?.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: info?.icon?.colorizations ?? [] };
-        const c = await this.part("special" + JSON.stringify(args, (kk, v) => (kk === "$outer" ? undefined : v)), uiRef(SPECIAL, args));
-        if (c) kids.push(c);
-      }
-      if (unequip) { unequip.visible = worn; if (worn) kids.push(unequip); }
-      special.children = kids;
-      kids.forEach(c => { c.constraints = null; });
+  /** The first ready item in the list's order. */
+  private firstReady(save: SaveData, ready: Set<string>): string | null {
+    const order = catalogue(this.host_.data()).filter(e => ready.has(e.name) && GROUPS.includes(e.category.id))
+      .sort((a, b) => GROUPS.indexOf(a.category.id) - GROUPS.indexOf(b.category.id));
+    return order[0]?.name ?? (save.owned.find(n => ready.has(n)) ?? null);
+  }
+
+  private async fillDial(save: SaveData) {
+    const panel = this.panel!, eco = this.eco!, name = this.chosen, step = this.step;
+    // n.b: the dial shows only with an item on it
+    panel.visible = !!name && !!step;
+    if (!name || !step) return;
+    const set = (tag: string, s: string) => { const c = panel.find(tag); if (c) c.text = s; return c; };
+    const g = save.gear[name], lv = eco.level(save, name), info = eco.info(name);
+    set("type", eco.displayName(name, g).toUpperCase());
+    const bar = panel.find("tooltip_heat");
+    if (bar) bar.preferredSize = { width: Math.max(1, Math.round(120 * eco.heatProgress(save, name))), height: bar.preferredSize?.height ?? -1 };
+    set("tooltip_level", String(lv).padStart(2, "0"));
+    const crystal = crystalFor(info?.rarity ?? 0), held = save.materials[crystal] ?? 0;
+    set("required_name", message("item", "m.crystals_available", itemLabel(crystal), held) || `${itemLabel(crystal)}\n(${held} Available)`);
+    set("crystal_count", message("item", "m.crystal_count", String(this.crystals)) || `x${this.crystals}`);
+    BUTTONS.forEach((tag, i) => { const b = panel.find(tag); if (b) b.selected = this.crystals === step.crystals[i]; });
+    // n.Pe: the status line and FORGE
+    const enough = this.crystals >= step.crystals[0] && held >= this.crystals;
+    const status = set("status", this.forging ? "" : enough ? "" : itemText("m.insufficient_crystals", "Insufficient crystals to forge this item."));
+    if (status) status.visible = !!status.text;
+    const btn = panel.find("btn_forge");
+    if (btn) btn.enabled = enough && !this.forging;
+    const pct = Math.min(100, Math.round(successChance(step, this.crystals) * 100));
+    set("success_chance", message("item", "m.success_pct", String(pct)) || `${pct}%`);
+    set("success_msg", pct === 100 ? itemText("m.guaranteed_success", "Guaranteed chance of forge success!")
+      : itemText("m.add_more_success", "Add more fire crystals to increase chance of forge success and bonuses!"));
+    await this.fillEnhancements(name, lv);
+    await this.fillBonuses(step, lv);
+    await this.fillBuy(save, info?.rarity ?? 0, !enough);
+  }
+
+  /** n.Uf: the type's power increase, then what the next level changes. */
+  private async fillEnhancements(name: string, lv: number) {
+    const pills = this.panel!.find("pills"), eco = this.eco!;
+    if (!pills) return;
+    const cat = catalogue(this.host_.data()).find(e => e.name === name)?.category.id ?? "sword";
+    const type = messageText(TYPE_KEY[cat] ?? "m.sword", "item");
+    const lines = [message("item", "m.power_increase", type) || `${type} Power Increase`];
+    const cur = eco.levelStats(name, lv, 30), next = eco.levelStats(name, Math.min(MAX_LEVEL, lv + 1), 30);
+    if (next.charge !== cur.charge && next.charge) lines.push(message("item", next.charge > 0 ? "m.charge_reduction" : "m.charge_increase", gradeText(0.08, next.charge)) || "Charge Time Reduction");
+    if (next.health !== cur.health) lines.push(message("item", "m.start_health", Math.trunc(next.health / 40)) || `Maximum Health: ${Math.trunc(next.health / 40)}`);
+    pills.children = (await Promise.all(lines.map(l => buildUi(this.ctx, uiRef(BONUS, { Color: "Bonus", Description: l, "Bonus Icon": null, "Toggle Icon": false })))))
+      .filter((c): c is Component => !!c);
+    pills.children.forEach(c => { c.constraints = null; });
+  }
+
+  /** n.Ug: the bonuses the chosen amount opens (ForgeProps.fk). */
+  private async fillBonuses(step: ForgeStep, lv: number) {
+    const box = this.panel!.find("bonuses");
+    if (!box) return;
+    const offered = bonusesAt(step, crystalBand(step, this.crystals));
+    const lines = offered.length ? offered.map(b => this.bonusText(b, lv)) : [itemText("m.add_more_bonuses", "Add more fire crystals to unlock chances for bonuses!")];
+    box.children = (await Promise.all(lines.map(l => buildUi(this.ctx, uiRef(BONUS, { Color: "Variant", Description: l, "Toggle Icon": false })))))
+      .filter((c): c is Component => !!c);
+    box.children.forEach(c => { c.constraints = null; });
+  }
+
+  /** ForgePropertyConfig.Bonus.d: a bonus's line. */
+  private bonusText(b: ForgeBonus, lv: number): string {
+    if (b.kind === "heat") return itemText("m.bonus_heat_bonus", "Heat Bonus: +25%");
+    if (b.kind === "skip") return message("item", "m.bonus_skip_level", lv + 2) || `Instantly Skip to Level ${lv + 2}!`;
+    const box = itemText("m.bonus_prize_box", "Forge Prize Box!");
+    return b.locked ? message("item", "l.locked", box) || `${box} (Locked)` : box;
+  }
+
+  /** exchange/client/F: the crystal stack the depot sells, shown while the crystals fall short. */
+  private async fillBuy(save: SaveData, rarity: number, short: boolean) {
+    const buy = this.buy, eco = this.eco!;
+    if (!buy) return;
+    const offer = eco.crystalOffer(rarity);
+    buy.visible = short && !!offer && !this.forging;
+    if (!offer || !buy.visible) return;
+    const entry: ListEntry = { key: offer.name, label: itemLabel(offer.name), rarity, icon: eco.info(offer.name)?.icon ?? null, count: String(offer.count) };
+    const pill = await buildUi(this.ctx, pillRef(entry));
+    const count = pill?.find("itemcount");
+    if (count) count.text = String(offer.count);
+    const slot = buy.find("item")?.children[0];
+    if (pill && slot && slot !== pill) { pill.constraints = slot.constraints; pill.tag = "item_display"; buy.find("item")!.children[0] = pill; }
+    const cost = offer.energy ? `${offer.count} for ${offer.energy.toLocaleString("en-US")} energy (you have ${energyNow(energyOf(save)).toLocaleString("en-US")})`
+      : `${offer.count} for ${offer.crowns.toLocaleString("en-US")} crowns (you have ${save.crowns.toLocaleString("en-US")})`;
+    const status = buy.find("status");
+    if (status) { status.text = this.buyMessage || cost; status.visible = true; }
+  }
+
+  private buyCrystals() {
+    const save = this.host_.save(), eco = this.eco!, name = this.chosen;
+    if (!name) return;
+    const offer = eco.crystalOffer(eco.info(name)?.rarity ?? 0);
+    if (!offer) return;
+    if (!eco.buyCrystals(save, offer)) {
+      this.buyMessage = offer.energy ? "Not enough energy. Get Energy trades crowns for it." : "Not enough crowns.";
+      this.host.sound("sound/feedback/ui_dismiss.ogg");
+    } else {
+      this.buyMessage = "";
+      this.host_.changed();
+      this.host.sound("sound/feedback/merchant_transaction.ogg");
     }
-    const ready = eco.missing(save, r).length === 0 && baseReady;
-    const confirm = f.find("confirm");
-    if (confirm) confirm.enabled = ready;
+    void this.refreshAll();
   }
 
-  private async transmute() {
-    const save = this.host_.save(), r = this.chosen, eco = this.eco!;
-    if (!r || !this.ingredients?.find("confirm")?.enabled) return;
-    const made = eco.craft(save, r);
-    if (!made) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
-    recordCraft(save, r.rarity);
+  /** n.Ub: forges with the chosen crystals, then shows item/client/r. */
+  private async forge() {
+    const save = this.host_.save(), eco = this.eco!, name = this.chosen, step = this.step;
+    if (!name || !step || this.forging) return;
+    const band = crystalBand(step, this.crystals);
+    const label = eco.displayName(name, save.gear[name]);
+    const result = eco.forge(save, name, this.crystals);
+    if (!result) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
     this.host_.changed();
-    this.host.sound("sound/feedback/transmute.ogg");
-    await this.showResult(r, made.variants);
-    this.chosen = null;
-    await this.refresh();
+    this.forging = true;
+    this.host.sound("sound/feedback/ui_confirm.ogg");
+    await this.refreshAll();
+    await this.showForging(name, label, band + 1, result);
   }
 
-  /** craft/a/G: "TRANSMUTING" and the summary, then the result after three seconds. */
-  private async showResult(r: Recipe, variants: string[]) {
-    const o = await buildUi(this.ctx, uiRef(SUCCESS, { "Unique Variant": variants.length > 0 }));
-    if (!o) return;
-    const set = (tag: string, t: string) => { const c = o.find(tag); if (c) c.text = t; return c; };
+  /** item/client/r: FORGING with the item, then Success or Failure after three seconds. */
+  private async showForging(name: string, label: string, power: number, r: ForgeResult) {
+    const o = await buildUi(this.ctx, uiRef(FORGING, { Power: String(power) }));
+    if (!o) { this.done(); return; }
+    const set = (tag: string, s: string) => { const c = o.find(tag); if (c) c.text = s; return c; };
+    set("itemname", label.toUpperCase());
+    this.shown = name;
     const dismiss = o.find("dismiss");
     if (dismiss) dismiss.visible = false;
-    set("title", craftText("t.transmuting", "TRANSMUTING"));
-    set("summary", r.base ? message("craft", "m.summary_upgrade", itemLabel(r.base)) || `Your ${itemLabel(r.base)} has become...` : craftText("m.summary", "You have created..."));
-    set("itemname", "");
-    const status = set("status", "");
-    for (const tag of ["icon", "unique_text", "buttongroup", "unique_effect"]) { const c = o.find(tag); if (c) c.visible = false; }
-    this.shown = null;
-    const close = () => { this.overlays = this.overlays.filter(x => x !== o); this.runner(o).stop(); };
     const ok = o.find("confirm");
+    const close = () => { this.dropOverlay(o); this.runner(o).stop(); this.done(); };
     if (ok) ok.onAction = () => { this.host.sound("sound/feedback/ui_dismiss.ogg"); close(); };
-    const go = o.find("gotoitem");
-    if (go) go.visible = false;
-    this.overlays.push(o);
+    this.pushOverlay(o);
+    const run = this.runner(o);
+    if (o.addAction) run.execute(o.addAction);
     setTimeout(() => {
-      if (!this.overlays.includes(o)) return;
-      set("title", craftText("t.success", "SUCCESS!"));
-      this.shown = r.output;
-      const icon = o.find("icon");
-      if (icon) { icon.visible = true; icon.styles = icon.styles.map(() => null); }
-      set("itemname", this.eco!.displayName(r.output, this.host_.save().gear[r.output]));
-      if (status) status.text = craftText("m.moved_arsenal", "Item moved to your Arsenal");
-      const unique = o.find("unique_text");
-      if (unique) unique.visible = variants.length > 0;
-      // Equip: shown for gear the knight can wear, disabled when it already is
-      const save = this.host_.save(), entry = catalogue(this.host_.data()).find(e => e.name === r.output);
-      const equip = o.find("equipitem");
-      if (equip) {
-        equip.visible = !!entry;
-        equip.enabled = !!entry && !isEquipped(save.loadout, entry);
-        equip.onAction = () => {
-          if (!entry) return;
-          save.loadout = toggleEquip(save.loadout, entry);
-          this.host_.changed();
-          this.host.sound("sound/feedback/ui_equip.ogg");
-          close();
-        };
+      if (!this.isOpen || !this.overlays.includes(o)) { this.done(); return; }
+      if (r.success) {
+        // the server's message (t.br): the level reached and any bonus won
+        const lines = [message("item", "m.forge_new_level", label, r.level) || `Achieved Level ${r.level}!`];
+        if (r.bonus?.kind === "heat") lines.push(itemText("m.forge_heat_bonus", "Heat Bonus: +25% Acquired!"));
+        if (r.bonus?.kind === "skip") lines.push(itemText("m.forge_skip", "Double Level Up Acquired!"));
+        if (r.bonus?.kind === "prize") lines.push(itemText("m.forge_prize_box", "Forge Prize Box Acquired!"), r.prize ? `${r.prize.count} ${itemLabel(r.prize.name)}` : "");
+        set("bonus_text", lines.filter(Boolean).join("\n"));
+        set("label_success", itemText("m.forge_success", "Forging successful!"));
+        run.runScript({ name: "Success" });
+        this.host.sound("sound/feedback/transmute.ogg");
+      } else {
+        set("status", itemText("m.fail_to_level", "Forging failed!"));
+        run.runScript({ name: "Failure" });
       }
-      const group = o.find("buttongroup");
-      if (group) group.visible = true;
-      this.runner(o).runScript({ name: "Transmute Success", arguments: { $map: "com.threerings.config.ArgumentMap", entries: [] } });
+      if (ok) ok.enabled = true;
     }, RESULT_DELAY);
+  }
+
+  /** Escape takes the forging window away as OK does. */
+  escape() {
+    const was = this.forging && this.overlays.length > 0;
+    super.escape();
+    if (was && !this.overlays.length) this.done();
+  }
+
+  /** The window closed mid-forging: nothing waits on the result. */
+  close() {
+    this.forging = false;
+    this.shown = null;
+    super.close();
+  }
+
+  /** r.wasRemoved: the forging is over; the dial moves on. */
+  private done() {
+    if (!this.forging) return;
+    this.forging = false;
+    this.shown = null;
+    void this.refreshAll();
   }
 }

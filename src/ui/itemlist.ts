@@ -91,6 +91,20 @@ function primary(sort: SortKey, a: ListEntry, b: ListEntry): number {
     : sort === "level" ? (b.level ?? 0) - (a.level ?? 0) : 0;
 }
 
+/** An item pill's interface (item/client/j.a): name, damage colours, stars, variant pips, icon. */
+export function pillRef(e: ListEntry) {
+  // item/client/j: a red or green backing replaces the damage colours
+  const look = e.look ?? "False";
+  const damage = look === "False - Green" ? ["Green", "Green"] : look === "False - Red" ? ["Red", "Red"] : e.damage ?? ["Default", "Default"];
+  return uiRef(PILL, {
+    Name: e.label, Damage: damage[0], "Damage (Secondary)": damage[1],
+    "Rank Visible": e.rarity >= 0, "Rank Mode": "Star", Rank: String(Math.max(0, e.rarity)),
+    Variants: String(Math.min(3, e.variants ?? -1)), Accessory: false,
+    Locked: e.levelled ? "False" : "Hidden", Equipped: look === "True" ? "True" : "False", Equippable: e.equippable === false ? "False" : "True", Hoverable: true,
+    Icon: e.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: e.icon?.colorizations ?? [],
+  });
+}
+
 export class ItemList {
   /** Folded categories. */
   readonly collapsed = new Set<string>();
@@ -202,28 +216,11 @@ export class ItemList {
     if (e.ui) {
       const key = e.key + "|" + JSON.stringify(e.ui, (k, v) => (k === "$outer" ? undefined : v));
       let p = this.cache.get(key);
-      if (!p) {
-        p = buildUi(this.ctx, e.ui).then(c => {
-          // a loadout pill's PvE and PvP tier meters: single player has no tiers
-          const walk = (k: Component) => { if (k.children.some(x => x.tag === "label_pve")) k.visible = false; k.children.forEach(walk); };
-          if (c) walk(c);
-          return c;
-        });
-        this.cache.set(key, p);
-      }
+      if (!p) { p = buildUi(this.ctx, e.ui); this.cache.set(key, p); }
       return p;
     }
-    // item/client/j: a red or green backing replaces the damage colours
-    const look = e.look ?? "False";
-    const damage = look === "False - Green" ? ["Green", "Green"] : look === "False - Red" ? ["Red", "Red"] : e.damage ?? ["Default", "Default"];
-    const args: Record<string, unknown> = {
-      Name: e.label, Damage: damage[0], "Damage (Secondary)": damage[1],
-      "Rank Visible": e.rarity >= 0, "Rank Mode": "Star", Rank: String(Math.max(0, e.rarity)),
-      Variants: String(Math.min(3, e.variants ?? -1)), Accessory: false,
-      Locked: e.levelled ? "False" : "Hidden", Equipped: look === "True" ? "True" : "False", Equippable: e.equippable === false ? "False" : "True", Hoverable: true,
-      Icon: e.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: e.icon?.colorizations ?? [],
-    };
-    return this.build(e.key + "|" + JSON.stringify(args, (k, v) => (k === "$outer" ? undefined : v)), uiRef(PILL, args));
+    const ref = pillRef(e);
+    return this.build(e.key + "|" + JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v)), ref);
   }
 
   /** A category header: "Sword (3)", pressed while folded, disabled while empty. */
