@@ -51,6 +51,11 @@ export interface LogicHost {
   fireEffect(ref: any, x: number, y: number, rotation: number): void;
   /** Game-specific actions; return undefined for unknown ones. */
   gameAction(cfg: any, source: Entity, activator: Entity | null, logic: Logic): boolean | undefined;
+  /**
+   * Whether an action would put the actor running it out of action (freeze, sleep or stun it,
+   * as an ApplyStatus with no target does to its activator).
+   */
+  disablesSelf?(action: any): boolean;
   log?(msg: string): void;
 }
 
@@ -236,6 +241,12 @@ export class Logic {
     return this.execute(action, source, activator);
   }
 
+  /** A condition-less (stripped) Conditional on an actor whose action would disable that actor. */
+  private strippedSelfHold(action: any, source: Entity): boolean {
+    return source.isActor && !!action && kind(action) === "Conditional" && action.condition == null
+      && !!this.host.disablesSelf?.(action.action);
+  }
+
   private schedule(owner: Entity, delayMs: number, run: () => void): Timer {
     const t: Timer = { at: this.ts + Math.max(0, delayMs), run, cancelled: false, owner };
     this.timers.push(t);
@@ -251,9 +262,13 @@ export class Logic {
       case "Timer": case "WarnTimer": {
         const interval = cfg.interval ?? 1, offset = cfg.offset ?? 0;
         h.limit = (cfg.limit ?? 0) === 0 ? Infinity : cfg.limit;
+        // an actor's timer that would disable the actor itself behind a condition the export
+        // stripped (the ice cube's "freeze myself" each second, gated on the server by its
+        // state) never fires: run unconditionally it would hold the actor frozen for good
+        const gated = this.strippedSelfHold(cfg.action, src);
         const fire = () => {
           if (src.removed) return;
-          this.run(cfg.action, src, src);
+          if (!gated) this.run(cfg.action, src, src);
           if (--h.limit! > 0) h.timer = this.schedule(src, interval * 1000, fire);
         };
         h.timer = this.schedule(src, Math.max(0, interval + offset) * 1000, fire);
@@ -417,7 +432,9 @@ export class Logic {
     // ...and one with a portal and a scene id is the game's scene change (a town's exits);
     // the game handles it, so it goes to the host under a name of our own
     // (a town move names a town and scene instead, a training floor a floor: src/game/portals.ts)
-    else if (cfg && !cfg.$class && cfg.portal && (cfg.sceneId !== undefined || cfg.townName !== undefined || cfg.sceneInternalId !== undefined || cfg.floor !== undefined))
+    // (a guild hall's training gate names only its floor)
+    else if (cfg && !cfg.$class && ((cfg.portal && (cfg.sceneId !== undefined || cfg.townName !== undefined || cfg.sceneInternalId !== undefined || cfg.floor !== undefined))
+      || (typeof cfg.floor === "number" && /^Portals\//.test(source?.name ?? ""))))
       return this.host.gameAction({ ...cfg, $class: "ScenePortal" }, source, activator, this) ?? true;
     if (!cfg?.$class) return true;
     const k = kind(cfg);

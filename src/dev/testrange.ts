@@ -8,6 +8,7 @@
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { Renderer } from "../render/renderer";
 import { Knight, Monster, type MonsterHold, type ProbeHit, type Puppet, type World } from "../game/world";
+import type { Prop } from "../game/props";
 import type { AttackDef } from "../game/data";
 import { catalogue, CATEGORIES, type ItemEntry } from "../game/items";
 import type { Loadout } from "../game/save";
@@ -68,6 +69,8 @@ export class TestRange {
   dummy: Monster | null = null;
   private dummyAt: [number, number] | null = null;
   readonly penned: Monster[] = [];
+  /** Blocks placed with placeBlock (the sweep breaks them). */
+  readonly blocks: Prop[] = [];
   private puppet: Puppet | null = null;
   private puppetClip: AnimationClip | null = null;
   private readonly readout: HTMLPreElement;
@@ -404,6 +407,30 @@ export class TestRange {
     return found;
   }
 
+  /**
+   * Places a block actor (config/actor.dat Block/..., spawned as its placeable's Startup
+   * spawns it) `dist` ahead of the knight, and resolves once its model shows (or after 10 s).
+   */
+  async placeBlock(name: string, dist = 1.5, args?: [string, unknown][]): Promise<Prop | null> {
+    const w = this.world;
+    if (!w) return null;
+    const k = w.knight;
+    const x = k.x + Math.cos(k.heading) * dist, y = k.y + Math.sin(k.heading) * dist;
+    const ref = args ? { $class: "com.threerings.config.ConfigReference", name, arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } } : { name };
+    const e = w.logic.spawn(ref, x, y, 0, w.knightEntity, w.knightEntity);
+    const p = e ? w.props.find(q => q.entity === e) ?? null : null;
+    if (!p) return null;
+    this.blocks.push(p);
+    const t0 = performance.now();
+    while (!p.instance && w.props.includes(p) && performance.now() - t0 < 10000) await new Promise(r => setTimeout(r, 100));
+    return p;
+  }
+
+  /** Takes the placed blocks away (faded, not broken). */
+  clearBlocks() {
+    for (const p of this.blocks.splice(0)) if (this.world?.props.includes(p)) this.world.vanishProp(p, false);
+  }
+
   /** Takes a monster off the field without its death (no loot, no effects). */
   remove(m: Monster) {
     const w = this.world;
@@ -578,7 +605,8 @@ export class TestRange {
       remove: (m: Monster) => this.remove(m),
       kill: (m: Monster) => this.kill(m),
       strike: (m: Monster, share?: number, knock?: number) => this.strike(m, share, knock),
-      clearAll: () => { for (const m of [...this.penned]) this.remove(m); if (this.dummy) this.remove(this.dummy); this.removePuppet(); },
+      placeBlock: (name: string, dist?: number, args?: [string, unknown][]) => this.placeBlock(name, dist, args),
+      clearAll: () => { for (const m of [...this.penned]) this.remove(m); if (this.dummy) this.remove(this.dummy); this.removePuppet(); this.clearBlocks(); },
       hits: () => this.hits,
       clearHits: () => this.clearHits(),
       attackTiming,

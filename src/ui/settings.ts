@@ -47,8 +47,6 @@ export const ACTIONS = {
   hudLock: { label: "Lock HUD", key: "`" },
   zoom: { label: "Camera zoom", key: "=" },
   help: { label: "Controls help", key: "f1" },
-  turnLeft: { label: "Turn camera left", key: "q" },
-  turnRight: { label: "Turn camera right", key: "e" },
 } as const;
 export type Action = keyof typeof ACTIONS;
 

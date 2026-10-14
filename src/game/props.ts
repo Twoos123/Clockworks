@@ -99,6 +99,10 @@ export class Prop {
   breakable = false;
   /** Health counts hits rather than damage. */
   hits = false;
+  /** A vacuum pickup flying to the knight: seconds since it was activated, else null. */
+  vacuum: number | null = null;
+  /** The stateful block state last shown (src/game/world.ts blockState). */
+  shownState = 0;
   /** Takes hits without breaking (prisms, emitters, gun blocks, cages: src/game/objects.ts). */
   hittable = false;
   /** Dungeon object state (src/game/objects.ts), or null for plain props. */
@@ -146,6 +150,14 @@ export class Prop {
   }
   /** The sprite's state animations (doors: close, closed, open, opened; switches: up, down). */
   get states(): any[] { return (this.cfg.sprite?.states ?? []).map((s: any) => s?.animation).filter(Boolean); }
+  /**
+   * The sprite's state animations at their state indices (a state without one is null): the
+   * states a dungeon object or a stateful block enters by number (an Explosive Timed block's
+   * countdown is its state 1, after an empty state 0).
+   */
+  get stateAnims(): any[] { return (this.cfg.sprite?.states ?? []).map((s: any) => s?.animation ?? null); }
+  /** A StatefulModelBlock's state models (Block/Stone's cracking meshes), else empty. */
+  get stateModels(): any[] { return /\$StatefulModelBlock$/.test(String(this.cfg.sprite?.$class ?? "")) ? (this.cfg.sprite.states ?? []).map((s: any) => s?.model ?? null) : []; }
 }
 
 /**
