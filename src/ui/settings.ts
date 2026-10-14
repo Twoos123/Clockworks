@@ -33,7 +33,7 @@ export const ACTIONS = {
   forge: { label: "Forge (crafting)", key: "u" },
   mission: { label: "Missions", key: "m" },
   social: { label: "Social", key: "f6" },
-  feed: { label: "News feed", key: "f7" },
+  feed: { label: "Event Hub", key: "f7" },
   uplink: { label: "Mail", key: "" },
   map: { label: "Map overlay", key: "b" },
   hudLock: { label: "Lock HUD", key: "`" },

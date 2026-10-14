@@ -56,6 +56,8 @@ import {
   recordRunEnd, recordRunStart, type AchievementType,
 } from "./game/achievements";
 import { UplinkScreen, mailbox } from "./ui/uplink";
+import { EventHubScreen } from "./ui/eventhub";
+import { FEED_BOSS, logFeed } from "./game/feed";
 import { TooSmallWarning } from "./ui/toosmall";
 import { itemTip } from "./ui/itemlist";
 import { cachedHallId, GUILD_HALL, READY_ROOM } from "./game/places";
@@ -859,6 +861,8 @@ class Viewer {
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
     this.places.started(this.scene.id);
+    // the session's first arrival in town opens the uplink's news and the Event Hub (as.DX)
+    this.welcome();
   }
 
   /** The portal tag the knight arrives at in the next scene (a town exit walked through). */
@@ -1245,23 +1249,58 @@ class Viewer {
     this.uplink ??= new UplinkScreen(gui, { ...host, save: () => this.save, write: () => writeSave(this.save) });
     this.help ??= new HelpScreen(gui, { ...host,
       keys: () => (Object.keys(ACTIONS) as Action[]).map(a => [ACTIONS[a].label, keyName(this.bound(a))] as [string, string]) });
-    return { uplink: this.uplink, help: this.help };
+    this.eventHub ??= new EventHubScreen(gui, { ...host, save: () => this.save, name: () => knightName(this.save),
+      missions: () => this.missions().hubMissions(),
+      inspect: id => void this.missions().inspect(id),
+      // social/client/i.Cj: past the Social window (as.DK) when it is docked open at the left;
+      // this port's Social button opens the guild console, which is centred, so the hub docks at the edge
+      dockX: () => 0 });
+    return { uplink: this.uplink, help: this.help, eventHub: this.eventHub };
   }
 
+  private eventHub: EventHubScreen | null = null;
+
   /** True while one of the windows above is open. */
-  private anyWindowOpen() { return !!(this.uplink?.isOpen || this.help?.isOpen || this.summaryScreen?.isOpen); }
+  private anyWindowOpen() { return !!(this.uplink?.isOpen || this.help?.isOpen || this.eventHub?.isOpen || this.summaryScreen?.isOpen); }
 
   /** Escape: closes the topmost of the windows above; false when none is open. */
   private escapeWindow(): boolean {
-    for (const w of [this.summaryScreen, this.help, this.uplink]) if (w?.isOpen) { w.escape(); return true; }
+    for (const w of [this.summaryScreen, this.help, this.uplink, this.eventHub]) if (w?.isOpen) { w.escape(); return true; }
     return false;
   }
 
-  /** The news feed: what this port has and lacks (the game's feed came from its servers). */
-  private openFeed() { this.paused = !!this.world; void this.windows().uplink.show("news"); }
+  /** as.DO: the Event Hub (F7) opens, or closes when it is open. */
+  private openFeed() {
+    const hub = this.windows().eventHub;
+    if (hub.isOpen) { hub.close(); return; }
+    this.paused = !!this.world;
+    void hub.open();
+  }
 
-  /** The mailbox: letters kept in the save (a welcome note; missions add their rewards here). */
-  private openMail() { this.paused = !!this.world; void this.windows().uplink.show("mail"); }
+  /** as.DP: the uplink on its Mail tab (letters kept in the save), or closed when it is open. */
+  private openMail() {
+    const up = this.windows().uplink;
+    if (up.isOpen) { up.close(); return; }
+    this.paused = !!this.world;
+    void up.show("mail");
+  }
+
+  /** as.DX's once-a-session windows are still to open (aV.EO: the session's first arrival). */
+  private welcomePending = true;
+
+  /**
+   * as.DX, on the session's first loading screen finishing (aV.ER): the uplink on its News tab
+   * (the live client's content_url deployment) and the Event Hub (outside the development
+   * build), unless a scene dialog is up. Here: the first arrival in a town with a knight made.
+   */
+  private welcome() {
+    if (!GAME || !this.welcomePending || !this.save.knight || !this.scene || !TOWN.test(this.scene.name) || /crash site/i.test(this.scene.name)) return;
+    if (this.talking || this.anyWindowOpen() || this.missionBoard?.isOpen) return;
+    this.welcomePending = false;
+    const { uplink, eventHub } = this.windows();
+    this.paused = !!this.world;
+    void uplink.show("news").then(() => eventHub.open());
+  }
 
   /** The controls (the HUD's ? button, or H). */
   private toggleHelp() {
@@ -1457,7 +1496,12 @@ class Viewer {
     const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
     recordKills(this.save, this.world.killCount);
-    this.achieve(this.bossFloor && !this.bossAlive() ? recordBoss(this.save, this.bossFloor) : []);
+    if (this.bossFloor && !this.bossAlive()) {
+      // the Event Hub's boss line (FeedEvent.Boss): the lair's boss in a Shadow Lair
+      const key = FEED_BOSS[this.bossFloor];
+      if (key) logFeed(this.save, { kind: "boss", key: /^lair:/.test(this.gate?.id ?? "") ? "sl_" + key : key, at: Date.now() });
+      this.achieve(recordBoss(this.save, this.bossFloor));
+    } else this.achieve();
     const t = this.runTotals;
     t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
     t.materials += [...l.materials.values()].reduce((a, b) => a + b, 0);

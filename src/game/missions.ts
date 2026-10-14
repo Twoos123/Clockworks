@@ -398,6 +398,23 @@ export function weeklyPrestige(missions: Mission[], p: MissionProgress, now = Da
     && (!m.schedule || daysUntilActive(m.schedule, now) < 7));
 }
 
+/**
+ * The Event Hub's missions (FeedListPanel's Events group): first the one the client suggests
+ * (mission/b/a.b: the knight's first open rank mission of its subrank not yet done, else the
+ * first open prestige mission, else the first open expansion mission not done), then every
+ * event mission open now (Dark Harvest, Winterfest, the Tortodrones and the rest: always on
+ * here, see missionStatus).
+ */
+export function hubMissions(missions: Mission[], p: MissionProgress, now = Date.now()): Mission[] {
+  const open = (m: Mission) => missionStatus(m, p, now) === "available";
+  const byPath = (a: Mission, b: Mission) => a.path.localeCompare(b.path);
+  const pick = missions.filter(m => m.cls === "Rank" && m.rank === p.rank && m.subrank === p.subrank && open(m)).sort(byPath)[0]
+    ?? missions.filter(m => m.cls === "Prestige" && !m.event && open(m)).sort(byPath)[0]
+    ?? missions.filter(m => m.cls === "Expansion" && open(m)).sort(byPath)[0];
+  const events = missions.filter(m => m.event && open(m)).sort(byPath);
+  return [...new Set([...(pick ? [pick] : []), ...events])];
+}
+
 /** The rank missions' subranks in order ([rank, subrank] pairs that have missions). */
 export function subranks(missions: Mission[]): [number, number][] {
   const seen = new Map<string, [number, number]>();
