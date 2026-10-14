@@ -76,6 +76,21 @@ export function rayDownZ(v: ArrayLike<number>, x: number, y: number): number {
   return u * v[2] + w * v[5] + (1 - u - w) * v[8];
 }
 
+/**
+ * Where something moving in a straight line from (ax, ay), a free point, to (bx, by), a
+ * blocked one, first meets what blocks it: the last free point, bisected `steps` times. A
+ * bullet stepped into a wall goes off at the wall's face, so its impact is not drawn inside it.
+ */
+export function contactPoint(ax: number, ay: number, bx: number, by: number, blocked: (x: number, y: number) => boolean, steps = 10): [number, number] {
+  if (blocked(ax, ay)) return [ax, ay];
+  let lo = 0, hi = 1;
+  for (let i = 0; i < steps; i++) {
+    const t = (lo + hi) / 2;
+    if (blocked(ax + (bx - ax) * t, ay + (by - ay) * t)) hi = t; else lo = t;
+  }
+  return [ax + (bx - ax) * lo, ay + (by - ay) * lo];
+}
+
 export class CollisionMap {
   readonly cells = new Map<number, CellInfo>();
   readonly props: PropShape[] = [];
@@ -398,3 +413,27 @@ export class CollisionMap {
 }
 
 export type { Mat4 };
+
+/** An actor's collision bits: what it is (flags) and what blocks it (mask). */
+export interface ActorBits { collisionFlags: number; collisionMask: number }
+
+/**
+ * Whether actor a is blocked by actor b (Tudey's Actor.collidesWith: a's mask meets b's
+ * flags). It is one-way: a snipe (flags 4, mask 79) is blocked by the knight (flags 4) but the
+ * knight (mask 43) walks through it.
+ */
+export const collidesWith = (a: ActorBits, b: ActorBits) => (a.collisionMask & b.collisionFlags) !== 0;
+
+/**
+ * How much of an overlap between actors a and b each is pushed back (shares of it, a's then
+ * b's). Tudey never pushes an actor: a mover only stops where it would collide. Pushing apart
+ * stands in for that: both halfway when each would stop at the other (the knight and a
+ * monster); when only one would, it alone yields, and only if it is the kind that moves under
+ * its own power (`aMoves`, `bMoves`): the knight stops at a monster outside its own mask, but
+ * a townsperson's snipe it walks through (flags 4, outside the knight's mask 43) stays put.
+ */
+export function separationShares(a: ActorBits, b: ActorBits, aMoves = true, bMoves = true): [number, number] {
+  const ab = collidesWith(a, b), ba = collidesWith(b, a);
+  if (ab && ba) return [0.5, 0.5];
+  return [ab && aMoves ? 1 : 0, ba && bMoves ? 1 : 0];
+}

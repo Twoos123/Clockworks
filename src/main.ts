@@ -36,7 +36,7 @@ import { ChatLog, shouldReportLoot } from "./game/lootlog";
 import { buildReel, floorHasWheel, type Prize } from "./game/prizewheel";
 import { GateBoard } from "./ui/gates";
 import { GateSource } from "./game/gatesource";
-import { lockNext } from "./game/gatemap";
+import { elevatorScreen, lockNext, withScreen } from "./game/gatemap";
 import { RunSummaryScreen } from "./ui/runsummary";
 import { ReportScreen } from "./ui/report";
 import { MusicPlayer } from "./game/musicplayer";
@@ -349,6 +349,12 @@ class Viewer {
   private readonly sceneLoader: SceneLoader;
   private readonly instances = new Map<LoadedModel, Promise<ModelInstance>>();
   private shares = new Map<ModelInstance, number>();
+  /**
+   * The scene's exit elevators: their scene items, model references and what their screens show
+   * now (the level they lead to, src/game/gatemap.ts elevatorScreen).
+   */
+  private elevatorScreens: { item: { instance: ModelInstance }; ref: any; dissolve: boolean; shown: string; busy: boolean }[] = [];
+  private screensAt = 0;
   private model: LoadedModel | null = null;
   private readonly datFiles: string[];
   private az = -0.6; private el = 0.35; private dist = 3;
@@ -967,6 +973,10 @@ class Viewer {
       this.sceneItems = items;
       this.shares = new Map();
       for (const it of items) this.shares.set(it.instance, (this.shares.get(it.instance) ?? 0) + 1);
+      // the exit elevators' screens (items begin with the scene's objects, in order)
+      this.elevatorScreens = scene.objects.flatMap((o, i) => o.elevator ? [{ item: items[i], ref: o.elevator.ref, dissolve: o.elevator.dissolve, shown: "", busy: false }] : []);
+      await this.updateElevatorScreens();
+      if (token !== this.loadToken) return;
       this.instance = null;
       this.model = null;
       this.frameScene(scene, env);
@@ -1223,17 +1233,21 @@ class Viewer {
   private travelling = false;
 
   /**
-   * The knight walked into a town exit: on to the scene it leads to, arriving at its portal
-   * there, after the loading screen; the Arcade's gate board for the Arcade; and for a place
-   * the scenes cache lacks, the game's notice that it is not available.
+   * The knight walked into a town exit: on to the scene it leads to (src/game/portals.ts),
+   * arriving at its portal there, after the loading screen; the guild hall for the Garrison's
+   * guild list and the training hall's way back; the gate board only when the archive has no
+   * Arcade; and for a place the archive lacks, the game's notice that it is not available.
    */
   private walkOut(info: PortalInfo) {
     if (this.travelling) return;
-    const t = exitTarget(info, this.sceneList, this.sceneIds);
+    const t = exitTarget(info, this.sceneList, this.sceneIds, this.scene?.name ?? "");
     if (t.kind === "arcade") { if (!this.gate) this.openGates(); return; }
-    if (t.kind === "missing") {
+    const id = t.kind === "guildhall" ? (cachedHallId(this.sceneList) ? GUILD_HALL : null) : t.kind === "scene" ? t.id : null;
+    const portal = t.kind === "guildhall" || t.kind === "scene" ? t.portal : "";
+    if (t.kind === "missing" || !id) {
+      const place = t.kind === "missing" ? t.place : "%town:m.border_guildhall";
       const msg = messageText("%helptips:m.sl_elevator_closed");
-      notice(t.place ? `${messageText(t.place)}: ${msg}` : msg, 4);
+      notice(place ? `${messageText(place)}: ${msg}` : msg, 4);
       return;
     }
     this.travelling = true;
@@ -1241,8 +1255,8 @@ class Viewer {
     setTimeout(async () => {
       try {
         this.stopPlaying();
-        await this.selectScene(t.id);
-        this.arrivalTag = t.portal;
+        await this.selectScene(id);
+        this.arrivalTag = portal;
         await this.startPlaying();
       } finally { this.travelling = false; }
     }, 0);
@@ -2594,6 +2608,42 @@ class Viewer {
   }
 
   /**
+   * The exit elevators' screens show the level they lead to, as the client's ElevatorProp sprite
+   * keeps setting its model's "Icon" and "Colorizations" (dungeon/client/a/t): on a real gate the
+   * next depth's level under this one as the wheels turn (checked again every second); in a
+   * gate's or a mission's lobby the first floor; Haven after the last. Outside a gate run they
+   * keep their arrow (the client has no party level there).
+   */
+  private async updateElevatorScreens() {
+    const g = this.gate;
+    // (the ride holds the elevator's instance; the level is locked in by then)
+    if (!g || !this.elevatorScreens.length || this.world?.finished) return;
+    const d = this.run.depth, here = this.floors[d];
+    for (const e of this.elevatorScreens) {
+      if (e.busy) continue;
+      const screen = elevatorScreen({ real: g.real ?? null, depth: d, wedge: here?.wedge ?? 0, next: this.floors[d + 1] ?? null, dissolve: e.dissolve, t: Date.now() });
+      const key = JSON.stringify(screen, (k, v) => (k === "$outer" ? undefined : v));
+      if (key === e.shown) continue;
+      e.busy = true;
+      try {
+        const model = await this.loader.loadRef(withScreen(e.ref, screen));
+        if (!model) continue;
+        const inst = await this.instanceOf(model);
+        if (this.world?.finished || !this.elevatorScreens.includes(e)) continue;
+        const old = e.item.instance;
+        if (inst !== old) {
+          inst.time = old.time;
+          const n = (this.shares.get(old) ?? 1) - 1;
+          if (n > 0) this.shares.set(old, n); else this.shares.delete(old);
+          this.shares.set(inst, (this.shares.get(inst) ?? 0) + 1);
+          e.item.instance = inst;
+        }
+        e.shown = key;
+      } catch (err) { console.warn("elevator screen", err); } finally { e.busy = false; }
+    }
+  }
+
+  /**
    * Whether an elevator the knight stands on runs: a terminal's Shadow Lair elevators (one per
    * boss, by their "Push Gate") only from the depth-23 terminal of a gate with that boss. (The
    * game also wants a Shadow Key; there are none here.)
@@ -3067,6 +3117,8 @@ class Viewer {
       return;
     }
     if (this.instance || this.sceneItems) {
+      // the next depth's level turns into place under the elevators while the floor is played
+      if (this.world && now - this.screensAt > 1000) { this.screensAt = now; void this.updateElevatorScreens(); }
       if (!this.paused) {
         if (this.instance) this.instance.time += dt;
         // shared instances appear in several placements; advance each clock once per frame

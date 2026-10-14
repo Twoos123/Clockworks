@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { activeGates, decodeLevel, displayOrder, expandLines, gateOpens, lockNext, nextLevel, parseGateFile, parseGateList, predictedPath, readGate, type GateFile } from "../src/game/gatemap.ts";
+import { activeGates, decodeLevel, displayOrder, ELEVATOR_UNKNOWN, elevatorScreen, withScreen, expandLines, gateOpens, lockNext, nextLevel, parseGateFile, parseGateList, predictedPath, readGate, type GateFile } from "../src/game/gatemap.ts";
 
 // a made-up gate in the site's format (no real gate data is kept in the repository)
 const LINES = [
@@ -68,6 +68,29 @@ test("the next level follows the two wheels' rotation and changes on time", () =
   assert.equal(path[3], -1);
   assert.equal(path[4], 0);
   assert.equal(displayOrder(g.wheels[1], T0).length, 2);
+});
+
+test("an exit elevator's screen shows the level it leads to, turning with the wheels", () => {
+  const g = readGate(entry, file);
+  const at = (depth: number, t: number, more: { dissolve?: boolean } = {}) =>
+    elevatorScreen({ real: g, depth, wedge: 0, next: null, dissolve: !!more.dissolve, t });
+  // the lobby's elevator: depth 1's level now, then the other once the wheels have turned
+  const a = nextLevel(g, 0, 0, T0)!;
+  const s1 = at(0, T0), s2 = at(0, T0 + (a.seconds + 1) * 1000);
+  assert.equal(s1.file, `ui/icon/map/${g.wheels[1].options[a.wedge].icon}.png`);
+  assert.equal(s1.colorizations, g.wheels[1].options[a.wedge].colorizations);
+  assert.equal(s2.colorizations, g.wheels[1].options[1 - a.wedge].colorizations);
+  // a randomised depth is "?"; the Core's terminal and the Haven elevators lead home
+  assert.equal(at(2, T0), ELEVATOR_UNKNOWN);
+  assert.equal(at(7, T0).file, "ui/icon/map/town.png");
+  assert.equal(at(29, T0).file, "ui/icon/map/town.png");
+  assert.equal(at(5, T0, { dissolve: true }).file, "ui/icon/map/town.png");
+  // a gate without wheels: the run's next floor as the map shows it
+  assert.equal(elevatorScreen({ real: null, depth: 3, wedge: 0, next: null, dissolve: false, t: T0 }).file, "ui/icon/map/town.png");
+  // the model reference takes the screen as its arguments, the others kept
+  const ref = withScreen({ name: "m.dat", arguments: { $map: "x", entries: [["Icon", "a.png"], ["Other", 1]] } }, s1);
+  assert.deepEqual(ref.arguments.entries.map((e: [string, unknown]) => e[0]), ["Other", "Colorizations", "Icon"]);
+  assert.equal(ref.arguments.entries[2][1], s1.file);
 });
 
 test("the list's newest four opened gates are the active ones", () => {

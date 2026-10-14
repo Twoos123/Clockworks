@@ -66,9 +66,9 @@ export function rescueCampScene(list: { id: string; name: string }[]): { id: str
   return list.find(s => /^rescue camp central$/i.test(s.name)) ?? null;
 }
 
-/** The cached guild hall's scene id (its name is "%guild:m.hall|~..."). */
+/** The cached guild hall's scene id (its name is "%guild:m.hall|~...": "hall (...)", never "hall of heroes star1"). */
 export function cachedHallId(list: { id: string; name: string }[]): string | null {
-  return list.find(s => /^hall\b/i.test(s.name))?.id ?? null;
+  return list.find(s => /^hall \(/i.test(s.name))?.id ?? null;
 }
 
 /**
