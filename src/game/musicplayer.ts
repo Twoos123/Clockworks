@@ -1,6 +1,8 @@
-// Plays the music table (music.ts) as the game goes: the title theme, each floor's track when
-// it starts, the boss track once a boss is roused (and the victory fanfare when it falls), the
-// arena's boss waves, and stingers for knockouts, revives and the elevator.
+// Plays the music as the game goes: the title theme, each floor's track when it starts (an
+// archived level's own music global, else the table in music.ts), on a generated boss arena the
+// fight track once the boss is roused (and the victory fanfare when it falls; the game's own
+// lairs script both), the arena's boss waves, and stingers for knockouts, revives and the
+// elevator.
 //
 // Music runs on stacks (src/game/musicstack.ts, after Clyde's StackedStream): the floor's own
 // track is the bottom of the "default" stack, and the level's logic pushes its scripted music
@@ -21,6 +23,16 @@ export interface FloorMusicContext {
   scene: string;
   /** The scene's own music global (generated floors copy their source's). */
   sceneMusic?: Environment["music"];
+  /**
+   * The scene is one of the game's own levels from the archive (not generated), so its music
+   * global is that level's own and wins over the table, gate floor or not.
+   */
+  archived?: boolean;
+  /**
+   * The level's logic spawns music actors of its own (musicstack.ts spawnsMusic): on a boss
+   * level that is the fight music, so the table's fight track and victory fanfare stay out.
+   */
+  scriptsMusic?: boolean;
   /** The gate floor being played, when in a gate. */
   floor?: Floor | null;
   arena?: boolean;
@@ -58,6 +70,8 @@ export class MusicPlayer {
 
   private play(t: Track, fadeIn = 1.5, fadeOut = 1.5) {
     this.playing = t;
+    // a place whose data names no music (the Core's terminal) is silent
+    if (!t.files.length) { this.audio().stopMusic(Math.max(0.05, fadeOut)); return; }
     this.audio().playMix(t.files, t.gain, t.crossFade, fadeIn, fadeOut);
   }
 
@@ -84,10 +98,16 @@ export class MusicPlayer {
   /** The track a floor plays (exported for tests and the docs). */
   static choose(ctx: Omit<FloorMusicContext, "world">): Track | null {
     if (ctx.arena) return PLACES.arena;
-    if (ctx.floor) return floorMusic(ctx.floor);
-    const own = ctx.sceneMusic;
-    if (own?.files.length) return { files: own.files, gain: own.gain, crossFade: own.crossFade ?? 0, source: "the scene's music global" };
-    return sceneMusic(ctx.scene);
+    const g = ctx.sceneMusic;
+    const own: Track | null = g?.files.length
+      ? { files: g.files, gain: g.gain, crossFade: g.crossFade ?? 0, source: `the scene's music global (${ctx.scene})` } : null;
+    if (ctx.floor) {
+      // a gate floor on one of the game's own levels plays that level's music; a generated
+      // floor's globals are its source level's, not its stratum's, so it plays the table's
+      if (own && ctx.archived) return own;
+      return floorMusic(ctx.floor);
+    }
+    return own ?? sceneMusic(ctx.scene);
   }
 
   /** Whether level-scripted music plays over the floor's track now. */
@@ -160,7 +180,9 @@ export class MusicPlayer {
     // the level's scripted music: what its logic spawned while starting, then what it spawns
     for (const m of w.musicActors ?? []) this.pushScripted(m);
     w.onMusic = (ev, m) => ev === "spawn" ? this.pushScripted(m) : this.popScripted(m);
-    const fight = ctx.boss ? BOSS_MUSIC[ctx.boss].fight : null;
+    // the game's own lairs script their fight (boss_1 when the boss is roused, the victory
+    // fanfare as its Destruction Transient when it falls); only a generated arena needs ours
+    const fight = ctx.boss && !ctx.scriptsMusic ? BOSS_MUSIC[ctx.boss].fight : null;
     let roused = false, seen = false, won = false, gone = 0, down = w.defeated;
     this.timer = setInterval(() => {
       // knocked out and revived
