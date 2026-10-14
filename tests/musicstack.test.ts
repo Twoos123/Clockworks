@@ -67,6 +67,7 @@ function fakeAudio() {
   const layers = new Set<string>();
   const audio: MusicAudio = {
     playMix: (files, gain, _cf, fadeIn, fadeOut) => { log.push(`main ${files[0].file.replace(/^.*\//, "")} gain=${gain} in=${fadeIn} out=${fadeOut}`); },
+    playMusic: async f => { log.push("music " + f.replace(/^.*\//, "")); },
     stinger: async f => { log.push("stinger " + f.replace(/^.*\//, "")); },
     transient: f => { log.push("transient " + f.replace(/^.*\//, "")); },
     layer: f => { const n = f.replace(/^.*\//, ""); layers.add(n); log.push("layer " + n); return () => { layers.delete(n); log.push("unlayer " + n); }; },
