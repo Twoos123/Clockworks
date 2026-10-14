@@ -11,7 +11,11 @@
 //    Cradle, the captions cleared at 9 s.
 //  - 3_playcomic (33.5 s): the comic (ui/prolgue/parts/interface_comic.dat: fifteen 3D panels
 //    in comic wrappers, the Skylark's approach, its crew, the attack, the evacuation, the pod's
-//    fall and the SPIRAL KNIGHTS title card).
+//    fall and the SPIRAL KNIGHTS title card). Each panel (ui/conversation/parts/
+//    model_comicpanel.dat) leans at its "Panel Offset"; the speaking ones' word balloons are
+//    ComponentBillboardConfig labels (part_interface_balloon.dat, prologue bundle
+//    m.helmsman_arrive, m.ozlo_arrive, m.helmsman_warning, m.ozlo_evac) that pop up a moment
+//    after their panel arrives.
 //  - 4_crash (91.5 s): the crash animation, the falling panel, a fade to white, the crash
 //    image (ui/prolgue/images/015_crash.jpg) and a fade to black whose end emits
 //    "end_prologue".
