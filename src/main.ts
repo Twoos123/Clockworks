@@ -77,6 +77,8 @@ import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
 import { Balloons } from "./ui/balloons";
+import { rangeRoot, rangeSpawn, TEST_RANGE } from "./dev/rangescene";
+import type { TestRange } from "./dev/testrange";
 
 /**
  * Towns: safe places where the knight walks unarmed, with the town HUD. Lobbies are not towns:
@@ -343,6 +345,11 @@ class Viewer {
   private paused = false;
   private last = performance.now();
   private loadToken = 0;
+  /** The scenes cache has been listed (the Test Range's tileset borrows its lights from it). */
+  private readonly scenesListed: Promise<void>;
+  /** The Test Range (src/dev/testrange.ts, the asset viewer only) and the depth it plays at. */
+  private testRange: TestRange | null = null;
+  private rangeDepth = 1;
 
   constructor(private readonly vfs: Vfs, files: string[]) {
     this.loader = new ModelLoader(vfs);
@@ -352,7 +359,9 @@ class Viewer {
     this.sceneLoader = new SceneLoader(this.loader);
     this.places = this.makePlaces();
     this.applyOptions();
-    this.listScenes(vfs);
+    this.scenesListed = this.listScenes(vfs);
+    // the Test Range: a developer's hall for trying gear and monsters, from the asset viewer only
+    if (!GAME) { $("testRangeBtn").hidden = false; $("testRangeBtn").onclick = () => void this.openTestRange(); }
     this.datFiles = files.filter(f => f.endsWith(".dat")).sort();
     $("sourceLabel").textContent = `${vfs.label} · ${files.length.toLocaleString()} files`;
     const search = $<HTMLInputElement>("search");
@@ -444,6 +453,7 @@ class Viewer {
     this.renderList();
     if (fromHash) this.select(fromHash);
     else if (hash.get("scene")) this.selectScene(hash.get("scene")!);
+    else if (hash.has("range") && !GAME) void this.openTestRange();
     requestAnimationFrame(this.frame);
     if (import.meta.env.DEV) { (window as any).__viewer = this; (window as any).__notice = currentNotice; }
   }
@@ -852,7 +862,8 @@ class Viewer {
     const loading = this.showLoading(id);
     for (const li of $("scenes").children) li.classList.toggle("active", (li as HTMLElement).dataset.scene === id);
     for (const li of $("list").children) li.classList.remove("active");
-    history.replaceState(null, "", "#scene=" + id);
+    history.replaceState(null, "", id === TEST_RANGE ? `#${location.hash.includes("dev=1") ? "dev=1" : "viewer"}&range` : "#scene=" + id);
+    if (id !== TEST_RANGE) this.testRange?.hide();
     const t0 = performance.now();
     try {
       const progress = (done: number, total: number) => {
@@ -860,7 +871,10 @@ class Viewer {
         this.status("Loading scene: " + done + " of " + total + " objects");
         loading?.progress(0.1 + 0.7 * done / Math.max(1, total));
       };
-      const special = GEN.test(id) ? null : await this.places.sceneRoot(id);
+      const special = id === TEST_RANGE ? await rangeRoot({
+        scenes: this.sceneList, readRoot: async sid => this.sceneLoader.parse(await this.vfs.readScene(sid)),
+        tileNames: () => this.sceneLoader.configNames("config/tile.dat"), tileInfo: ref => this.sceneLoader.tileInfo(ref),
+      }) : GEN.test(id) ? null : await this.places.sceneRoot(id);
       const scene = special ? await this.sceneLoader.loadRoot(id, special, progress)
         : GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), progress);
       loading?.progress(0.8);
@@ -938,7 +952,8 @@ class Viewer {
     const arrival = this.scene.start || resume ? null : arrivalPoint(this.scene.logic, this.arrivalTag ?? "");
     this.arrivalTag = null;
     const [sx, sy] = resume ? [resume.x, resume.y] : this.scene.start ?? (arrival ? [arrival.x, arrival.y] : [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2]);
-    const spawn = this.places.spawn(this.scene.id) ?? this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
+    const [rx, ry] = this.scene.id === TEST_RANGE ? rangeSpawn() : [sx, sy];
+    const spawn = this.places.spawn(this.scene.id) ?? this.scene.collision.findSpawn(rx, ry, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
     // one-shot scene animations (the start elevator arriving) play from the top as the knight arrives
@@ -1071,8 +1086,44 @@ class Viewer {
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
     this.places.started(this.scene.id);
+    if (this.scene.id === TEST_RANGE) await this.testRange?.attach(world);
     // the session's first arrival in town opens the uplink's news and the Event Hub (as.DX)
-    this.welcome();
+    if (this.scene.id !== TEST_RANGE) this.welcome();
+  }
+
+  /**
+   * The Test Range (development, the asset viewer only): the flat hall, the knight in it and
+   * the range's panel (src/dev/testrange.ts).
+   */
+  private async openTestRange() {
+    if (GAME) return;
+    await this.scenesListed;
+    if (this.scene?.id !== TEST_RANGE || !this.world) {
+      this.gate = null;
+      this.bossFloor = null;
+      this.arenaMode = false;
+      if (this.scene?.id !== TEST_RANGE) await this.selectScene(TEST_RANGE);
+      if (this.scene?.id !== TEST_RANGE) return;
+    }
+    if (!this.testRange) {
+      const { TestRange } = await import("./dev/testrange");
+      const host = this;
+      this.testRange = new TestRange({
+        world: () => this.world, loader: this.loader, renderer: this.renderer, datFiles: this.datFiles,
+        get depth() { return host.rangeDepth; },
+        set depth(d: number) { host.rangeDepth = d; },
+        restart: async d => {
+          this.rangeDepth = d;
+          if (this.scene?.id !== TEST_RANGE) return;
+          this.stopPlaying();
+          await this.startPlaying();
+        },
+        focus: () => this.canvas.focus(),
+      }, this.canvas.parentElement!);
+    }
+    this.testRange.showPanel();
+    if (!this.world) await this.startPlaying();
+    else await this.testRange.attach(this.world);
   }
 
   /** The portal tag the knight arrives at in the next scene (a town exit walked through). */
@@ -1113,6 +1164,7 @@ class Viewer {
   /** Ends play in the scene; `keepMusic` (the same scene again, a new look) lets the music play on. */
   private stopPlaying(keepMusic = false) {
     if (!this.world) return;
+    this.testRange?.detach();
     // the time played so far goes into the knight's save
     if (this.save.knight) writeSave(this.save);
     this.conversation?.end();
@@ -1216,6 +1268,7 @@ class Viewer {
 
   /** The depth the floor is played at: its place in the run, or its own (a Shadow Lair's Logical Floor 26). */
   private scaleDepth(): number {
+    if (this.scene?.id === TEST_RANGE) return this.rangeDepth;
     const f = this.gate ? this.floors[this.run.depth] : null;
     return f?.scaleDepth ?? this.run.depth;
   }
@@ -3005,7 +3058,9 @@ class Viewer {
           this.knockedOut = this.world.defeated;
           // the game's revive window (Sparks of Life); in town the knight simply gets up
           if (this.world.defeated) {
-            if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); this.knockedOut = false; }
+            // (the Test Range's knight lies where it fell until its panel revives it)
+            if (this.scene?.id === TEST_RANGE) { /* the panel's Revive */ }
+            else if (TOWN.test(this.scene?.name ?? "")) { this.world.revive(); this.knockedOut = false; }
             else void this.openRevive();
           } else this.reviveScreen?.close();
         }

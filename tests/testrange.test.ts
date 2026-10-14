@@ -1,0 +1,133 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { rangePlan, rangeSpawn, RANGE_SIZE } from "../src/dev/rangescene.ts";
+import { attackTiming, damageSplit, hitLines, monsterParts, monsterTree, statusText, summarize, timingText, type HitRecord } from "../src/dev/readout.ts";
+import { bindPose, groupOf, judgeKnight, judgeMonster, judgeWeapon, parseArgs, reportMarkdown, slug, tally, type MonsterRecord, type WeaponRecord } from "../tools/audit/sweep-judge.ts";
+import type { AttackDef } from "../src/game/data.ts";
+
+// Synthetic attacks, hits and records in the shapes the world, the range and the sweep use.
+const attack = (over: Partial<AttackDef> = {}): AttackDef => ({
+  name: "Swing", startSpeed: 1, fireSpeed: 1, endSpeed: 1, land: 200, rearm: 300, clear: 100, damage: null, delay: 0, shape: null,
+  knockback: 1, interruptable: true, impulse: null, spawn: null, blended: true, chainTo: null, fires: [], contact: null, ...over,
+});
+const hit = (over: Partial<HitRecord> = {}): HitRecord => ({
+  t: 1, from: "knight", to: "Slime/Dummy", attack: "Swing", amounts: { NORMAL: 30, PIERCING: 10 }, dealt: 25, knock: 1.5, knockMs: 250,
+  knockLevel: 1, moved: true, reacted: true, killed: false, statuses: [], timing: null, ...over,
+});
+
+test("the range hall: floor ringed by wall, the knight inside it", () => {
+  const plan = rangePlan(false, 4, 3);
+  const floor = [...plan.cells].filter(([, s]) => s === 1).length;
+  const wall = [...plan.cells].filter(([, s]) => s === 2).length;
+  assert.equal(floor, 12);
+  assert.equal(wall, 6 * 5 - 12);
+  assert.equal(rangePlan(true, 4, 3).cells.size, 8 * 7);
+  assert.deepEqual(plan.rooms, [{ x: 0, y: 0, w: 4, h: 3 }]);
+  const [x, y] = rangeSpawn();
+  assert.ok(x > 0 && x < RANGE_SIZE.w && y > 0 && y < RANGE_SIZE.h);
+});
+
+test("attack timing follows the attack's speeds and fire delays", () => {
+  const t = attackTiming(attack({ startSpeed: 2, fireSpeed: 0.5, fires: [{ delay: 50 } as any, { delay: 120 } as any] }));
+  assert.deepEqual(t, { startup: 100, activeFrom: 50, activeTo: 120, rearm: 600, clear: 100, total: 800 });
+  assert.equal(timingText(t, 2000), "startup 100 ms, active +50-120 ms, rearm 600 ms, clear 100 ms, charge 2000 ms");
+  assert.equal(timingText(null), "-");
+});
+
+test("hit readouts: the type split, statuses and totals", () => {
+  assert.equal(damageSplit({ NORMAL: 30, PIERCING: 10 }), "NORMAL 75% / PIERCING 25%");
+  assert.equal(damageSplit({}), "none");
+  assert.equal(statusText({ kind: "Fire", chance: 0.25, applied: true, duration: 4000 }), "Fire 25% (applied, 4 s)");
+  assert.equal(statusText({ kind: "Shock", chance: 0.5, applied: false, duration: 3000 }), "Shock 50% (not applied)");
+  const lines = hitLines(hit({ statuses: [{ kind: "Fire", chance: 0.25, applied: true, duration: 4000 }], knockdown: false, reacted: true }));
+  assert.match(lines[1], /^damage 25 of 40 raw · NORMAL 75% \/ PIERCING 25%$/);
+  assert.match(lines[3], /flinch/);
+  assert.match(lines[4], /Fire 25%/);
+  const s = summarize([hit(), hit({ dealt: 5, knock: 3.04, reacted: false, statuses: [{ kind: "Freeze", chance: 1, applied: true, duration: 1 }] })]);
+  assert.deepEqual(s, { hits: 2, dealt: 30, maxKnock: 3, reacted: 1, statuses: ["Freeze"] });
+});
+
+test("monster names: family, species and tier", () => {
+  assert.deepEqual(monsterParts("Character/NPC/Monster/Slime/Jelly/Jelly Cube/Jelly Cube 3"), { family: "Slime", species: "Jelly/Jelly Cube", tier: "3" });
+  assert.deepEqual(monsterParts("Character/NPC/Monster/Construct/Scuttlebot/Scuttlebot/Scuttlebot Mk II"), { family: "Construct", species: "Scuttlebot", tier: "Mk II" });
+  assert.deepEqual(monsterParts("Character/NPC/Monster/Fiend/Trojan/Trojan 2"), { family: "Fiend", species: "Trojan", tier: "2" });
+  assert.deepEqual(monsterParts("Character/NPC/Monster/Construct/Tortodrone/Tortodrone"), { family: "Construct", species: "Tortodrone", tier: "" });
+  const tree = monsterTree(["Character/NPC/Monster/Fiend/Trojan/Trojan 2", "Character/NPC/Monster/Fiend/Trojan/Trojan 1", "Character/NPC/Monster/Slime/Sloom/Sloom 3"]);
+  assert.deepEqual([...tree.keys()], ["Fiend", "Slime"]);
+  assert.deepEqual(tree.get("Fiend")!.get("Trojan")!.map(t => t.tier), ["1", "2"]);
+});
+
+test("sweep command line: kinds, filters and defaults", () => {
+  const all = parseArgs([]);
+  assert.ok(all.weapons && all.monsters && all.knight);
+  assert.equal(all.out, ".scratch/sweep");
+  assert.equal(all.workers, 1);
+  const sw = parseArgs(["--weapons", "sword", "--limit", "5"]);
+  assert.ok(sw.weapons!.test("Weapon/Sword/Calibur") && !sw.weapons!.test("Weapon/Bomb/Proto Bomb"));
+  assert.equal(sw.monsters, null);
+  assert.equal(sw.knight, false);
+  assert.equal(sw.limit, 5);
+  const m = parseArgs(["--monsters", "--redo-errors", "--knight"]);
+  assert.ok(m.monsters!.test("anything"));
+  assert.equal(m.redoErrors, true);
+  assert.equal(m.redo, false);
+  assert.equal(m.knight, true);
+});
+
+test("sweep file names are safe, stable and unique", () => {
+  const a = slug("Weapon/Sword/Calibur"), b = slug("Weapon/Sword/Calibur (Dev)");
+  assert.match(a, /^sword-calibur-[a-z0-9]+$/);
+  assert.notEqual(a, b);
+  assert.equal(a, slug("Weapon/Sword/Calibur"));
+  assert.equal(groupOf("weapons", "Weapon/Handgun/Blaster"), "handgun");
+  assert.equal(groupOf("monsters", "Character/NPC/Monster/Undead/Zombie/Droul/Droul 2"), "undead");
+});
+
+test("bind poses: nothing playing, or a clip that moves none of the nodes", () => {
+  assert.equal(bindPose(null), null);
+  assert.match(bindPose({ clip: null, targets: 0, matched: 0 })!, /bind pose/);
+  assert.match(bindPose({ clip: "a.dat", targets: 10, matched: 0 })!, /moves none/);
+  assert.equal(bindPose({ clip: "animation/common/blank.dat", targets: 1, matched: 0 }), null);
+  assert.equal(bindPose({ clip: "a.dat", targets: 10, matched: 8 }), null);
+});
+
+test("weapon anomalies", () => {
+  const run = { attacks: ["Swing 1"], projectiles: [], effects: ["particle/x.dat (failed)"], sounds: [], hits: [hit({ dealt: 0 })] };
+  const r: WeaponRecord = { name: "Weapon/Handgun/X", kind: "Handgun", chargedName: "Charged", chain: run,
+    charge: { ...run, attacks: ["Swing 1"], hits: [], full: false, pose: null }, shots: [{ label: "chain 1", pose: { clip: null, targets: 0, matched: 0 } }],
+    console: ["boom"], problems: [] };
+  const p = judgeWeapon(r);
+  for (const want of ["chain 1: no animation (bind pose)", "chain: no projectile", "chain: zero damage", "chain: missing effect particle/x.dat",
+    "charge: no hit on the dummy", "charge: never reached full charge", "charge: no charging pose", "charge: the charged attack never fired", "console: boom"]) {
+    assert.ok(p.includes(want), `${want} in ${p.join(" | ")}`);
+  }
+  const ok: WeaponRecord = { name: "Weapon/Sword/Y", kind: "Sword", chargedName: null, chain: { attacks: ["A"], projectiles: [], effects: [], sounds: [], hits: [hit()] },
+    shots: [{ label: "chain 1", pose: { clip: "a.dat", targets: 4, matched: 4 } }], console: [], problems: [] };
+  assert.deepEqual(judgeWeapon(ok), []);
+});
+
+test("monster anomalies", () => {
+  const base: MonsterRecord = { name: "Character/NPC/Monster/Slime/X/X 1", passive: false, speed: 3, idle: "idle.dat", move: null, reactTime: 500, minReact: 0.1,
+    forced: { name: "Bite", hits: [], projectiles: [], effects: [] }, live: { attacked: false, moved: 0 }, reacted: false, died: false, shots: [], console: [], problems: [] };
+  const p = judgeMonster(base);
+  for (const want of ["moves but has no movement animation", "attack Bite: no hit and no projectile", "never attacks (left to its own behaviour)", "no hit reaction", "never dies"]) {
+    assert.ok(p.includes(want), `${want} in ${p.join(" | ")}`);
+  }
+  // a monster that never reacts by its config is not flagged for it; a passive one is not asked to fight
+  assert.ok(!judgeMonster({ ...base, minReact: 1 }).includes("no hit reaction"));
+  assert.deepEqual(judgeMonster({ ...base, passive: true, move: "walk.dat" }), []);
+  assert.deepEqual(judgeMonster({ name: "n", error: "never appeared (Agent)", shots: [], console: [], problems: [] }), ["sweep error: never appeared (Agent)"]);
+  const dead = judgeMonster({ ...base, move: "w.dat", forced: { name: "Bite", hits: [hit({ to: "knight" })], projectiles: [], effects: [] }, live: { attacked: true, moved: 2 },
+    reacted: true, died: true, removedAfter: 1.2, deathEffects: ["particle/death.dat"] });
+  assert.deepEqual(dead, []);
+});
+
+test("knight anomalies and the report", () => {
+  assert.deepEqual(judgeKnight({ actions: [{ label: "death", playing: "idle", dead: false }, { label: "revive", playing: "idle", dead: false }], shots: [], console: [], problems: [] }),
+    ["death: the knight did not fall"]);
+  assert.deepEqual(tally([["missing effect particle/b.dat"], ["missing effect particle/c.dat", "hit 3 times"]]), [["missing effect …", 2], ["hit # times", 1]]);
+  const md = reportMarkdown({ generated: "now", sheets: ["weapons-sword.png"], knight: null, monsters: [],
+    weapons: [{ name: "Weapon/Sword/Y", chargedName: null, chain: { attacks: ["A"], projectiles: [], effects: [], sounds: [], hits: [hit()] }, shots: [], console: [], problems: [] }] });
+  assert.match(md, /\| Sword\/Y \| 25 · kb 1\.5 \| - \| OK \|/);
+  assert.match(md, /\[weapons-sword\.png\]\(sheets\/weapons-sword\.png\)/);
+});

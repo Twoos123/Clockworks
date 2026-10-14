@@ -229,3 +229,30 @@ html.game .welcome button:hover { filter: brightness(1.12); }
 
 /* the asset viewer's way back to the game (the viewer lives at #viewer) */
 .back-to-game { align-self: flex-start; font-weight: 600; margin-bottom: 4px; }
+
+/* the Test Range (development, the asset viewer only: src/dev/testrange.ts) */
+.test-range-btn { align-self: flex-start; }
+body.game .test-range-btn, body.game .test-range { display: none !important; }
+.test-range {
+  position: absolute; top: 12px; right: 12px; bottom: 12px; width: 380px; max-width: calc(100% - 24px);
+  z-index: 5; display: flex; flex-direction: column; gap: 6px; padding: 10px; overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+}
+.test-range .tr-head { display: flex; justify-content: space-between; align-items: center; }
+.test-range .tr-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.test-range .tr-tabs button { padding: 3px 8px; }
+.test-range .tr-tabs button.active { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.test-range .tr-close { margin-left: auto; }
+.test-range .tr-pane { display: flex; flex-direction: column; gap: 6px; min-height: 0; flex: 1; overflow: auto; }
+.test-range .tr-row { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.test-range .tr-row select { max-width: 100%; }
+.test-range input, .test-range select, .test-range button { font-size: 12px; padding: 4px 6px; }
+.test-range input[type=search], .test-range input:not([type]) { border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.test-range .tr-list { flex: 1; min-height: 120px; }
+.test-range .tr-worn { color: var(--muted); }
+.test-range .tr-readout { margin: 0; white-space: pre-wrap; font: 11px/1.4 ui-monospace, Consolas, monospace; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px; max-height: 32%; overflow: auto; }
+.test-range .tr-table { border-collapse: collapse; font-size: 11px; }
+.test-range .tr-table th, .test-range .tr-table td { border-bottom: 1px solid var(--border); padding: 2px 4px; text-align: left; vertical-align: top; }
+.test-range .tr-attacks button { padding: 2px 6px; }
+/* (above the viewer's toolbar, which sits over the quickbar while playing) */
+.playing .test-range { bottom: 124px; }

@@ -4,8 +4,11 @@ import { chromium, type Browser, type Page } from "playwright";
 export const URL = process.env.AUDIT_URL ?? "http://localhost:5183/#dev=1";
 export const SCENE = process.env.AUDIT_SCENE ?? "370";
 
+/** Headless Chromium drawing WebGL 2 through SwiftShader, with its sound muted. */
+export const CHROMIUM_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--mute-audio"];
+
 export async function launch(): Promise<Browser> {
-  return chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+  return chromium.launch({ args: CHROMIUM_ARGS });
 }
 
 /** Opens a page in play mode on the audit level, with `script` (a plain JS string) evaluated in it. */
