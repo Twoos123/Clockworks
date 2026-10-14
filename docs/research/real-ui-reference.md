@@ -390,3 +390,20 @@ From an 83-second recording; frames are in `.scratch/vid6` (one every 2 seconds,
   QUIT EXPEDITION ("Leave the party and return to Haven.").
 - **Quitting the expedition:** a "REPORT" window shows the knight, then comes the loading screen
   back to Haven.
+
+## Basil, the Traveling Merchant (mission lobby and terminals)
+
+Frames: `.scratch/vid6/f035–f036`.
+
+- **In the scene:** Basil stands in the mission lobby. "Basil" and the gold title "Traveling
+  Merchant" float over him, and the target panel at the top reads "Basil / Traveling Merchant".
+- **His shop:** the same layout as a Haven vendor. VENDOR is docked left, ARSENAL right, and
+  the SHOPPING CART sits at the bottom centre with Basil large behind it. The cart's footer
+  reads "GET 2,765 FOR ⊙100 ▶ Get Crowns! | Buy Energy", and the Energy widget shows at the
+  bottom right.
+- **His stock**, in groups with counts and crown prices:
+  - Capsule (2): Remedy Capsule 100, Ultra Health Capsule 500.
+  - Vial (4): Ultra Fire Vial, Ultra Freeze Vial, Ultra Poison Vial and Ultra Shock Vial, 250
+    each.
+  - Equippable (1): Vitapod +12, 3,000.
+  - More groups above these, scrolled out of view.
