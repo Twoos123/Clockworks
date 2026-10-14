@@ -1574,8 +1574,12 @@ export class Renderer {
       gl.vertexAttribPointer(6 + k, 4, gl.FLOAT, false, 64, first * 64 + k * 16);
       gl.vertexAttribDivisor(6 + k, 1);
     }
+    // a model that takes no light influences (InfluenceFlagConfig lights false: dropped crowns,
+    // hearts and items) has Clyde's LightState.DISABLED: its passes draw at their texture and
+    // vertex colours, unlit, unless a pass carries a light override of its own
+    const unlit = inst.model.receivesLights === false;
     gp.part.material.passes.forEach((pass, i) => {
-      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
+      this.applyPass(unlit && pass.lit && !pass.ambient ? { ...pass, lit: false } : pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
       if (gp.indexed) gl.drawElementsInstanced(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0, instances);
       else gl.drawArraysInstanced(gp.primitive, 0, gp.count, instances);
       this.stats.draws++;

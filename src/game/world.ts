@@ -1630,14 +1630,33 @@ export class World implements LogicHost {
           }
           break;
         }
-        case "pickup":
-          if (!k.dead && touching(p)) {
+        case "pickup": {
+          if (k.dead) break;
+          // a vacuum pickup (crowns, hearts, heat: DungeonActorConfig.Pickup vacuumSpeed) is
+          // activated when the knight comes within its shape grown by vacuumExpansion, then
+          // flies to the knight at vacuumSpeed and is taken on reaching it, or after 500 ms
+          // (client PickupSprite)
+          const vs = Number(p.cfg.vacuumSpeed ?? 0);
+          const d = Math.hypot(k.x - p.x, k.y - p.y);
+          if (p.vacuum === null && vs > 0 && d <= (p.cfg.shape?.radius ?? 0.4) + Number(p.cfg.vacuumExpansion ?? 0) + KNIGHT_RADIUS) p.vacuum = 0;
+          let take = touching(p);
+          if (p.vacuum !== null && !take) {
+            p.vacuum += dt;
+            const step = vs * dt;
+            if (d > step && p.vacuum < 0.5) {
+              p.entity.x += ((k.x - p.x) / d) * step;
+              p.entity.y += ((k.y - p.y) / d) * step;
+              p.z += (Math.max(this.collision.groundZ(p.x, p.y), k.z) - p.z) * Math.min(1, dt * 10);
+            } else take = true;
+          }
+          if (take) {
             this.collect(p);
             const fx = p.cfg.sprite?.pickupTransient;
             if (fx?.name) this.spawnEffect(fx, p.matrix(), 2);
             this.logic.destroy(p.entity, ke);
           }
           break;
+        }
         case "lift":
           if (p.carried) {
             p.entity.x = k.x; p.entity.y = k.y; p.z = k.z + 1.9;

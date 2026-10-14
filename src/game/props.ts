@@ -99,6 +99,8 @@ export class Prop {
   breakable = false;
   /** Health counts hits rather than damage. */
   hits = false;
+  /** A vacuum pickup flying to the knight: seconds since it was activated, else null. */
+  vacuum: number | null = null;
   /** The stateful block state last shown (src/game/world.ts blockState). */
   shownState = 0;
   /** Takes hits without breaking (prisms, emitters, gun blocks, cages: src/game/objects.ts). */
