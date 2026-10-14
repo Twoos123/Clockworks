@@ -24,6 +24,7 @@ import { ECONOMY_FILES, Economy, type GearState, type VariantEffect } from "./ec
 import { StatusConditions, type ActiveStatus } from "./status";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
+import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -1018,9 +1019,13 @@ export class World implements LogicHost {
       anim = st[p.trapState] ?? null;
       loop = false;
     } else {
-      // townsfolk and other animated actors stand in their (weighted) idle animation
+      // townsfolk and other animated actors play their idles, the next drawn by weight when
+      // one ends (src/game/townsfolk.ts); a looping idle plays on
       const idles: any[] = p.cfg.sprite?.idles ?? [];
-      anim = idles.length ? idles.reduce((a, b) => ((b.weight ?? 1) > (a.weight ?? 1) ? b : a)).animation : null;
+      const i = pickWeighted(idles);
+      anim = i === null ? null : idles[i].animation;
+      const c = anim ? this.clip(anim) : null;
+      if (c) loop = idles.length > 1 ? c.loop : true;
     }
     const clip = anim ? this.clip(anim) : null;
     if (clip) p.instance.play(clip, { loop, blend: 0.05 });
@@ -1193,6 +1198,8 @@ export class World implements LogicHost {
     let interacted = false;
     for (const p of [...this.props]) {
       if (p.instance) p.instance.advance(dt);
+      // a townsperson's idle ended: the next one
+      if (p.kind === "generic" && !p.obj && p.instance?.finished && (p.cfg.sprite?.idles?.length ?? 0) > 1) this.showPropState(p);
       switch (p.kind) {
         case "switch": {
           // hit switches (emitters, gun blocks, cages) are not stood on
@@ -2376,6 +2383,38 @@ export class World implements LogicHost {
     if (ref) this.logic.spawn(ref, x, y, heading, this.knightEntity, this.knightEntity);
   }
 
+  /** Townsfolk among the monsters: their actor config, wander state and the idle playing. */
+  private readonly npcs = new Map<Monster, { cfg: any; wander: Wander | null; blocked: boolean; idle: any }>();
+
+  /** A townsperson's tick: wandering with its movement animation, else its weighted idles. */
+  private updateNpc(m: Monster, dt: number): boolean {
+    const n = this.npcs.get(m);
+    if (!n) return false;
+    m.state = "idle";
+    const sprite = n.cfg.sprite, speed = n.cfg.speed ?? 0;
+    if (n.wander) {
+      const s = stepWander(n.wander, m.x, m.y, dt, n.blocked);
+      if (s.walk) {
+        m.turnToward(s.dir, n.cfg.turnRate ?? 6, dt);
+        const ox = m.x, oy = m.y;
+        this.move(m, Math.cos(m.heading) * speed * dt, Math.sin(m.heading) * speed * dt, MONSTER_MASK);
+        n.blocked = Math.hypot(m.x - ox, m.y - oy) < speed * dt * 0.3;
+        const mv = pickMovement(sprite.movements ?? [], speed, sprite.scale ?? 1);
+        if (mv) this.play(m, mv.animation, { speed: mv.rate, blend: 0.2 });
+        n.idle = null;
+        return true;
+      }
+    }
+    if (!n.idle || m.instance.finished) {
+      const i = pickWeighted(sprite.idles);
+      const anim = i === null ? null : sprite.idles[i].animation;
+      const clip = this.clip(anim);
+      if (clip) { m.instance.play(clip, { loop: clip.loop, blend: 0.2 }); n.idle = anim; }
+      else if (anim) void this.preload(anim);
+    }
+    return true;
+  }
+
   /** Loads a monster's definition and model for a logic actor that has been spawned. */
   private async spawnMonster(ref: any, e: Entity) {
     const def = await this.data.monster(ref);
@@ -2405,6 +2444,11 @@ export class World implements LogicHost {
     if (def.creationFx) this.spawnEffect(def.creationFx, m.matrix(), 2);
     e.game = m;
     m.size = lichenSize(ref);
+    // townsfolk (traders, wandering gremlins) idle and wander as src/game/townsfolk.ts says
+    if (m.passive && !m.captive) {
+      const cfg = this.data.resolveSync("config/actor.dat", ref, "actor");
+      if (cfg?.sprite?.idles?.length) this.npcs.set(m, { cfg, wander: wanders(e.name, cfg.speed ?? 0) ? startWander(m.x, m.y) : null, blocked: false, idle: null });
+    }
     this.play(m, def.activation ?? def.idle, { loop: !def.activation });
     this.monsters.push(m);
   }
@@ -2439,6 +2483,7 @@ export class World implements LogicHost {
     this.applyLunge(m, dt, MONSTER_MASK);
     if (this.tickStatuses(m, dt)) return;
     if (m.reacting > 0) { m.reacting -= dt; return; }
+    if (m.passive && m.state !== "spawning" && this.updateNpc(m, dt)) return;
     if (m.passive) { if (m.state !== "spawning") this.play(m, m.def.idle); m.state = m.state === "spawning" && m.stateTime < 1.2 ? m.state : "idle"; return; }
     if (m.scripted) {
       if (m.state === "spawning" && (m.instance.finished || m.stateTime > 1.2)) m.state = "idle";
