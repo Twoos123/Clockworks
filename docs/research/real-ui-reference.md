@@ -256,3 +256,38 @@ edges, like old film, and a small SKIP button at the bottom right.
 - **Next:** a "Next ▼" bar under the panel moves to the next page (colours, name, and so on).
 - **Back:** a "BACK" button with the knight emblem at the bottom left.
 - **Spinning:** the user says the knight can be spun around.
+
+## A full Clockworks floor (lobby → depth 1 → Level Complete)
+
+From a 135-second recording of the real client; frames are in `.scratch/vid2` (one every 2
+seconds, git-ignored). They show the gate lobby, then a Gremlin floor of Cooling Chamber.
+
+- **Loading screen:**
+  - A dark band across the middle of the screen with "Loading...39%" in gold.
+  - At the left, a tip card: a cog icon, a title bar "The world is always changing...", and
+    text: "The Clockworks below the surface cycle levels in real time. You will never see all
+    the levels a world has to offer in a single trip. Only a true adventurer will discover all
+    the secrets!"
+  - Under the band, the level name in big gold italic ("Cooling Chamber") with the stratum
+    under it ("Gremlin Grounds").
+  - A gold "DEPTH 1" tab at the bottom right.
+- **During play:**
+  - Monsters show small red health bars above them.
+  - Explosive blocks and timed explosive blocks (with a big digit countdown) go off in chains.
+  - Damage numbers appear.
+  - The chat area at the bottom left fills with grey loot lines as items are picked up (the
+    Chat option "Loot Messages: All").
+- **Floor end:** the knight walks onto the exit elevator. Then the Level Complete screen:
+  - **Title:** "Level Complete!" in big gold letters across the top, over a darkened view.
+  - **PRIZE WHEEL (left):** a gold title bar, then a tall panel where a reel spins and lands on
+    a prize. It shows a silver crown coin, with "10 Crowns" in the reel's header strip. It
+    stays up after the main window goes.
+  - **Centre card:** "Advancing to:", "Jigsaw Valley", "Perimeter Promenade", "DEPTH 2", the
+    knight posed on a bright burst, and "in 09 seconds..." counting down. Under it are a big
+    "ADVANCE NOW" button (green knight icon, arrow) and a small "QUIT EXPEDITION" button: "Leave
+    the party and return to Haven."
+  - **HEAT ACQUIRED (right):** the heat bar, then one card per item that gained heat (icon, name,
+    heat bar, level number). The levelled item is highlighted orange ("Blitz Needle 09 LEVEL").
+    The note "Heat levels up your weapons and gear and makes them stronger." sits under them.
+  - **After choosing:** the centre card goes. The prize wheel and heat panel stay over the next
+    view for a moment.
