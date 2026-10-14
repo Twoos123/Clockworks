@@ -507,6 +507,8 @@ export async function restyle(ctx: GuiContext, c: Component, name: string, args:
   const size = c.preferredSize;
   await setStyle(ctx, c, sref, c.local, DEFAULT_STYLES[c.kind]);
   if (size) c.preferredSize = size;
+  // a button without an icon of its own shows its style's (a tab's notice icon)
+  if (c.kind === "button" && !c.stateIcons && !c.config?.icon) c.icon = c.styles[0]?.icon ?? null;
 }
 
 /** A part Clyde creates in code (a scroll bar's well, a tab button), styled by name. */
