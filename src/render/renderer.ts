@@ -193,19 +193,55 @@ const FOG_MODES = { linear: 1, exp: 2, exp2: 3 } as const;
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const ALPHA_FUNCS = ["ALWAYS", "NEVER", "LESS", "EQUAL", "LEQUAL", "GREATER", "NOTEQUAL", "GEQUAL"];
 const ENVS = ["Modulate", "Replace", "Add", "Decal"];
-const QUEUE_ORDER: Record<string, number> = {
-  Skybox: 0, "Skybox (Fov Standard)": 0, Opaque: 1, Transparent: 3, Overlay: 4, Blurred: 5,
-};
-/** A part's place in the draw order: its queue, then its queue inside a group (skyboxes). */
-const queueRank = (m: { queue: string; subQueue?: string }) =>
-  (QUEUE_ORDER[m.queue] ?? 2) * 10 + (m.subQueue ? QUEUE_ORDER[m.subQueue] ?? 2 : 0);
+/** RenderQueueConfig.SortMode: how a queue orders the batches of one priority level. */
+export type QueueSort = "NONE" | "BY_STATE" | "BACK_TO_FRONT" | "FRONT_TO_BACK";
 /**
- * Mesh draw order: by queue, then by the material's enqueuer priority (RenderQueue keeps one
- * batch list per priority and renders them in rising order), keeping the collection order
- * otherwise (the sort is stable).
+ * The render queues of config/render_queue.dat: each one's priority (the compositor keeps its
+ * queues sorted by it and renders them in that order) and sort mode. Opaque has no priority
+ * of its own (0) and sorts BY_STATE; Transparent and Blurred keep RenderQueueConfig's default
+ * BACK_TO_FRONT; the skyboxes and Overlay leave theirs unsorted.
  */
-export const drawOrder = (a: { queue: string; subQueue?: string; priority?: number }, b: { queue: string; subQueue?: string; priority?: number }) =>
-  queueRank(a) - queueRank(b) || (a.priority ?? 0) - (b.priority ?? 0);
+export const RENDER_QUEUES: Record<string, { priority: number; sort: QueueSort }> = {
+  Skybox: { priority: -100, sort: "NONE" },
+  "Skybox (Fov Standard)": { priority: -90, sort: "NONE" },
+  Blurred: { priority: -75, sort: "BACK_TO_FRONT" },
+  Opaque: { priority: 0, sort: "BY_STATE" },
+  Transparent: { priority: 100, sort: "BACK_TO_FRONT" },
+  Overlay: { priority: 200, sort: "NONE" },
+};
+/**
+ * A queue the file lacks takes RenderQueueConfig's defaults (priority 0, BACK_TO_FRONT); it is
+ * created after Opaque, so it renders after it.
+ */
+const UNKNOWN_QUEUE = { priority: 0.5, sort: "BACK_TO_FRONT" as QueueSort };
+export const queueConfig = (q: string) => RENDER_QUEUES[q] ?? UNKNOWN_QUEUE;
+
+export interface DrawKey { queue: string; subQueue?: string; priority?: number; depth?: number }
+/**
+ * The compositor's draw order (RenderQueue): by queue priority; inside a grouped enqueuer's
+ * group (the skyboxes), by the group's own queue; then by the enqueuer priority (a queue keeps
+ * one batch list per priority and renders them in rising order); then by the queue's sort
+ * mode over each batch's depth (the view-space z of its geometry's centre: more negative is
+ * farther), so Transparent draws back to front. BY_STATE sorts by GL state, then front to back;
+ * our batches keep their collection order there (the sort is stable), which only changes how
+ * often state is switched.
+ */
+export const drawOrder = (a: DrawKey, b: DrawKey) => {
+  const d = queueConfig(a.queue).priority - queueConfig(b.queue).priority
+    || (a.subQueue ? queueConfig(a.subQueue).priority : -1000) - (b.subQueue ? queueConfig(b.subQueue).priority : -1000)
+    || (a.priority ?? 0) - (b.priority ?? 0);
+  if (d) return d;
+  switch (queueConfig(a.subQueue ?? a.queue).sort) {
+    case "BACK_TO_FRONT": return (a.depth ?? 0) - (b.depth ?? 0);
+    case "FRONT_TO_BACK": return (b.depth ?? 0) - (a.depth ?? 0);
+    default: return 0;
+  }
+};
+/** Whether a queue orders its batches by depth (each placement is then a batch of its own). */
+export const sortsByDepth = (m: { queue: string; subQueue?: string }) => {
+  const s = queueConfig(m.subQueue ?? m.queue).sort;
+  return s === "BACK_TO_FRONT" || s === "FRONT_TO_BACK";
+};
 /**
  * The skybox render queues (config/render_queue.dat, RenderQueueConfig.Skybox): drawn first,
  * by priority, each with its field of view scaled and the depth buffer cleared afterwards.
@@ -1439,27 +1475,67 @@ export class Renderer {
       batches.push(...byKey.values());
     }
 
-    // upload every instance matrix for this frame in one buffer
+    // Everything goes through the compositor's queues together, meshes and particle layers
+    // alike: a queue sorted by depth (Transparent) takes each placement as a batch of its own
+    // at its geometry's centre, the others keep their placements instanced
+    const v = this.view;
+    const viewZ = (m: Mat4, c: Vec3) => {
+      const x = m[0] * c[0] + m[4] * c[1] + m[8] * c[2] + m[12];
+      const y = m[1] * c[0] + m[5] * c[1] + m[9] * c[2] + m[13];
+      const z = m[2] * c[0] + m[6] * c[1] + m[10] * c[2] + m[14];
+      return v[2] * x + v[6] * y + v[10] * z + v[14];
+    };
+    type MeshBatch = (typeof batches)[number];
+    type Op = DrawKey & { mesh?: MeshBatch; layer?: { emitter: Emitter; li: number; matrix: Mat4 }; at?: number };
+    const ops: Op[] = [];
+    for (const b of batches) {
+      const mat = b.gp.part.material;
+      if (sortsByDepth(mat)) {
+        const c = partBounds(b.gp.part).c;
+        for (const m of b.matrices) ops.push({ queue: mat.queue, subQueue: mat.subQueue, priority: mat.priority, depth: viewZ(m, c), mesh: { ...b, matrices: [m] } });
+      } else ops.push({ queue: mat.queue, subQueue: mat.subQueue, priority: mat.priority, mesh: b });
+    }
+    for (const { emitter, matrix, filter } of particles) {
+      // a system's layers in their drawing order (GroupPriority), each a batch at the centre
+      // of its particles' bounds, nudged toward the camera by its place in that order
+      emitter.order.forEach((li, rank) => {
+        const state = emitter.states[li];
+        if (state.particles.length === 0 || !passesFilter(filter, state.layer.material.queue)) return;
+        const mat = state.layer.material;
+        const local = state.layer.moveWithEmitter;
+        const mn: Vec3 = [Infinity, Infinity, Infinity], mx: Vec3 = [-Infinity, -Infinity, -Infinity];
+        for (const p of state.particles) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p.pos[k]); mx[k] = Math.max(mx[k], p.pos[k]); }
+        const c: Vec3 = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+        const depth = viewZ(local ? matrix : IDENTITY, c) + rank * 1e-4;
+        ops.push({ queue: mat.queue, subQueue: mat.subQueue, priority: mat.priority, depth, layer: { emitter, li, matrix } });
+      });
+    }
+    ops.sort(drawOrder);
+
+    // upload every instance matrix for this frame in one buffer, in drawing order
     let total = 0;
-    for (const b of batches) total += b.matrices.length;
+    for (const o of ops) if (o.mesh) total += o.mesh.matrices.length;
     if (this.instanceData.length < total * 16) this.instanceData = new Float32Array(total * 16 * 2);
-    const order = batches.sort((a, b) => drawOrder(a.gp.part.material, b.gp.part.material));
-    const offsets: number[] = [];
     let at = 0;
-    for (const b of order) {
-      offsets.push(at);
-      for (const m of b.matrices) { this.instanceData.set(m, at * 16); at++; }
+    for (const o of ops) {
+      if (!o.mesh) continue;
+      o.at = at;
+      for (const m of o.mesh.matrices) { this.instanceData.set(m, at * 16); at++; }
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.subarray(0, total * 16), gl.DYNAMIC_DRAW);
 
-    order.forEach((b, i) => {
-      this.setLocalLights(b.lights);
-      this.drawPart(b.inst, b.gp, offsets[i], b.matrices.length, b.tint);
-    });
+    for (const o of ops) {
+      if (o.mesh) {
+        this.setLocalLights(o.mesh.lights);
+        this.drawPart(o.mesh.inst, o.mesh.gp, o.at!, o.mesh.matrices.length, o.mesh.tint);
+      } else if (o.layer) {
+        this.setLocalLights([]);
+        this.drawParticleLayer(o.layer.emitter, o.layer.li, o.layer.matrix);
+      }
+    }
     this.setLocalLights([]);
     if (!this.skyboxPass) this.lastTime = this.time;
-    if (particles.length) this.drawParticles(particles);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
   }
@@ -1546,7 +1622,8 @@ export class Renderer {
     return this.readyParticleTextures.get(key) ?? undefined;
   }
 
-  private drawParticles(list: { emitter: Emitter; matrix: Mat4; filter?: QueueFilter }[]) {
+  /** Draws one particle layer of a placed system (its batch in the queues). */
+  private drawParticleLayer(emitter: Emitter, li: number, matrix: Mat4) {
     const gl = this.gl, v = this.view;
     const right: [number, number, number] = [v[0], v[4], v[8]], up: [number, number, number] = [v[1], v[5], v[9]];
     gl.bindVertexArray(this.particleVao);
@@ -1558,21 +1635,14 @@ export class Renderer {
     }
     gl.uniform1i(this.u.u_skinned, 0);
     gl.uniform1i(this.u.u_particle, 1);
-    const data: number[] = [];
-    for (const { emitter, matrix, filter } of list) {
-      // a system's layers in their drawing order (GroupPriority)
-      for (const li of emitter.order) {
-        const state = emitter.states[li];
-        if (state.particles.length === 0) continue;
-        if (!passesFilter(filter, state.layer.material.queue)) continue;
-        if (state.layer.geometry === "Meshes") {
-          this.drawMeshParticles(emitter, li, matrix);
-          gl.bindVertexArray(this.particleVao);
-          continue;
-        }
-        data.length = 0;
-        emitter.emit(li, matrix, right, up, data);
-        if (data.length === 0) continue;
+    const state = emitter.states[li];
+    if (state.layer.geometry === "Meshes") {
+      this.drawMeshParticles(emitter, li, matrix);
+    } else {
+      const data = this.particleData;
+      data.length = 0;
+      emitter.emit(li, matrix, right, up, data);
+      if (data.length > 0) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STREAM_DRAW);
         for (const pass of state.layer.material.passes) {
@@ -1590,6 +1660,7 @@ export class Renderer {
     gl.uniform1i(this.u.u_particle, 0);
     gl.bindVertexArray(null);
   }
+  private readonly particleData: number[] = [];
 
   /**
    * Meshes geometry: each particle draws the layer's mesh with the layer's material and the
