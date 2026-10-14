@@ -36,6 +36,16 @@ export const STYLES: LevelStyle[] = [
   { key: "frostwood", name: "Frosty Islands", tileset: "sky-winter", families: ["Beast", "Slime", "Construct"] },
   { key: "halls", name: "Dark Halls", tileset: "castle-light", families: ["Undead", "Fiend", "Beast"] },
   { key: "pools", name: "Frozen Pools", tileset: "ice", families: ["Slime", "Beast", "Undead"] },
+  // the game's own level sets the player's archive holds (src/game/archive.ts), with the
+  // families their strata have on the wiki
+  { key: "drudgery", name: "Devilish Drudgery", tileset: "castle-fire", families: ["Fiend"] },
+  { key: "lair", name: "Lichenous Lair", tileset: "sky-autumn", families: ["Slime"] },
+  { key: "arena", name: "Battle Arena", tileset: "clockworks", families: ["Construct", "Gremlin", "Slime", "Beast", "Fiend", "Undead"] },
+  { key: "aurora", name: "Aurora Isles", tileset: "valley", families: ["Beast", "Slime"], cached: /^aurora isles/i },
+  { key: "cradle", name: "Starlight Cradle", tileset: "sky-night", families: ["Slime"], cached: /^starlight cradle/i },
+  { key: "jungle", name: "Concrete Jungle", tileset: "city", families: ["Slime", "Undead"], cached: /^concrete jungle/i },
+  { key: "darkcity", name: "Dark City", tileset: "castle-fire", families: ["Fiend", "Undead"], cached: /^dark city/i },
+  { key: "fortress", name: "Scarlet Fortress", tileset: "castle", families: ["Undead", "Fiend"], cached: /^(lost castle|scarlet fortress)/i },
 ];
 
 /** Element strata paint their floors with the element's Clockworks tileset. */
@@ -43,16 +53,22 @@ const ELEMENT_TILESETS: Record<string, string> = { Fire: "clockworks-fire", Free
 
 export type BossKey = "jelly" | "snarbolax" | "twins" | "vanaduke";
 /** The four bosses: their levels, tiers, and the actors their arenas start (all in config/actor.dat). */
-export const BOSSES: Record<BossKey, { name: string; level: string; tier: number; actors: string[]; tileset: string; nameKey: string; levelKey: string }> = {
+export const BOSSES: Record<BossKey, { name: string; level: string; tier: number; actors: string[]; tileset: string; nameKey: string; levelKey: string;
+  /** The boss stratum's levels in order, by their dungeon bundle keys (the last is the boss's). */
+  stages: string[] }> = {
   jelly: { name: "Royal Jelly", level: "Royal Jelly Palace", tier: 1, actors: ["Character/NPC/Monster/Boss/Royal Jelly/Royal Jelly 1"], tileset: "castle",
-    nameKey: "n.royal_jelly", levelKey: "m.royal_jelly_lair" },
+    nameKey: "n.royal_jelly", levelKey: "m.royal_jelly_lair", stages: ["m.royal_jelly_garden", "m.royal_jelly_court", "m.royal_jelly_lair"] },
   snarbolax: { name: "Snarbolax", level: "Gloaming Wildwoods", tier: 1, actors: ["Character/NPC/Monster/Boss/Snarbolax/Snarbolax"], tileset: "sky-night",
-    nameKey: "n.snarbolax", levelKey: "m.gloaming_wildwoods_snarbolax" },
+    nameKey: "n.snarbolax", levelKey: "m.gloaming_wildwoods_snarbolax",
+    stages: ["m.gloaming_wildwoods_path", "m.gloaming_wildwoods_ruins", "m.gloaming_wildwoods_snarbolax"] },
   twins: { name: "Roarmulus Twins", level: "Ironclaw Munitions Factory", tier: 2,
     actors: ["Character/NPC/Monster/Boss/Roarmulus Twins/East", "Character/NPC/Monster/Boss/Roarmulus Twins/West"], tileset: "clockworks",
-    nameKey: "n.roarmulus_twins", levelKey: "m.ironclaw_munitions_factory_twins" },
+    nameKey: "n.roarmulus_twins", levelKey: "m.ironclaw_munitions_factory_twins",
+    stages: ["m.ironclaw_munitions_factory_assembly", "m.ironclaw_munitions_factory_workshop", "m.ironclaw_munitions_factory_twins"] },
   vanaduke: { name: "Lord Vanaduke", level: "Firestorm Citadel", tier: 3, actors: ["Character/NPC/Monster/Boss/Vanaduke/Stage 1"], tileset: "castle-fire",
-    nameKey: "n.vanaduke", levelKey: "m.firestorm_citadel_vanaduke" },
+    nameKey: "n.vanaduke", levelKey: "m.firestorm_citadel_vanaduke",
+    stages: ["m.firestorm_citadel_blackstone_bridge", "m.firestorm_citadel_charred_court", "m.firestorm_citadel_ash_armory",
+      "m.firestorm_citadel_smoldering_steps", "m.firestorm_citadel_vanaduke"] },
 };
 
 /** A boss's name in the monster bundle (our English without it). */
@@ -67,6 +83,10 @@ const STYLE_KEYS: Record<string, string[]> = {
   tunnels: ["m.ct", "m.ct_construct"], valley: ["m.jigsaw_valley", "m.jigsaw_valley_emerald_axis"], den: ["m.wolver_den", "m.wolver_den_fire"],
   keep: ["m.candlestick_keep", "m.candlestick_keep_fire"], graveyard: ["m.graveyard", "m.graveyard_fire"],
   deconstruction: ["m.deconstruction_zone", "m.deconstruction_zone_fire"],
+  drudgery: ["m.devilish_drudgery", "m.devilish_drudgery_vanilla"], lair: ["m.lichenous_lair", "m.lichenous_lair_vanilla"],
+  arena: ["m.iea", "m.iea_beast"], aurora: ["m.aurora_isles", "m.aurora_isles_stone_grove"], cradle: ["m.starlight_cradle", "m.starlight_cradle_meteor_mile"],
+  jungle: ["m.concrete_jungle", "m.concrete_jungle_blight_boulevard"], darkcity: ["m.dark_city", "m.dark_city_devilish_drudgery"],
+  fortress: ["m.lost_castle", "m.lost_castle_cravat_hall"],
 };
 
 /** The game's name (and zone line, for a theme of its own) for a stratum's levels. */
@@ -99,6 +119,7 @@ export interface Stratum {
 export const STYLE_ICONS: Record<string, string> = {
   tunnels: "clockwork", valley: "island", den: "woods", grove: "island", keep: "castle", graveyard: "graveyard",
   compound: "city", deconstruction: "decon", frostwood: "island", halls: "castle", pools: "island",
+  drudgery: "castle", lair: "island", arena: "arena", aurora: "island", cradle: "island", jungle: "city", darkcity: "city", fortress: "castle",
 };
 
 /** A floor's lineup icon. */
@@ -126,6 +147,11 @@ export interface Floor {
   special?: "vault" | "danger" | "arena";
   /** The loading screen's zone line, when the game's text has one for the floor. */
   zone?: string;
+  /**
+   * The game's own level for this floor, by its dungeon bundle key ("m.royal_jelly_court"):
+   * a boss stratum's stages. Played from the level archive when it holds it.
+   */
+  levelKey?: string;
 }
 
 export interface Gate { id: string; name: string; seed: number; strata: Stratum[]; emblem: string }
@@ -179,7 +205,12 @@ export function gateFloors(g: Gate): Floor[] {
     else if (d === 29) floors.push({ ...base, kind: "core", ...named(fixedText("m.core_1", "Terminal above the Core")), tileset: "" });
     else if (s && s.boss && d === s.last) {
       const b = BOSSES[s.boss];
-      floors.push({ ...base, kind: "boss", ...named(fixedText(b.levelKey, b.level)), tileset: b.tileset });
+      floors.push({ ...base, kind: "boss", ...named(fixedText(b.levelKey, b.level)), tileset: b.tileset, levelKey: b.levelKey });
+    } else if (s && s.boss && d > s.last - BOSSES[s.boss].stages.length) {
+      // the floors before a boss are its stratum's own levels (the Wildwoods' Terrilous Trail and
+      // Roarsterous Ruins before the Snarbolax's lair), as many as the stratum has depths for
+      const b = BOSSES[s.boss], key = b.stages[b.stages.length - 1 - (s.last - d)];
+      floors.push({ ...base, kind: "level", ...named(fixedText(key, b.level)), tileset: b.tileset, levelKey: key });
     } else if (s) {
       const element = ELEMENT_TILESETS[s.theme];
       floors.push({ ...base, kind: "level", ...named(styleText(s)), tileset: element ?? s.style.tileset });
@@ -190,7 +221,7 @@ export function gateFloors(g: Gate): Floor[] {
   // their strata the same way (the lineups are server-side, so the odds are ours)
   const rand = rng((g.seed ^ 0x6a09e667) >>> 0);
   for (const s of g.strata) {
-    const levels = floors.filter(f => f.kind === "level" && f.stratum === s && f.depth > s.first);
+    const levels = floors.filter(f => f.kind === "level" && f.stratum === s && f.depth > s.first && !f.levelKey);
     const roll = rand(), which = rand(), at = rand();
     if (!levels.length || roll >= SPECIAL_CHANCE) continue;
     const f = levels[Math.floor(at * levels.length)];

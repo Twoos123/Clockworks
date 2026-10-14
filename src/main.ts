@@ -29,7 +29,7 @@ import { MusicPlayer } from "./game/musicplayer";
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
 import { loadMessages, messages, text } from "./i18n";
-import { itemName } from "./game/text";
+import { itemName, levelText } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
@@ -40,6 +40,8 @@ import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
 import { arcadeGates, bossName, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
+import { LevelArchive } from "./game/archive";
+import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
 import { currentNotice, initNotices } from "./ui/notice";
@@ -229,6 +231,8 @@ class Viewer {
   get outfit() { return this.outfit_ ??= new Outfit(this.loader, () => this.save, () => writeSave(this.save)); }
   /** Scenes in the install's cache, by name. */
   private sceneList: { id: string; name: string }[] = [];
+  /** The archive's Clockworks levels, boss stages, terminals and subtowns (src/game/archive.ts). */
+  private archive = new LevelArchive([]);
   /** Every scene id the archive and cache hold (named or not yet: exits lead to them by id). */
   private sceneIds = new Set<string>();
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
@@ -247,6 +251,10 @@ class Viewer {
   private genNames = new Map<string, string>();
   /** Special floor styles (vault, danger, arena) by scene id, and the last floor's feature report. */
   private genStyles = new Map<string, FloorStyle>();
+  /** Floors built from the game's prefab rooms: the generator theme to paint instead if they cannot be. */
+  private genFallback = new Map<string, string>();
+  /** The prefab rooms cut out of the captured floors, per style and status (src/gen/prefabs.ts). */
+  private prefabLibs = new Map<string, Promise<LibPiece[]>>();
   genReport: FeatureReport | null = null;
   /** The boss of the floor being played, if any. */
   private bossFloor: BossKey | null = null;
@@ -402,6 +410,7 @@ class Viewer {
     const ul = $("scenes");
     const found = named.filter((s): s is { id: string; name: string } => s !== null);
     this.sceneList = found;
+    this.archive = new LevelArchive(found);
     ul.replaceChildren(...found.sort((a, b) => a.name.localeCompare(b.name)).map(s => {
       const li = document.createElement("li");
       li.textContent = s.name;
@@ -499,7 +508,22 @@ class Viewer {
    * new layout with their spawners, treasure and elevators (src/gen).
    */
   private async generatedRoot(id: string): Promise<any> {
-    const [, key, seed, boss] = GEN.exec(id)!;
+    const [, genKey, seed, boss] = GEN.exec(id)!;
+    let key = genKey;
+    const pf = /^pf-([a-z]+)-([a-z]+)$/.exec(key);
+    if (pf) {
+      // a floor of the game's own prefab rooms; the old way when they cannot make one
+      const root = await this.prefabRoot(pf[1], pf[2] === "none" ? null : pf[2][0].toUpperCase() + pf[2].slice(1), Number(seed),
+        this.genNames.get(id) ?? "New floor").catch(e => { console.warn("prefab floor", e); return null; });
+      if (root) {
+        const tables = this.genTables.get(id);
+        const theme = this.floors[this.run.depth]?.stratum?.theme;
+        if (tables?.length && theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme)) rethemeMasters(root, tables, rng(Number(seed) ^ 0x5bd1e995));
+        this.genReport = null;
+        return root;
+      }
+      key = this.genFallback.get(id) ?? "clockworks";
+    }
     // the theme's tiling: learned from its cached levels, mirrored from a related theme, or
     // rule-based (src/gen/themes.ts)
     const readRoot = async (sid: string) => this.sceneLoader.parse(await this.vfs.readScene(sid));
@@ -548,6 +572,45 @@ class Viewer {
     // puzzles, the floor style's special rooms and decoration (src/gen/features.ts)
     this.genReport = addFeatures(root, { style, theme: key, tables, rand: rng(Number(seed) ^ 0x2545f491), walkable: (x, y) => walk.has(x + "," + y) });
     return root;
+  }
+
+  /**
+   * The prefab rooms of a style and status: every usable room cut out of the captured floors
+   * the archive holds of it (src/gen/prefabs.ts), cached.
+   */
+  private prefabLibrary(style: string, element: string | null, any = false): Promise<LibPiece[]> {
+    const k = `${style}|${element}|${any}`;
+    let p = this.prefabLibs.get(k);
+    if (!p) {
+      p = (async () => {
+        const out: LibPiece[] = [];
+        for (const c of this.archive.prefabSources(style, element as any, any)) {
+          const r = await this.sceneLoader.parse(await this.vfs.readScene(c.id));
+          // the tiles' footprints and walkability, resolved first (the cut asks synchronously)
+          const infos = new Map<string, TileInfo>();
+          const refKey = (ref: any) => JSON.stringify(ref, (kk, v) => (kk === "$outer" ? undefined : v));
+          for (const m of (r.tileConfigs?.items ?? r.tileConfigs ?? []) as any[]) {
+            if (m?.tile && !infos.has(refKey(m.tile))) infos.set(refKey(m.tile), await this.sceneLoader.tileInfo(m.tile));
+          }
+          out.push(...libraryPieces(c.id, r, ref => infos.get(refKey(ref)) ?? { width: 1, height: 1, walkable: false }));
+        }
+        return out;
+      })();
+      p.catch(() => this.prefabLibs.delete(k));
+      this.prefabLibs.set(k, p);
+    }
+    return p;
+  }
+
+  /** A floor assembled from a style's prefab rooms, with the globals of the floor its start came from. */
+  private async prefabRoot(style: string, element: string | null, seed: number, title: string): Promise<any | null> {
+    let a = assemble(await this.prefabLibrary(style, element), seed);
+    // too few rooms of this status: the style's rooms of every status
+    if (!a) a = assemble(await this.prefabLibrary(style, element, true), seed);
+    if (!a) return null;
+    const src = await this.sceneLoader.parse(await this.vfs.readScene(a.placed[0].piece.source));
+    const globals = ((src.entries ?? []) as any[]).filter(e => e.$class.endsWith("GlobalEntry"));
+    return assembledRoot(a, globals, title);
   }
 
   private async selectScene(id: string) {
@@ -1397,30 +1460,56 @@ class Viewer {
   }
 
   /**
-   * The scene for a floor of the gate. Terminals, subtowns and the Core use the cached town
-   * scenes; levels use a cached level of the stratum's style when there is one not yet played
-   * this run, else a generated floor painted with the style's tileset and re-themed with the
-   * stratum's monsters. Boss floors are generated arenas with the boss waiting by the exit.
+   * The scene for a floor of the gate: the game's own level from the archive wherever it has
+   * one (src/game/archive.ts). Terminals, subtowns and the Core are their archived scenes; a
+   * boss stratum's floors are its stages, the boss's own lair last; other floors take an
+   * archived level of the stratum's style and theme not yet played this run. Otherwise the
+   * floor is generated: painted with the style's tileset and re-themed with the stratum's
+   * monsters, and for a boss, an arena of our own with the boss waiting by the exit.
    */
   private floorScene(f: Floor): { id: string; name: string } | null {
-    const cached = (re: RegExp) => this.sceneList.find(s => re.test(s.name));
-    if (f.kind === "terminal") return cached(/^terminal 1$/i) ?? null;
-    if (f.kind === "core") return cached(/^terminal core$/i) ?? cached(/^terminal 1$/i) ?? null;
-    if (f.kind === "subtown" && f.depth === 18) return cached(/^emberlight$/i) ?? cached(/^terminal 1$/i) ?? null;
+    const a = this.archive;
+    if (f.kind === "terminal") return a.level("m.terminal_1");
+    if (f.kind === "core") return a.level("m.terminal_core") ?? a.level("m.terminal_1");
+    if (f.kind === "subtown" && f.depth === 18) return a.level("m.emberlight") ?? a.level("m.terminal_1");
     if (f.kind === "subtown") {
-      // Moorcroft Manor is not in the cache: a generated town in the graveyard's tiles
+      const real = a.level("m.moorcroft");
+      if (real) return real;
+      // without Moorcroft Manor in the archive: a generated town in the graveyard's tiles
       const id = `gen:${genTheme("graveyard")}:${((this.gate?.seed ?? 1) + 8) >>> 0}`;
       this.safeGen.add(id);
       this.genNames.set(id, "Moorcroft Manor");
       return { id, name: "Moorcroft Manor" };
     }
     const s = f.stratum!;
-    if (f.kind === "level" && s.style.cached && !f.special) {
-      const options = this.sceneList.filter(sc => s.style.cached!.test(sc.name) && !this.usedScenes.has(sc.id));
-      if (options.length && Math.random() < 0.5) { this.usedScenes.add(options[0].id); return options[0]; }
+    const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
+    // a boss stratum's own stage (the boss's lair on its last floor)
+    if (f.levelKey) {
+      const real = a.level(f.levelKey);
+      if (real) return real;
+    }
+    if (f.kind === "level" && !f.special && !f.levelKey) {
+      const options = a.forStratum(s.style.key, s.theme).filter(l => !this.usedScenes.has(l.id));
+      if (options.length) {
+        const real = options[Math.floor(rng(seed)() * options.length)];
+        this.usedScenes.add(real.id);
+        // the floor takes the level's own name ("Clockwork Tunnels|Wild Path")
+        const t = levelText("m." + real.name.replace(/ /g, "_"));
+        if (t) { f.name = t.title; f.zone = t.zone || undefined; }
+        return real;
+      }
     }
     const theme = genTheme(f.tileset);
-    const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
+    // a floor of a style the servers generate (tunnels, keeps, dens...): built from the
+    // prefab rooms of the captured floors of that style (src/gen/assemble.ts)
+    const element = (["Fire", "Freeze", "Poison", "Shock"] as string[]).includes(s.theme) ? s.theme.toLowerCase() : "none";
+    if (f.kind === "level" && !f.special && !f.levelKey && a.prefabSources(s.style.key, null, true).length) {
+      const id = `gen:pf-${s.style.key}-${element}:${seed}`;
+      this.genFallback.set(id, theme);
+      this.genTables.set(id, stratumTables(s.theme, rng(seed)));
+      this.genNames.set(id, `${f.name} · ${s.theme}`);
+      return { id, name: `${f.name} · depth ${f.depth}` };
+    }
     const id = f.kind === "boss" ? `gen:${theme}:${seed}:${s.boss}` : `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
@@ -1433,7 +1522,9 @@ class Viewer {
 
   /** A boss floor: the boss's fight director runs its arena; the exit stays shut until it is won. */
   private spawnBoss(key: BossKey) {
-    if (this.world) startBossFight(key, this.world);
+    // on the game's own boss level the level's logic brings the boss on, and the director
+    // runs the parts of the fight that are server code; on a generated arena it runs it all
+    if (this.world && this.scene) startBossFight(key, this.world, !GEN.test(this.scene.id));
   }
 
   /** The boss of this floor is still standing. */
@@ -1443,14 +1534,18 @@ class Viewer {
     return !(w.boss as BossFight | null)?.defeated;
   }
 
-  /** Development: plays a boss's arena (window.__viewer.testBoss("snarbolax")). */
-  async testBoss(key: BossKey, depth = BOSSES[key].tier === 1 ? 7 : BOSSES[key].tier === 2 ? 17 : 28) {
+  /**
+   * Development: plays a boss's level (window.__viewer.testBoss("snarbolax")): the game's own
+   * when the archive has it, else (or with `arena`) a generated arena.
+   */
+  async testBoss(key: BossKey, depth = BOSSES[key].tier === 1 ? 7 : BOSSES[key].tier === 2 ? 17 : 28, arena = false) {
     this.stopPlaying();
     this.arenaMode = false;
     this.bossFloor = key;
     this.run = { depth, health: null, floors: 0 };
-    const id = `gen:${genTheme(BOSSES[key].tileset)}:${(Math.random() * 1e9) >>> 0}:${key}`;
-    this.genNames.set(id, BOSSES[key].level);
+    const real = arena ? null : this.archive.level(BOSSES[key].levelKey);
+    const id = real?.id ?? `gen:${genTheme(BOSSES[key].tileset)}:${(Math.random() * 1e9) >>> 0}:${key}`;
+    if (!real) this.genNames.set(id, BOSSES[key].level);
     await this.selectScene(id);
     await this.startPlaying();
     this.spawnBoss(key);
@@ -1894,6 +1989,23 @@ function retheme(root: any, tables: string[], rand: () => number) {
     const table = { $class: "com.threerings.config.ConfigReference", name: byTag.get(tag)!,
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Depth Offset", 0], ["Loot", "Primary"], ["Wave Tag", wave]] } };
     if (i >= 0) args[i] = ["Spawn Table", table]; else args.push(["Spawn Table", table]);
+  }
+}
+
+/**
+ * Points the Master Signal Triggers of a floor built from prefab rooms at the stratum's spawn
+ * tables, one table per spawn group, keeping their arguments (wave tags). The rooms' Class
+ * Spawns (support and turret classes) and drones stay as the servers chose them.
+ */
+function rethemeMasters(root: any, tables: string[], rand: () => number) {
+  const byTag = new Map<string, string>();
+  for (const e of root.entries ?? []) {
+    const args: [string, any][] | undefined = e.placeable?.arguments?.entries;
+    if (!args || e.placeable?.name !== "Trigger/Master Signal Trigger") continue;
+    const tag = String(args.find(([k]) => k === "Spawn Tag")?.[1] ?? "");
+    if (!byTag.has(tag)) byTag.set(tag, tables[Math.floor(rand() * tables.length)]);
+    const t = args.find(([k]) => k === "Spawn Table");
+    if (t?.[1]) t[1] = { ...t[1], name: byTag.get(tag)! };
   }
 }
 

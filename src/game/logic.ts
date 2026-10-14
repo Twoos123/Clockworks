@@ -602,6 +602,8 @@ export class Logic {
         return all.filter(t => !ex.has(t));
       }
       case "Randomized": return shuffle(this.resolveTarget(cfg.target, source, activator));
+      // the party: the knights (a boss level's platform warps everyone into the hall)
+      case "PartyMembers": return this.actors.filter(a => a.game?.isPawn);
       default: return [source];
     }
   }
