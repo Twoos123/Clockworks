@@ -240,10 +240,14 @@
         const l = runLog("monster");
         rec.forced = { name: atk.name, hits: R().hits().filter(h => h.to === "knight"), projectiles: l.projectiles, effects: l.effects };
         // left to its own behaviour: does it come at the knight and attack?
-        k.x += Math.cos(a) * 3; k.y += Math.sin(a) * 3;
+        // the knight 3 units off, past the forced hit's knockback; slow walkers (the Green Giant
+        // crawls at 1 unit a second) get time to close the gap
+        const off = Math.hypot(k.x - m.x, k.y - m.y);
+        const pull = Math.max(0, off - 3);
+        k.x -= Math.cos(a) * pull; k.y -= Math.sin(a) * pull;
         const n0 = A().log().attacks.filter(x => x.who === "monster").length, x0 = m.x, y0 = m.y;
         m.hold = "live";
-        await step(6, () => ({}), () => A().log().attacks.filter(x => x.who === "monster").length > n0);
+        await step(12, () => ({}), () => A().log().attacks.filter(x => x.who === "monster").length > n0);
         rec.live = { attacked: A().log().attacks.filter(x => x.who === "monster").length > n0, moved: +Math.hypot(m.x - x0, m.y - y0).toFixed(2) };
         m.hold = "frozen";
         m.attack = null;
