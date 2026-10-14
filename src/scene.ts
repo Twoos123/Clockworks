@@ -5,7 +5,7 @@
 import { applyArguments } from "./config/params";
 import { importBinary } from "./export/BinaryImport";
 import { compose, toMatrix, readTransform, type Mat4 } from "./math";
-import { editorOnly, inflate, type LoadedModel, type ModelLoader } from "./model";
+import { editorOnly, floorTriangles, inflate, type LoadedModel, type ModelLoader } from "./model";
 import { CollisionMap, forTileCells } from "./game/collision";
 import { LevelMap } from "./game/levelmap";
 import { shapeFromConfig, type Shape } from "./game/shapes";
@@ -196,7 +196,8 @@ export class SceneLoader {
     const mappings: any[] = s.tileConfigs?.items ?? s.tileConfigs ?? [];
     const tileImpls = await Promise.all(mappings.map(m => m ? this.resolveImpl("config/tile.dat", m.tile, "tile") : null));
     const granularity = s.tiles?.granularity ?? 3, mask = (1 << granularity) - 1, empty = s.tiles?.empty ?? -1;
-    const jobs: { ref: any; matrix: Mat4 }[] = [];
+    // floor: the sprite's floor flags (TileConfig/PlaceableConfig floorFlags, default 0x01)
+    const jobs: { ref: any; matrix: Mat4; floor: number }[] = [];
     for (const [coord, cell] of s.tiles?.cells?.entries ?? []) {
       const values: Int32Array = cell.values;
       for (let i = 0; i < values.length; i++) {
@@ -213,7 +214,7 @@ export class SceneLoader {
         if (rotation === 1) tx += h;
         else if (rotation === 2) { tx += w; ty += h; }
         else if (rotation === 3) ty += w;
-        jobs.push({ ref: impl.model, matrix: compose([tx, ty, elevation * ELEVATION_SCALE], TILE_ROTATIONS[rotation], 1) });
+        jobs.push({ ref: impl.model, matrix: compose([tx, ty, elevation * ELEVATION_SCALE], TILE_ROTATIONS[rotation], 1), floor: impl.floorFlags ?? 1 });
         collision.addTile(impl, x, y, rotation, elevation, ELEVATION_SCALE);
         stats.tiles++;
         grow(x, y); grow(x + w, y + h);
@@ -271,7 +272,7 @@ export class SceneLoader {
       if (!modelRef) { stats.unresolved++; continue; }
       const t = readTransform(e.transform);
       collision.addProp(impl, e.transform);
-      jobs.push({ ref: modelRef, matrix: toMatrix(t) });
+      jobs.push({ ref: modelRef, matrix: toMatrix(t), floor: impl.floorFlags ?? 1 });
       stats.placeables++;
       grow(t.t[0], t.t[1]);
     }
@@ -282,7 +283,11 @@ export class SceneLoader {
     for (const job of jobs) {
       if (editorOnly(job.ref?.name ?? "")) { stats.markers++; continue; }
       const model = await this.loader.loadRef(job.ref);
-      if (model) { objects.push({ model, matrix: job.matrix }); unique.add(model); } else stats.unresolved++;
+      if (model) {
+        objects.push({ model, matrix: job.matrix }); unique.add(model);
+        // TudeySceneView.getFloorZ rays hit these sprites' collision meshes
+        if (job.floor) collision.addFloor(floorTriangles(model), job.matrix, job.floor);
+      } else stats.unresolved++;
       if (++done % 200 === 0) onProgress?.(done, jobs.length);
     }
     stats.uniqueModels = unique.size;

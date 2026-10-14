@@ -7,9 +7,8 @@ import { ConfigLibrary, defaultMaterialRef, localConfigs, type LocalConfigs, typ
 import { applyArguments, hasArguments } from "./config/params";
 import { readParticleLayers, type ParticleLayer } from "./particles";
 import { transformExpr, type F } from "./expr";
-import type { Mat4 } from "./math";
 import { importBinary, type JObject } from "./export/BinaryImport";
-import { IDENTITY_TRANSFORM, readTransform, type Transform } from "./math";
+import { IDENTITY_TRANSFORM, identity, multiply, readTransform, toMatrix, type Mat4, type Transform } from "./math";
 import type { Vfs } from "./vfs";
 
 export interface ClientArray {
@@ -92,6 +91,80 @@ export interface LoadedModel {
   renderEffect?: string;
   /** False when the model's InfluenceFlagConfig turns light influences off. */
   receivesLights?: boolean;
+  /**
+   * The model's own CollisionMesh triangles in model space (9 floats each, v1 v2 v3), which
+   * Static/Articulated.getIntersection test rays against: a StaticConfig's or the chosen
+   * StaticSetConfig mesh set's collision mesh, the skin's, and each articulated mesh node's
+   * (placed by the node's rest transform). Attachments keep their own; see floorTriangles.
+   */
+  collision?: Float32Array;
+}
+
+/** Appends a CollisionMesh's triangles (its BVH leaves), transformed by `m` when given. */
+function collisionTriangles(mesh: any, m: Mat4 | null, out: number[]) {
+  const stack: any[] = mesh?.root ? [mesh.root] : [];
+  const seen = new Set<any>();
+  while (stack.length) {
+    const n = stack.pop();
+    if (!n || typeof n !== "object" || seen.has(n)) continue;
+    seen.add(n);
+    const t = n.triangle;
+    if (t) {
+      for (const v of [t.v1, t.v2, t.v3]) {
+        const x = v?.x ?? 0, y = v?.y ?? 0, z = v?.z ?? 0;
+        if (m) out.push(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]);
+        else out.push(x, y, z);
+      }
+    }
+    if (n.left) stack.push(n.left);
+    if (n.right) stack.push(n.right);
+  }
+}
+
+/** Articulated mesh nodes' collision meshes, each placed by its node's rest transform. */
+function nodeCollision(n: any, parent: Mat4, out: number[], depth = 0) {
+  if (!n || depth > 64) return;
+  const m = multiply(parent, toMatrix(readTransform(n.transform)));
+  if (n.collision) collisionTriangles(n.collision, m, out);
+  for (const c of n.children ?? []) nodeCollision(c, m, out, depth + 1);
+}
+
+/** A node's rest-pose transform in model space (identity when the node is not found). */
+function nodeMatrix(root: NodeDef | undefined, name: string): Mat4 {
+  if (!root || !name) return identity();
+  const find = (n: NodeDef, parent: Mat4): Mat4 | null => {
+    const m = multiply(parent, toMatrix(n.transform));
+    if (n.name === name) return m;
+    for (const c of n.children) { const r = find(c, m); if (r) return r; }
+    return null;
+  };
+  return find(root, identity()) ?? identity();
+}
+
+const floorCache = new WeakMap<LoadedModel, Float32Array>();
+/**
+ * Every collision triangle a model answers ray queries with (Model.getIntersection: its own
+ * meshes plus its attachments' and components', placed by their node and transform), in model
+ * space, 9 floats per triangle.
+ */
+export function floorTriangles(model: LoadedModel, depth = 0): Float32Array {
+  let out = floorCache.get(model);
+  if (out) return out;
+  const tris: number[] = model.collision ? Array.from(model.collision) : [];
+  if (depth < 12) {
+    for (const a of model.attachments) {
+      const sub = floorTriangles(a.model, depth + 1);
+      if (!sub.length) continue;
+      const m = multiply(nodeMatrix(model.root, a.node), toMatrix(a.transform));
+      for (let i = 0; i < sub.length; i += 3) {
+        const x = sub[i], y = sub[i + 1], z = sub[i + 2];
+        tris.push(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]);
+      }
+    }
+  }
+  out = new Float32Array(tris);
+  floorCache.set(model, out);
+  return out;
 }
 
 export interface SkyboxDef {
@@ -425,6 +498,16 @@ export class ModelLoader {
       model.bounds = boundsOf(chosen?.[1]?.bounds);
     }
     model.bounds ??= boundsOf(impl.skin?.bounds) ?? boundsOf(impl.meshes?.bounds);
+    {
+      const tris: number[] = [];
+      collisionTriangles(impl.skin?.collision, null, tris);
+      if (impl.meshes?.$map) {
+        const entries: [unknown, any][] = impl.meshes.entries;
+        collisionTriangles((entries.find(([k]) => k === impl.model) ?? entries[0])?.[1]?.collision, null, tris);
+      } else collisionTriangles(impl.meshes?.collision, null, tris);
+      if (impl.root) nodeCollision(impl.root, identity(), tris);
+      if (tris.length) model.collision = new Float32Array(tris);
+    }
 
     for (const a of impl.attachments ?? []) {
       const m = await this.loadRef(a.model, depth, chain);

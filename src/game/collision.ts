@@ -49,9 +49,29 @@ export function forTileCells(impl: any, x: number, y: number, rotation: number, 
   }
 }
 
+/** A floor collision triangle in world space (v1 v2 v3) with its sprite's floor flags. */
+interface FloorTri { v: Float32Array; flags: number }
+
+/**
+ * Where a vertical line through (x, y) crosses triangle v (world space, 9 floats), or -Infinity
+ * when it misses (edges inclusive, as Triangle.getIntersection's barycentric bounds are).
+ */
+export function rayDownZ(v: ArrayLike<number>, x: number, y: number): number {
+  const ax = v[0], ay = v[1], bx = v[3], by = v[4], cx = v[6], cy = v[7];
+  const d = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy);
+  if (Math.abs(d) < 1e-12) return -Infinity;
+  const u = ((by - cy) * (x - cx) + (cx - bx) * (y - cy)) / d;
+  const w = ((cy - ay) * (x - cx) + (ax - cx) * (y - cy)) / d;
+  const e = 1e-6;
+  if (u < -e || w < -e || u + w > 1 + e) return -Infinity;
+  return u * v[2] + w * v[5] + (1 - u - w) * v[8];
+}
+
 export class CollisionMap {
   readonly cells = new Map<number, CellInfo>();
   readonly props: PropShape[] = [];
+  /** Floor collision triangles by the cells their bounds touch. */
+  readonly floors = new Map<number, FloorTri[]>();
 
   static key(x: number, y: number) { return (x + 32768) * 65536 + (y + 32768); }
 
@@ -259,10 +279,66 @@ export class CollisionMap {
     return out;
   }
 
-  /** Ground height under (x, y). */
-  groundZ(x: number, y: number): number {
+  /**
+   * Adds a floor sprite's collision triangles (model space, 9 floats each) placed by `matrix`:
+   * a tile or placeable whose floorFlags are set (TileConfig/PlaceableConfig floorFlags,
+   * default 0x01). TudeySceneView.getFloorZ casts a ray straight down onto these.
+   */
+  addFloor(tris: ArrayLike<number>, matrix: Mat4, floorFlags = 1) {
+    if (!floorFlags || tris.length < 9) return;
+    const m = matrix;
+    // a mirroring placement flips the winding the ray test culls by (it runs in model space)
+    const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
+    const sign = det < 0 ? -1 : 1;
+    for (let i = 0; i + 8 < tris.length; i += 9) {
+      const w = new Float32Array(9);
+      for (let k = 0; k < 3; k++) {
+        const x = tris[i + k * 3], y = tris[i + k * 3 + 1], z = tris[i + k * 3 + 2];
+        w[k * 3] = m[0] * x + m[4] * y + m[8] * z + m[12];
+        w[k * 3 + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+        w[k * 3 + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+      }
+      // Triangle.getIntersection only takes faces whose front looks along -ray (up, here)
+      const nz = ((w[3] - w[0]) * (w[7] - w[1]) - (w[4] - w[1]) * (w[6] - w[0])) * sign;
+      if (nz <= 1e-9) continue;
+      const tri: FloorTri = { v: w, flags: floorFlags };
+      const x0 = Math.floor(Math.min(w[0], w[3], w[6])), x1 = Math.floor(Math.max(w[0], w[3], w[6]));
+      const y0 = Math.floor(Math.min(w[1], w[4], w[7])), y1 = Math.floor(Math.max(w[1], w[4], w[7]));
+      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) continue;
+      for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+        const k = CollisionMap.key(cx, cy);
+        let list = this.floors.get(k);
+        if (!list) this.floors.set(k, list = []);
+        list.push(tri);
+      }
+    }
+  }
+
+  /**
+   * TudeySceneView.getFloorZ: the height where a ray cast straight down from high above
+   * (x, y) first meets a floor sprite's collision mesh whose floor flags match `mask` (actors'
+   * floorMask defaults to 0xFF), so stairs, ramps and raised floors lift what stands on them.
+   * Where no floor mesh lies under the point, the tile grid's elevation stands in
+   * (TudeySceneModel.getFloorZ), else `defvalue`.
+   */
+  floorZ(x: number, y: number, mask = 0xff, defvalue = 0): number {
+    const list = this.floors.get(CollisionMap.key(Math.floor(x), Math.floor(y)));
+    let best = -Infinity;
+    if (list) {
+      for (const t of list) {
+        if ((t.flags & mask) === 0) continue;
+        const z = rayDownZ(t.v, x, y);
+        if (z > best) best = z;
+      }
+    }
+    if (best > -Infinity) return best;
     const c = this.cell(Math.floor(x), Math.floor(y));
-    return c && isFinite(c.z) ? c.z : 0;
+    return c && isFinite(c.z) ? c.z : defvalue;
+  }
+
+  /** Ground height under (x, y): the floor the client stands actors and effects on. */
+  groundZ(x: number, y: number): number {
+    return this.floorZ(x, y);
   }
 
   /** A walkable spot near (x, y), searching outward. */
