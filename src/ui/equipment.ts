@@ -903,6 +903,14 @@ export class ArsenalScreen extends GuiScreen {
       set("label_prestige", m.prestige.toLocaleString("en-US"));
     }
     const st = this.status;
+    // LoadoutPanel.EZ: the title names the saved loadout the knight is wearing (the last that
+    // matches, as the loadout pills mark it), else the config's "<Current Equipment>"; Save
+    // Loadout is enabled only while what is worn is not a saved loadout
+    const title = st.find("label_currentloadout");
+    const wearing = (save.loadouts ?? []).filter(x => JSON.stringify(wearableLoadout(save, x)) === JSON.stringify(save.loadout)).at(-1);
+    if (title) { this.currentTitle ??= title.text; title.text = wearing ? wearing.name : this.currentTitle; }
+    const saveButton = st.find("button_saveloadout");
+    if (saveButton) saveButton.enabled = !wearing;
     for (const s of SOCKETS) {
       const c = st.find(s.tag);
       if (!c) continue;
@@ -938,6 +946,9 @@ export class ArsenalScreen extends GuiScreen {
     await this.fillAchievements();
     await this.fillGearStats();
   }
+
+  /** The status window title's own text ("<Current Equipment>"). */
+  private currentTitle: string | null = null;
 
   /** Whether the equipment page's gear stats column is folded away (the client starts it folded). */
   private statsFolded = true;
