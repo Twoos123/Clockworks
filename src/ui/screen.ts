@@ -15,6 +15,8 @@ const BONUS = "ui/window/tooltip_parts/bonus.dat";
 const STATS = "ui/window/tooltip_parts/container_stats.dat";
 const BAR = "ui/window/tooltip_parts/stat_bar.dat";
 const COMPARE = "ui/window/tooltip_compare.dat";
+/** Pixels between a docked window and the screen's edge. */
+const DOCK_MARGIN = 8;
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 
 export interface ScreenHost {
@@ -163,8 +165,13 @@ export abstract class GuiScreen {
       const r = this.canvas.getBoundingClientRect();
       const x = e.clientX - r.left, y = e.clientY - r.top;
       this.pointer = { x, y };
-      const target = this.overlays[this.overlays.length - 1] ?? this.root;
+      // a press keeps its window until the release (the side window or the main one)
+      const target = type === "down" || !this.captured ? this.targetAt(x, y) : this.captured;
       if (!target) return;
+      if (type === "down") this.captured = target;
+      if (type === "up") this.captured = null;
+      // the other window loses its hover
+      if (type === "move") for (const o of [this.root, this.side]) if (o && o !== target && !this.overlays.length) dispatch(o, { type: "move", x: -1, y: -1 });
       // an open popup menu takes the pointer: nothing under it is clicked
       const menu = !!target.overlay;
       dispatch(target, { type, x, y, button: (e as PointerEvent).button ?? 0, delta: type === "wheel" ? Math.sign((e as WheelEvent).deltaY) : 0 });
@@ -200,7 +207,7 @@ export abstract class GuiScreen {
       this.building ??= this.build();
       this.root = await this.building;
     }
-    if (this.root && this.isOpen) { resetInput(this.root); await this.refresh(); }
+    if (this.root && this.isOpen) { resetInput(this.root); if (this.side) resetInput(this.side); this.captured = null; await this.refresh(); }
   }
 
   /**
@@ -222,6 +229,8 @@ export abstract class GuiScreen {
     this.last = 0;
     this.overlays = [];
     if (this.root) resetInput(this.root);
+    if (this.side) resetInput(this.side);
+    this.captured = null;
     this.host.sound("sound/feedback/ui_dismiss.ogg");
     this.host.closed();
   }
@@ -230,23 +239,43 @@ export abstract class GuiScreen {
    * Pops up a menu built in code (the client's item and sort menus, client/ui/E.bH) under the
    * pointer, over the topmost interface; a chosen item calls `choose` with its action.
    */
-  protected async popupMenu(entries: MenuEntry[], title: string | undefined, choose: (action: string) => void) {
-    const target = this.overlays[this.overlays.length - 1] ?? this.root;
+  async popupMenu(entries: MenuEntry[], title: string | undefined, choose: (action: string) => void) {
     const at = this.pointer;
+    const target = at ? this.targetAt(at.x, at.y) : this.overlays[this.overlays.length - 1] ?? this.root;
     if (!target || !entries.length) return;
     const menu = await buildMenu(this.ctx, entries, title);
     menu.onAction = (_c, a) => { this.host.sound("sound/feedback/ui_dropdown_select.ogg"); choose(a); };
     openMenu(target, menu, at?.x ?? this.canvas.clientWidth / 2, at?.y ?? this.canvas.clientHeight / 2, this.canvas.clientWidth, this.canvas.clientHeight);
   }
 
+  /**
+   * A second window docked at the screen's right edge, centred vertically (the inventory
+   * window the client opens beside the crafting window, item/client/f); it takes the pointer
+   * where it lies.
+   */
+  protected side: Component | null = null;
+  /** Docks the main window at the screen's right edge instead of centring it (item/client/i). */
+  protected dockRight = false;
+  private captured: Component | null = null;
+
+  /** The window under a point: the top overlay, else the side window, else the main one. */
+  private targetAt(x: number, y: number): Component | null {
+    const top = this.overlays[this.overlays.length - 1];
+    if (top) return top;
+    if (this.side?.overlay) return this.side;
+    if (this.root?.overlay) return this.root;
+    if (this.side && hitTest(this.side, x, y)) return this.side;
+    return this.root;
+  }
+
   /** An icon config's image scaled to `size` pixels, once loaded (a menu item's icon). */
-  protected async iconImage(cfg: any, size: number): Promise<GuiImage | null> {
+  async iconImage(cfg: any, size: number): Promise<GuiImage | null> {
     const im = await this.ctx.icon(cfg);
     return im ? scaleImage(im, size) : null;
   }
 
   /** A style's background image scaled to `size` pixels (an equipment slot's own icon). */
-  protected async styleImage(name: string, args: Record<string, unknown>, size: number): Promise<GuiImage | null> {
+  async styleImage(name: string, args: Record<string, unknown>, size: number): Promise<GuiImage | null> {
     const st = await this.ctx.resolveStyle({ $class: CONFIG_REF, name, arguments: { $map: "com.threerings.config.ArgumentMap", entries: Object.entries(args) } }, new Map());
     const im = st?.background?.image;
     return im ? scaleImage(im, size) : null;
@@ -254,8 +283,7 @@ export abstract class GuiScreen {
 
   /** Escape: closes an open popup menu, then the topmost overlay, else the window. */
   escape() {
-    const top = this.overlays[this.overlays.length - 1] ?? this.root;
-    if (top?.overlay) { top.overlay = null; return; }
+    for (const top of [this.overlays[this.overlays.length - 1] ?? this.root, this.side]) if (top?.overlay) { top.overlay = null; return; }
     if (this.overlays.length) { this.overlays.pop(); return; }
     this.close();
   }
@@ -285,11 +313,12 @@ export abstract class GuiScreen {
 
   /** The tooltip for the hovered component (or an ancestor), built once per reference. */
   private hoveredTip(): Component | null {
-    if (!this.pointer || !this.root || this.overlays.length || this.root.overlay) return null;
-    const hit = hitTest(this.root, this.pointer.x, this.pointer.y);
+    if (!this.pointer || !this.root || this.overlays.length || this.root.overlay || this.side?.overlay) return null;
+    const win = this.targetAt(this.pointer.x, this.pointer.y) ?? this.root;
+    const hit = hitTest(win, this.pointer.x, this.pointer.y);
     if (!hit) return null;
     let spec: TipSpec | null = null;
-    for (const c of this.ancestors(this.root, hit) ?? []) spec = this.tips.get(c) ?? spec;
+    for (const c of this.ancestors(win, hit) ?? []) spec = this.tips.get(c) ?? spec;
     if (!spec) return null;
     const key = JSON.stringify(spec, (k, v) => (k === "$outer" ? undefined : v));
     const t = this.tipCache.get(key);
@@ -345,7 +374,11 @@ export abstract class GuiScreen {
     this.tick();
     if (this.root) {
       const s = pack(this.root);
-      render(this.root, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+      render(this.root, g, this.dockRight ? Math.max(0, cw - s.width - DOCK_MARGIN) : Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+    }
+    if (this.side) {
+      const s = pack(this.side);
+      render(this.side, g, Math.max(0, cw - s.width - DOCK_MARGIN), Math.round((ch + s.height) / 2), this.hooks);
     }
     for (const o of this.overlays) {
       g.fillStyle = "rgba(4,10,18,0.45)";
