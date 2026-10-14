@@ -3,7 +3,7 @@ import { loadAnimation, ModelLoader, type LoadedModel } from "./model";
 import { Renderer, type ModelInstance } from "./render/renderer";
 import { SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
-import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environment";
+import { loadEnvironment, readCamera, VIEWER_ENVIRONMENT, type CameraView, type Environment } from "./environment";
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
@@ -261,6 +261,7 @@ class Viewer {
   /** The action key (F) went down since the last update. */
   private interactPressed = false;
   private dashPressed = false;
+  private bashPressed = false;
   private readonly pads = new Gamepads();
   private shieldHeld = false;
   /** Mouse position over the canvas in CSS pixels, for aiming. */
@@ -275,6 +276,14 @@ class Viewer {
   private model: LoadedModel | null = null;
   private readonly datFiles: string[];
   private az = -0.6; private el = 0.35; private dist = 3;
+  /** Vertical field of view: the scene camera's in play (60 degrees by default), ours elsewhere. */
+  private fov = 0.75;
+  /**
+   * Play mode's camera (TudeySceneView): locked on the knight plus the config's offset, at the
+   * scene camera's coordinates; the zoom toggle (=) picks a scene's closer camera, easing there
+   * over 1.5 s (QuadraticOut), as the client's TOGGLE_ZOOM does.
+   */
+  private cam: { views: CameraView[]; zoom: number; from: CameraView; to: CameraView; t: number } | null = null;
   private target: Vec3 = [0, 0, 0.5];
   private home = { dist: 3, target: [0, 0, 0.5] as Vec3 };
   private paused = false;
@@ -338,6 +347,8 @@ class Viewer {
       (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
       if (b("dash") && !e.repeat) this.dashPressed = true;
+      // the game's TOGGLE_ZOOM key
+      if ((e.key === "=" || e.key === "+") && !e.repeat && !this.paused) this.toggleZoom();
       if (b("help") && !e.repeat) this.toggleHelp();
       if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
       if (key === "n" && !e.repeat) this.openFeed();
@@ -720,11 +731,10 @@ class Viewer {
     // in town, the item windows and the options are built while the player looks around, so
     // their first opening is instant
     if (TOWN.test(this.scene.name)) void this.prebuildWindows();
-    // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
-    const cam = this.environment.camera;
-    this.el = cam?.elevation ?? 0.785;
-    this.az = -Math.PI / 2;
-    this.dist = (cam?.distance ?? 10) * 1.35 * this.options_.zoom;
+    // the scene's own camera: its field of view, elevation, distance and offset
+    const cam = this.environment.camera ?? readCamera(undefined);
+    this.cam = { views: this.environment.cameras ?? [cam], zoom: 0, from: cam, to: cam, t: 1 };
+    this.applyCamView(cam);
     this.applyOptions();
     $("play").textContent = "Stop playing";
     document.body.classList.add("playing");
@@ -783,8 +793,42 @@ class Viewer {
   }
 
   /** Where the mouse points on the knight's ground plane, for aiming attacks. */
+  /**
+   * Where the pointer points for the knight's facing: TudeySceneController intersects the pick
+   * ray with the horizontal plane through the camera's target (the knight plus the camera
+   * offset, 1 unit up by default) and faces from the target toward that point.
+   */
   private aimPoint(): [number, number] | null {
-    return this.world ? this.rayPoint(this.world.knight.z + 0.5) : null;
+    if (!this.world) return null;
+    const k = this.world.knight, off = this.cam?.to.offset ?? [0, 0, 1];
+    const p = this.rayPoint(k.z + off[2]);
+    return p ? [p[0] - off[0], p[1] - off[1]] : null;
+  }
+
+  /** Puts the play camera at a CameraConfig's view (the distance times the Camera Distance option). */
+  private applyCamView(v: CameraView) {
+    this.el = v.elevation;
+    this.az = -Math.PI / 2 + v.azimuth;
+    this.dist = v.distance * this.options_.zoom;
+    this.fov = v.fov;
+  }
+
+  /** TOGGLE_ZOOM: the next zoom level the scene's cameras offer (a town's closer camera), eased over 1.5 s. */
+  private toggleZoom() {
+    const c = this.cam;
+    if (!c || c.views.length < 2) return;
+    const levels = [...new Set(c.views.map(v => v.zoom))].sort((a, b) => a - b);
+    const zoom = levels[(levels.indexOf(c.zoom) + 1) % levels.length];
+    const to = c.views.find(v => v.zoom === zoom);
+    if (!to) return;
+    c.zoom = zoom;
+    c.from = { ...c.to, ...this.currentView() };
+    c.to = to;
+    c.t = 0;
+  }
+
+  private currentView(): Partial<CameraView> {
+    return { elevation: this.el, distance: this.dist / (this.options_.zoom || 1), fov: this.fov };
   }
 
   /** Where the pointer's ray meets the horizontal plane at height gz. */
@@ -951,7 +995,7 @@ class Viewer {
       go: async id => { this.stopPlaying(); await this.selectScene(id); await this.startPlaying(); },
       restart: async () => { this.stopPlaying(); await this.startPlaying(); },
       world: () => this.world,
-      camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; },
+      camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; this.fov = 0.75; this.cam = null; },
       openArsenal: async () => { if (!this.itemScreens?.arsenal.isOpen) await this.toggleArsenal(); },
       arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
       colors: () => this.renderer.colors,
@@ -1717,7 +1761,9 @@ class Viewer {
       if (this.world && (e.button === 0 || e.button === 2)) {
         // play mode: left attacks (hold to charge), right raises the shield
         // Shift + right click dashes (the game's default binding); right click alone shields
-        if (e.button === 0) { this.attackPressed = true; this.attackHeld = true; }
+        // Shift + left click is the shield bash (the WASD scheme's SHIELD_BASH)
+        if (e.button === 0 && e.shiftKey) this.bashPressed = true;
+        else if (e.button === 0) { this.attackPressed = true; this.attackHeld = true; }
         else if (e.shiftKey) this.dashPressed = true;
         else this.shieldHeld = true;
         c.setPointerCapture(e.pointerId);
@@ -1802,19 +1848,28 @@ class Viewer {
             move, attackDown: this.attackPressed || !!pad?.attackDown, attackHeld: this.attackHeld || !!pad?.attackHeld,
             shield: this.shieldHeld || !!pad?.shield, aim, weaponSlot: this.weaponSlot,
             interact: this.interactPressed || !!pad?.interact, dash: this.dashPressed || !!pad?.dash,
+            bash: this.bashPressed,
           });
           this.dashPressed = false;
+          this.bashPressed = false;
           this.weaponSlot = null;
           this.interactPressed = false;
         }
         this.attackPressed = false;
-        // Q and E turn the camera; it follows the knight smoothly
+        // Q and E turn the camera (ours: the game's camera does not turn)
         if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options_.cameraSpeed;
         if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options_.cameraSpeed;
-        const k = this.world.knight;
-        const f = 1 - Math.exp(-dt * 10);
-        this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
-          this.target[2] + (k.z + 1 - this.target[2]) * f];
+        // the camera is locked on the knight plus the camera offset, no smoothing (TudeySceneView)
+        const k = this.world.knight, cam = this.cam;
+        if (cam && cam.t < 1) {
+          cam.t = Math.min(1, cam.t + dt / 1.5);
+          const e = 1 - (1 - cam.t) * (1 - cam.t), lerp = (a: number, b: number) => a + (b - a) * e;
+          this.el = lerp(cam.from.elevation, cam.to.elevation);
+          this.dist = lerp(cam.from.distance, cam.to.distance) * this.options_.zoom;
+          this.fov = lerp(cam.from.fov, cam.to.fov);
+        }
+        const off = cam?.to.offset ?? [0, 0, 1];
+        this.target = [k.x + off[0], k.y + off[1], k.z + off[2]];
         if (this.knockedOut !== this.world.defeated) {
           this.knockedOut = this.world.defeated;
           // the game's revive window (Sparks of Life); in town the knight simply gets up
@@ -1829,7 +1884,7 @@ class Viewer {
         this.target[1] + this.dist * Math.cos(this.el) * Math.sin(this.az),
         this.target[2] + this.dist * Math.sin(this.el),
       ];
-      const proj = perspective(0.75, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
+      const proj = perspective(this.fov, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
       // camera shake from explosions (ShakeCamera actions)
       const shake = this.world?.shake ?? 0;
       if (shake > 0) for (let i = 0; i < 3; i++) eye[i] += (Math.random() - 0.5) * shake * 0.6;
