@@ -113,7 +113,9 @@ export class SpawnTables {
         for (let i = 0; i < (e.count ?? 1); i++) out.push(...this.evaluate(e.spawnTable, ctx, depth + 1));
         return out;
       }
-      case "ItemEntry": case "LockedItemEntry": case "VariantItemEntry":
+      // a locked entry's stack comes whole (the treasure tables' fire crystals: three Warm)
+      case "LockedItemEntry": return e.item?.name ? [{ item: e.item, count: Math.max(1, Number(e.count ?? 1)) }] : [];
+      case "ItemEntry": case "VariantItemEntry":
         return e.item?.name ? [{ item: e.item, count: 1 }] : [];
       case "MultiItemEntry": return e.item?.name ? [{ item: e.item, count: e.count ?? 1 }] : [];
       case "ItemRarityListEntry": {

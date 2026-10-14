@@ -115,6 +115,10 @@ export interface HudState {
   commandKeys?: { zoom?: string; map?: string; hudLock?: string };
   /** An unread letter: the mail button's notice, and the left menu's handle notice while folded. */
   mailNews?: boolean;
+  /** An item is ready to level (as.EF, hud/P.bE): the forge button's notice, and the right menu's handle notice while folded. */
+  forgeReady?: boolean;
+  /** The corner menu buttons whose windows are open (hud/P.ao, as, a, aA: pressed). */
+  windows?: Record<string, boolean>;
   /** The scene's camera has a closer zoom (towns and the guild hall show the zoom button). */
   zoomable?: boolean;
   /** The camera is at its closer zoom (the zoom button selected). */
@@ -814,11 +818,13 @@ export class GameHud {
         const key = tag === "button_menu" ? "" : (s.menuKeys?.[tag] ?? "").slice(0, 3);
         if (hk) { hk.text = key; hk.visible = key !== ""; }
         const n = host.find("notice");
-        if (n) n.visible = tag === "button_mail" && !!s.mailNews;
+        if (n) n.visible = tag === "button_mail" ? !!s.mailNews : tag === "button_forge" && !!s.forgeReady;
+        const b = host.find("button");
+        if (b && s.windows && tag in s.windows) b.selected = !!s.windows[tag];
       }
     }
     if (this.menuLeft) this.bindHandle(this.menuLeft, !!s.mailNews, null);
-    if (this.menuRight) this.bindHandle(this.menuRight, false, null);
+    if (this.menuRight) this.bindHandle(this.menuRight, !!s.forgeReady, null);
   }
 
   /** The activities' visibility rules (hud/a.bv) for single play. */

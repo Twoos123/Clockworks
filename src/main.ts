@@ -1045,10 +1045,9 @@ class Viewer {
     });
   }
 
-  /** Opens or closes the arsenal (or the forge); the world pauses while it is open. */
-  private async toggleArsenal(tab?: "craft") {
-    const screens = this.ensureScreens();
-    await (tab === "craft" ? screens.toggleForge() : screens.toggleArsenal());
+  /** Opens or closes the character window (equipment); the world pauses while it is open. */
+  private async toggleArsenal() {
+    await this.ensureScreens().toggleArsenal();
   }
 
   /** Applies the options menu's settings to audio, rendering, the HUD and input. */
@@ -1092,7 +1091,8 @@ class Viewer {
     ];
     void this.gameHud?.openMenu(x, y, knightName(this.save), entries, a => {
       this.uiSound("sound/feedback/ui_dropdown_select.ogg");
-      if (a === "equipment") this.hudAction("button_gear");
+      // as.DI: the character window on its equipment
+      if (a === "equipment") void this.ensureScreens().showCharacter("equipment");
       else if (a === "guild_hall") this.hudAction("button_guildhall");
       else if (a === "show_treasury") this.hudAction("button_social");
     });
@@ -1109,6 +1109,9 @@ class Viewer {
         button_gear: key("character"), button_loadout: key("loadout"), button_arsenal: key("arsenal"), button_forge: key("forge") },
       commandKeys: { zoom: kb("zoom"), map: kb("map"), hudLock: kb("hudLock") },
       mailNews: mailbox(this.save).some(m => !m.read),
+      // as.EF: the forge button's notice while an item is ready to level
+      forgeReady: !!(this.eco ?? w?.economy)?.forgeable(this.save).length,
+      windows: this.itemScreens?.openWindows(),
       zoomable: (this.cam?.views.length ?? 0) > 1, zoomed: (this.cam?.zoom ?? 0) > 0,
       prestige: progressOf(this.save).prestige,
       pet: !!w?.companion,
@@ -1135,24 +1138,61 @@ class Viewer {
       help: hud("button_help"), forge: hud("button_forge"), arsenal: hud("button_arsenal"), character: hud("button_gear"),
       loadout: hud("button_loadout"), social: hud("button_social"), feed: hud("button_feed"), uplink: hud("button_mail"),
       mission: hud("button_missions"),
+      // TOGGLE_RECIPES (as.DM) and TOGGLE_PROGRESS (as.DE), the main menu's Recipes and Achievements
+      recipes: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); void this.ensureScreens().toggleRecipes(); },
+      achievements: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); void this.ensureScreens().toggleAchievements(); },
       map: () => this.gameHud?.toggleMap(),
       zoom: () => { if (!this.paused) this.toggleZoom(); },
       hudLock: () => this.gameHud?.toggleLock(),
     };
   }
 
+  /**
+   * The wrench's MAIN MENU (client/et, popped up at the button): the toggles with their keys
+   * (m.add_command_key), Messages, Options and Help, and Purchase Energy (the Supply Depot).
+   * Support, Report a Bug, Redeem Code and the Crucible need the game's servers.
+   */
+  private mainMenu(x: number, y: number) {
+    this.uiSound("sound/feedback/ui_dropdown_activate.ogg");
+    const t = (k: string, f: string) => text("projectx", k, f);
+    const item = (key: string, fallback: string, action: string, cmd?: Action) => {
+      const label = t(`m.${key}`, fallback), k = cmd ? gameKeyName(this.bound(cmd)) : "";
+      return { label: k ? message("projectx", "m.add_command_key", label, k) || `${label} (${k})` : label, action };
+    };
+    const entries = [
+      item("arsenal_item", "Arsenal", "arsenal", "arsenal"), item("status_item", "Character", "character", "character"),
+      item("missions_item", "Missions", "missions", "mission"), item("social_item", "Social", "social", "social"),
+      item("feed_item", "Event Hub", "feed", "feed"), item("recipes_item", "Recipes", "recipes", "recipes"),
+      item("achievements", "Achievements", "achievements", "achievements"), item("messages_item", "Messages", "messages"),
+      item("options_item", "Options (Esc)", "options"), item("help_item", "Help", "help", "help"),
+      item("purchase_energy_item", "Purchase Energy", "energy"),
+    ];
+    void this.gameHud?.openMenu(x, y, t("m.main_menu", "MAIN MENU"), entries, a => {
+      this.uiSound("sound/feedback/ui_dropdown_select.ogg");
+      const c = this.commands();
+      if (a === "arsenal") c.arsenal?.(); else if (a === "character") c.character?.(); else if (a === "missions") c.mission?.();
+      else if (a === "social") c.social?.(); else if (a === "feed") c.feed?.(); else if (a === "recipes") c.recipes?.();
+      else if (a === "achievements") c.achievements?.(); else if (a === "messages") this.hudAction("button_mail");
+      else if (a === "options") this.openSettings(); else if (a === "help") c.help?.();
+      else if (a === "energy") this.hudAction("button_supplydepot");
+    });
+  }
+
   /** A HUD button was clicked (the corner menus and the activities panel). */
   private hudAction(tag: string) {
+    if (tag === "button_menu") { this.mainMenu(8, innerHeight); return; }
     this.uiSound("sound/feedback/ui_confirm.ogg");
     if (this.places.hudAction(tag)) return;
     switch (tag) {
-      case "button_menu": this.openSettings(); break;
       case "button_help": this.toggleHelp(); break;
       case "button_feed": this.openFeed(); break;
       case "button_mail": this.openMail(); break;
-      case "button_loadout": case "button_gear": void this.toggleArsenal(); break;
+      // hud/P: P the character window (as.DD), L the loadouts (as.DF), I the arsenal (as.DG),
+      // U the forge (as.DH)
+      case "button_gear": void this.toggleArsenal(); break;
+      case "button_loadout": void this.ensureScreens().toggleLoadouts(); break;
       case "button_arsenal": void this.ensureScreens().toggleBackpack(); break;
-      case "button_forge": void this.toggleArsenal("craft"); break;
+      case "button_forge": void this.ensureScreens().toggleForge(); break;
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       // (the Rescue Camp's leads to Haven: the elevator its story repairs)
       case "button_haven": if (this.hudContext().town && !this.gate && !RESCUE_CAMP.test(this.scene?.name ?? "")) this.openGates(); else void this.returnToHaven(); break;
@@ -1161,8 +1201,8 @@ class Viewer {
       case "button_map": this.gameHud?.toggleMap(); break;
       case "button_zoom": this.toggleZoom(); break;
       case "button_lockhud": this.gameHud?.toggleLock(); break;
-      // the pet portrait opens the battle sprite's window (as.DJ); here the arsenal, where the sprite page is
-      case "pet_portrait": void this.toggleArsenal(); break;
+      // the pet portrait opens the character window on the battle sprite (as.DJ)
+      case "pet_portrait": void this.ensureScreens().showCharacter("sprite"); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       default: break;
     }
@@ -1215,7 +1255,7 @@ class Viewer {
       stream: (f, gain) => this.ensureAudio().playStream(f, gain, 2),
       toggleArsenal: () => this.toggleArsenal(),
       arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
-      openForge: () => { if (!this.itemScreens?.forge.isOpen) void this.toggleArsenal("craft"); },
+      openForge: () => { if (!this.itemScreens?.recipes.isOpen) void this.ensureScreens().toggleRecipes(); },
       pause: on => { this.paused = on && !!this.world; },
       startRun: (g, floors) => void this.enterGate(g, floors),
       openGates: () => this.openGates(),
@@ -1404,7 +1444,7 @@ class Viewer {
         notes.push(`Found ${eco.displayName(it.name, this.save.gear[it.name])}`);
       }
     }
-    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${itemName(up.name)} reached level ${up.level}`);
+    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${itemName(up.name)} is ready to forge to level ${up.level + 1}`);
     return notes;
   }
 
@@ -1423,12 +1463,13 @@ class Viewer {
     const row = (name: string, gain: number): HeatRow => {
       const state = this.save.gear[name] ?? { heat: 0, level: 1, variants: [] };
       const before = eco.heatProgress(this.save, name);
-      const trial = { ...this.save, gear: { ...this.save.gear, [name]: { ...state, variants: [...(state.variants ?? [])], heat: state.heat + gain } } };
-      eco.levelUp(trial, name);
-      const levelUp = trial.gear[name].level > state.level;
+      // the bar fills no further than the level's end: the item then waits for the forge
+      const trial = { ...this.save, gear: { ...this.save.gear, [name]: { ...state, variants: [...(state.variants ?? [])], heat: eco.heatAfter(name, state, gain) } } };
+      const after = eco.heatProgress(trial, name);
+      const levelUp = gain > 0 && before < 1 && after >= 1;
       const icon = eco.info(name)?.icon;
       return { name: eco.displayName(name, state), icon: icon?.file ?? "ui/icon/inventory/blank.png", colorizations: icon?.colorizations ?? [],
-        level: state.level, before, after: levelUp ? 1 : eco.heatProgress(trial, name), levelUp };
+        level: state.level, before, after, levelUp };
     };
     const l = this.save.loadout;
     const maxed = [...new Set([...l.weapons, l.shield, l.armor, l.helmet])].filter(n => n && !items.includes(n) && this.save.owned.includes(n) && eco.info(n)?.heatable);
@@ -2190,6 +2231,7 @@ class Viewer {
         if (this.gameHud.covers(x, y)) {
           const tag = this.gameHud.pointer(x, y, true);
           if (tag === "personal_menu") this.personalMenu(x, y);
+          else if (tag === "button_menu") this.mainMenu(x, y);
           else if (tag === "menu") { /* the popup menu took the press */ }
           else if (tag && tag !== "handle") this.hudAction(tag);
           else if (tag === "handle") this.uiSound("sound/feedback/ui_dropdown_activate.ogg");

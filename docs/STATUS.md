@@ -63,11 +63,15 @@ A single-player loop runs in the browser, built from the install's own data:
 10. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
    deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
    boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
-11. **Crafting.** The game's recipe window (`ui/recipes`, K; the client's crafting window, not
-   the crystal forge `ui/forge`): learned recipes from `config/recipe.dat` turn materials,
+11. **Crafting and the Forge.** The game's recipe window (`ui/recipes`, F5 or the main menu's
+   Recipes; the client's crafting window): learned recipes from `config/recipe.dat` turn materials,
    crowns and a levelled, unequipped base item into the next item, with the transmute result
    window and its script. Shops are the client's shop dialog: the vendor list, the shopping
-   cart with the keeper's portrait and the knight's arsenal to sell from (`ui/shop`).
+   cart with the keeper's portrait and the knight's arsenal to sell from (`ui/shop`). The Forge
+   (`ui/forge`, U) levels gear whose heat bar is full with fire crystals of its star: the
+   ready items, the dial with the minimal, medium and maximum crystals, the results with the
+   success chance, enhancements and possible bonuses, and the forging window
+   (`src/game/forge.ts` documents the tables, our bonus chances and the crystals' sources).
 12. **Saving.** The browser keeps:
    - loadout, owned items and colour;
    - banked crowns, heat and materials;
@@ -84,7 +88,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
 | Damage | Depth-scaled damage, health and defence from `config/depth_scale.dat`; four damage types; status conditions |
 | Status conditions | Fire, freeze, shock, poison, curse, sleep and stun, with the game's effects and HUD icons |
-| Heat and levels | Equipped weapons, shields, armour and helmets absorb a floor's heat and level 1 to 10 (`item_property.dat` heat by star); level bonuses from `level_table.dat`: damage and charge time on weapons, defence and heart pips on gear |
+| Heat and levels | Equipped weapons, shields, armour and helmets absorb a floor's heat until their bar is full, then level 1 to 10 at the Forge with fire crystals (`forge_property.dat`) (`item_property.dat` heat by star); level bonuses from `level_table.dat`: damage and charge time on weapons, defence and heart pips on gear |
 | Economy (`src/game/economy.ts`) | Prices and sell prices from `item_property.dat`; Haven's Strangers stock the wiki's lists (`src/game/vendors.ts`: Quillion, Ricasso, Greave, Kragen and Vatel's recipes; zero and one star always, a random few two and three star goods per knight per day, turning at midnight Pacific), Basil (recipes, per visit) and the Supply Depot (capsules and vials the treasure tables give, and its energy goods); selling back; recipes are bought before crafting; crafting costs `recipe_property.dat` crowns, the recipe's materials, three orbs of alchemy of its star (or their pack's energy) and the base item at its level; unique variants rolled from `variant_table.dat` on crafted and found gear, stored per item, shown in names and applied |
 | Energy (`src/game/energy.ts`) | The old free Mist Energy tank (100, refilling over 22 hours) and Crystal Energy from the exchange (100 for 6,500 crowns, the client's Get Energy panel), spent mist first; the arsenal's energy module; the Supply Depot's energy goods at their `depotCost` (heat amplifier 800 / 1,600 / 5,000 for 2 / 7 / 30 days, ten Sparks of Life 200, orbs of alchemy 10 to 800 a pack of three); revives, crafting, energy gates and crates, and the knight statues in the furniture shop pay energy |
 | Drops | Materials by depth weight (`item_depth_weight.dat`) and the monster's family tags; rare gear drops; mineral deposits (1, 2, 4 or 6 minerals); crowns and heat by depth on the tables' per-tier curves, coins and embers worth their denominations |

@@ -77,13 +77,19 @@ test("weapons and armour level 1-10 with heat; level tables give damage, charge,
   assert.ok(e.levelStats(armor, 5, 1).health >= 40);
   assert.ok(e.levelStats(armor, 5, 10).health > e.levelStats(armor, 5, 1).health);
   const w = wallet({ owned: [sword, armor], loadout: { weapons: [sword], shield: "", armor, helmet: "", trinkets: ["Gear/Trinket/Heart Pendant"], vitapod: "" } });
-  const ups = e.addHeat(w, 800);
-  assert.ok(ups.some(u => u.name === sword) && ups.some(u => u.name === armor));
-  assert.equal(w.gear[sword].heat, 400, "the heat is shared between the two heated items");
+  e.addHeat(w, 60);
+  assert.equal(w.gear[sword].heat, 30, "the heat is shared between the two heated items");
   assert.equal(w.gear["Gear/Trinket/Heart Pendant"], undefined, "trinkets take no heat");
   w.heatAmplifier = Date.now() + 1000;
-  e.addHeat(w, 100);
-  assert.equal(w.gear[sword].heat, 500, "the heat amplifier doubles heat");
+  e.addHeat(w, 20);
+  assert.equal(w.gear[sword].heat, 50, "the heat amplifier doubles heat");
+  // a full bar waits for the forge: no level is gained, the heat stops at the level's end
+  const ready = e.addHeat(w, 8000);
+  assert.ok(ready.some(u => u.name === sword && u.level === 1) && ready.some(u => u.name === armor));
+  assert.equal(w.gear[sword].level, 1);
+  assert.equal(w.gear[sword].heat, 100);
+  assert.ok(e.forgeReady(w, sword));
+  assert.deepEqual(e.heatedItems(w), [], "items ready to forge take no more heat");
 });
 
 test("shops: keepers sell their kinds within the star range; buying, recipes and selling", { skip: !have }, async () => {

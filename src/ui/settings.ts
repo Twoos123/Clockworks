@@ -26,9 +26,11 @@ export const ACTIONS = {
   // the HUD's menu commands on the client's default keys (Command.COMMON_KEYS); the corner
   // menus' hotkey badges show what is bound here
   arsenal: { label: "Arsenal", key: "i" },
-  character: { label: "Equipment", key: "p" },
+  character: { label: "Character", key: "p" },
   loadout: { label: "Loadouts", key: "l" },
-  forge: { label: "Forge (crafting)", key: "u" },
+  forge: { label: "Forge", key: "u" },
+  recipes: { label: "Recipes", key: "f5" },
+  achievements: { label: "Achievements", key: "o" },
   mission: { label: "Missions", key: "m" },
   social: { label: "Social", key: "f6" },
   feed: { label: "News feed", key: "f7" },

@@ -186,7 +186,9 @@ export function loadSave(): SaveData {
   for (const n of out.owned) {
     const g = out.gear[n];
     out.gear[n] = { heat: Math.max(0, Number(g?.heat) || 0), level: Math.max(1, Math.min(10, Number(g?.level) || 1)),
-      variants: Array.isArray(g?.variants) ? g.variants.filter(v => typeof v === "string") : [] };
+      variants: Array.isArray(g?.variants) ? g.variants.filter(v => typeof v === "string") : [],
+      // the forge's Heat Bonus (+25% heat toward the next level), kept until the next forging
+      ...(Number(g?.heatBonus) > 0 ? { heatBonus: Number(g!.heatBonus) } : {}) };
   }
   return out;
 }
