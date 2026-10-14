@@ -15,6 +15,8 @@ import { applyArguments } from "../config/params";
 import { rng } from "../gen/layout";
 import { hasMessage, message, text, xlate } from "../i18n";
 import { bossName, BOSSES, FAMILIES, STYLES, type BossKey, type Family, type Floor, type Gate, type LevelStyle, type Stratum, type StratumTheme } from "./clockworks";
+import { floorStyle, LAIR_DEPTH, lairFloors, missionPlan, type MissionFloorDef } from "./missionfloors";
+import { levelText } from "./text";
 
 export type MissionClass = "Rank" | "Prestige" | "Hidden" | "Expansion";
 export type MissionKind = "dungeon" | "conversation" | "exchange" | "gate" | "gate-conversation";
@@ -264,20 +266,72 @@ export function missionSetting(m: Pick<Mission, "id" | "cardImage" | "path" | "r
   family ??= FAMILIES[hash(m.id) % FAMILIES.length];
   tileset ??= family === "Beast" ? "valley" : family === "Undead" || family === "Fiend" ? "castle" : "clockworks";
   const rank = m.rank + (m.cls === "Rank" ? Math.max(0, m.subrank - 1) * 0.25 : 0);
+  // the mission's own floors (src/game/missionfloors.ts): their number, and the first one's depth
+  const plan = missionPlan(m.id);
+  if (plan) {
+    family = plan.family ?? family;
+    const n = plan.floors.length;
+    const first = plan.depth ?? rankDepth(Math.round(rank));
+    return { family, tileset, boss: plan.floors.find(f => f.boss)?.boss ?? boss, depth: Math.max(1, Math.min(first, 30 - n)), floors: n };
+  }
   return { family, tileset, boss, depth: rankDepth(Math.round(rank)), floors: rankFloors(m.rank) + (boss ? 1 : 0) };
 }
 
+const tierOf = (d: number) => (d >= 18 ? 3 : d >= 8 ? 2 : 1);
+
 /**
- * A dungeon mission's run: a one-stratum gate whose floors sit at the mission's depth, the
- * last one its boss's arena when it has one. Floors are indexed by depth, as gateFloors does,
- * so the gate descent plays them in order and rides up to Haven after the last.
+ * A run of a mission's own floors (or a Shadow Lair's), one depth each from `first`: each floor
+ * plays its archived level by its scene keys, and is generated in the style its key names when
+ * the archive lacks it. Floors are indexed by depth, as gateFloors does.
+ */
+export function planRun(id: string, title: string, defs: MissionFloorDef[], first: number, family: Family, seed: number,
+  opts: { lobby?: string | null; ultimate?: boolean; scaleDepth?: number } = {}): { gate: Gate; floors: Floor[] } {
+  const floors: Floor[] = [];
+  const strata: Stratum[] = [];
+  defs.forEach((d, i) => {
+    const depth = first + i;
+    const fs = floorStyle(d.keys[0]);
+    const style = STYLES.find(x => x.key === fs.style) ?? STYLES[0];
+    const fam = fs.family ?? family;
+    const tileset = fs.boss ? BOSSES[fs.boss].tileset
+      : fs.element && (style.key === "tunnels" || style.key === "arena") ? `clockworks-${fs.element.toLowerCase()}` : style.tileset;
+    const tier = tierOf(opts.scaleDepth ?? depth);
+    const stratum: Stratum = { index: i + 1, tier, theme: fam, style, boss: d.boss ?? null, first: depth, last: depth };
+    strata.push(stratum);
+    const t = levelText(`m.${d.keys[0]}`);
+    floors[depth] = {
+      depth, tier, stratum, kind: d.boss ? "boss" : "level", name: t?.title || d.name, ...(t?.zone ? { zone: t.zone } : {}), tileset,
+      mission: { keys: d.keys, style: style.key, family: fam, element: fs.element, ...(opts.ultimate && d.boss ? { ultimate: true } : {}) },
+      ...(opts.scaleDepth ? { scaleDepth: opts.scaleDepth } : {}),
+    };
+  });
+  return { gate: { id, name: title, seed, strata, emblem: "knight", ...(opts.lobby !== undefined ? { lobby: opts.lobby } : {}) }, floors };
+}
+
+/**
+ * A Shadow Lair (the depth-23 terminal's Shadow Lair elevator): the boss stratum's "_ultimate"
+ * stages, the Unknown Passage and the Sanctuary, scaled at the elevator's Logical Floor (26)
+ * and lit as tier 3, with the boss's Shadow Lair form. There is no lobby.
+ */
+export function lairRun(key: BossKey, runs = 0): { gate: Gate; floors: Floor[] } {
+  const name = `${bossName(key)}: Shadow Lair`;
+  return planRun(`lair:${key}`, name, lairFloors(key), 24, BOSS_FAMILY[key], (hash(`lair:${key}`) + runs * 7919) >>> 0,
+    { lobby: null, ultimate: true, scaleDepth: LAIR_DEPTH });
+}
+
+/**
+ * A dungeon mission's run: its own floors in order (src/game/missionfloors.ts) from its first
+ * depth; a mission with no floor list plays a one-stratum gate of generated floors at its
+ * rank's depth, the last one its boss's arena when it has one. Floors are indexed by depth, as
+ * gateFloors does, so the gate descent plays them in order and rides up to Haven after the last.
  */
 export function missionRun(m: Mission, runs = 0): { gate: Gate; floors: Floor[] } {
   const s = m.setting ?? missionSetting(m);
+  const plan = missionPlan(m.id);
+  if (plan) return planRun(`mission:${m.id}`, m.title, plan.floors, s.depth, s.family, (hash(m.id) + runs * 7919) >>> 0, { lobby: plan.lobby });
   const n = Math.max(1, s.floors);
   const first = Math.max(1, Math.min(s.depth, 29 - n));
   const last = first + n - 1;
-  const tierOf = (d: number) => (d >= 18 ? 3 : d >= 8 ? 2 : 1);
   const style: LevelStyle = { ...(STYLES.find(x => x.tileset === s.tileset) ?? STYLES[0]), key: "mission", name: m.title, tileset: s.tileset, families: [s.family] };
   delete style.cached;
   const stratum: Stratum = { index: 1, tier: tierOf(first), theme: s.family, style, boss: s.boss, first, last };
@@ -510,4 +564,11 @@ function summarize(m: Mission): string {
       return `${s.floors} floors at depth ${s.depth}: ${s.family} monsters${s.boss ? `, ending with ${bossName(s.boss)}` : ""}.`;
     }
   }
+}
+
+/** ProjectXCodes.PrestigeRank: the least prestige for each rank and its icon (none for rank 0). */
+const PRESTIGE_RANKS: [number, string][] = [[45000, "prank_005"], [25000, "prank_004"], [15000, "prank_003"], [10000, "prank_002"], [5000, "prank_001"]];
+export function prestigeIcon(prestige: number): string | null {
+  const r = PRESTIGE_RANKS.find(([min]) => prestige >= min);
+  return r ? `ui/icon/prestige/${r[1]}.png` : null;
 }

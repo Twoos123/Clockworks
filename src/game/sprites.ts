@@ -401,6 +401,12 @@ export class SpriteCompanion {
     this.placeNear(k, 1);
   }
 
+  /** The status panel's pet portrait (hud/I.Kv): the sprite's model for its form, idling. */
+  portrait(): { ref: any; idle: string } | null {
+    const ref = this.def.models[spriteTier(this.progress.level) - 1];
+    return ref ? { ref, idle: IDLE } : null;
+  }
+
   /** Loads the model for the current tier and the skills' attacks. */
   async load() {
     await Promise.all([this.loadModel(), this.loadSkills()]);
