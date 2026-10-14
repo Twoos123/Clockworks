@@ -45,8 +45,10 @@ export interface Settings {
   decals: boolean;
   particles: boolean;
   showFps: boolean;
-  /** HUD size (0.75 to 1.5). */
+  /** The interface scale (OptionsDialog's UI scale: 0.7 up to the screen's largest, uiScaleLimit). */
   hudScale: number;
+  /** The UI scale's Max! toggle: the interface follows the screen's largest scale (uiMaxScale). */
+  hudScaleMax: boolean;
   damageNumbers: boolean;
   healthBars: boolean;
   minimap: boolean;
@@ -64,6 +66,11 @@ export interface Settings {
   /** Camera distance multiplier. */
   zoom: number;
   screenFlash: boolean;
+  /**
+   * Camera shake off: kept the client's way, as the inverse preference (ProjectXPrefs "noShake",
+   * false by default); the options' camera_shake check box shows its opposite.
+   */
+  noShake: boolean;
   /** Gamepad stick dead zone. */
   deadZone: number;
   keys: Record<Action, string>;
@@ -73,12 +80,34 @@ export interface Settings {
 
 const KEY = "clyde-web-settings";
 
+/** The smallest UI scale (ProjectXPrefs: 0.7). */
+export const UI_MIN_SCALE = 0.7;
+
+/**
+ * The screen's largest UI scale, as ProjectXPrefs works it out for a display mode: the share of
+ * 1280 x 1024 the screen holds, or when that is under 1, of 1024 x 600 (never under 1).
+ */
+export function uiMaxScale(w = innerWidth, h = innerHeight): number {
+  const s = Math.min(w / 1280, h / 1024);
+  return s >= 1 ? s : uiScaleLimit(w, h);
+}
+
+/** The slider's top when the largest scale is under the scale chosen: the 1024 x 600 share. */
+export function uiScaleLimit(w = innerWidth, h = innerHeight): number {
+  return Math.max(1, Math.min(w / 1024, h / 600));
+}
+
+/** The interface scale in use: the largest the screen allows with Max! on, else the one chosen. */
+export function uiScale(s: Pick<Settings, "hudScale" | "hudScaleMax">): number {
+  return s.hudScaleMax ? uiMaxScale() : s.hudScale;
+}
+
 export function defaultSettings(): Settings {
   return {
     masterVolume: 0.8, musicVolume: 0.45, effectsVolume: 1, uiVolume: 1, muted: false,
     renderScale: 1, fog: true, shadows: true, decals: true, particles: true, showFps: false,
-    hudScale: 1, damageNumbers: true, healthBars: true, minimap: true, controlsHint: true,
-    autoAim: true, mouseMove: false, cameraSpeed: 1.8, zoom: 1, screenFlash: true, deadZone: 0.2, locale: "",
+    hudScale: 1, hudScaleMax: false, damageNumbers: true, healthBars: true, minimap: true, controlsHint: true,
+    autoAim: true, mouseMove: false, cameraSpeed: 1.8, zoom: 1, screenFlash: true, noShake: false, deadZone: 0.2, locale: "",
     keys: Object.fromEntries(Object.entries(ACTIONS).map(([k, v]) => [k, v.key])) as Record<Action, string>,
   };
 }
