@@ -29,7 +29,7 @@ import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSl
 import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "./behavior";
-import { behaviorScript, monsterBehavior, type MonsterInfo } from "./monsterai";
+import { behaviorArgs, behaviorScript, monsterBehavior, type MonsterInfo } from "./monsterai";
 import { actionHint } from "./action";
 import { OrbitMotion } from "./orbitals";
 import { message } from "../i18n";
@@ -2998,11 +2998,12 @@ export class World implements LogicHost {
   private brainOf(m: Monster): Agent {
     if (m.brain) return m.brain;
     const def = m.def, name = m.entity?.name ?? def.name;
-    const script = behaviorScript(m.ref ?? { name }, n => this.data.config("config/actor.dat", n));
+    const lookup = (n: string) => this.data.config("config/actor.dat", n);
+    const script = behaviorScript(m.ref ?? { name }, lookup);
     const info: MonsterInfo = {
       name, attacks: def.slots.map(a => a?.name ?? ""), speed: def.speed, targetedSpeed: def.targetedSpeed,
       melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a ? Math.max(0, this.reach(a) - m.radius) : 0)),
-      script,
+      script, args: behaviorArgs(m.ref ?? { name }, lookup),
     };
     let cfg: Behavior = monsterBehavior(info);
     // allies (freed companions, energy turrets) fight monsters near the knight, else follow it

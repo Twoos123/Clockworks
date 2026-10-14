@@ -5,7 +5,7 @@
 // Usage: npx tsx tools/audit/ai-survey.ts [name filter] > out.txt
 import { GameData } from "../../src/game/data.ts";
 import { nodeLoader } from "./nodevfs.ts";
-import { behaviorScript, monsterBehavior } from "../../src/game/monsterai.ts";
+import { behaviorArgs, behaviorScript, monsterBehavior } from "../../src/game/monsterai.ts";
 
 const filter = (process.argv[2] ?? "").toLowerCase();
 const loader = nodeLoader();
@@ -51,14 +51,16 @@ for (const name of [...lib.keys()].sort()) {
     return `${a.name.split("/").slice(-2).join("/")} [${reach}; ${a.land}/${a.rearm}/${a.clear}${imp}${a.chainTo !== null ? ` chain>${a.chainTo}` : ""}]`;
   });
   const script = behaviorScript({ name }, (n: string) => lib.get(n));
+  const args = behaviorArgs({ name }, (n: string) => lib.get(n));
   const names = def.slots.map(a => a?.name ?? "");
   const behavior = monsterBehavior({
     name, attacks: names, speed: def.speed, targetedSpeed: def.targetedSpeed,
-    melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a?.shape ? a.shape.forward + a.shape.halfLength : 6)), script,
+    melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a?.shape ? a.shape.forward + a.shape.halfLength : 6)), script, args,
   });
+  const shown = Object.entries(args).filter(([, v]) => v === null || typeof v !== "object");
   console.log([name.replace("Character/NPC/Monster/", ""),
     `speed ${f(def.speed)}/${f(def.targetedSpeed)} turn ${f(def.turnRate)} r ${f(def.radius)} react ${def.minReactPercent}/${def.reactTime} imp ${def.impulseLevel}`
     + `${def.moveWhileAttacking ? " mwa" : ""}${def.activateTime ? ` act ${def.activateTime}` : ""} ${def.size}`,
-    ...atk.map(a => "  " + a), script ? `  script: ${script.map(s => String(s.$class).split("$").pop() + (s.wait ?? s.attack ?? s.step ?? "")).join(", ")}` : "",
+    ...atk.map(a => "  " + a), shown.length ? `  behaviour args: ${shown.map(([k, v]) => `${k}=${typeof v === "number" ? f(v) : v}`).join(", ")}` : "", script ? `  script: ${script.map(s => String(s.$class).split("$").pop() + (s.wait ?? s.attack ?? s.step ?? "")).join(", ")}` : "",
     `  => ${describe(behavior, names)}`].filter(Boolean).join("\n"));
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "../src/game/behavior.ts";
-import { DODGE, monsterBehavior, tierOf, type MonsterInfo } from "../src/game/monsterai.ts";
+import { behaviorArgs, DODGE, monsterBehavior, tierOf, type MonsterInfo } from "../src/game/monsterai.ts";
 
 /** An open floor with optional walls (x >= wallX blocked), foes, allies and an attack log. */
 function world(opts: { foes?: Seen[]; allies?: Seen[]; attacks?: number; attackMs?: number; wallX?: number; threats?: Threat[]; rand?: () => number; mwa?: boolean } = {}) {
@@ -188,7 +188,7 @@ test("a mender heals a wounded ally and otherwise flees", () => {
 });
 
 test("the family table keeps barks, dodges and burrows out of a wolver's attacks", () => {
-  const info: MonsterInfo = { name: "Character/NPC/Monster/Beast/Wolver/Wolver/Wolver 2", speed: 3.5, targetedSpeed: 4.5,
+  const info: MonsterInfo = { name: "Character/NPC/Monster/Beast/Wolver/Wolver/Wolver 3", speed: 3.5, targetedSpeed: 4.5,
     attacks: ["Wolver/Bark", "Wolver/Dodge (Y)", "Wolver/Dodge (Y)", "Wolver/Dodge (X)", "Wolver/Bite, chain 1"],
     melee: [true, true, true, true, true], reach: [1, 1, 1, 1, 1] };
   const b = monsterBehavior(info);
@@ -196,6 +196,51 @@ test("the family table keeps barks, dodges and burrows out of a wolver's attacks
   const s = JSON.stringify(b);
   assert.match(s, /"attacks":\[4\]/, "the bite is its attack");
   assert.ok(DODGE.test("Wolver/Dodge (X)"));
+  // wiki Wolver: only tier 3 dodges projectiles
+  assert.equal(monsterBehavior({ ...info, name: info.name.replace(/3$/, "2") }).type, "Targeting");
+});
+
+test("behaviour arguments the tiers pass survive the stripped behaviour, Choice options included", () => {
+  const lib = new Map<string, any>([
+    ["Devilite 1", { name: "Devilite 1", implementation: { $class: "x.ActorConfig$Derived", actor: { name: "Devilite (Base)", arguments: { $map: "m", entries: [["Aquire Range", 6], ["Dodges", "Off"], ["Colour", "red"]] } } } }],
+    ["Devilite (Base)", { name: "Devilite (Base)", parameters: [
+      { $class: "config.Parameter$Direct", name: "Aquire Range", paths: ['implementation.actor["Behavior"]["Behavior"]["Aquire Range"]'] },
+      { $class: "config.Parameter$Direct", name: "Dodges", paths: ['implementation.actor["Behavior"]["Dodges"]'] },
+      { $class: "config.Parameter$Direct", name: "Colour", paths: ["implementation.sprite.model[\"Color\"]"] }],
+      implementation: { $class: "x.ActorConfig$Derived", actor: { name: "Lichen" } } }],
+    ["Lichen", { name: "Lichen", parameters: [{ $class: "config.Parameter$Choice", name: "Size", choice: "2",
+      directs: [{ name: "Max Attack Distance", paths: ['implementation.behavior["Max Attack Distance"]'] }, { name: "Radius", paths: ["implementation.shape.radius"] }],
+      options: [{ name: "1", arguments: { $map: "m", entries: [["Max Attack Distance", 0.8], ["Radius", 0.4]] } }, { name: "2", arguments: { $map: "m", entries: [["Max Attack Distance", 0.85], ["Radius", 0.45]] } }] }],
+      implementation: { $class: "x.DungeonActorConfig$Monster" } }],
+  ]);
+  const args = behaviorArgs({ name: "Devilite 1" }, n => lib.get(n));
+  assert.deepEqual(args, { "Aquire Range": 6, Dodges: "Off", Size: "2", "Max Attack Distance": 0.85 });
+});
+
+test("config arguments drive the families: devilite ranges and dodges, deadnaught charges, retrode beams", () => {
+  const devilite = (args: Record<string, unknown>) => monsterBehavior({ name: "Character/NPC/Monster/Fiend/Devilite/Devilite/Devilite 1", speed: 2, targetedSpeed: 3,
+    attacks: ["Devilite/Dodge", "Devilite/Dodge", "Devilite/Dive Away", "Devilite/Cower", "Office Supplies/Book"],
+    melee: [true, true, true, true, false], reach: [1, 1, 1, 1, 6], args });
+  const t1 = devilite({ "Aquire Range": 6, "Attack Interval": 5000, Dodges: "Off", "Min Dodge Interval": 15000 });
+  assert.equal(t1.type, "Targeting");
+  assert.equal((t1 as any).acquireRadius, 6);
+  assert.match(JSON.stringify(t1), /"type":"TrackAttack","attacks":\[4\],"minAttackDistance":2,"maxAttackDistance":6,"minAttackInterval":5000/);
+  const t3 = devilite({ "Aquire Range": 12, Dodges: "On", "Min Dodge Interval": 3000 });
+  assert.equal(t3.type, "Dodging");
+  assert.equal((t3 as any).minDodgeInterval, 3000);
+  const dn = monsterBehavior({ name: "Character/NPC/Monster/Undead/Deadnaught/Deadnaught/Deadnought 1", speed: 4, targetedSpeed: 2,
+    attacks: ["Dark Knight/Shield Deflect", "Parts/Charge - Finish", "Parts/Charge - Start, Loop", "Parts/Raise Dead"],
+    melee: [true, true, true, false], reach: [1, 1, 1, 6], args: { "Charge - Min Attack Interval": 7200, "Charge - Movement Speed": 6 } });
+  assert.match(JSON.stringify(dn), /"type":"ChargeAttack","attacks":\[2\],"chargeAttacks":\[1\].*"minAttackInterval":7200,"attackSpeed":6/);
+  // Slag Guard (2) derives from the deadnaughts: it charges instead of standing idle
+  const sg = monsterBehavior({ name: "Character/NPC/Monster/Undead/Deadnaught/Slag Guard (2)", speed: 4, targetedSpeed: 2,
+    attacks: ["Dark Knight/Shield Deflect", "Parts/Charge - Finish", "Parts/Charge - Start, Loop", "Parts/Raise Dead"],
+    melee: [true, true, true, false], reach: [1, 1, 1, 6] });
+  assert.match(JSON.stringify(sg), /ChargeAttack/);
+  const retrode = (args: Record<string, unknown>) => JSON.stringify(monsterBehavior({ name: "Character/NPC/Monster/Construct/Retrode/Retrode/Retrode 1", speed: 2, targetedSpeed: 2,
+    attacks: ["Construct/Swipe Arm", "Construct/Eye Beam"], melee: [true, false], reach: [1, 6], args }));
+  assert.doesNotMatch(retrode({ "Eye Beam": "False", "Swing Interval": 4000 }), /"attacks":\[1\]/);
+  assert.match(retrode({ "Eye Beam": "True", "Swing Interval": 3000, "Beam Interval": 6000 }), /"attacks":\[1\],"maxAttackDistance":6,"minAttackInterval":6000/);
 });
 
 test("devilites throw from their spot, gun puppies are turrets, surviving scripts run as written", () => {
