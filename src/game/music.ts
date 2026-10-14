@@ -106,6 +106,15 @@ export const STYLE_MUSIC: Record<string, Track> = {
   vault: one("treasure_vault", 0.45, "ours: the prize vault tileset plays treasure_vault"),
   whitespace: one("whitespace_ambient", 0.45, "character/npc/monster/swarm/model.dat (the Swarm's whitespace)"),
   haven: one("haven", 0.25, SG + "Environment/Custom/Town/Haven/Default/Music"),
+  // the game's level sets from the archive (their scenes carry their own music globals too)
+  drudgery: one("fiend", 0.4, SG + "Environment/Custom/Devilish Drudgery/Music Mix"),
+  lair: one("slime", 0.4, SG + "Environment/Custom/Lichenous Lair/Music Mix (Environment/Custom/Music/Slime)"),
+  arena: mix([["battle_1", 1], ["battle_2", 1]], 0.45, 1, "ours: battle_1, battle_2 for the Battle Arenas"),
+  aurora: mix([["sky_islands_day_ambient", 1], ["sky_islands_day_action", 1]], 0.25, 1, "scenes cache: aurora_isles_* (the sky islands mix)"),
+  cradle: one("slime", 0.4, "ours: Starlight Cradle plays the slime track"),
+  jungle: mix([["city_ambient", 1], ["city_action", 1]], 0.4, 1, "ours: city_ambient, city_action for the Concrete Jungle"),
+  darkcity: mix([["city_ambient", 1], ["city_action", 1]], 0.4, 1, "ours: city_ambient, city_action for Dark City"),
+  fortress: mix([["castle_ambient", 1], ["castle_action", 1]], 0.45, 1, "ours: castle_ambient, castle_action for the Scarlet Fortress"),
 };
 
 /** Tilesets (src/gen themes) to a style's music, for styles this table does not know by key. */

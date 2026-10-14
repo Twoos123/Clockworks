@@ -121,6 +121,19 @@ export function bossArena(key: BossKey, sources: { id: string; root: any }[], se
   return root;
 }
 
+const TWIN_ACTOR = /^Character\/NPC\/Monster\/Boss\/Roarmulus Twins\/(West|East)( \(\d\))?$/;
+
+/** The game's own factory hall: the twins' lane markers (west_top, east_middle...). */
+function realTwinGeometry(w: World): ReturnType<typeof twinGeometry> | null {
+  const at = (tag: string) => w.logic.tagged(tag).map(e => [e.x, e.y] as [number, number]);
+  const west = [...at("west_top"), ...at("west_middle"), ...at("west_bottom")], east = [...at("east_top"), ...at("east_middle"), ...at("east_bottom")];
+  if (!west.length || !east.length) return null;
+  const lanes = [...new Set(west.map(p => p[1]))].sort((a, b) => a - b);
+  const wx = west[0][0], ex = east[0][0], cy = (lanes[0] + lanes[lanes.length - 1]) / 2;
+  return { x: { west: wx, east: ex }, lanes, wallX: { west: wx + 8, east: ex - 8 },
+    plates: { west: [wx, cy] as [number, number], east: [ex, cy] as [number, number] }, pads: [] as [number, number][] };
+}
+
 /** The Twins' hall: the turrets at either end, three lanes, the blast walls and plates. */
 function twinGeometry(p: ArenaPlan) {
   const a = p.arena, cy = a.y + a.h / 2;
@@ -139,6 +152,29 @@ function twinGeometry(p: ArenaPlan) {
 const mon = (e: Entity | null | undefined): Monster | null => (e && !e.destroyed && e.game instanceof Monster ? e.game : null);
 const named = (m: Monster, re: RegExp): AttackDef | null => m.def.attacks.find(a => re.test(a.name)) ?? null;
 
+// ------------------------------------------------------------------ the game's own boss levels
+
+/**
+ * The boss hall of the game's own level, from its markers: the Royal Jelly's mini spawn
+ * points, the Snarbolax's warp markers, the Twins' lane markers, Vanaduke's sprite wells.
+ */
+export function realArena(key: BossKey, w: World): Room | null {
+  const at = (...tags: string[]) => tags.flatMap(t => w.logic.tagged(t).map(e => [e.x, e.y] as [number, number]));
+  const pts = key === "jelly" ? at("minispawnpoint")
+    : key === "snarbolax" ? at("snarbolax_warp_a", "snarbolax_warp_b")
+    : key === "twins" ? at("west_random", "east_random", "west_top", "west_bottom", "east_top", "east_bottom")
+    : w.props.filter(p => /Sprite Well/.test(p.entity.name)).map(p => [p.x, p.y] as [number, number]);
+  if (pts.length < 2) {
+    // a boss level of another layout: the hall around its boss token
+    const t = at("boss_token")[0];
+    return t ? { x: t[0] - 10, y: t[1] - 10, w: 20, h: 20 } : null;
+  }
+  const pad = key === "snarbolax" ? 1.5 : key === "twins" ? 2 : 2.5;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x = Math.min(...xs) - pad, y = Math.min(...ys) - pad - (key === "twins" ? 2 : 0);
+  return { x, y, w: Math.max(...xs) + pad - x, h: Math.max(...ys) + pad + (key === "twins" ? 2 : 0) - y };
+}
+
 /** What a fight director shares: the arena, its gates, spawning, the finish. */
 export abstract class BossFight implements BossDirector {
   started = false;
@@ -149,7 +185,20 @@ export abstract class BossFight implements BossDirector {
   stage = "waiting";
   protected readonly arena: Room;
   private seen = new WeakSet<Entity>();
-  constructor(readonly key: BossKey, protected readonly w: World, readonly plan: ArenaPlan) { this.arena = plan.arena; }
+  /**
+   * `real`: the fight is on the game's own boss level, whose logic shuts its doors, brings the
+   * boss on and opens the way out (its platforms, triggers and Actor Removed handlers); the
+   * director then takes up the boss the level spawned and runs only what is server code.
+   */
+  constructor(readonly key: BossKey, protected readonly w: World, readonly plan: ArenaPlan, readonly real = false) {
+    this.arena = (real ? realArena(key, w) : null) ?? plan.arena;
+  }
+
+  /** On the game's own level: whether the level has brought the boss on (the fight begins). */
+  protected ready(): boolean {
+    const k = this.w.knight;
+    return this.inArena(k.x, k.y, 1.5);
+  }
 
   get cx() { return this.arena.x + this.arena.w / 2; }
   get cy() { return this.arena.y + this.arena.h / 2; }
@@ -163,7 +212,7 @@ export abstract class BossFight implements BossDirector {
     if (this.defeated) return;
     if (!this.started) {
       const k = this.w.knight;
-      if (!this.inArena(k.x, k.y, 1.5)) return;
+      if (this.real ? !this.ready() : !this.inArena(k.x, k.y, 1.5)) return;
       this.started = true;
       this.gates("close");
       this.begin();
@@ -178,8 +227,13 @@ export abstract class BossFight implements BossDirector {
   protected abstract tick(dt: number): void;
 
   protected gates(name: "open" | "close") {
+    // the game's own level opens and shuts its doors itself
+    if (this.real) return;
     for (const e of [...this.w.logic.tagged(GATE_TAG)]) this.w.logic.signal(e, this.ke, name);
   }
+
+  /** Marker positions of the level by tag (the game's own level). */
+  protected marks(tag: string): [number, number][] { return this.w.logic.tagged(tag).map(e => [e.x, e.y]); }
 
   protected spawn(name: string, x: number, y: number, rot = 0, args: [string, unknown][] = []): Entity | null {
     return this.w.logic.spawn(ref(name, args), x, y, rot, this.ke, this.ke);
@@ -261,8 +315,19 @@ export class JellyFight extends BossFight {
   private rage = 0;
   private rageT = 0;
 
+  /** The game's own Battle Royale: its platform's One Time Action spawns the first stage. */
+  protected ready() { return this.actors(RJ_STAGE).length > 0; }
+
   protected begin() {
     const a = this.arena;
+    if (this.real) {
+      // the level's own hall: polyps at its mini spawn points; the Jelly and its first Jelly
+      // Cubes and Royal Minis are the level's (One Time Action, Wave Spawns)
+      this.polypSpots = this.marks("minispawnpoint");
+      this.jelly = this.actors(RJ_STAGE)[0] ?? null;
+      this.w.say(this.cx, this.cy, "The Royal Jelly!", "#d79bff");
+      return;
+    }
     // Royal Polyps stand around the hall's rim
     for (let i = 0; i < 8; i++) {
       const ang = (i / 8) * Math.PI * 2 + Math.PI / 8;
@@ -385,6 +450,7 @@ export class JellyFight extends BossFight {
 // ------------------------------------------------------------------ Snarbolax
 
 const SNARB = BOSS + "Snarbolax/Snarbolax";
+const SNARB_ACTOR = /^Character\/NPC\/Monster\/Boss\/Snarbolax\/Snarbolax$/;
 /** Seconds the Snarbolax lies stunned after a bell ("a few seconds"). */
 // The bell's ring runs the Snarbolax's handler: ApplyStatus "Stun 3" at ULTIMATE power, whose
 // maxDuration is 8000 ms (status_condition.dat).
@@ -400,7 +466,16 @@ export class SnarbolaxFight extends BossFight {
   private burrow = 0;
   stuns = 0;
 
+  /** The game's own lair: its platform's Repeat Action activates the Snarbolax's spawn table. */
+  protected ready() { return this.actors(SNARB_ACTOR).length > 0; }
+
   protected begin() {
+    if (this.real) {
+      this.snarb = this.actors(SNARB_ACTOR)[0] ?? null;
+      this.stage = "invulnerable";
+      this.w.say(this.cx, this.cy, "The Snarbolax!", "#9fd27b");
+      return;
+    }
     const [x, y] = this.corner();
     this.snarb = this.spawn(SNARB, x, y, Math.atan2(this.cy - y, this.cx - x), [["Variant", "Normal"], ["Warp", "A"], ["Wave Tag", "boss"]]);
     this.stage = "invulnerable";
@@ -410,7 +485,10 @@ export class SnarbolaxFight extends BossFight {
   /** One of the arena's four corners (where it surfaces), away from the knight. */
   private corner(): [number, number] {
     const a = this.arena, k = this.w.knight;
-    const cs: [number, number][] = [[a.x + 2.5, a.y + 2.5], [a.x + a.w - 2.5, a.y + 2.5], [a.x + 2.5, a.y + a.h - 2.5], [a.x + a.w - 2.5, a.y + a.h - 2.5]];
+    // the game's own lair has warp markers for it (snarbolax_warp_a and _b)
+    const warps = this.real ? [...this.marks("snarbolax_warp_a"), ...this.marks("snarbolax_warp_b")] : [];
+    const cs: [number, number][] = warps.length ? warps
+      : [[a.x + 2.5, a.y + 2.5], [a.x + a.w - 2.5, a.y + 2.5], [a.x + 2.5, a.y + a.h - 2.5], [a.x + a.w - 2.5, a.y + a.h - 2.5]];
     const far = cs.filter(([x, y]) => Math.hypot(x - k.x, y - k.y) > 6);
     const list = far.length ? far : cs;
     return list[Math.floor(Math.random() * list.length)];
@@ -419,7 +497,8 @@ export class SnarbolaxFight extends BossFight {
   protected tick(dt: number) {
     const e = this.snarb;
     if (!e) return;
-    if (e.destroyed) { this.finish("Treasure/Monster/Beast/Snarbolax Loot", e.x, e.y); return; }
+    // (the game's own lair drops the loot from its Actor Removed handler)
+    if (e.destroyed) { this.finish(this.real ? null : "Treasure/Monster/Beast/Snarbolax Loot", e.x, e.y); return; }
     const m = mon(e);
     if (!m) return;
     if (this.fresh(e)) {
@@ -506,7 +585,7 @@ interface Twin { side: Side; e: Entity | null; stage: number; exposed: number; c
   pending: { at: number; n: number } | null; laser: number; looks: { open: any; shielded: any } | null }
 
 export class TwinsFight extends BossFight {
-  readonly geo = twinGeometry(this.plan);
+  readonly geo = (this.real ? realTwinGeometry(this.w) : null) ?? twinGeometry(this.plan);
   readonly twins: Record<Side, Twin> = {
     west: { side: "west", e: null, stage: 1, exposed: 0, cooldown: 2, lane: 1, targetY: 0, pending: null, laser: 0, looks: null },
     east: { side: "east", e: null, stage: 1, exposed: 0, cooldown: 3, lane: 1, targetY: 0, pending: null, laser: 0, looks: null },
@@ -517,9 +596,32 @@ export class TwinsFight extends BossFight {
   private bots: (Entity | null)[] = [null, null];
   exposures = 0;
 
+  /** The game's own factory: its One Time Actions spawn both twins once the party is warped in. */
+  protected ready() { return this.actors(TWIN_ACTOR).length >= 2; }
+
+  /** The level's wave tag for the twins (its Actor Removed opens the way out when they are gone). */
+  private waveTag = "boss";
+
   protected begin() {
-    for (const side of ["west", "east"] as Side[]) this.spawnTwin(this.twins[side]);
-    for (const [x, y] of this.geo.pads) this.spawn(RT + "Parts/Scuttle Pad", x, y, 0);
+    if (this.real) {
+      // the level's twins: the director takes them up as they stand
+      for (const e of this.actors(TWIN_ACTOR)) {
+        const t = this.twins[/West/.test(e.name) ? "west" : "east"];
+        t.e = e;
+        e.handlers = e.handlers.filter(h => h.kind !== "Shutdown");
+        if (e.tags[0]) this.waveTag = e.tags[0];
+        let best = 0;
+        this.geo.lanes.forEach((ly, i) => { if (Math.abs(ly - e.y) < Math.abs(this.geo.lanes[best] - e.y)) best = i; });
+        t.lane = best;
+        t.targetY = this.geo.lanes[best];
+        t.cooldown = 2.5;
+      }
+      // the toggle walls start with the yellow ones up
+      this.toggleWalls(true);
+    } else {
+      for (const side of ["west", "east"] as Side[]) this.spawnTwin(this.twins[side]);
+      for (const [x, y] of this.geo.pads) this.spawn(RT + "Parts/Scuttle Pad", x, y, 0);
+    }
     this.stage = "stage 1";
     this.w.say(this.cx, this.cy, "The Roarmulus Twins!", "#9fd8ff");
   }
@@ -532,7 +634,7 @@ export class TwinsFight extends BossFight {
   private spawnTwin(t: Twin) {
     t.targetY = this.geo.lanes[t.lane];
     const x = this.geo.x[t.side];
-    t.e = this.spawn(this.stageName(t), x, t.targetY, t.side === "west" ? 0 : Math.PI, [["Wave Tag", "boss"]]);
+    t.e = this.spawn(this.stageName(t), x, t.targetY, t.side === "west" ? 0 : Math.PI, [["Wave Tag", this.waveTag]]);
     // the director runs what its Shutdown would (the next stage, or the loot when it falls)
     if (t.e) t.e.handlers = t.e.handlers.filter(h => h.kind !== "Shutdown");
     t.exposed = 0;
@@ -570,9 +672,11 @@ export class TwinsFight extends BossFight {
       this.runTwin(t, m, dt);
     }
     // scuttle pads: a Surgebot from each when its last is gone, after the pad's "Delay" (45 s)
-    this.geo.pads.forEach(([x, y], i) => {
+    // (the game's own factory spawns its pads from One Time Actions)
+    const pads = this.real ? this.actors(/Roarmulus Twins\/Parts\/Scuttle Pad$/).map(e => [e.x, e.y] as [number, number]) : this.geo.pads;
+    pads.forEach(([x, y], i) => {
       if (this.bots[i] && !this.bots[i]!.destroyed) return;
-      this.padT[i] -= dt;
+      this.padT[i] = (this.padT[i] ?? 8 + 6 * i) - dt;
       if (this.padT[i] > 0) return;
       this.padT[i] = 45;
       this.bots[i] = this.spawn("Character/NPC/Monster/Construct/Scuttlebot/Surgebot/Surgebot Mk II", x, y, 0, [["Loot", "Health Only"], ["Wave Tag", "minion"]]);
@@ -651,6 +755,24 @@ export class TwinsFight extends BossFight {
     t.cooldown = t.stage === 1 ? 3.2 : 2.6;
   }
 
+  /** The game's own factory: its toggle walls, yellow or purple up (they stop knights and rockets). */
+  private yellowUp = true;
+  private toggleWalls(yellow: boolean) {
+    this.yellowUp = yellow;
+    for (const p of this.w.props) {
+      const m = /Toggle Walls\/(Yellow|Purple) Wall/.exec(p.entity.name);
+      if (m) this.w.logic.signal(p.entity, this.ke, (m[1] === "Yellow") === yellow ? "close" : "open");
+    }
+  }
+
+  /** A toggle switch was struck: the other walls come up. */
+  struck(p: Prop) {
+    if (this.real && /Toggle Walls\/Toggle$/.test(p.entity.name)) {
+      this.toggleWalls(!this.yellowUp);
+      this.w.effectAt("particle/fx_spark_metal.dat", p.x, p.y, 0.6);
+    }
+  }
+
   private raiseWall(side: Side) {
     this.wall = side;
     for (const s of ["west", "east"] as Side[]) {
@@ -669,6 +791,15 @@ export class TwinsFight extends BossFight {
     if (!this.started || this.defeated) return false;
     const from: Side = owner ? (owner.entity === this.twins.west.e ? "west" : "east") : Math.cos(heading) > 0 ? "west" : "east";
     if (owner && owner.entity !== this.twins.west.e && owner.entity !== this.twins.east.e) return false;
+    if (this.real) {
+      // a raised toggle wall stops the rocket
+      for (const p of this.w.props) {
+        if (!p.open && /Toggle Walls\/(Yellow|Purple) Wall/.test(p.entity.name) && Math.abs(p.x - x) < 0.6 && Math.abs(p.y - y) < 0.6) {
+          this.w.effectAt("particle/fx_spark_metal.dat", x, y, 0.6);
+          return true;
+        }
+      }
+    }
     if (this.wall === from && Math.abs(x - this.geo.wallX[from]) < 0.5 && Math.abs(y - this.cy) < this.arena.h / 2) {
       this.w.effectAt("particle/fx_spark_metal.dat", x, y, 0.6);
       return true;
@@ -741,11 +872,20 @@ export class VanadukeFight extends BossFight {
 
   protected begin() {
     const a = this.arena;
-    // water pots by the hall's four corners (the throne room's water to put out the mask)
-    for (const [x, y] of [[a.x + 2.5, a.y + 2.5], [a.x + a.w - 2.5, a.y + 2.5], [a.x + 2.5, a.y + a.h - 2.5], [a.x + a.w - 2.5, a.y + a.h - 2.5]] as [number, number][]) {
-      this.pots.push({ at: [x, y], e: this.spawn(WATER_POT, x, y), t: 0 });
-    }
-    this.startStep(0, this.cx, this.cy + 3);
+    // water pots by the hall's four corners (the throne room's water to put out the mask); in
+    // the game's own throne room, by its four sprite wells
+    const wells = this.real ? this.w.props.filter(p => /Sprite Well/.test(p.entity.name)).map(p => {
+      const d = Math.hypot(this.cx - p.x, this.cy - p.y) || 1;
+      return [p.x + (this.cx - p.x) / d * 1.5, p.y + (this.cy - p.y) / d * 1.5] as [number, number];
+    }) : [];
+    const spots: [number, number][] = wells.length ? wells
+      : [[a.x + 2.5, a.y + 2.5], [a.x + a.w - 2.5, a.y + 2.5], [a.x + 2.5, a.y + a.h - 2.5], [a.x + a.w - 2.5, a.y + a.h - 2.5]];
+    for (const [x, y] of spots) this.pots.push({ at: [x, y], e: this.spawn(WATER_POT, x, y), t: 0 });
+    // the game's own throne room seats him on its marker ("Vanaduke Start", whose swap to the
+    // first stage is server code)
+    const seated = this.real ? this.actors(/Vanaduke\/Vanaduke Start$/)[0] : null;
+    if (seated) this.w.logic.vanish(seated);
+    this.startStep(0, seated?.x ?? this.cx, seated?.y ?? this.cy + 3);
     this.w.say(this.cx, this.cy, "Lord Vanaduke!", "#ff9a5c");
   }
 
@@ -762,7 +902,9 @@ export class VanadukeFight extends BossFight {
       this.wet = 0;
       this.w.say(x, y, "The mask burns!", "#ff9a5c");
     } else {
-      this.body = this.spawn(VD + what, x, y, face);
+      // the last stage carries the game's own level's tag: its Actor Removed opens the way out
+      const last = i === VD_ORDER.length - 1 && this.real;
+      this.body = this.spawn(VD + what, x, y, face, last ? [["Wave Tag", "boss_stage5"]] : []);
       this.minionT = 1;
     }
   }
@@ -887,10 +1029,14 @@ export class VanadukeFight extends BossFight {
 }
 
 /** Starts a boss fight's director in a world playing that boss's arena. */
-export function startBossFight(key: BossKey, w: World): BossFight {
+/**
+ * Starts a boss fight's director in a world playing that boss's level: a generated arena, or
+ * (`real`) the game's own boss level from the archive.
+ */
+export function startBossFight(key: BossKey, w: World, real = false): BossFight {
   const plan = arenaPlan(key);
-  const fight = key === "jelly" ? new JellyFight(key, w, plan) : key === "snarbolax" ? new SnarbolaxFight(key, w, plan)
-    : key === "twins" ? new TwinsFight(key, w, plan) : new VanadukeFight(key, w, plan);
+  const fight = key === "jelly" ? new JellyFight(key, w, plan, real) : key === "snarbolax" ? new SnarbolaxFight(key, w, plan, real)
+    : key === "twins" ? new TwinsFight(key, w, plan, real) : new VanadukeFight(key, w, plan, real);
   w.boss = fight;
   return fight;
 }
