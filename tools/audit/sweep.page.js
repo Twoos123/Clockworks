@@ -263,7 +263,7 @@
       };
       const ahead = () => [k().x + 5, k().y];
       await act("idle", () => step(1, () => ({})));
-      await act("walk", () => step(0.6, () => ({ shield: true, move: [1, 0], aim: ahead() })));
+      await act("walk", () => step(0.6, () => ({ move: [1, 0], aim: ahead() })));
       await act("run", () => step(0.6, () => ({ move: [1, 0] })));
       await act("dash", async () => { await step(DT, { dash: true, move: [1, 0] }); await step(0.15, () => ({ move: [1, 0] })); });
       await act("shield up", () => step(0.5, () => ({ shield: true, aim: ahead() })));
