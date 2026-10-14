@@ -324,7 +324,7 @@ export class GameData {
     return (ref ? await this.description(ref) : null) ?? (await this.description({ name }));
   }
 
-  async description(ref: any): Promise<{ dname: string; title: string; description: string; icon: string | null; weakness: string; damage: string; bundle: string } | null> {
+  async description(ref: any): Promise<{ dname: string; title: string; description: string; icon: string | null; nameIcon: string | null; weakness: string; damage: string; bundle: string } | null> {
     if (!ref?.name) return null;
     const lib = await this.library("config/description.dat");
     let cfg: any = null, r = ref;
@@ -337,7 +337,7 @@ export class GameData {
     }
     const enumOf = (v: any): string => (typeof v === "string" ? v : v?.name) ?? "NORMAL";
     return cfg ? { dname: cfg.dname ?? "", title: cfg.title ?? "", description: cfg.description ?? "",
-      icon: cfg.icon?.file ?? null, weakness: enumOf(cfg.weakness), damage: enumOf(cfg.damage), bundle: descriptionBundle(cfg.$class) } : null;
+      icon: cfg.icon?.file ?? null, nameIcon: cfg.nameIcon?.file || null, weakness: enumOf(cfg.weakness), damage: enumOf(cfg.damage), bundle: descriptionBundle(cfg.$class) } : null;
   }
 
   /** resolve() for a preloaded library, synchronously (game logic spawns immediately). */

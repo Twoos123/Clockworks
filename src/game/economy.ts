@@ -39,7 +39,7 @@ import type { DepthContext } from "./depth";
 import { itemValue } from "./bonus";
 import { energyNow, orbFor, ORBS_PER_CRAFT, spendEnergy, type EnergyState } from "./energy";
 import { crystalBand, crystalFor, forgedLevel, forgeSteps, HEAT_BONUS, rollForge, type ForgeOutcome, type ForgeStep } from "./forge";
-import { vendorDay, vendorKey, vendorMatch, vendorNames, vendorSeed, VENDORS } from "./vendors";
+import { isLobbyBasil, lobbyStock, terminalCount, terminalStars, vendorDay, vendorKey, vendorMatch, vendorNames, vendorSeed, VENDORS } from "./vendors";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 const enumName = (v: any, d = "") => String(v?.name ?? v ?? d).split(".").pop()!;
@@ -180,6 +180,10 @@ export interface Keeper {
   depot?: boolean;
   /** A Haven Stranger with the wiki's stock list (src/game/vendors.ts). */
   vendor?: string;
+  /** Basil in a mission lobby: the mission's recipes (by output) and his supplies (src/game/vendors.ts). */
+  lobby?: { recipes: Set<string>; supplies: Set<string> };
+  /** Basil at a terminal: a random six to twenty-five, at least one of the top star. */
+  terminal?: boolean;
 }
 
 /** One thing a keeper sells, and its price in crowns (or energy, for the Supply Depot's goods). */
@@ -282,12 +286,17 @@ export class Economy {
   // ---------------------------------------------------------------- shops
 
   /** What a shop keeper sells, from its actor config name (Shop/Haven/Swords and so on). */
-  keeper(keeper: string, opts: { tier?: number; maxRarity?: number } = {}): Keeper {
+  keeper(keeper: string, opts: { tier?: number; maxRarity?: number; mission?: string | null } = {}): Keeper {
     const k = keeper.toLowerCase(), max = opts.maxRarity ?? 5, tier = opts.tier ?? 0;
     const tierMax = tier === 1 ? 2 : tier === 2 ? 3 : tier === 3 ? 5 : max;
     const tierMin = tier === 3 ? 4 : tier === 2 ? 3 : 1;
     // Basil, the traveller in Clockwork Terminals, sells recipes for the tier's gear
-    if (/traveler|basil/.test(k)) return { title: "Basil", categories: ["recipe"], minRarity: tierMin, maxRarity: Math.min(5, tierMax), rotate: 12 };
+    // Basil in a mission lobby: the mission's recipes and his supplies (capsules, vials, a vitapod)
+    if (isLobbyBasil(keeper)) return { title: "Basil", categories: ["recipe", "pickup", "vitapod"], minRarity: 0, maxRarity: 5, lobby: lobbyStock(opts.mission) };
+    if (/traveler|basil/.test(k)) {
+      const [lo, hi] = tier ? terminalStars(tier) : [tierMin, Math.min(5, tierMax)];
+      return { title: "Basil", categories: ["recipe"], minRarity: lo, maxRarity: hi, rotate: 12, terminal: !!tier };
+    }
     if (/supply depot|general goods|quartermaster/.test(k)) return { title: /supply/.test(k) ? "Supply Depot" : last(keeper), categories: ["pickup"], minRarity: 0, maxRarity: tier ? tierMax : 5,
       depot: /supply depot|quartermaster/.test(k) };
     // Haven's Strangers: the wiki's stock lists (src/game/vendors.ts)
@@ -324,7 +333,9 @@ export class Economy {
       if (price <= 0 || !it.icon) continue;
       const recipe = it.category === "recipe" ? this.recipeOfItem(name) : null;
       if (it.category === "recipe" && !recipe) continue;
-      if (it.category === "pickup" && !this.supplies().has(name)) continue;
+      if (kp.lobby) {
+        if (!(recipe ? kp.lobby.recipes : kp.lobby.supplies).has(vendorMatch(recipe ? recipe.output : name))) continue;
+      } else if (it.category === "pickup" && !this.supplies().has(name)) continue;
       if (listed && listedCats.has(it.category)) {
         if (!listed.has(vendorMatch(recipe ? recipe.output : name))) continue;
       } else if (listed && it.rarity < 1) continue;
@@ -332,11 +343,15 @@ export class Economy {
     }
     out.sort((a, b) => a.category.localeCompare(b.category) || a.rarity - b.rarity || a.name.localeCompare(b.name));
     if (kp.depot) for (const g of this.depotGoods()) out.push({ name: g.name, price: g.energy, rarity: Math.max(0, this.info(g.name)?.rarity ?? 0), category: "other", currency: "energy", pack: g.count });
-    if (kp.rotate && out.length > kp.rotate) {
+    const rotate = kp.terminal ? terminalCount(seeded((opts.seed ?? Math.floor(Date.now() / 86400000)) ^ 0x2545f491)) : kp.rotate;
+    if (rotate && out.length > rotate) {
       const rand = seeded(opts.seed ?? Math.floor(Date.now() / 86400000));
       const pool = [...out];
       const pick: typeof out = [];
-      while (pick.length < kp.rotate && pool.length) pick.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
+      // a terminal's list holds at least one recipe of its top star (the wiki)
+      const top = kp.terminal ? pool.filter(e => e.rarity === kp.maxRarity) : [];
+      if (top.length) { const t = top[Math.floor(rand() * top.length)]; pick.push(t); pool.splice(pool.indexOf(t), 1); }
+      while (pick.length < rotate && pool.length) pick.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
       return pick.sort((a, b) => a.rarity - b.rarity || a.name.localeCompare(b.name));
     }
     return out;

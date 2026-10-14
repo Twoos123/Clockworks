@@ -1,8 +1,16 @@
 // A shop as the client's shop dialog lays it out (shop/client/m on ui/shop/interface.dat):
 //
+// As the Haven tour recording shows it (docs/research/real-ui-reference.md): the vendor docked
+// at the left and the arsenal at the right, full height above the HUD; the cart at the bottom
+// centre with the keeper large behind it; the HUD's energy panel at the bottom right; the
+// game going on behind, undimmed.
+//
 // - The vendor (shop/client/u, an item list on ui/arsenal/interface.dat titled "VENDOR"):
-//   the goods by item group, each a price-tagged socket (ui/shop/slot_tag), sorted by price
-//   or by name. A click puts one in the cart (ten with shift held).
+//   the goods by item group (ItemCodes.Group: Sword ... Recipe, Capsule, Vial, Equippable),
+//   each a price-tagged socket (ui/shop/slot_tag), sorted by price or by name. A click puts
+//   one in the cart (ten with shift held). Its Preview toggle (cR, m.Gl) tries the goods on
+//   the knight instead: the knight, wearing the armour or helmet picked, takes the keeper's
+//   place over the cart (the client opens its character window for this).
 // - The shopping cart with the keeper's portrait (ui/shop/shoppingcart_withportrait.dat):
 //   bought goods in the Buy socket style with their cost, sold items in the Sell style with
 //   their worth, a click taking one back out; the total, signed and red when the cart costs
@@ -10,9 +18,13 @@
 //   (already learned, cart full, cannot be sold); Empty Cart and Checkout, enabled while the
 //   cart holds something. At the Supply Depot the energy goods are priced in energy (the
 //   tag's Energy currency), the cart's energy row totals them, and the Get Energy panel
-//   (ui/exchange/mini_getenergy.dat) trades crowns for 100 energy at the exchange.
-// - The knight's arsenal beside them (shop/client/a's ArsenalPanel): its gear and materials;
-//   a click puts one in the cart to sell, the pill counting down what is left.
+//   (ui/exchange/mini_getenergy.dat) trades crowns for 100 energy at the exchange. A crown
+//   shop shows the Get Crowns panel instead (ui/exchange/mini_getcrowns.dat, "GET n FOR 100
+//   ▶ Get Crowns! | Buy Energy"): Get Crowns! sells 100 Crystal Energy at the exchange, Buy
+//   Energy (the money store's, in the game) buys 100 for crowns there (src/game/energy.ts).
+// - The knight's arsenal beside them (shop/client/a's ArsenalPanel, with no close button):
+//   its gear and materials; a click puts one in the cart to sell, the pill counting down
+//   what is left.
 //
 // Stock, prices, buying and selling are the economy's (src/game/economy.ts).
 
@@ -20,11 +32,11 @@ import type { Economy } from "../game/economy";
 import { catalogue, CATEGORIES, isEquipped, itemLabel } from "../game/items";
 import { itemStats, pillDamage } from "../game/itemstats";
 import { energyOf, type SaveData } from "../game/save";
-import { buyEnergy, energyNow, EXCHANGE_CROWNS, EXCHANGE_ENERGY } from "../game/energy";
+import { buyEnergy, energyNow, EXCHANGE_CROWNS, EXCHANGE_ENERGY, EXCHANGE_SELL_CROWNS, sellEnergy } from "../game/energy";
 import { text } from "../i18n";
 import { messageText, restyle, type Component } from "./gui";
 import { itemPreview, itemTip, ItemList, type ListEntry, type ListGroup } from "./itemlist";
-import { buildUi, GuiScreen, row, uiRef, type ScreenHost, type ViewModel } from "./screen";
+import { buildUi, GuiScreen, uiRef, type ScreenHost, type ViewModel } from "./screen";
 
 export interface ShopHost extends ScreenHost {
   save(): SaveData;
@@ -32,6 +44,8 @@ export interface ShopHost extends ScreenHost {
   /** The save changed (a trade). */
   changed(): void;
   data(): import("../game/data").GameData;
+  /** The knight wearing an item, for the vendor's Preview (null when it cannot be shown). */
+  previewModel?(item: string): Promise<ViewModel | null>;
 }
 
 /** One thing a shop sells, for crowns or (the Supply Depot's goods) energy. */
@@ -46,20 +60,36 @@ const shopText = (key: string, fallback: string) => text("shop", key, fallback);
 /** ShopDialogInfo's ItemPreparer limits: lines in a cart, and of one good. */
 const MAX_LINES = 100, MAX_QUANTITY = 500;
 const CAT = "ui/icon/inventory/categories/";
-/** Item groups in ItemCodes.Group order: our economy categories, the item bundle's names, icons. */
-const GROUPS: { cats: string[]; key: string; icon: string }[] = [
-  { cats: ["sword"], key: "m.sword", icon: CAT + "icon_sword.png" },
-  { cats: ["handgun"], key: "m.handgun", icon: CAT + "icon_handgun.png" },
-  { cats: ["bomb"], key: "m.bomb", icon: CAT + "icon_bomb.png" },
-  { cats: ["helm"], key: "m.helm", icon: CAT + "icon_helmet.png" },
-  { cats: ["armor"], key: "m.armor", icon: CAT + "icon_armor.png" },
-  { cats: ["shield"], key: "m.shield", icon: CAT + "icon_shield.png" },
-  { cats: ["trinket"], key: "m.trinket", icon: CAT + "icon_amulet.png" },
-  { cats: ["mineral", "deposit"], key: "m.mineral", icon: CAT + "icon_mineral.png" },
-  { cats: ["material"], key: "m.material", icon: CAT + "icon_puzzle.png" },
+/**
+ * Item groups in ItemCodes.Group order, with the item bundle's names and the groups' icons
+ * (ui/icon/inventory/categories/icon_<group>.png): our economy categories, and for the
+ * groups our categories share, the config folder (Rarity/, Pickup/Capsule/, Pickup/Vial/).
+ * `arsenal`: the groups the shop's arsenal lists (showWhenEmpty, the gear and materials).
+ */
+const GROUPS: { cats: string[]; key: string; icon: string; folder?: RegExp; arsenal?: boolean }[] = [
+  { cats: ["sword"], key: "m.sword", icon: CAT + "icon_sword.png", arsenal: true },
+  { cats: ["handgun"], key: "m.handgun", icon: CAT + "icon_handgun.png", arsenal: true },
+  { cats: ["bomb"], key: "m.bomb", icon: CAT + "icon_bomb.png", arsenal: true },
+  { cats: ["helm"], key: "m.helm", icon: CAT + "icon_helmet.png", arsenal: true },
+  { cats: ["armor"], key: "m.armor", icon: CAT + "icon_armor.png", arsenal: true },
+  { cats: ["shield"], key: "m.shield", icon: CAT + "icon_shield.png", arsenal: true },
+  { cats: ["trinket"], key: "m.trinket", icon: CAT + "icon_amulet.png", arsenal: true },
+  { cats: ["other", "material"], key: "m.rarity", icon: CAT + "icon_rarity.png", folder: /^Rarity\//, arsenal: true },
+  { cats: ["mineral", "deposit"], key: "m.mineral", icon: CAT + "icon_mineral.png", arsenal: true },
+  { cats: ["material"], key: "m.material", icon: CAT + "icon_puzzle.png", arsenal: true },
   { cats: ["recipe"], key: "m.recipe", icon: CAT + "icon_recipe.png" },
-  { cats: ["vitapod", "pickup", "other"], key: "m.usable", icon: CAT + "icon_core.png" },
+  { cats: ["pickup"], key: "m.capsule", icon: CAT + "icon_capsule.png", folder: /^Pickup\/Capsule\// },
+  { cats: ["pickup"], key: "m.vial", icon: CAT + "icon_vial.png", folder: /^Pickup\/Vial\// },
+  { cats: ["vitapod"], key: "m.equippable", icon: CAT + "icon_equippable.png" },
+  { cats: ["pickup", "other"], key: "m.usable", icon: CAT + "icon_core.png" },
 ];
+
+/** The group an item of a category is listed under (the first that takes it). */
+export function shopGroup(name: string, category: string) {
+  return GROUPS.find(g => g.cats.includes(category) && (!g.folder || g.folder.test(name))) ?? GROUPS[GROUPS.length - 1];
+}
+/** The item bundle key of an item's group ("m.capsule"). */
+export const shopGroupKey = (name: string, category: string) => shopGroup(name, category).key;
 
 /**
  * shop/client/m.a(Dungeon): a vitapod goes in the cart one at a time (more is adjusted to
@@ -94,9 +124,19 @@ export class ShopScreen extends GuiScreen {
   /** The shopkeeper's model and animation for the portrait, or null (a shop with no keeper). */
   private portrait: ViewModel | null = null;
   private shift = false;
+  private vendorUi: Component | null = null;
+  private arsenalUi: Component | null = null;
+  /** The vendor's Preview toggle is down, and the knight with the good last tried on. */
+  private previewing = false;
+  private previewModel: ViewModel | null = null;
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly shop: ShopHost) {
     super(ctx, shop, "shopCanvas");
+    // the game goes on behind the shop's windows (none darkens it), the HUD's energy panel at
+    // the bottom right
+    this.dim = false;
+    this.tallDocks = true;
+    this.energy = () => energyNow(energyOf(this.shop.save()));
     // GoodSlot: a click with shift (or control) moves ten
     const key = (e: KeyboardEvent) => { this.shift = e.shiftKey || e.ctrlKey; };
     addEventListener("keydown", key);
@@ -120,6 +160,8 @@ export class ShopScreen extends GuiScreen {
       this.ui("ui/shop/shoppingcart_withportrait.dat"), this.ui("ui/arsenal/interface.dat", { Mode: "Window" })]);
     if (!left || !cart || !right) return null;
     this.cartUi = cart;
+    this.vendorUi = left;
+    this.arsenalUi = right;
     const sound = (f: string) => this.host.sound(f);
     const v = this.vendor = new ItemList(this.ctx, left, this.tips, sound);
     v.sorts = ["price", "name"];
@@ -127,22 +169,47 @@ export class ShopScreen extends GuiScreen {
     v.clicks = this.clicks;
     v.menu = (e, t, c) => void this.popupMenu(e, t, c);
     v.onRow = (e, c) => { const ring = c.find("slot_ring"); if (ring) this.socketIcons.set(ring, this.eco?.info(e.key)?.icon ?? null); };
-    v.onPick = e => this.add(e.key, false);
+    v.onPick = e => { if (this.previewing) void this.preview(e.key); else this.add(e.key, false); };
+    // cR: the vendor list's Preview toggle (m.Gl): while it is down the goods picked are tried
+    // on the knight instead of going in the cart
+    const pv = left.find("preview");
+    if (pv) {
+      pv.visible = true;
+      pv.onAction = c => {
+        this.previewing = !!c.selected;
+        this.previewModel = null;
+        this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+        void this.refresh();
+      };
+    }
     const a = this.arsenal = new ItemList(this.ctx, right, this.tips, sound);
     a.clicks = this.clicks;
     a.sorts = ["natural", "name", "stars", "level"];
     a.menu = (e, t, c) => void this.popupMenu(e, t, c);
     a.onPick = e => this.add(e.key, true);
-    for (const root of [left, right]) this.on(root, "dismiss", () => this.close());
+    // the vendor's and the cart's dismiss close the shop; the shop's arsenal (shop/client/b, an
+    // item/client/f subclass) has none (f.b hides it)
+    this.on(left, "dismiss", () => this.close());
+    const ad = right.find("dismiss");
+    if (ad) ad.visible = false;
     this.on(cart, "dismiss", () => this.close());
     this.on(cart, "empty_cart", () => { this.cart = []; this.message = ""; this.host.sound("sound/feedback/ui_merchant_trade_remove.ogg"); void this.refresh(); });
     this.on(cart, "confirm_cart", () => this.checkout());
-    // buying crowns was the game's store (real money): hidden; the Get Energy panel is the
-    // exchange's instant buy, 100 energy for crowns (src/game/energy.ts), shown at the depot
-    const crownsPanel = cart.find("mini_getcrowns");
-    if (crownsPanel) crownsPanel.visible = false;
-    const trade = cart.find("mini_getenergy")?.find("trade");
-    if (trade) trade.onAction = () => {
+    // shop/client/m: a crown shop shows the exchange's Get Crowns panel, an energy shop (the
+    // depot) its Get Energy panel. Get Crowns! sells 100 Crystal Energy at the exchange; Buy
+    // Energy (the store's, for money, in the game) and Get Energy buy 100 for crowns there
+    const getCrowns = cart.find("mini_getcrowns");
+    const sell = getCrowns?.find("trade");
+    if (sell) sell.onAction = () => {
+      const save = this.shop.save();
+      if (sellEnergy(save, energyOf(save))) {
+        this.message = `Sold ${EXCHANGE_ENERGY} energy for ${fmt(EXCHANGE_SELL_CROWNS)} crowns.`;
+        this.host.sound("sound/feedback/merchant_transaction.ogg");
+        this.shop.changed();
+      } else this.status("m.not_enough_energy", `The exchange buys ${EXCHANGE_ENERGY} Crystal Energy at a time.`);
+      void this.refresh();
+    };
+    const buy = () => {
       const save = this.shop.save();
       if (buyEnergy(save, energyOf(save))) {
         this.message = `Bought ${EXCHANGE_ENERGY} energy for ${fmt(EXCHANGE_CROWNS)} crowns.`;
@@ -151,11 +218,19 @@ export class ShopScreen extends GuiScreen {
       } else this.status("m.not_enough_crowns", `The exchange asks ${fmt(EXCHANGE_CROWNS)} crowns for ${EXCHANGE_ENERGY} energy.`);
       void this.refresh();
     };
-    // the keeper's portrait: its own model in the portrait's RenderableView
+    const exchange = getCrowns?.find("exchange");
+    if (exchange) exchange.onAction = buy;
+    const trade = cart.find("mini_getenergy")?.find("trade");
+    if (trade) trade.onAction = buy;
+    // the keeper's portrait: its own model in the portrait's RenderableView (the knight with
+    // the good tried on while previewing)
     const view = cart.find("portrait_vendor");
     if (view) view.view = { ...(view.view ?? {}) };
     this.hooks = {
-      view: (c, g, x, y, w, h) => { if (this.portrait) this.host.view?.(c, g, x, y, w, h, this.portrait); },
+      view: (c, g, x, y, w, h) => {
+        const m = this.previewing ? this.previewModel : this.portrait;
+        if (m) this.host.view?.(c, g, x, y, w, h, m); else if (this.previewing) this.host.view?.(c, g, x, y, w, h);
+      },
       tagged: {
         slot_ring: (c, g, x, y, w, h) => {
           // GoodSlot sets the good's icon on its socket button: the square at the tag's left end
@@ -164,7 +239,25 @@ export class ShopScreen extends GuiScreen {
         },
       },
     };
-    return row([left, cart, right], 6, "BOTTOM");
+    return cart;
+  }
+
+  /**
+   * The client's shop layout: the vendor list docked at the left and the arsenal at the
+   * right, full height above the HUD, with the cart (the keeper's portrait over it) between.
+   */
+  async open() {
+    await super.open();
+    if (!this.vendorUi || !this.arsenalUi) return;
+    const left = this.vendorUi, right = this.arsenalUi;
+    await this.dock("vendor", true, 0, async () => ({ ui: left, refresh: () => undefined }), true);
+    await this.dock("arsenal", true, 0, async () => ({ ui: right, refresh: () => undefined }));
+  }
+
+  /** Tries a good on the knight (the preview's knight in the portrait's place). */
+  private async preview(name: string) {
+    this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+    this.previewModel = (await this.shop.previewModel?.(name)) ?? null;
   }
 
   /** A price-tagged socket (built once per look). */
@@ -279,8 +372,7 @@ export class ShopScreen extends GuiScreen {
   }
 
   private groupOf(name: string) {
-    const c = this.eco!.info(name)?.category ?? "other";
-    return GROUPS.find(g => g.cats.includes(c)) ?? GROUPS[GROUPS.length - 1];
+    return shopGroup(name, this.eco!.info(name)?.category ?? "other");
   }
 
   private tip(name: string, rarity: number) {
@@ -311,8 +403,11 @@ export class ShopScreen extends GuiScreen {
     await v.setGroups(groups);
     // the knight's arsenal: gear not worn and materials, counting down what the cart takes
     a.setInfo(text("craft", "m.arsenal", "ARSENAL"), "", "", save.crowns);
-    a.setEnergy(energyNow(energyOf(save)));
-    // the exchange's Get Energy panel at the depot: its price is the exchange's rate
+    // the knight's energy shows in the HUD's energy panel beside it, not in the list
+    a.setEnergy(null);
+    // the exchange's panels under the cart (shop/client/m): Get Energy at an energy shop (the
+    // depot), Get Crowns at a crown shop, priced at the exchange's rates
+    const energy = energyOf(save);
     const mini = cartUi.find("mini_getenergy");
     if (mini) {
       mini.visible = this.depot();
@@ -321,12 +416,23 @@ export class ShopScreen extends GuiScreen {
       const t = mini.find("trade");
       if (t) t.enabled = save.crowns >= EXCHANGE_CROWNS;
     }
-    const entries = (cats: string[]) => [
-      ...save.owned.filter(n => cats.includes(eco.info(n)?.category ?? "")),
-      ...Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && cats.includes(eco.info(n)?.category ?? "")),
+    const getCrowns = cartUi.find("mini_getcrowns");
+    if (getCrowns) {
+      getCrowns.visible = !this.depot();
+      const c = getCrowns.find("crowns");
+      if (c) c.text = fmt(EXCHANGE_SELL_CROWNS);
+      const t = getCrowns.find("trade"), x = getCrowns.find("exchange");
+      if (t) t.enabled = energy.crystal >= EXCHANGE_ENERGY;
+      if (x) x.enabled = save.crowns >= EXCHANGE_CROWNS;
+    }
+    // the preview: the knight's name over the knight while the vendor's Preview is down
+    if (this.previewing) set(cartUi, "title_vendor", shopText("m.preview", "Preview"));
+    const entries = (g: (typeof GROUPS)[number]) => [
+      ...save.owned.filter(n => this.groupOf(n) === g),
+      ...Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && this.groupOf(n) === g),
     ];
     const worn = (n: string) => { const e = catalogue(data).find(x => x.name === n); return !!e && isEquipped(save.loadout, e); };
-    a.setGroups(GROUPS.slice(0, 9).map(g => ({ id: g.key, label: messageText(g.key, "item"), icon: g.icon, showEmpty: true, entries: entries(g.cats).map(n => {
+    a.setGroups(GROUPS.filter(g => g.arsenal).map(g => ({ id: g.key, label: messageText(g.key, "item"), icon: g.icon, showEmpty: g.key !== "m.rarity", entries: entries(g).map(n => {
       const it = eco.info(n), left = this.held(n) - inCart(n, true);
       return { key: n, label: eco.displayName(n, save.gear[n]), rarity: it?.rarity ?? 0, icon: it?.icon ?? null, look: worn(n) ? "True" : "False",
         damage: it?.heatable ? pillDamage(data, eco, n, Math.max(1, eco.level(save, n))) : undefined,

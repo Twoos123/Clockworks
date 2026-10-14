@@ -52,6 +52,22 @@ export function scriptedMusic(cfg: any): ScriptedMusic | null {
   };
 }
 
+/**
+ * Whether a level's logic (its entries' resolved handlers and actors) spawns music actors of its
+ * own: a SpawnActor of "Environment/Music" anywhere in it, as every boss lair's fight does.
+ */
+export function spawnsMusic(logic: readonly { handlers?: any[]; actor?: any }[]): boolean {
+  const seen = new WeakSet<object>();
+  const walk = (o: any, depth: number): boolean => {
+    if (!o || typeof o !== "object" || seen.has(o) || depth > 40) return false;
+    seen.add(o);
+    if (String(o.$class ?? "").endsWith("SpawnActor") && o.actor?.name === "Environment/Music") return true;
+    for (const k in o) if (k !== "$outer" && walk(o[k], depth + 1)) return true;
+    return false;
+  };
+  return logic.some(e => walk(e.handlers, 0) || walk(e.actor, 0));
+}
+
 /** One stream on a stack. */
 export interface StackedStream<T> { item: T; stack: string; level: number }
 
