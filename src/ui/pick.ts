@@ -121,6 +121,9 @@ export class PickScreen extends GlScreen {
   protected viewModel(c: Component, vm: any, index: number): any {
     if (index !== 0) return vm?.model ?? null;
     const i = this.cardUis.findIndex(card => card.find("preview") === c);
+    // views that aren't a card's knight (the Cradle backdrop) keep their own model; an empty
+    // card shows none
+    if (i < 0) return vm?.model ?? null;
     const k = this.cards[i];
     if (!k) return null;
     // the card's own knight model, wearing this knight's look; the weapon only while hovered
