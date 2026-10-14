@@ -34,6 +34,10 @@ export class AudioSystem {
   private master: GainNode | null = null;
   private sfx: GainNode | null = null;
   private musicBus: GainNode | null = null;
+  /** The level's tracks pass through here, so a stream over them can fade them out. */
+  private trackBus: GainNode | null = null;
+  /** Streams playing (the mission board's music): the level's tracks stay faded out under them. */
+  private streams = 0;
   private buffers = new Map<string, Promise<AudioBuffer | null>>();
   private sounders: Promise<Map<string, any>>;
   private listener: Vec3 = [0, 0, 0];
@@ -67,6 +71,8 @@ export class AudioSystem {
       this.sfx.connect(this.master);
       this.musicBus = ctx.createGain();
       this.musicBus.connect(this.master);
+      this.trackBus = ctx.createGain();
+      this.trackBus.connect(this.musicBus);
       this.applyVolumes();
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
@@ -270,7 +276,7 @@ export class AudioSystem {
     const t = this.ctx.currentTime;
     g.gain.setValueAtTime(0, t);
     g.gain.linearRampToValueAtTime(gain, t + Math.max(0.05, fadeIn));
-    src.connect(g).connect(this.musicBus);
+    src.connect(g).connect(this.trackBus ?? this.musicBus);
     src.start();
     this.music = { key: file, source: src, gain: g, loop, duration: buf.duration };
   }
@@ -340,12 +346,15 @@ export class AudioSystem {
   }
 
   /**
-   * A looping stream of its own on the music bus, over whatever music plays (ProjectXApp's
-   * streams: the gain times the music volume), faded in over `fadeIn` seconds. The returned
-   * function fades it out over `fadeOut` seconds and stops it.
+   * A looping stream of its own on the music bus (ProjectXApp's streams: the gain times the
+   * music volume), faded in over `fadeIn` seconds while the level's track fades out under it.
+   * The returned function fades it out over `fadeOut` seconds, stops it, and brings the
+   * level's track back.
    */
   playStream(file: string, gain = 1, fadeIn = 2): (fadeOut?: number) => void {
     let stopped = false, node: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+    this.streams++;
+    this.duckTracks(0, fadeIn);
     void (async () => {
       if (!this.ctx || !this.musicBus) return;
       const buf = await this.buffer(file);
@@ -364,6 +373,7 @@ export class AudioSystem {
     return (fadeOut = 2) => {
       if (stopped) return;
       stopped = true;
+      if (--this.streams === 0) this.duckTracks(1, fadeOut);
       if (!node || !this.ctx) return;
       const t = this.ctx.currentTime, gg = node.g.gain;
       gg.cancelScheduledValues(t);
@@ -371,6 +381,15 @@ export class AudioSystem {
       gg.linearRampToValueAtTime(0, t + fadeOut);
       node.src.stop(t + fadeOut + 0.05);
     };
+  }
+
+  /** Ramps the level's tracks (not the streams) to a level over some seconds. */
+  private duckTracks(level: number, seconds: number) {
+    if (!this.ctx || !this.trackBus) return;
+    const t = this.ctx.currentTime, g = this.trackBus.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(level, t + Math.max(0.05, seconds));
   }
 
   /** Fades the current track out; it stops once silent. */
