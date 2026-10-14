@@ -15,9 +15,12 @@
 // - Character Options: the list shows the knight's name (ui/rename/interface.dat) and the
 //   personal colours.
 //
-// The Achievements tab (panel_cheevos.dat) stays hidden: the install has the achievement
-// icons but not the achievements, which are the server's.
+// - Achievements (panel_cheevos.dat): an icon per achievement (interface_cheevoicon.dat), its
+//   own picture once earned and the lock before, retired ones in the lower table once earned;
+//   tooltips give the name and description from the projectx bundle and the progress
+//   (game/achievements.ts). The list shows the gear, as on the equipment page.
 
+import { ACHIEVEMENTS, LOCKED_ICON, ONLINE_ONLY, progressText } from "../game/achievements";
 import { ACCESSORY_SLOTS, accessoryDef, costumeSlot, loadAccessoryLibraries, type AccessorySlot, type CostumeSlot } from "../game/accessories";
 import type { GameData } from "../game/data";
 import { MAX_LEVEL, type Economy } from "../game/economy";
@@ -106,8 +109,10 @@ const SKILL = "ui/status/parts/panel_battlesprite-skill.dat";
 const ULTIMATE = "ui/status/parts/interface_battlesprite-ultimate.dat";
 const SPRITE_IDLE = "character/pet/animation/default/animation_idle-001.dat";
 
-type Mode = "equipment" | "costume" | "sprite" | "options";
-const TABS: Mode[] = ["equipment", "costume", "sprite"];
+type Mode = "equipment" | "costume" | "sprite" | "achievements" | "options";
+const TABS: Mode[] = ["equipment", "costume", "sprite", "achievements"];
+/** An achievement's icon in the achievements page's tables. */
+const CHEEVO = "ui/status/parts/interface_cheevoicon.dat";
 
 interface WardrobeItem { name: string; label: string; icon: any; rarity: number }
 interface Wardrobe { costumes: Map<CostumeSlot, WardrobeItem[]>; accessories: Map<AccessorySlot, WardrobeItem[]> }
@@ -181,6 +186,8 @@ export class ArsenalScreen extends GuiScreen {
   private spritePane: Component | null = null;
   private restyled = new Map<string, Promise<Style | null>>();
   private hiddenGroups = false;
+  /** Achievement icons built, by type, with the state they show ("1" earned, "0" locked). */
+  private cheevos = new Map<string, { state: string; c: Component }>();
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly arsenal: ArsenalHost) {
     super(ctx, arsenal, "arsenalCanvas");
@@ -215,11 +222,11 @@ export class ArsenalScreen extends GuiScreen {
       void this.refresh();
     });
     if (opts) opts.states = 8;
-    // the tabs: equipment, costume and battle sprite (achievements are the server's)
+    // the tabs: equipment, costume, battle sprite and achievements
     const pane = right.find("tabbed");
     if (pane) {
-      this.pages = pane.tabs.slice(0, 3);
-      pane.parts.buttons?.children.forEach((b, i) => { b.visible = i < 3; });
+      this.pages = pane.tabs.slice(0, TABS.length);
+      pane.parts.buttons?.children.forEach((b, i) => { b.visible = i < TABS.length; });
       pane.onAction = (_c, a) => {
         if (a !== "select") return;
         this.tab = Math.max(0, pane.selectedIndex);
@@ -715,7 +722,7 @@ export class ArsenalScreen extends GuiScreen {
     const lines: string[] = [];
     if (heatable) {
       const st = eco.levelStats(e.name, lv, Math.max(1, save.bestDepth));
-      if (st.damage) lines.push(`Damage +${Math.round(st.damage * 100)}%`);
+      if (st.damage + st.uncapped) lines.push(`Damage +${Math.round((st.damage + st.uncapped) * 100)}%`);
       if (st.charge) lines.push(`Charge time -${Math.round(st.charge * 100)}%`);
       if (st.defense) lines.push(`Defense +${Math.round(st.defense)}`);
       if (st.health) lines.push(`Health +${Math.round(st.health / 40 * 10) / 10} pips`);
@@ -724,7 +731,7 @@ export class ArsenalScreen extends GuiScreen {
     const flavor = heatable
       ? `${g?.heat ?? 0} heat absorbed.${lv < MAX_LEVEL ? " Gear levels up with the heat it gathers in the Clockworks." : " Fully heated."}`
       : `${e.category.label.replace(/s$/, "")}.`;
-    return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity,
+    return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
       flavor: flavor + (worn ? " Equipped." : " Click to equip."), level: heatable ? lv : undefined,
       progress: eco.heatProgress(save, e.name), equipped: worn, lines });
   }
@@ -816,11 +823,12 @@ export class ArsenalScreen extends GuiScreen {
       equipment: ["Equipment", "Click gear to equip or remove it; click a socket to empty it. Changes are worn from the next floor."],
       costume: ["Costumes", "Costumes and accessories change how your knight looks, not its stats. Search for one by name."],
       sprite: ["Battle Sprite", "Pick the sprite to take along and feed it sprite food. Click a skill socket to spend its points."],
+      achievements: ["Achievements", "Achievements earned on this machine. Point at one to see what it asks and how far along you are."],
       options: ["Character Options", "Change your knight's name or personal color."],
     };
     this.list.setNotice("");
     this.list.setInfo("ARSENAL", info[mode][0], info[mode][1], save.crowns);
-    const groups = mode === "equipment" ? this.gearGroups() : mode === "costume" ? await this.costumeGroups()
+    const groups = mode === "equipment" || mode === "achievements" ? this.gearGroups() : mode === "costume" ? await this.costumeGroups()
       : mode === "sprite" ? this.spriteGroups() : this.optionGroups();
     await this.list.setGroups(groups);
     // the status window: names on every page, then each page's sockets
@@ -863,5 +871,38 @@ export class ArsenalScreen extends GuiScreen {
         flavor: !def ? "No battle sprite." : unlocked ? "Click to see its augments." : `Unlocks at level ${SKILL_LEVELS[i]}.` }));
     }
     await this.fillSprite();
+    await this.fillAchievements();
+  }
+
+  /** The achievements page: earned icons, locks, and the tooltips. */
+  private async fillAchievements() {
+    const page = this.pages[3];
+    const table = page?.find("icontable"), retired = page?.find("obsoletetable");
+    if (!table || !retired) return;
+    const save = this.arsenal.save(), look = (n: string) => this.eco?.info(n) ?? null;
+    const cells = await Promise.all(ACHIEVEMENTS.map(async d => {
+      const at = save.achievements?.unlocked[d.type];
+      // secret and retired achievements show once earned
+      if (d.hidden && !at) return null;
+      const state = at ? "1" : "0";
+      let cell = this.cheevos.get(d.type);
+      if (!cell || cell.state !== state) {
+        const c = await this.ui(CHEEVO, { Icon: at ? d.icon : LOCKED_ICON, Unlocked: true });
+        if (!c) return null;
+        cell = { state, c };
+        this.cheevos.set(d.type, cell);
+      }
+      const prog = at ? null : progressText(save, d.type, look);
+      const lines = [at ? `Earned ${new Date(at).toLocaleDateString()}` : prog ? `Progress: ${prog}` : "",
+        !at && ONLINE_ONLY.has(d.type) ? "Needs other players or the game's servers" : ""].filter(Boolean);
+      this.tips.set(cell.c, itemTip({ label: messageText(d.nameKey, "projectx"), type: at ? "Achievement" : "Locked achievement", rarity: 0,
+        flavor: messageText(d.descKey, "projectx"), lines }));
+      return { d, c: cell.c };
+    }));
+    const shown = cells.filter((x): x is NonNullable<typeof x> => !!x);
+    table.children = shown.filter(x => !x.d.obsolete).map(x => x.c);
+    retired.children = shown.filter(x => x.d.obsolete).map(x => x.c);
+    retired.visible = retired.children.length > 0;
+    for (const c of [...table.children, ...retired.children]) c.constraints = null;
   }
 }

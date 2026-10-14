@@ -5,7 +5,10 @@
 // rear, ankle and aura. The knight's body model (character/pc/model.dat) has one parameter
 // per location ("helm_top", "armor_back"...), each an attachment at its own node (the head
 // for helmet locations, the spine and root for armour ones), so an accessory goes on by
-// passing its model as that argument. Multi-slot accessories take a second location too;
+// passing its model as that argument. Most accessory models are wrappers
+// (item/gear/accessory/*/compound_attachwrapper.dat) whose component names its own node, the
+// knight's "bone_helmet" or an armour bone, found on the knight's skeleton (the renderer
+// resolves a node the model lacks against its nearest articulated ancestor). Multi-slot accessories take a second location too;
 // footstep auras also set the body's "Step Effect".
 //
 // Costumes ("Costume/Armor/...", "Costume/Helm/...", "Costume/Shield/...") replace the model

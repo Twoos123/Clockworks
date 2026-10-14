@@ -1078,7 +1078,14 @@ export class Renderer {
         g.matrices.push(m);
       }
       for (const c of inst.children) {
-        let at = c.node && inst.world.has(c.node) ? multiply(placement, inst.nodeMatrix(c.node)) : placement;
+        // A node this model lacks resolves against the nearest articulated ancestor, as
+        // Clyde's compound components find theirs through the scope chain: accessory wrappers
+        // (item/gear/accessory/helm/compound_attachwrapper.dat) attach to the knight's
+        // "bone_helmet", whichever body attachment holds them.
+        let at = !c.node ? placement
+          : inst.world.has(c.node) ? multiply(placement, inst.nodeMatrix(c.node))
+          : skel && skel.inst !== inst && skel.inst.world.has(c.node) ? multiply(skel.placement, skel.inst.nodeMatrix(c.node))
+          : placement;
         const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
         if (bb) at = this.faceCamera(at, bb);
         collect(c.instance, multiply(at, c.transform), skel);

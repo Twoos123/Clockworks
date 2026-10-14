@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "e2e": "tsx tests/e2e/folder-input.e2e.ts",
+    "import-scenes": "tsx tools/import-scenes.ts",
     "scan": "tsx tools/scan.ts",
     "dump": "tsx tools/dump.ts",
     "levels": "tsx tools/levels.ts"

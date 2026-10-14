@@ -12,7 +12,7 @@ be done fully, with the reason.
 - [x] Conversations (`src/game/conversation.ts`, `src/ui/conversation.ts`): StartConversation opens `ui/conversation/interface.dat` (or the node's own interface) with the NPC's model and node animation, the knight's reply portrait and response rows, lines as keys of the conversation's bundle; FLAG: the response jumps are stripped, so the way between nodes follows the designers' part names ("part 2a" to "part 3a/3b"); conditional nodes are not evaluated
 - [x] Mission Lobby: missions start in the archive's Mission Lobby; its elevator goes down to the mission's first floor
 - [x] Clockworks gates: six strata, depth 0 to 29, tiers 1 to 3, terminals at 4/13/23, Moorcroft Manor (8), Emberlight (18), the Core's terminal (29), boss floors
-- [x] Elevator screen between floors (`ui/elevator/nextlevel`), loading screen with tips and progress (`ui/loading`); FLAG: tips beyond the two in the install's interfaces are written here (the game's are in message bundles)
+- [x] Elevator screen between floors (`ui/elevator/nextlevel`), loading screen with the game's tips (helptips bundle) and progress (`ui/loading`)
 - [x] Arena rooms on generated floors (Iron Gates close, two waves, reopen); gold keys and gold gates, party-platform and hidden-button gates, secret treasure rooms, block and crystal walls, spike runs, Gun Puppy turrets, mineral nodes, themed decoration (`src/gen/features.ts`, docs/research/generated-features.md); crystal gates, explosive walls, status trap runs, prism gates, rescue cages, healing totems, gun blocks (`src/game/objects.ts`); FLAG: prism puzzle models missing from the install (stand-ins)
 - [x] Terminals: heal on arrival, tiered Supply Depot, elevator onward
 - [x] Depth record, run summary; knockouts with the game's revive window (Sparks of Life)
@@ -28,7 +28,7 @@ be done fully, with the reason.
 - [x] Guilds: guild hall, furniture placement, guild storage (vault), guild name and emblem
 - [ ] FLAG: guild hall layouts (expansions, rooms, themes) are server-side; every guild gets the one cached hall
 - [x] Ready room (`rsrc/world/readyroom/scene.dat`), character creation (`rsrc/world/createknight/scene.dat`)
-- [ ] FLAG: game text (message bundles are in the code jars); labels written here
+- [x] Game text: the message bundles (rsrc/i18n in the install's projectx-config.jar, served by /__sk/i18n, src/i18n.ts) for interface text, item names, flavor, types and variants, monster, boss and level names, mission names, briefings, objectives and dialogue, rank titles, loading tips, shop keepers, help pages; locales the install has (options, language). Our English stays where the game builds text on its servers or we invented the thing (generated style names, run summaries, notices)
 - [ ] FLAG: PvP, parties, trading, mail (multiplayer)
 
 ## Combat and actors
@@ -42,8 +42,8 @@ be done fully, with the reason.
 - [x] GUI widgets: Slider, ComboBox, ScrollPane, TabbedPane, TextField, List, interaction
 - [x] Real options screen (`ui/options`) bound to the settings
 - [x] Real arsenal / loadout / forge / shop / backpack screens (the game's own interfaces)
-- [x] Message keys shown as readable English
-- [x] Status window tabs through the game's interfaces (`src/ui/equipment.ts`): Costume (helmet, armour and shield costume sockets; costumes and accessories by location in the arsenal list), Battle Sprite (the sprite's preview and skill sockets, feeding with `interface_battlesprite-hunger.dat`, augment points with confirm and cancel in `panel_battlesprite-skill.dat`, ultimates in `interface_battlesprite-ultimate.dat`), Save Loadout (named loadouts in the save, `ui/loadout` pills and tooltips; up to 10), Character Options (rename with `ui/rename`, personal colour); the dev HTML wardrobe is gone. FLAG: achievements (only the icons ship; the achievements are server code), sprite harnesses and perks, appetite; costumes and accessories are all wearable (their sources are server-side)
+- [x] Message keys from the game's bundles (readable English made from the key when a bundle lacks it)
+- [x] Status window tabs through the game's interfaces (`src/ui/equipment.ts`): Costume (helmet, armour and shield costume sockets; costumes and accessories by location in the arsenal list), Battle Sprite (the sprite's preview and skill sockets, feeding with `interface_battlesprite-hunger.dat`, augment points with confirm and cancel in `panel_battlesprite-skill.dat`, ultimates in `interface_battlesprite-ultimate.dat`), Save Loadout (named loadouts in the save, `ui/loadout` pills and tooltips; up to 10), Character Options (rename with `ui/rename`, personal colour), Achievements (`panel_cheevos.dat`: the cheevos icons and locks, tooltips with the bundle's names, descriptions and progress); the dev HTML wardrobe is gone. FLAG: sprite harnesses and perks, appetite; costumes and accessories are all wearable (their sources are server-side)
 - [x] Shopkeeper portraits: the keeper's own NPC model and shop animation in `vendor_withportrait.dat`'s RenderableView
 - [x] Arsenal, backpack, forge and options windows built in idle time after reaching town (first open under a second)
 - [x] No HTML panels in game mode: every window is the game's own interface on canvas
@@ -58,6 +58,8 @@ be done fully, with the reason.
 ## Also done or in progress
 - [x] Economy: item levels for all gear, level tables, unique variants, loot by depth, shop catalogues, recipes to buy, selling; FLAG: daily catalogues and energy are server-side
 - [x] Battle sprites (all 20 configs, skills, levels, perks) given by the sprite missions; accessories and costumes
+- [x] Accessories sit at their attachment points: the accessory wrappers (`item/gear/accessory/*/compound_attachwrapper.dat`) name a node (the helmet's `bone_helmet`, the armour's spine or root) that resolves against the knight's skeleton, as Clyde's compound components find theirs through the scope chain (checked in the browser on helmet top, brow, front, side and back, and armour front, arms, back, rear, ankle and aura)
+- [x] Achievements (`src/game/achievements.ts`): the client's 65 types (codes are the CRC-32 of the type name: bundle keys `m.achievement_<code>`, icons `ui/icon/cheevos/<code>.png`), kept in the save; earned offline from the arsenal (gear by kind, five-star set, level 10, every socket), rank (tier clearance), depths and runs (terminals, subtowns, the Core, tiers and the full Clockworks without revives), bosses, crafting, capsules and revives; kills counted; announced with the chat bundle's notice. FLAG: party revives, derelict Mecha Knights, Lockdown, the prize wheel and mineral deposits need other players or the server
 - [x] Point, spot and directional lights from scene entries and models (LightConfig influences: attenuation, spot exponent and cutoff, box extents; the nearest eight per object, as GL's fixed-function lights; models with light influences off are skipped), including the editor light markers the game's scenes and generated floors place
 - [x] White-quad particles fixed: textures are premultiplied on load as Clyde does (WebGL ignores UNPACK_PREMULTIPLY for ImageBitmaps, so alpha-only sprites drew as white squares under additive blending); second texture units (masks, "Separate Mask" materials) are applied; particle layers use their material's own blend
 - [ ] Audit and fixes: every monster and weapon animation; lichen fusion

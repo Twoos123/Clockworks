@@ -7,18 +7,23 @@
 import type { WeaponKind } from "./data";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
-const level = (v: any) => String(v?.name ?? v ?? "LOW").split(".").pop()!;
+const level = (v: any) => String(v?.name ?? v ?? "CUSTOM").split(".").pop()!;
 
-// Amounts per ItemBonus level, from the configs that state them (Heart Pendants: 80 at
-// MEDIUM, 160 at VERY_HIGH, 200 at ULTRA; Slash Modules: 0.1 LOW, 0.2 MEDIUM; Quick Draw:
-// 0.02 LOW, 0.05 MEDIUM).
-const LEVELS = ["LOW", "MEDIUM", "HIGH", "VERY_HIGH", "ULTRA", "MAXIMUM"];
-const HEALTH = [40, 80, 120, 160, 200, 240];
-const DAMAGE = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6];
-const CHARGE = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3];
-const ATTACK_SPEED = [0.02, 0.05, 0.08, 0.12, 0.16, 0.2];
-const SPEED = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3];
-const at = (table: number[], v: any) => table[Math.max(0, LEVELS.indexOf(level(v)))];
+// ItemCodes ItemValueKey: an ItemBonus level other than CUSTOM is that many steps of its
+// key's size (LOW one step, MAXIMUM six), negative when the config says not positive;
+// CUSTOM takes the config's own amount. Sums are capped at six steps.
+export const ITEM_BONUS = ["CUSTOM", "LOW", "MEDIUM", "HIGH", "VERY_HIGH", "ULTRA", "MAXIMUM"];
+export const STEP = { DAMAGE: 0.08, SPEED: 0.04, CHARGE: 0.08, HEALTH: 40, TAGGED: 0.1 } as const;
+export type ValueKey = keyof typeof STEP;
+
+/** A bonus amount: CUSTOM's own amount, or steps of the key's size. */
+export function itemValue(key: ValueKey, bonus: any, positive: boolean | undefined, custom: number): number {
+  const i = Math.max(0, ITEM_BONUS.indexOf(level(bonus)));
+  return i === 0 ? custom : (positive === false ? -1 : 1) * STEP[key] * i;
+}
+
+/** A summed bonus within six steps either way. */
+export const capValue = (key: ValueKey, v: number) => Math.min(STEP[key] * 6, Math.max(-STEP[key] * 6, v));
 
 /** LevelConfig Weapons values to the weapon kinds here; "All" applies to every weapon. */
 type Cls = WeaponKind | "All";
@@ -54,12 +59,13 @@ export function addItemBonuses(b: Bonuses, item: any) {
       case "Compound": for (const x of m.levels ?? []) mod(x, cls, depth + 1); break;
       // the class field defaults to SWORD (sword modules leave it out)
       case "WeaponClass": mod(m.level, WEAPON[level(m.weaponClass ?? "SWORD")] ?? "Sword", depth + 1); break;
-      case "HealthBonus": b.health += m.health ?? at(HEALTH, m.bonus); break;
-      case "RelativeDamageBonus": b.damage[cls] += m.damage ?? at(DAMAGE, m.bonus); break;
-      case "TaggedDamageBonus": if (m.tag) b.tagged[m.tag] = (b.tagged[m.tag] ?? 0) + (m.damage ?? at(DAMAGE, m.bonus)); break;
-      case "ChargeTimeReduction": b.charge[cls] += m.reduction ?? at(CHARGE, m.bonus); break;
-      case "AttackSpeedChange": b.attackSpeed[cls] += m.speed ?? at(ATTACK_SPEED, m.bonus); break;
-      case "SpeedChange": b.speed += m.speed ?? at(SPEED, m.bonus); break;
+      // HealthBonus's own amount defaults to 40 (one heart pip); the others to 0
+      case "HealthBonus": b.health += itemValue("HEALTH", m.bonus, m.positive, m.health ?? 40); break;
+      case "RelativeDamageBonus": b.damage[cls] += itemValue("DAMAGE", m.bonus, m.positive, m.damage ?? 0); break;
+      case "TaggedDamageBonus": if (m.tag) b.tagged[m.tag] = (b.tagged[m.tag] ?? 0) + itemValue("DAMAGE", m.bonus, m.positive, m.damage ?? 0); break;
+      case "ChargeTimeReduction": b.charge[cls] += itemValue("CHARGE", m.bonus, m.positive, m.reduction ?? 0); break;
+      case "AttackSpeedChange": b.attackSpeed[cls] += itemValue("SPEED", m.bonus, m.positive, m.speed ?? 0); break;
+      case "SpeedChange": b.speed += itemValue("SPEED", m.bonus, m.positive, m.speed ?? 0); break;
     }
   };
   mod(item.globalModifier, "All");

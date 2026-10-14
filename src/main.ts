@@ -1,13 +1,13 @@
 import { lookAt, perspective, type Vec3 } from "./math";
 import { loadAnimation, ModelLoader, type LoadedModel } from "./model";
 import { Renderer, type ModelInstance } from "./render/renderer";
-import { prettySceneName, SceneLoader, sceneName, type LoadedScene } from "./scene";
+import { SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
 import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environment";
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
-import { GuiContext } from "./ui/gui";
+import { GuiContext, messageText } from "./ui/gui";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -27,7 +27,9 @@ import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
-import { ACTIONS, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
+import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
+import { loadMessages, messages, text } from "./i18n";
+import { itemName } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
 import { pad as padOptions } from "./gamepad";
@@ -36,17 +38,20 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { arcadeGates, bossName, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { rankLabel, tierLock } from "./game/missions";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
 import { currentNotice, initNotices } from "./ui/notice";
+import {
+  ACHIEVEMENTS, evaluate as evaluateAchievements, recordBoss, recordDepth, recordHaven, recordKills, recordPocketUse, recordRevive,
+  recordRunEnd, recordRunStart, type AchievementType,
+} from "./game/achievements";
 import { UplinkScreen } from "./ui/uplink";
 import { HelpScreen } from "./ui/help";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
-import { messageText } from "./ui/gui";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
 const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site/i;
@@ -185,6 +190,8 @@ async function open(make: () => Promise<Vfs>) {
     const vfs = await make();
     const files = await vfs.list();
     if (!files.some(f => f.endsWith(".dat"))) throw new VfsError("No .dat files were found in that folder.");
+    // the game's text, from the install's message bundles (our own English where they are missing)
+    await loadMessages(vfs, loadSettings().locale).catch(() => 0);
     $("welcome").hidden = true;
     $("app").hidden = false;
     new Viewer(vfs, files);
@@ -277,6 +284,7 @@ class Viewer {
   constructor(private readonly vfs: Vfs, files: string[]) {
     this.loader = new ModelLoader(vfs);
     this.renderer = new Renderer(this.canvas, vfs);
+    messages.controls = command => commandKeys(this.options_, command);
     this.renderer.colors = vfs.colorDefs().then(b => (b ? ColorPository.fromSerialized(b) : null)).catch(() => null);
     this.sceneLoader = new SceneLoader(this.loader);
     this.places = this.makePlaces();
@@ -325,7 +333,7 @@ class Viewer {
       if (b("cycle") && !e.repeat) { e.preventDefault(); const n = Math.max(1, this.world.knight.weapons.length); this.weaponSlot = (this.world.knight.slot + 1) % n; }
       // pocket items
       (["item1", "item2", "item3", "item4"] as const).forEach((a, i) => {
-        if (b(a) && !e.repeat && !this.paused && this.world!.useItem(i)) writeSave(this.save);
+        if (b(a) && !e.repeat && !this.paused) this.usePocket(i);
       });
       (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
@@ -382,22 +390,14 @@ class Viewer {
   }
 
   private async listScenes(vfs: Vfs) {
-    const ids = await vfs.scenes();
-    this.sceneIds = new Set(ids);
-    if (ids.length === 0) return;
-    // a few reads at a time: the level archive holds thousands of scenes, and starting every
-    // read at once runs the browser out of request slots (ERR_INSUFFICIENT_RESOURCES)
-    // (the local server names them all at once, remembering the names)
-    const names = await vfs.sceneNames?.().catch(() => null) ?? null;
-    const named: ({ id: string; name: string } | null)[] = ids.map(id => names && id in names ? { id, name: prettySceneName(names[id]) } : null);
-    const todo = ids.filter((_, i) => !named[i]);
-    let next = 0;
-    if (todo.length) await Promise.all(Array.from({ length: Math.min(16, todo.length) }, async () => {
-      while (next < ids.length) {
-        const i = next++, id = ids[i];
-        if (named[i]) continue;
-        try { named[i] = { id, name: await sceneName(await vfs.readScene(id)) }; } catch { /* unreadable */ }
-      }
+    // the local server keeps every level's name in an index; a picked folder is read file by file
+    const index = vfs instanceof DevServerVfs ? await vfs.sceneIndex().catch(() => null) : null;
+    const ids = index ? [] : await vfs.scenes();
+    // every id the archive holds (exits lead to levels by id)
+    this.sceneIds = new Set(index ? index.map(([id]) => id) : ids);
+    if (!index && ids.length === 0) return;
+    const named = index ? index.map(([id, name]) => ({ id, name })) : await Promise.all(ids.map(async id => {
+      try { return { id, name: await sceneName(await vfs.readScene(id)) }; } catch { return null; }
     }));
     const ul = $("scenes");
     const found = named.filter((s): s is { id: string; name: string } => s !== null);
@@ -697,6 +697,8 @@ class Viewer {
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
+    // arriving in Haven, and the arsenal as it stands, may earn achievements
+    this.achieve();
     const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
     this.outfit.onRedress = () => portrait.setModelRef(world.portraitRef());
@@ -852,9 +854,9 @@ class Viewer {
       gui: this.gui, colors: this.renderer.colors, eco: () => this.economy(),
       data: () => this.world?.data ?? new GameData(this.loader),
       save: () => this.save, sound: f => this.uiSound(f),
-      write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); },
+      write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); this.achieve(); },
       paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
-      arsenalClosed: () => this.places.arsenalClosed(),
+      arsenalClosed: () => { this.places.arsenalClosed(); this.achieve(); },
       outfit: () => this.outfit,
       // the equipment window's knight preview, the battle sprite page's sprite, the vendor's keeper
       view: (c, g, x, y, w, h, model) => {
@@ -901,7 +903,7 @@ class Viewer {
     if (f && (f.kind === "terminal" || f.kind === "subtown" || f.kind === "core")) {
       return { town: true, objectives: [`${f.name}, depth ${f.depth}: rest, resupply at the Supply Depot, then take the elevator down.`] };
     }
-    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? BOSSES[f.stratum.boss].name : "the boss"}.`, "The elevator opens when it falls."] };
+    if (f?.kind === "boss") return { town: false, objectives: [`Defeat ${f.stratum?.boss ? bossName(f.stratum.boss) : "the boss"}.`, "The elevator opens when it falls."] };
     const town = !!this.scene && TOWN.test(this.scene.name);
     const a = this.world?.arena;
     const objectives = town ? ["Visit the shops, then enter the Clockworks."]
@@ -1108,7 +1110,9 @@ class Viewer {
     const kp = eco.keeper(keeper, { tier, maxRarity });
     // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
     const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
-    await this.ensureScreens().openShop(kp.title, stock, kp.maxRarity, portrait);
+    // the keeper's name and title line from its description config, in the shop bundle
+    const desc = await (this.world?.data ?? new GameData(this.loader)).actorDescription(keeper).catch(() => null);
+    await this.ensureScreens().openShop(text("shop", desc?.dname, kp.title), stock, kp.maxRarity, portrait, text("shop", desc?.title, ""));
   }
 
   /** The economy over the install's configs (prices, levels, variants, recipes). */
@@ -1142,7 +1146,7 @@ class Viewer {
         notes.push(`Found ${eco.displayName(it.name, this.save.gear[it.name])}`);
       }
     }
-    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${up.name.split("/").pop()} reached level ${up.level}`);
+    if (eco) for (const up of eco.addHeat(this.save, l.heat)) notes.push(`${itemName(up.name)} reached level ${up.level}`);
     return notes;
   }
 
@@ -1165,6 +1169,8 @@ class Viewer {
     const l = this.world.loot;
     const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
+    recordKills(this.save, this.world.killCount);
+    this.achieve(this.bossFloor && !this.bossAlive() ? recordBoss(this.save, this.bossFloor) : []);
     const t = this.runTotals;
     t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
     t.materials += [...l.materials.values()].reduce((a, b) => a + b, 0);
@@ -1248,7 +1254,8 @@ class Viewer {
         const n = this.save.sparks ?? 3;
         if (n <= 0 || !this.world) return false;
         this.save.sparks = n - 1;
-        writeSave(this.save);
+        recordRevive(this.save);
+        this.achieve();
         this.world.revive();
         this.knockedOut = false;
         this.uiSound("sound/feedback/ui_confirm.ogg");
@@ -1280,6 +1287,30 @@ class Viewer {
     void this.returnToHaven();
   }
 
+  /** Uses a pocket item (slot i); capsules count toward achievements. */
+  private usePocket(i: number) {
+    const item = this.world?.pocket[i]?.[0];
+    if (!item || !this.world?.useItem(i)) return;
+    recordPocketUse(this.save, item);
+    this.achieve();
+  }
+
+  /**
+   * Checks the achievements (src/game/achievements.ts) against the save, with those an event
+   * just earned, writes the save and announces the new ones.
+   */
+  private achieve(earned: AchievementType[] = []) {
+    const eco = this.eco;
+    const got = [...earned, ...evaluateAchievements(this.save, n => eco?.info(n) ?? null)];
+    // the knight made it to Haven (after creation)
+    if (this.save.knight && /haven/i.test(this.scene?.name ?? "")) got.push(...recordHaven(this.save));
+    writeSave(this.save);
+    for (const t of got) {
+      const d = ACHIEVEMENTS.find(a => a.type === t);
+      if (d) notice(`${messageText("m.achievement_unlocked", "chat").replace(/\.$/, "")}: ${messageText(d.nameKey, "projectx")}`);
+    }
+  }
+
   private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
 
   /** The run summary on arrival in Haven (the game's mission-complete window). */
@@ -1291,6 +1322,7 @@ class Viewer {
     const t = this.runTotals;
     const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
     this.gate = null;
+    recordRunEnd(this.save);
     this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "", notes: [] };
     this.stopPlaying();
     this.run = { depth: 0, health: null, floors: 0 };
@@ -1348,6 +1380,7 @@ class Viewer {
     this.arenaMode = false;
     // the descent starts above the first floor (a mission's floors start deeper)
     this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
+    if (!g.id.startsWith("mission:")) recordRunStart(this.save, this.run.depth);
     // a mission starts in the Mission Lobby (the client's LOBBY level: knights gear up, then
     // its elevator takes them down), when the level archive has it
     // (the archive holds several revisions: the newest scene id, not an instance's huge one)
@@ -1476,6 +1509,7 @@ class Viewer {
       const sc = this.floorScene(f);
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
+      this.achieve(recordDepth(this.save, f.depth));
       this.bossFloor = f.kind === "boss" ? f.stratum!.boss : null;
       await this.selectScene(sc.id);
       await this.startPlaying();
@@ -1749,7 +1783,7 @@ class Viewer {
           if (pad.move[0] || pad.move[1]) move = rel(pad.move[0], pad.move[1]);
           if (pad.aim) { const [ax, ay] = rel(pad.aim[0], pad.aim[1]); const k = this.world.knight; aim = [k.x + ax * 3, k.y + ay * 3]; }
           else if (pad.move[0] || pad.move[1]) aim = null;
-          if (pad.item >= 0 && !this.paused && this.world.useItem(pad.item)) writeSave(this.save);
+          if (pad.item >= 0 && !this.paused) this.usePocket(pad.item);
           if (pad.cycle && this.world.knight.weapons.length) {
             const n = this.world.knight.weapons.length;
             this.weaponSlot = (this.world.knight.slot + pad.cycle + n) % n;

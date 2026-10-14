@@ -5,6 +5,7 @@
 import type { GameData } from "./data";
 import type { Category as EcoCategory } from "./economy";
 import type { Loadout } from "./save";
+import { itemName } from "./text";
 
 export type Slot = "weapon" | "shield" | "armor" | "helmet" | "trinket" | "vitapod";
 
@@ -37,7 +38,7 @@ export const SKIP = /\/Parts\/|\/Dev\/|\(Dev\)|\bTEST\b|\/Test\/|PvP|\(Test\)|Tu
 
 export interface ItemEntry {
   name: string;
-  /** The config path's last segment ("Proto Sword"). */
+  /** The item's name in the game's text (the config path's last segment without it). */
   label: string;
   category: Category;
   rarity: number;
@@ -45,8 +46,8 @@ export interface ItemEntry {
   icon: any;
 }
 
-/** An item's display name: the last segment of its config path. */
-export const itemLabel = (name: string) => name.split("/").pop() ?? name;
+/** An item's display name: its name in the game's text, else the last segment of its config path. */
+export const itemLabel = (name: string) => itemName(name);
 
 const CATALOGUE = new WeakMap<object, ItemEntry[]>();
 
@@ -58,7 +59,7 @@ export function catalogue(data: GameData): ItemEntry[] {
   const list: ItemEntry[] = [];
   for (const name of lib.keys()) {
     // names starting with "_" are templates other items derive from
-    if (SKIP.test(name) || itemLabel(name).startsWith("_")) continue;
+    if (SKIP.test(name) || (name.split("/").pop() ?? "").startsWith("_")) continue;
     const category = CATEGORIES.find(c => c.test.test(name));
     if (!category) continue;
     const impl = data.resolveSync("config/item.dat", { name }, "item");

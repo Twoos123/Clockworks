@@ -87,8 +87,9 @@ A single-player loop runs in the browser, built from the install's own data:
    danger rooms, arenas) and dungeon objects (crystal gates, explosives, prism gates, trap runs,
    rescue cages, healing totems, gun blocks): see docs/research/generated-features.md. Rescue
    camps themselves (their townsfolk and missions) are missing.
-2. **Text.** Item names, NPC dialogue and HUD strings live in message bundles inside the
-   code jars, which this project does not read. Names come from config paths instead.
+2. **Text.** The game's message bundles are read from the install's projectx-config.jar
+   (src/i18n.ts). Text the game makes on its servers, and things this port invents (some
+   generated level styles, run summaries, notices, our settings rows), are still our English.
 3. **Shop catalogues** are server-side (`config/catalog.dat` ships empty). Prices are the
    game's own (`item_property.dat`); each keeper sells every item of its kind in the star
    range its place allows, and Basil picks twelve recipes per visit.
@@ -113,14 +114,14 @@ A single-player loop runs in the browser, built from the install's own data:
 
 **Fidelity**
 
-8. **Monster AI** is clean-room. The game's AI and attack selection are closed code.
-9. **Damage formula and several numbers are tuning values:**
-   - knight health, the defence formula, status chance and power levels;
-   - the dash;
-   - the heat curve between an item's baseHeat (first level) and maxHeat (level 10) is
-     geometric, and 1-star items' maxHeat (a class default) is taken as 2500;
-   - level damage bonuses with a startDepth (2-5 star weapons) apply from that depth;
-     DefenseIncrease is read as percent of the item's defence.
+8. **Taken from the client** (docs/research/client-fidelity.md, client-map.md): the damage
+   and defence formula, bonus steps and caps, knight health (200), the heat series and its
+   split between items, status chance and power levels and each condition's defaults,
+   knockback impulses, attack timing, the dash, shield regeneration, config class defaults,
+   monster and boss health, trap cycles.
+9. **Still ours.** The client runs no game logic (it is server code): monster AI, the boss
+   directors' sequencing (bell range, Vanaduke's wet time), how power and resistance turn into
+   a status's duration and chance, freeze breaking, invulnerability windows, forging levels.
 10. **Unread defaults.** The export drops default-valued fields, and some game defaults
     differ from upstream Clyde. The logic infers implicit objects and treats unnamed signal
     handlers as hearing "activate". A few ExpressionSwitch case values are matched by
@@ -134,7 +135,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Model files loaded in the browser | 5,816 of 5,816, no failures |
 | Cached scenes loaded | 12 of 12, zero unresolved references |
 | A full run, Haven to Terminal Core and back | passes (automated) |
-| Unit tests | 15 of 15 |
+| Unit tests | 93 of 93 |
 
 ## Decisions for you
 

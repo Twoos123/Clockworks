@@ -6,6 +6,7 @@
 // and the chance of success; Forge crafts it and plays the forging animation
 // (ui/forge/interface_forging.dat and its own interface scripts).
 
+import { recordCraft } from "../game/achievements";
 import type { GameData } from "../game/data";
 import type { Economy, Recipe } from "../game/economy";
 import { CATEGORIES, itemLabel } from "../game/items";
@@ -122,6 +123,7 @@ export class ForgeScreen extends GuiScreen {
         return { key: r.name, label: itemLabel(r.output), rarity: r.rarity, icon: this.iconOf(r.output),
           look: ok ? "False - Green" as const : known ? "False" as const : "False - Red" as const,
           tip: itemTip({ label: itemLabel(r.output), type: this.catOf(r)?.label.replace(/s$/, "") ?? "Item", rarity: r.rarity,
+            item: r.output, kind: this.catOf(r)?.eco ?? "item",
             flavor: ok ? "Everything is at hand: forge it." : known ? "Gather what is missing." : "Buy the recipe from a shop first.",
             lines: this.needs(save, r) }) };
       }),
@@ -180,6 +182,7 @@ export class ForgeScreen extends GuiScreen {
     const save = this.host_.save(), r = this.chosen;
     const made = r ? this.eco!.craft(save, r) : null;
     if (!r || !made) { this.host.sound("sound/feedback/ui_dismiss.ogg"); return; }
+    recordCraft(save, r.rarity);
     this.host_.changed();
     this.host.sound("sound/feedback/transmute.ogg");
     await this.playForging(r, made.variants);

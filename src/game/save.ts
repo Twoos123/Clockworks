@@ -5,6 +5,7 @@
 import type { GearState } from "./economy";
 import type { GuildSave } from "./guild";
 import { normalizeAppearance, type Appearance } from "./accessories";
+import { normalizeAchievements, type AchievementSave } from "./achievements";
 import { normalizeSpriteSave, type SpriteSave } from "./sprites";
 
 export interface Loadout {
@@ -58,6 +59,8 @@ export interface SaveData {
   guild?: GuildSave;
   /** Loadouts saved from the equipment window (its Save Loadout button), newest last. */
   loadouts?: SavedLoadout[];
+  /** Achievements earned, the statistics behind them and the run under way (achievements.ts). */
+  achievements?: AchievementSave;
 }
 
 /** A named loadout: the gear, the costumes and accessories, and the battle sprite. */
@@ -169,6 +172,7 @@ export function loadSave(): SaveData {
         sprites: normalizeSpriteSave(d.sprites),
         appearance: normalizeAppearance(d.appearance),
         loadouts: normalizeLoadouts(d.loadouts),
+        achievements: normalizeAchievements(d.achievements),
         owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? []), d.loadout?.vitapod]
           .filter((x): x is string => !!x))],
       };

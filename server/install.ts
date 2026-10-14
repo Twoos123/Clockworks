@@ -6,7 +6,8 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
-import { join, normalize, sep } from "node:path";
+import { dirname, join, normalize, sep } from "node:path";
+import { readZipDirectory, readZipEntry, type ZipEntry } from "./zip";
 
 const GAME_DIR = "Spiral Knights";
 const isInstall = (dir: string) => existsSync(join(dir, "rsrc")) && existsSync(join(dir, "rsrc", "config"));
@@ -85,6 +86,44 @@ export function archiveDir(): string {
 }
 
 const SCENE = /^[0-9]+$/;
+/** A message bundle's name: "item", "item-names", "global_de". */
+const BUNDLE = /^[a-z0-9_-]+$/;
+const I18N = "rsrc/i18n/";
+
+/**
+ * The message bundles (rsrc/i18n/*.properties) inside the install's projectx-config.jar. The
+ * jar and its parsed directory are kept until the file changes (a game update).
+ */
+export class BundleJar {
+  private cached: { key: string; zip: Uint8Array; dir: Map<string, ZipEntry> } | null = null;
+  constructor(private readonly jar: () => string | null) {}
+
+  private open() {
+    const file = this.jar();
+    if (!file || !existsSync(file)) return null;
+    const st = statSync(file), key = `${file}|${st.size}|${st.mtimeMs}`;
+    if (this.cached?.key !== key) {
+      const zip = new Uint8Array(readFileSync(file));
+      this.cached = { key, zip, dir: readZipDirectory(zip) };
+    }
+    return this.cached;
+  }
+
+  /** Bundle names, locale variants included ("global", "global_de"). */
+  names(): string[] {
+    const c = this.open();
+    if (!c) return [];
+    return [...c.dir.keys()].filter(n => n.startsWith(I18N) && n.endsWith(".properties"))
+      .map(n => n.slice(I18N.length, -".properties".length)).filter(n => BUNDLE.test(n));
+  }
+
+  /** One bundle's .properties bytes, or null for a bad name or a missing entry. */
+  read(name: string): Uint8Array | null {
+    if (!BUNDLE.test(name)) return null;
+    const c = this.open(), e = c?.dir.get(I18N + name + ".properties");
+    return c && e ? readZipEntry(c.zip, e) : null;
+  }
+}
 
 /** Copies new or updated cached levels from the install into the archive; returns how many. */
 export function syncArchive(install: string | null, archive = archiveDir()): number {
@@ -110,43 +149,36 @@ export function syncArchive(install: string | null, archive = archiveDir()): num
   return copied;
 }
 
-let naming: Promise<Record<string, string>> | null = null;
-
 /**
- * The raw name of every archived level ("%town:m.haven_bazaar"), by scene id. Names are kept
- * in names.json beside the archive with each file's size and time, so only new or changed
- * levels are read again.
+ * Each archived level's display name, kept in a JSON file beside the archive so the game learns
+ * the names of thousands of levels in one request; a level is parsed only when it is new or
+ * has changed. Returns [id, name] pairs.
  */
-export function sceneNames(archive = archiveDir()): Promise<Record<string, string>> {
-  const run = async () => {
-    const { importBinary } = await import("../src/export/BinaryImport");
-    const { inflateSync } = await import("node:zlib");
-    const store = join(archive, "..", "names.json");
-    let known: Record<string, { size: number; time: number; name: string }> = {};
-    try { known = JSON.parse(readFileSync(store, "utf8")); } catch { /* first run */ }
-    const out: Record<string, string> = {}, next: typeof known = {};
-    let changed = false;
-    for (const id of existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : []) {
-      try {
+let indexing: Promise<[string, string][]> | null = null;
+export function sceneIndex(archive = archiveDir()): Promise<[string, string][]> {
+  return indexing ??= (async () => {
+    try {
+      const file = join(dirname(archive), "scene-index.json");
+      let cache: Record<string, { size: number; mtime: number; name: string }> = {};
+      try { cache = JSON.parse(readFileSync(file, "utf8")); } catch { /* first run */ }
+      const { sceneName } = await import("../src/scene");
+      const out: [string, string][] = [];
+      let changed = false;
+      for (const id of existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : []) {
         const st = statSync(join(archive, id));
-        let k = known[id];
-        if (!k || k.size !== st.size || k.time !== st.mtimeMs) {
-          const r: any = await importBinary(new Uint8Array(readFileSync(join(archive, id))), d => new Uint8Array(inflateSync(d)));
-          k = { size: st.size, time: st.mtimeMs, name: String(r.root?.name ?? "") };
+        let e = cache[id];
+        if (!e || e.size !== st.size || e.mtime !== st.mtimeMs) {
+          let name = "";
+          try { name = await sceneName(new Uint8Array(readFileSync(join(archive, id)))); } catch { /* unreadable */ }
+          e = cache[id] = { size: st.size, mtime: st.mtimeMs, name };
           changed = true;
         }
-        next[id] = k;
-        out[id] = k.name;
-      } catch { /* unreadable level */ }
-    }
-    if (changed || Object.keys(known).length !== Object.keys(next).length) {
-      try { writeFileSync(store, JSON.stringify(next)); } catch { /* read-only */ }
-    }
-    return out;
-  };
-  const p = (naming ?? Promise.resolve(null)).catch(() => null).then(run);
-  naming = p;
-  return p;
+        if (e.name) out.push([id, e.name]);
+      }
+      if (changed) writeFileSync(file, JSON.stringify(cache));
+      return out;
+    } finally { setTimeout(() => { indexing = null; }, 0); }
+  })();
 }
 
 /** Handles /__sk requests: the install's rsrc files, scenes cache and colour definitions. */
@@ -160,6 +192,7 @@ export function installMiddleware(dir: () => string | null, archive = archiveDir
     }
     return out;
   };
+  const bundles = new BundleJar(() => { const root = dir(); return root ? join(root, "code", "projectx-config.jar") : null; });
   const send = (res: ServerResponse, file: string) => createReadStream(file).on("error", () => { res.statusCode = 404; res.end(); }).pipe(res);
   return (req: IncomingMessage, res: ServerResponse) => {
     const root = dir();
@@ -180,21 +213,34 @@ export function installMiddleware(dir: () => string | null, archive = archiveDir
       send(res, jar);
       return;
     }
+    // the game's text: message bundles read from the config jar ("/i18n/" lists them)
+    if (url === "/i18n/") {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify(bundles.names()));
+      return;
+    }
+    if (url.startsWith("/i18n/")) {
+      const m = /^\/i18n\/([a-z0-9_-]+)\.properties$/.exec(url);
+      let body: Uint8Array | null = null;
+      try { body = m ? bundles.read(m[1]) : null; } catch { body = null; }
+      if (!body) { res.statusCode = 404; res.end(); return; }
+      res.setHeader("content-type", "text/plain; charset=iso-8859-1");
+      res.end(body);
+      return;
+    }
     // levels: the archive (every level ever cached), refreshed from the install on each listing
+    if (url === "/sceneindex") {
+      syncArchive(root, archive);
+      void sceneIndex(archive).then(list => {
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify(list));
+      }, () => { res.statusCode = 500; res.end(); });
+      return;
+    }
     if (url === "/scenelist") {
       syncArchive(root, archive);
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify(existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : []));
-      return;
-    }
-    // every level's name (its MessageBundle key), read once and remembered beside the archive,
-    // so the game need not download thousands of levels to list them
-    if (url === "/scenenames") {
-      syncArchive(root, archive);
-      void sceneNames(archive).then(names => {
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify(names));
-      }, () => { res.statusCode = 500; res.end(); });
       return;
     }
     if (url.startsWith("/scenes/")) {

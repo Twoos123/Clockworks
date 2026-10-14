@@ -13,7 +13,7 @@
 import { CONFIG_REF } from "../config/params";
 import { buildInterface, messageText, pack, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { OverlayScreen } from "./overlay";
-import { nextNode, type Conversation } from "../game/conversation";
+import { nextNode, type NpcConversation as Conversation } from "../game/conversation";
 
 type ViewHook = NonNullable<RenderHooks["view"]>;
 const DEFAULT_UI = "ui/conversation/interface.dat";
@@ -84,9 +84,9 @@ export class ConversationScreen extends OverlayScreen {
 
   /** The knight's text for {0} and the bundle's line for a key. */
   private text(key: string) {
-    const b = this.conv!.bundle;
-    const t = messageText(/^%/.test(key) ? key : `%${b}:${key}`);
-    return t.replace(/\{0\}/g, this.knight);
+    // (the client formats every line with the knight's name as its argument)
+    const b = this.conv!.bundle, q = /^%/.test(key) ? key : `%${b}:${key}`;
+    return messageText(`${q}|~${this.knight.replace(/\|/g, "")}`);
   }
 
   private async show(i: number) {
