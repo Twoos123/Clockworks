@@ -790,6 +790,13 @@ export class Renderer {
       }
       gl.uniformMatrix4fv(this.u.u_view, false, view);
       this.setFog(null);
+      // "Uniform Blur (Skybox)": the skybox goes into a texture first, then is blurred onto the screen
+      const blur = !target && env.skyBlur ? this.skyTarget(w, h) : null;
+      if (blur) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, blur.a.fb);
+        gl.clearColor(bg[0], bg[1], bg[2], 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      }
       this.skyboxPass = true;
       for (const { queue, fovScale } of SKY_QUEUES) {
         // RenderQueueConfig.Skybox: widen the field of view by fovScale (on-axis perspective)
@@ -805,6 +812,7 @@ export class Renderer {
         gl.clear(gl.DEPTH_BUFFER_BIT);
       }
       this.skyboxPass = false;
+      if (blur) this.blurSky(blur, w, h);
       gl.uniformMatrix4fv(this.u.u_proj, false, proj);
     }
     gl.uniformMatrix4fv(this.u.u_view, false, view);
@@ -812,6 +820,93 @@ export class Renderer {
     this.drawItems(skyItems.length ? [...items, ...skyItems.map(it => ({ ...it, filter: "rest" }))] : items);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
+  }
+
+  /** Two screen-sized colour targets for the skybox blur (the first with depth). */
+  private sky: { a: { fb: WebGLFramebuffer; tex: WebGLTexture }; b: { fb: WebGLFramebuffer; tex: WebGLTexture }; depth: WebGLRenderbuffer; w: number; h: number } | null = null;
+  private blurProgram: WebGLProgram | null = null;
+
+  private skyTarget(w: number, h: number) {
+    const gl = this.gl;
+    if (this.sky && this.sky.w === w && this.sky.h === h) return this.sky;
+    if (this.sky) {
+      for (const t of [this.sky.a, this.sky.b]) { gl.deleteFramebuffer(t.fb); gl.deleteTexture(t.tex); }
+      gl.deleteRenderbuffer(this.sky.depth);
+    }
+    const target = () => {
+      const tex = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      const fb = gl.createFramebuffer()!;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+      return { fb, tex };
+    };
+    const a = target(), b = target();
+    const depth = gl.createRenderbuffer()!;
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, a.fb);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return this.sky = { a, b, depth, w, h };
+  }
+
+  /**
+   * The skybox's blur (shader/fragment/uniform_blur.frag): eight samples half a texel apart
+   * either side, averaged, once across and once down; the result covers the screen.
+   */
+  private blurSky(t: NonNullable<Renderer["sky"]>, w: number, h: number) {
+    const gl = this.gl;
+    this.blurProgram ??= link(gl, `#version 300 es
+      out vec2 v_uv;
+      void main() {
+        vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
+        v_uv = p * 0.5 + 0.5;
+        gl_Position = vec4(p, 0.0, 1.0);
+      }`, `#version 300 es
+      precision mediump float;
+      uniform sampler2D u_tex;
+      uniform vec2 u_delta;
+      in vec2 v_uv;
+      out vec4 o;
+      void main() {
+        vec4 c = vec4(0.0);
+        for (int i = 0; i < 4; i++) {
+          float k = float(i) + 0.5;
+          c += texture(u_tex, v_uv - u_delta * k) + texture(u_tex, v_uv + u_delta * k);
+        }
+        o = c * 0.125;
+      }`);
+    const prog = this.blurProgram;
+    gl.useProgram(prog);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.BLEND);
+    gl.depthMask(false);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(gl.getUniformLocation(prog, "u_tex"), 0);
+    const delta = gl.getUniformLocation(prog, "u_delta");
+    // across: the skybox texture into the second target
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.b.fb);
+    gl.bindTexture(gl.TEXTURE_2D, t.a.tex);
+    gl.uniform2f(delta, 1 / w, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // down: onto the screen
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindTexture(gl.TEXTURE_2D, t.b.tex);
+    gl.uniform2f(delta, 0, 1 / h);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    // back to the scene's state for the level
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    gl.useProgram(this.program);
+    gl.uniform1i(this.u.u_tex, 0);
+    gl.uniform1i(this.u.u_bones, 1);
   }
 
   private offscreen: { fb: WebGLFramebuffer; color: WebGLRenderbuffer; depth: WebGLRenderbuffer; w: number; h: number } | null = null;
