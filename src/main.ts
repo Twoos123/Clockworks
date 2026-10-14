@@ -25,6 +25,7 @@ import { TitleScreen } from "./ui/title";
 import { PickScreen, type KnightCard } from "./ui/pick";
 import { PrologueScreen } from "./ui/prologue";
 import { dressArgs, emptyAppearance, resolveDressing } from "./game/accessories";
+import { faceArgs } from "./game/creator";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen, type HeatReport, type HeatRow, type PrizeWheel } from "./ui/elevator";
@@ -69,12 +70,13 @@ import { EventHubScreen } from "./ui/eventhub";
 import { FEED_BOSS, logFeed } from "./game/feed";
 import { TooSmallWarning } from "./ui/toosmall";
 import { itemTip } from "./ui/itemlist";
-import { cachedHallId, CREATE_KNIGHT, GUILD_HALL, READY_ROOM } from "./game/places";
+import { cachedHallId, crashSiteScene, CREATE_KNIGHT, GUILD_HALL, READY_ROOM, rescueCampScene } from "./game/places";
 import { HelpScreen, type HelpTab } from "./ui/help";
 import { SocialScreen } from "./ui/social";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
+import { Balloons } from "./ui/balloons";
 
 /**
  * Towns: safe places where the knight walks unarmed, with the town HUD. Lobbies are not towns:
@@ -618,6 +620,7 @@ class Viewer {
     const cards = await Promise.all(namedKnights(gameRoster()).map(async ({ slot, save }): Promise<KnightCard> => ({
       slot, save, name: knightName(save), rank: rankLabel(progressOf(save)), guild: save.guild?.name ?? "",
       look: await this.knightLook(save).catch(() => [["Colorization", save.color]] as [string, any][]),
+      weapon: await this.cardWeapon(save).catch(() => null),
     })));
     this.title?.hide();
     this.prologue?.hide();
@@ -634,7 +637,7 @@ class Viewer {
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } });
     const colored = (r: any) => !r?.arguments?.entries?.some(([k]: [string]) => k === "Colorization") ? r
       : { ...r, arguments: { ...r.arguments, entries: r.arguments.entries.map(([k, v]: [string, unknown]) => [k, k === "Colorization" ? save.color : v]) } };
-    const args: [string, any][] = [["Colorization", save.color]];
+    const args: [string, any][] = [["Colorization", save.color], ...faceArgs(save.face) as [string, any][]];
     const armor = save.loadout.armor ? await data.armor(save.loadout.armor) : null;
     const helmet = save.loadout.helmet ? await data.armor(save.loadout.helmet) : null;
     args.push(["Armor", colored(armor?.model ?? ref("item/gear/armor/doublebelt/model.dat", [["Colorization", save.color], ["Variant", "grey"]]))]);
@@ -643,6 +646,19 @@ class Viewer {
     if (shield?.model) args.push(["Shield", shield.model]);
     const dressing = await resolveDressing(data, save.appearance ?? emptyAppearance()).catch(() => null);
     return dressing ? dressArgs(args, dressing, save.color) : args;
+  }
+
+  /**
+   * The weapon a knight select card raises on hover (client cB.a): the knight's first weapon's
+   * model and its ready pose (ready_sword, ready_pistol or ready_bomb by the weapon's kind).
+   */
+  private async cardWeapon(save: SaveData): Promise<{ model: any; idle: string } | null> {
+    const name = save.loadout.weapons[0];
+    if (!name) return null;
+    const w = await (this.world?.data ?? new GameData(this.loader)).weapon(name);
+    if (!w?.model) return null;
+    const idle = w.kind === "Handgun" ? "ready_pistol" : w.kind === "Bomb" ? "ready_bomb" : "ready_sword";
+    return { model: w.model, idle };
   }
 
   /** Plays as a knight from the select window: its save, in Haven. */
@@ -676,6 +692,8 @@ class Viewer {
     if (!this.prologue) {
       this.prologue = new PrologueScreen(this.gui, this.renderer, this.loader, "prologueScreen");
       this.prologue.sound = f => this.uiSound(f);
+      // the prologue's scripts follow its score's playback (dK starts both together)
+      this.prologue.clock = () => this.music.prologueTime();
       this.prologue.onDone = () => {
         // dK.wasRemoved: the title music again, under knight creation
         this.music.title();
@@ -960,6 +978,7 @@ class Viewer {
       return paid;
     };
     world.color = this.save.color;
+    world.face = this.save.face ?? null;
     world.gear = this.save.gear;
     if (this.eco) world.economy = this.eco;
     // treasure on a family stratum drops that family's materials
@@ -992,6 +1011,9 @@ class Viewer {
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.hud.chat = this.chat;
+    // the level's help bubbles (src/ui/balloons.ts)
+    this.balloons ??= new Balloons(this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors));
+    this.balloons.clear();
     this.hud.image = f => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f);
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
@@ -1086,7 +1108,8 @@ class Viewer {
     }, 0);
   }
 
-  private stopPlaying() {
+  /** Ends play in the scene; `keepMusic` (the same scene again, a new look) lets the music play on. */
+  private stopPlaying(keepMusic = false) {
     if (!this.world) return;
     // the time played so far goes into the knight's save
     if (this.save.knight) writeSave(this.save);
@@ -1095,7 +1118,7 @@ class Viewer {
     this.world = null;
     this.gameHud = null;
     this.music.leave();
-    this.audio?.stopMusic(1);
+    if (!keepMusic) this.audio?.stopMusic(1);
     this.audio?.stopAmbience();
     this.hud?.clear();
     this.knockedOut = false;
@@ -1495,7 +1518,8 @@ class Viewer {
       sound: f => this.uiSound(f),
       sceneList: () => this.sceneList,
       go: async (id, at) => { this.stopPlaying(); await this.selectScene(id); this.resumeAt = at ?? null; await this.startPlaying(); },
-      restart: async () => { this.stopPlaying(); await this.startPlaying(); },
+      // (a new look on the same stage: the music plays on, client S only re-dresses its knight)
+      restart: async () => { this.stopPlaying(true); await this.startPlaying(); },
       world: () => this.world,
       camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; this.fov = 0.75; this.cam = null; },
       // a stage's camera holds its CameraConfig exactly (its fog is set for that distance)
@@ -1510,11 +1534,13 @@ class Viewer {
     });
     places.onCreated = () => {
       this.run = { depth: 1, health: null, floors: 0 };
-      // a new knight goes on from the crash site to the Rescue Camp (Pod Town) when the archive
-      // has it, as in the game; else straight to Haven
-      const camp = this.sceneList.find(s => /^rescue camp central$/i.test(s.name));
-      const haven = camp ?? this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
-      if (haven) void (async () => { this.stopPlaying(); await this.selectScene(haven.id); await this.startPlaying(); })();
+      this.gate = null;
+      // a new knight wakes in the crash site ("The Crash Site / Waking in a New World", the
+      // tutorial level) when the archive has it, as in the game; else the Rescue Camp (Pod
+      // Town), else Haven
+      const to = crashSiteScene(this.sceneList) ?? rescueCampScene(this.sceneList)
+        ?? this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+      if (to) void (async () => { this.stopPlaying(); await this.selectScene(to.id); await this.startPlaying(); })();
     };
     places.onCreationBack = () => this.leaveCreation();
     return places;
@@ -1734,6 +1760,8 @@ class Viewer {
   /** The window-too-small warning (client hud/n), made when play first starts. */
   private tooSmall: TooSmallWarning | null = null;
   private conversation: ConversationScreen | null = null;
+  /** Help bubbles pinned in the world. */
+  private balloons: Balloons | null = null;
 
   /**
    * A townsperson's conversation (ProjectXActionConfig.StartConversation): the game's
@@ -1748,9 +1776,10 @@ class Viewer {
     const conv = impl ? readConversation(impl, action.name ?? "") : null;
     if (!conv || this.world !== w) return;
     const k = w.knight;
-    source.rotation = Math.atan2(k.y - source.y, k.x - source.x);
     // the NPC's look: the action's model, else its actor's sprite model
     const cfg = w.data.resolveSync("config/actor.dat", { name: actor }, "actor");
+    // (a townsperson turns to the knight; a radio call comes from a marker, which stays put)
+    if (cfg) source.rotation = Math.atan2(k.y - source.y, k.x - source.x);
     const npcRef = action.model ?? cfg?.sprite?.model ?? null;
     const idle = cfg?.sprite?.idles?.[0]?.animation ?? null;
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
@@ -1766,11 +1795,15 @@ class Viewer {
         if (!v) views.set(key, v = new PortraitView(this.renderer, this.loader, ref, a));
         return (c, g, x, y, ww, h) => v!.draw(c, g, x, y, ww, h);
       },
-      closed: () => { this.talking = null; this.paused = false; views.clear(); this.canvas.focus(); },
+      closed: () => {
+        this.talking = null; this.paused = false; views.clear(); this.canvas.focus();
+        // the conversation controls hint shows until the knight has talked once
+        if (this.save.knight && !this.save.knight.conversed) { this.save.knight.conversed = true; writeSave(this.save); }
+      },
     });
     this.talking = { ref: npcRef, idle };
     this.paused = true;
-    await this.conversation.start(conv, knightName(this.save));
+    await this.conversation.start(conv, knightName(this.save), !this.save.knight?.conversed);
   }
   /** The NPC in the conversation: its model and idle animation. */
   private talking: { ref: any; idle: any } | null = null;
@@ -1926,6 +1959,17 @@ class Viewer {
   /** The knight reached the exit elevator: offer the next floor. */
   private floorCleared() {
     if (!this.world) return;
+    if (!this.gate && this.scene && crashSiteScene([this.scene])) {
+      // the crash site's way out leads into the Rescue Camp (else Haven), the loot banked
+      const notes = this.bankLoot(this.world.loot);
+      this.runTotals.notes.push(...notes);
+      recordKills(this.save, this.world.killCount);
+      writeSave(this.save);
+      const camp = rescueCampScene(this.sceneList);
+      if (camp) void (async () => { this.stopPlaying(); await this.selectScene(camp.id); await this.startPlaying(); })();
+      else void this.returnToHaven();
+      return;
+    }
     if (this.inLobby && this.gate) {
       // the Mission Lobby's elevator: down to the mission's first floor
       const next = this.floors[this.run.depth + 1];
@@ -3011,7 +3055,9 @@ class Viewer {
           // (the HUD hides while the knight talks, as the game's conversation dialog hides it,
           // and while the elevator's Advancing card or the expedition's report is up)
           const hudOff = this.talking || !!this.elevator?.current || !!this.report?.isOpen;
-          this.hud.draw(this.world, proj, view, gh && !hudOff ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
+          const world = this.world, balloons = this.balloons;
+          this.hud.draw(world, proj, view, gh && !hudOff ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined,
+            balloons ? (g, project) => balloons.draw(g, world.balloons(), project) : undefined);
         }
       }
       else this.renderer.draw(this.instance!, proj, view);

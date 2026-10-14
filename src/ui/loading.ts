@@ -133,6 +133,10 @@ export function loadingInfo(name: string, floor: Floor | null, gateName?: string
   if (/emberlight/.test(n)) return { ...real("m.emberlight", "dungeon", "Emberlight", "The Clockworks"), depth: "", image: IMAGES + "emberlight.jpg" };
   if (/ready ?room/.test(n)) return { title: "Ready Room", zone: "Haven", depth: "", image: IMAGES + "readyroom.jpg" };
   if (/arena/.test(n)) return { ...real("m.battle_arena_1", "dungeon", "Arena", "Survive the waves"), depth: "", image: IMAGES + "default.jpg" };
+  // a level the dungeon bundle names by its scene key ("tutorial b": m.tutorial_b, "The Crash
+  // Site|Waking in a New World")
+  const own = /^[a-z0-9 ]+$/.test(n.trim()) ? levelText(`m.${n.trim().replace(/ /g, "_")}`, "dungeon") : null;
+  if (own) return { title: own.title, zone: own.zone, depth: "", image: IMAGES + "default.jpg" };
   const title = name.replace(/\s*·.*$/, "").replace(/\b\w/g, c => c.toUpperCase());
   return { title, zone: "The Clockworks", depth: "", image: IMAGES + "default.jpg" };
 }

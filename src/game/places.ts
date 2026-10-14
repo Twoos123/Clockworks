@@ -50,6 +50,22 @@ export const READY_ROOM_POSE = {
   loop: "character/pc/use_inventory_loop.dat",
 };
 
+/**
+ * The crash site a new knight wakes in after creation: the scenes cache's "tutorial_b" level
+ * (the dungeon bundle's m.tutorial_b, "The Crash Site|Waking in a New World"), the newest copy
+ * when the archive holds several.
+ */
+export function crashSiteScene(list: { id: string; name: string }[]): { id: string; name: string } | null {
+  const all = list.filter(s => /^tutorial b$/i.test(s.name.trim()));
+  all.sort((a, b) => (Number(b.id) || 0) - (Number(a.id) || 0));
+  return all[0] ?? null;
+}
+
+/** The Rescue Camp a new knight reaches from the crash site. */
+export function rescueCampScene(list: { id: string; name: string }[]): { id: string; name: string } | null {
+  return list.find(s => /^rescue camp central$/i.test(s.name)) ?? null;
+}
+
 /** The cached guild hall's scene id (its name is "%guild:m.hall|~..."). */
 export function cachedHallId(list: { id: string; name: string }[]): string | null {
   return list.find(s => /^hall\b/i.test(s.name))?.id ?? null;

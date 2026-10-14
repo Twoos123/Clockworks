@@ -98,6 +98,13 @@ export abstract class GlScreen {
   /** Per-frame work before drawing. */
   protected tick(_dt: number) {}
 
+  /**
+   * The screen's clock (seconds), when its scripts follow one: the prologue's is its score's
+   * playback position. Null (or no clock) runs the scripts on frame time.
+   */
+  clock: (() => number | null) | null = null;
+  private lastClock: number | null = null
+
   /** The model a view shows for one of its view models (a knight card's preview shows a knight). */
   protected viewModel(_c: Component, vm: any, _index: number): any { return vm?.model ?? null; }
   /** The animation a view's first model idles with, when its config starts none. */
@@ -132,6 +139,7 @@ export abstract class GlScreen {
 
   /** Forgets the tree (the next show builds it afresh and replays its scripts). */
   protected reset() {
+    this.lastClock = null;
     for (const r of this.runners.values()) r.stop();
     this.runners.clear();
     this.views.clear();
@@ -270,6 +278,9 @@ export abstract class GlScreen {
     return true;
   }
 
+  /** A view's first model, once loaded. */
+  protected viewInstance(c: Component): ModelInstance | null { return this.views.get(c)?.models?.[0]?.instance ?? null; }
+
   /** Reloads a view's models (its model references changed). */
   protected reloadView(c: Component) { this.views.delete(c); this.viewState(c); }
 
@@ -289,9 +300,15 @@ export abstract class GlScreen {
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, W, H);
     g.setTransform(k, 0, 0, k, 0, 0);
-    for (const r of [...this.runners.values()]) r.tick(dt);
-    for (const st of this.views.values()) for (const m of st.models ?? []) m.instance.advance(dt);
-    this.tick(dt);
+    // scripts and views run on the screen's clock when it has one (the prologue's score), so
+    // they stay with the sound; else on frame time
+    const now = this.clock?.() ?? null;
+    let sdt = dt;
+    if (now !== null) { sdt = this.lastClock === null ? now : Math.max(0, now - this.lastClock); this.lastClock = now; }
+    else this.lastClock = null;
+    for (const r of [...this.runners.values()]) r.tick(sdt);
+    for (const st of this.views.values()) for (const m of st.models ?? []) m.instance.advance(sdt);
+    this.tick(sdt);
     const root = this.root;
     if (root) {
       root.x = 0; root.y = 0; root.width = cw; root.height = ch;

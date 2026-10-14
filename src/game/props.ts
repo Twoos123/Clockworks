@@ -54,6 +54,41 @@ export function trapState(clock: number, cycle = "A", interval = 1): TrapState {
   return t < down ? 0 : t < down + warn ? 1 : 2;
 }
 
+/**
+ * A help bubble (Dynamic/Help Bubble/Help: a Switch whose sprite is a Balloon): an in-world
+ * word balloon (ui/wordballoon/help_interface.dat) with a helptips title and message, shown
+ * while its switch has START set (as it starts; the level's "next" signal clears it) and the
+ * knight is within its visible distance (client sprite/a).
+ */
+export interface Balloon {
+  /** helptips keys. */
+  message: string;
+  title: string;
+  /** The title's colour (r, g, b, a in 0..1), or null for the style's. */
+  titleColor: [number, number, number, number] | null;
+  width: number;
+  /** Raised this far above the bubble's spot (world units). */
+  zOffset: number;
+  visibleDistance: number;
+  /** The switch's START flag. */
+  on: boolean;
+}
+
+/** A Balloon sprite config's balloon, or null for other sprites. */
+export function balloonOf(sprite: any): Balloon | null {
+  if (!/\$Balloon$/.test(String(sprite?.$class ?? ""))) return null;
+  const c = sprite.titleColor;
+  return {
+    message: typeof sprite.message === "string" ? sprite.message : "",
+    title: typeof sprite.title === "string" ? sprite.title : "",
+    titleColor: c && typeof c.r === "number" ? [c.r, c.g ?? 0, c.b ?? 0, c.a ?? 1] : null,
+    width: Number(sprite.width) || 200,
+    zOffset: typeof sprite.zOffset === "number" ? sprite.zOffset : 0.5,
+    visibleDistance: typeof sprite.visibleDistance === "number" ? sprite.visibleDistance : 7,
+    on: true,
+  };
+}
+
 export class Prop {
   instance: ModelInstance | null = null;
   z = 0;
@@ -98,6 +133,8 @@ export class Prop {
   trapOff = false;
   /** The actor reference's arguments (a Shadow Lair elevator's "Push Gate"). */
   args: Record<string, unknown> = {};
+  /** A help bubble's balloon (ProjectXActorSpriteConfig.Balloon), or null. */
+  balloon: Balloon | null = null;
   constructor(readonly kind: PropKind, readonly entity: Entity, readonly cfg: any) {}
 
   get x() { return this.entity.x; }

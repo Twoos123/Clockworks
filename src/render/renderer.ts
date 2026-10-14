@@ -1192,6 +1192,8 @@ export class Renderer {
 
   private skyboxPass = false;
   private fogOn = false;
+  /** A pass's own fog is in the uniforms (the scene's goes back for the next pass). */
+  private passFog = false;
 
   private setLights(env: Environment, view: Mat4) {
     const gl = this.gl;
@@ -1253,6 +1255,7 @@ export class Renderer {
 
   private setFog(fog: Environment["fog"]) {
     const gl = this.gl;
+    this.passFog = false;
     this.fogOn = !!fog;
     gl.uniform1i(this.u.u_fogMode, !fog ? 0 : fog.mode === "linear" ? 1 : fog.mode === "exp" ? 2 : 3);
     if (fog) {
@@ -1576,7 +1579,18 @@ export class Renderer {
     gl.uniform3f(this.u.u_ambient, amb[0], amb[1], amb[2]);
     gl.uniform1i(this.u.u_numLights, pass.ambient && pass.overrideLights === 0 ? 0 : Math.min(4, this.env.lights.length));
     gl.uniform1i(this.u.u_numLocal, pass.lit && !pass.ambient ? this.localLights : 0);
-    if (this.fogOn) gl.uniform1i(this.u.u_fogMode, pass.fog ? FOG_MODES[this.env.fog!.mode] : 0);
+    if (pass.fogLinear) {
+      // the pass's own fog (FogStateConfig.Linear override) instead of the scene's
+      const f = pass.fogLinear;
+      gl.uniform1i(this.u.u_fogMode, 1);
+      gl.uniform3f(this.u.u_fogColor, f.color[0], f.color[1], f.color[2]);
+      gl.uniform1f(this.u.u_fogStart, f.start);
+      gl.uniform1f(this.u.u_fogEnd, f.end);
+      this.passFog = true;
+    } else {
+      if (this.passFog) { this.passFog = false; this.setFog(this.env.fog); }
+      if (this.fogOn) gl.uniform1i(this.u.u_fogMode, pass.fog ? FOG_MODES[this.env.fog!.mode] : 0);
+    }
     gl.uniformMatrix4fv(this.u.u_texMatrix, false, unit?.transform ? unit.transform(this.time) : IDENTITY);
     const c = pass.color ?? [1, 1, 1, 1];
     if (tint) gl.uniform4f(this.u.u_color, c[0] * tint[0], c[1] * tint[1], c[2] * tint[2], c[3] * tint[3]);

@@ -6,16 +6,21 @@
 //    the knight's gear and colour, lit by ui/status/parts/ambient_spotlight.dat), its rank,
 //    guild and time played (days:hours:minutes:seconds), and a Delete button.
 //  - The knights are drawn greyed (colour state 0.5) until the pointer is over their card,
-//    which lights the card's backing (CardBackingHover).
+//    which lights the card's backing (CardBackingHover) and has the knight draw its weapon
+//    (client cB.a: the model gains its Weapon and plays draw_weapon into the weapon's ready
+//    pose at 0.667 speed; leaving puts the weapon away and the idle back).
 //  - Pressing a knight's card plays as that knight; pressing an empty card (its "Create New
 //    Knight" banner) starts a new one; Delete asks first (m.confirm_delete).
-//  - "Back" (m.back_logoff) returns to the log-on screen.
-// The window's energy meter (the account's mist energy) and the control-scheme panel are left
-// out: energy here belongs to each knight.
+//  - "◄ Log off" (m.back_logoff) returns to the log-on screen.
+//  - The energy meter (ui/energy/interface.dat, client af) at the bottom right: Crystal
+//    Energy, at least five digits ("00038"). Energy belongs to each knight here, so it shows the
+//    knight under the pointer's, else the first knight's.
+// The control-scheme panel is left out.
 
 import { CONFIG_REF } from "../config/params";
 import { VIEWER_ENVIRONMENT, type Environment } from "../environment";
-import { MAX_KNIGHTS, playedText, type SaveData } from "../game/save";
+import { energyOf, MAX_KNIGHTS, playedText, type SaveData } from "../game/save";
+import { loadAnimation } from "../model";
 import { buildInterface, hitTest, messageText, restyle, type Component } from "./gui";
 import { GlScreen, walk } from "./glscreen";
 
@@ -28,6 +33,8 @@ export interface KnightCard {
   guild: string;
   /** The knight's model arguments (Colorization, Armor, Helmet, Shield, accessories). */
   look: [string, any][];
+  /** The weapon raised on hover: its model and ready pose ("ready_sword"), or null. */
+  weapon?: { model: any; idle: string } | null;
 }
 
 export interface PickActions {
@@ -54,7 +61,7 @@ export class PickScreen extends GlScreen {
   protected async build(): Promise<Component | null> {
     const ui = await buildInterface(this.ctx, { $class: CONFIG_REF, name: "ui/pick/interface.dat" });
     if (!ui) return null;
-    for (const tag of ["energy", "ui_controlscheme"]) { const c = ui.find(tag); if (c) c.visible = false; }
+    { const c = ui.find("ui_controlscheme"); if (c) c.visible = false; }
     const back = ui.find("back");
     if (back) back.onAction = () => { if (!this.busy) this.actions?.back(); };
     this.cardUis = [];
@@ -99,6 +106,16 @@ export class PickScreen extends GlScreen {
     });
     const s = this.root?.find("status");
     if (s) s.text = " ";
+    this.showEnergy();
+  }
+
+  /** The energy meter: the hovered knight's Crystal Energy, else the first knight's (client af.Dg). */
+  private showEnergy() {
+    const k = this.cards[this.hovered] ?? this.cards.find(c => !!c) ?? null;
+    const n = k ? Math.max(0, Math.floor(energyOf(k.save).crystal)) : 0;
+    const digits = Math.max(5, 1 + Math.ceil(Math.log10(n + 1)));
+    const label = this.root?.find("crystalenergy");
+    if (label) label.text = String(n).padStart(digits, "0");
   }
 
   protected viewModel(c: Component, vm: any, index: number): any {
@@ -106,14 +123,51 @@ export class PickScreen extends GlScreen {
     const i = this.cardUis.findIndex(card => card.find("preview") === c);
     const k = this.cards[i];
     if (!k) return null;
-    // the card's own knight model, wearing this knight's look
+    // the card's own knight model, wearing this knight's look; the weapon only while hovered
     const base = vm.model;
-    const keys = new Set(k.look.map(([n]) => n));
-    const entries = [...((base.arguments?.entries ?? []) as [string, any][]).filter(([n]) => !keys.has(n)), ...k.look];
+    const look: [string, any][] = [...k.look];
+    if (i === this.armed && k.weapon) look.push(["Weapon", k.weapon.model]);
+    const keys = new Set(look.map(([n]) => n));
+    const entries = [...((base.arguments?.entries ?? []) as [string, any][]).filter(([n]) => !keys.has(n) && n !== "Weapon"), ...look];
     return { ...base, arguments: { $map: "com.threerings.config.ArgumentMap", entries } };
   }
 
-  protected viewIdle(): string | null { return "character/pc/idle.dat"; }
+  protected viewIdle(c: Component): string | null {
+    const i = this.cardUis.findIndex(card => card.find("preview") === c);
+    return i === this.armed && this.cards[i]?.weapon ? null : "character/pc/idle.dat";
+  }
+
+  /** The card whose knight holds its weapon up (the hovered one). */
+  private armed = -1;
+
+  /** cB.a.H: the hovered card's knight draws its weapon; the others put theirs away. */
+  private arm(i: number) {
+    const was = this.armed;
+    this.armed = i;
+    for (const j of [was, i]) {
+      const view = this.cardUis[j]?.find("preview");
+      if (view && this.cards[j]) this.reloadView(view);
+    }
+    const k = this.cards[i], view = this.cardUis[i]?.find("preview");
+    if (!k?.weapon || !view) return;
+    // hands closed and the draw, then the weapon's ready pose looping at 0.667 speed
+    const ready = `character/pc/${k.weapon.idle}.dat`;
+    void this.playAnimation(view, "character/pc/draw_weapon.dat");
+    this.pendingReady = { view, ready, card: i };
+  }
+  private pendingReady: { view: Component; ready: string; card: number } | null = null;
+
+  protected tick(_dt: number) {
+    const p = this.pendingReady;
+    if (!p) return;
+    if (this.armed !== p.card) { this.pendingReady = null; return; }
+    const inst = this.viewInstance(p.view);
+    if (!inst || !inst.finished) return;
+    this.pendingReady = null;
+    void loadAnimation(this.loader, p.ready).then(clip => {
+      if (clip && this.armed === p.card) this.viewInstance(p.view)?.play(clip, { loop: true, speed: 0.667, blend: 0.2 });
+    }).catch(() => undefined);
+  }
 
   protected viewEnv(c: Component): Environment {
     const i = this.cardUis.findIndex(card => card.find("preview") === c);
@@ -138,6 +192,8 @@ export class PickScreen extends GlScreen {
         if (banner) void restyle(this.ctx, banner, j === i ? "CreateBannerHover" : "CreateBanner");
       }
       this.el.style.cursor = i >= 0 ? "pointer" : "";
+      this.arm(i);
+      this.showEnergy();
     }
     if (type !== "down" || button !== 0 || i < 0) return;
     // the delete button answers for itself

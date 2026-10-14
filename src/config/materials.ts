@@ -45,6 +45,11 @@ export interface PassState {
   ignoreVertexColors: boolean;
   /** False when the pass disables fog. */
   fog: boolean;
+  /**
+   * The pass's own linear fog (a FogStateConfig.Linear override: the cradle skybox's far glow
+   * planes fade to black past 4 units), in place of the scene's; null for the scene's.
+   */
+  fogLinear?: { start: number; end: number; color: [number, number, number] } | null;
   units: TextureUnitState[];
   /** GLSL programs the original pass uses; this renderer emulates them, see renderer.ts. */
   shaders: string[];
@@ -179,6 +184,10 @@ export class ConfigLibrary {
       overrideLights: light?.lights?.length ?? 0,
       ignoreVertexColors: !!p.ignoreVertexColors,
       fog: !p.fogStateOverride?.$class?.endsWith("$Disabled"),
+      fogLinear: p.fogStateOverride?.$class?.endsWith("$Linear") ? {
+        start: p.fogStateOverride.start ?? 0, end: p.fogStateOverride.end ?? 1,
+        color: [p.fogStateOverride.color?.r ?? 0, p.fogStateOverride.color?.g ?? 0, p.fogStateOverride.color?.b ?? 0],
+      } : null,
       units: (p.textureState?.units ?? []).map((u: any, i: number) => this.unit(u, local, bindingFor(p, i))),
       shaders,
       wave,
