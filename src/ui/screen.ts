@@ -36,6 +36,9 @@ export interface ScreenHost {
 /** A model shown in a RenderableView instead of the knight: its reference (null for none) and idle animation. */
 export interface ViewModel { ref: any; idle: string | null }
 
+/** A popup menu entry whose icon may still be loading (it is put in when it arrives). */
+export type PopupEntry = Omit<MenuEntry, "icon"> & { icon?: GuiImage | null | Promise<GuiImage | null> };
+
 /** A ConfigReference to an interface with arguments. */
 export function uiRef(name: string, args: Record<string, unknown> = {}) {
   return { $class: CONFIG_REF, name, arguments: { $map: "com.threerings.config.ArgumentMap", entries: Object.entries(args) } };
@@ -144,6 +147,8 @@ export abstract class GuiScreen {
   private running = false;
   private building: Promise<Component | null> | null = null;
   private pointer: { x: number; y: number } | null = null;
+  /** Where the last press or release was (a menu a click asks for opens there). */
+  private pressed: { x: number; y: number } | null = null;
   /** Tooltips by component: the tooltip interface's reference, built on first hover. */
   protected tips = new Map<Component, TipSpec>();
   /** Click handlers for components Clyde's dispatch does not press (sockets, icons). */
@@ -170,6 +175,7 @@ export abstract class GuiScreen {
       // off this one's windows goes on to the window canvas beneath it
       if (this.forward(e, type, x, y)) { this.pointer = null; if (this.root && type === "move") dispatch(this.root, { type: "move", x: -1, y: -1 }); return; }
       this.pointer = { x, y };
+      if (type === "down" || type === "up") this.pressed = { x, y };
       // a press keeps its window until the release (the side window or the main one)
       const target = type === "down" || !this.captured ? this.targetAt(x, y) : this.captured;
       if (!target) return;
@@ -275,13 +281,34 @@ export abstract class GuiScreen {
    * Pops up a menu built in code (the client's item and sort menus, client/ui/E.bH) under the
    * pointer, over the topmost interface; a chosen item calls `choose` with its action.
    */
-  async popupMenu(entries: MenuEntry[], title: string | undefined, choose: (action: string) => void) {
-    const at = this.pointer;
+  async popupMenu(entries: PopupEntry[], title: string | undefined, choose: (action: string) => void): Promise<Component | null> {
+    // the point and the window are those of the click that asked for the menu, taken before
+    // anything is awaited (the pointer may move or leave the canvas while the menu is built)
+    const at = this.pointer ?? this.pressed;
     const target = at ? this.targetAt(at.x, at.y) : this.overlays[this.overlays.length - 1] ?? this.root;
-    if (!target || !entries.length) return;
-    const menu = await buildMenu(this.ctx, entries, title);
-    menu.onAction = (_c, a) => { this.host.sound("sound/feedback/ui_dropdown_select.ogg"); choose(a); };
-    openMenu(target, menu, at?.x ?? this.canvas.clientWidth / 2, at?.y ?? this.canvas.clientHeight / 2, this.canvas.clientWidth, this.canvas.clientHeight);
+    if (!target || !entries.length || !this.isOpen) return null;
+    try {
+      // icons still loading are left out; each is put in when it arrives
+      const menu = await buildMenu(this.ctx, entries.map(e => ({ ...e, icon: e.icon instanceof Promise ? null : e.icon ?? null })), title);
+      if (!this.isOpen) return null;
+      menu.onAction = (_c, a) => { this.host.sound("sound/feedback/ui_dropdown_select.ogg"); choose(a); };
+      openMenu(target, menu, at?.x ?? this.canvas.clientWidth / 2, at?.y ?? this.canvas.clientHeight / 2, this.canvas.clientWidth, this.canvas.clientHeight);
+      const first = title ? 1 : 0;
+      entries.forEach((e, i) => {
+        if (!(e.icon instanceof Promise)) return;
+        e.icon.then(im => {
+          const item = menu.children[first + i];
+          if (!im || !item) return;
+          item.icon = im;
+          // the menu grows to fit (PopupMenu.packAndFit keeps it on screen when drawn)
+          pack(menu);
+        }, err => console.error("menu icon failed", err));
+      });
+      return menu;
+    } catch (e) {
+      console.error("popup menu failed", e);
+      return null;
+    }
   }
 
   /**
