@@ -2156,7 +2156,7 @@ export class World implements LogicHost {
       this.weaponAnim(k, "ks_default", true);
     }
     k.attack = null;
-    if (k.charge !== null) k.instance.overlay = null;
+    if (k.charge !== null) { k.instance.overlay = null; this.weaponAnim(k, "ks_default", true); }
     k.charge = null;
     if (k.shielding) { k.shielding = false; if (!keepBubble) this.setShieldEffect(false); }
   }
@@ -2197,6 +2197,8 @@ export class World implements LogicHost {
         this.endKnightActivity();
         k.charge = late;
         this.overlay(k, CHARGE_ANIMS[k.weapon?.kind ?? "Other"], true);
+        // the weapon's own charge animation, where it has one (KnightSprite ActivityAnimation CHARGE)
+        this.weaponAnim(k, "ks_charge", true);
       } else if (e.type === "defend") {
         this.endKnightActivity();
         k.shielding = true;
