@@ -15,7 +15,7 @@ import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef,
 import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
 import { addItemBonuses, capValue, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
-import { Prop, propKind, trapState } from "./props";
+import { gateDisplayModel, Prop, propKind, trapState } from "./props";
 import { BEAM_MODELS, DungeonObjects, isAlly, isCaptive, standInModel, type BeamResult } from "./objects";
 import { ENERGY_CROWNS } from "./energy";
 import { intersects } from "./shapes";
@@ -34,6 +34,10 @@ import { behaviorArgs, behaviorScript, monsterBehavior, type MonsterInfo } from 
 import { actionHint } from "./action";
 import { OrbitMotion } from "./orbitals";
 import { message } from "../i18n";
+import { scriptedMusic, type ScriptedMusic } from "./musicstack";
+
+/** A live level-scripted music actor ("Environment/Music"). */
+export interface MusicActor { entity: Entity; music: ScriptedMusic }
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -295,11 +299,23 @@ export class World implements LogicHost {
    * Called when a shopkeeper opens their shop (the NPC's name says what it sells), with the
    * keeper's model and the animation it plays while the shop is open (the vendor portrait).
    */
+  /**
+   * The gate a Gate Display pillar shows (TownActorSprite GateDisplay: the server's gate id,
+   * active flag and stratum themes), or null for a closed pillar.
+   */
+  gateDisplay: { themes: string[]; active: boolean } | null = null;
   onOpenShop: ((keeper: string, portrait: { ref: any; idle: any } | null) => void) | null = null;
   /** The knight talked to a townsperson: its actor name, the StartConversation action and its entity. */
   onConversation: ((actor: string, action: any, source: Entity) => void) | null = null;
   /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
   onPortal: ((tags: string[], sceneId: number, portal: string, more: { area: string; townName?: string; sceneInternalId?: string }) => void) | null = null;
+  /**
+   * The level's scripted music actors alive now (spawned by its logic, src/game/musicstack.ts),
+   * and a listener told when one spawns or is destroyed (the music player; the logic starts
+   * before it listens, so it reads the live ones first).
+   */
+  readonly musicActors: MusicActor[] = [];
+  onMusic: ((ev: "spawn" | "destroy", m: MusicActor) => void) | null = null;
   /** True once the level's exit elevator has been used. */
   finished = false;
   /** The elevator the level was left by (a terminal's Shadow Lair elevator, or its exit). */
@@ -680,6 +696,15 @@ export class World implements LogicHost {
     e.handlerConfigs = cfg.handlers ?? [];
     e.shapeConfig = cfg.shape ?? null;
     e.collisionFlags = cfg.collisionFlags ?? 1;
+    // the level's own music ("Environment/Music"): a stream on the music stack, no body (the
+    // arena runs its own music and leaves out the triggers that would end it)
+    const music = scriptedMusic(cfg);
+    if (music) {
+      const m: MusicActor = { entity: e, music };
+      e.game = { music: m };
+      if (!this.arena) { this.musicActors.push(m); this.onMusic?.("spawn", m); }
+      return e;
+    }
     const k = String(cfg.$class ?? "").split("$").pop();
     // inert monsters (corpses such as a dead gremlin: no collision, effectively unkillable)
     // are scenery; they do not hold their wave open
@@ -699,6 +724,8 @@ export class World implements LogicHost {
     } else if (k === "PrismLaser") {
       // beams are traced by the prism system (objects.ts), not run as actors
       return null;
+    } else if (k === "GateDisplay" && this.gateDisplay) {
+      this.createProp(e, { ...cfg, sprite: { ...cfg.sprite, model: gateDisplayModel(this.gateDisplay.themes, this.gateDisplay.active) } }, ref);
     } else {
       this.createProp(e, cfg, ref);
     }
@@ -707,6 +734,8 @@ export class World implements LogicHost {
 
   actorDestroyed(e: Entity) {
     const g = e.game;
+    const mi = g?.music ? this.musicActors.indexOf(g.music) : -1;
+    if (mi >= 0) { this.musicActors.splice(mi, 1); this.onMusic?.("destroy", g.music); }
     if (g instanceof Prop) this.removeProp(g, true);
     else if (g instanceof Monster && g.state !== "dying") this.startDying(g);
   }
@@ -3341,3 +3370,4 @@ export function blockHits(name: string): number {
   if (/Empty Rocket/i.test(name)) return 2;
   return 1;
 }
+

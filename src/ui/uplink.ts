@@ -1,14 +1,17 @@
 // The uplink: the game's news and mail window (rsrc/ui/uplink/interface.dat), opened from the
-// HUD's feed and mail buttons (N and M). The News tab's promotions were images streamed from the
+// HUD's mail button on its Mail tab, and on its News tab with the Event Hub on the first
+// arrival in a town of the session (as.DX). The News tab's promotions were images streamed from the
 // game's servers; here the tab lists this port's news as news feed entries
 // (ui/newsfeed/parts/interface_entry.dat). The Mail tab is the game's mailbox: a header per
 // letter (parts/interface_mailheader.dat) that opens its body (parts/interface_mailbody.dat)
-// beneath it. Invites and gifts are multiplayer and stay hidden.
+// beneath it, with Mark All, Compose (disabled: there is no one to write to) and MailPanel's
+// m.autoprune line under the list. Invites (e-mail invitations) and gifts are online and stay hidden.
 
 import type { SaveData } from "../game/save";
 import { buildComponentConfig, restyle, selectTab, type Component } from "./gui";
 import { text } from "../i18n";
 import { GuiScreen, uiRef, buildUi, type ScreenHost } from "./screen";
+import { styledLabel } from "./floating";
 
 export interface UplinkHost extends ScreenHost {
   save(): SaveData;
@@ -50,6 +53,8 @@ export class UplinkScreen extends GuiScreen {
   private opened: Letter | null = null;
   private tab: "news" | "mail" = "news";
   private generation = 0;
+  /** The mailbox's status line (MailPanel's m.autoprune). */
+  private footer: Component | null = null;
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly up: UplinkHost) {
     super(ctx, up, "uplinkCanvas");
@@ -89,8 +94,16 @@ export class UplinkScreen extends GuiScreen {
       }
     }
     const mail = ui.find("mailtab");
+    // there is no one to write to in single player: Compose shows, disabled
     const compose = mail?.find("button_compose");
-    if (compose) compose.visible = false;
+    if (compose) compose.enabled = false;
+    // MailPanel's status line under the mailbox: m.autoprune while there is mail
+    const cont = mail?.find("mail_cont");
+    if (cont) {
+      this.footer = await styledLabel(this.ctx, text("uplink", "m.autoprune", "Note: Mail is automatically deleted 30 days after sent date."), "Default/Label");
+      this.footer.constraints = null;
+      cont.children = [...cont.children, this.footer];
+    }
     const markall = mail?.find("button_markall");
     if (markall) markall.text = text("uplink", "m.markall", "Mark All");
     if (mail) this.on(mail, "button_markall", () => {
@@ -124,6 +137,7 @@ export class UplinkScreen extends GuiScreen {
       const icon = unread ? { $class: "com.threerings.opengl.gui.config.IconConfig$Image", file: "ui/icon/notice.png" } : { $class: "com.threerings.opengl.gui.config.IconConfig$Blank" };
       await restyle(this.ctx, mailTab, "Default/Tab", { Icon: icon }).catch(() => undefined);
     }
+    if (this.footer) this.footer.visible = mailbox(this.up.save()).length > 0;
     const list = ui.find("mail_list");
     if (!list) return;
     const gen = ++this.generation;

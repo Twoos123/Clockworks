@@ -515,15 +515,16 @@ export class ArsenalScreen extends GuiScreen {
         return;
     }
     const item = this.entry(e.key);
-    if (item) void this.gearMenu(item);
+    if (item) this.gearMenu(item).catch(err => console.error("item menu failed", err));
   }
 
   /** ArsenalPanel.a: a press on gear pops up its item menu (src/ui/itemmenu.ts). */
   private async gearMenu(item: ItemEntry) {
     const save = this.arsenal.save(), outfit = this.arsenal.outfit();
-    const entries = await Promise.all(itemMenu(save, outfit.appearance.costume, item).map(async m => ({ action: m.action, text: m.text, enabled: m.enabled,
-      icon: m.slot === undefined ? null : m.item ? await this.iconImage(this.itemIcon(m.item), 25)
-        : await this.styleImage("Status/Equip Socket/Backing, Icon", { File: CAT + SLOT_ICON[m.slot] }, 25) })));
+    // the menu opens at once; the slot icons are put in as they load
+    const entries = itemMenu(save, outfit.appearance.costume, item).map(m => ({ action: m.action, text: m.text, enabled: m.enabled,
+      icon: m.slot === undefined ? null : m.item ? this.iconImage(this.itemIcon(m.item), 25)
+        : this.styleImage("Status/Equip Socket/Backing, Icon", { File: CAT + SLOT_ICON[m.slot] }, 25) }));
     await this.popupMenu(entries, this.eco?.displayName(item.name, save.gear[item.name]) ?? item.label, a => void this.gearAction(item, a));
   }
 

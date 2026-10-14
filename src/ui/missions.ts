@@ -11,13 +11,14 @@ import { CONFIG_REF } from "../config/params";
 import type { GameData } from "../game/data";
 import type { Floor, Gate, StratumTheme } from "../game/clockworks";
 import {
-  canExchange, completeMission, crownReward, daysUntilActive, exchangeNeeds, freshProgress, isGear, missionRun, missionStatus,
+  canExchange, completeMission, crownReward, daysUntilActive, exchangeNeeds, freshProgress, hubMissions, isGear, missionRun, missionStatus,
   npcName, parseMissions, rankLabel, rankName, rewardItems, weeklyPrestige, withName, type Ingredient, type Mission, type MissionProgress,
   type MissionStatus,
 } from "../game/missions";
 import { knightName, type SaveData } from "../game/save";
 import { loadConversation, type Conversation } from "../game/conversation";
 import { SpawnTables } from "../game/spawntable";
+import { logFeed } from "../game/feed";
 import { itemName } from "../game/text";
 import { message, text } from "../i18n";
 import { buildComponentConfig, Component, restyle, type GuiContext, type GuiImage } from "./gui";
@@ -170,6 +171,21 @@ export class MissionBoard {
 
   toggle() { if (this.isOpen) this.close(); else void this.open(); }
 
+  /** as.dW: the board opened on one mission (the Event Hub's INSPECT!), its card chosen. */
+  async inspect(id: string) {
+    await this.load();
+    const m = this.byId(id);
+    if (!m) { await this.open(); return; }
+    this.screen.showMission(m);
+    await this.show();
+  }
+
+  /** The Event Hub's missions (hubMissions), once the board's data has loaded. */
+  async hubMissions(): Promise<Mission[]> {
+    await this.load();
+    return hubMissions(this.missions, this.progress);
+  }
+
   /** Escape: closes the topmost dialog, else the board. True when the board took the key. */
   escape(): boolean {
     if (!this.isOpen) return false;
@@ -242,7 +258,7 @@ export class MissionBoard {
   /** @internal Awards a mission's rewards and prestige, ranks up, and shows what it gave. */
   finish(m: Mission) {
     const save = this.host.save(), p = progressOf(save);
-    const before = rankLabel(p);
+    const before = rankLabel(p), beforeRank = p.rank;
     const got = new Map<string, number>();
     const tables = new SpawnTables(this.host.data.library_("config/spawn_table.dat"));
     const depth = m.setting?.depth ?? Math.max(1, m.rank * 3);
@@ -259,6 +275,8 @@ export class MissionBoard {
     const crowns = crownReward(m);
     save.crowns += crowns;
     completeMission(this.missions, m, p);
+    // the Event Hub's rank line (FeedEvent.RankEarned): a new rank title, not a subrank
+    for (let r = beforeRank + 1; r <= p.rank; r++) logFeed(save, { kind: "rank", rank: r, at: Date.now() });
     this.host.completed?.(m);
     this.host.write();
     const after = rankLabel(p);

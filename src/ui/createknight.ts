@@ -7,6 +7,11 @@
 // code in the game; here they come from the item library: the zero-star "Spiral" helmets and
 // armours that new knights wore, each in its seven trims. The Detail window (accessories),
 // height and eyes have nothing behind them in single player and are hidden.
+//
+// The windows open one at a time, as the client's creator (client I) steps through them: the
+// Armor window first; "Next" opens the next window and collapses the one before to its header
+// (whose highlight re-opens it); after the last comes the name window with the Start button.
+// "Back" leaves creation (to the knight select window, or the log-on screen for a first knight).
 
 import type { SaveData } from "../game/save";
 import { dispatch, type Component, type GuiContext } from "./gui";
@@ -42,6 +47,8 @@ export interface CreateHooks {
   preview(look: KnightLook): void;
   /** The knight is made; enter Haven. */
   done(name: string, look: KnightLook): void;
+  /** Back (the client's BACK button): to the knight select window, or the log-on screen. */
+  back(): void;
   sound(file: string): void;
 }
 
@@ -87,6 +94,67 @@ export class CreateKnight extends FloatScreen {
   private error = "";
   private rows: SliderRow[] = [];
   private hidden: [HTMLElement, string][] = [];
+  /** The creation windows in their order (Armor, Personalize), then the name window. */
+  private steps: Component[] = [];
+  private nameWindow: Component | null = null;
+  /** How many steps have opened, and the one open now (steps.length for the name window). */
+  private opened = 1;
+  private active = 0;
+
+  /** The first window again, the rest unopened (a new creation). */
+  private restart() {
+    this.opened = 1;
+    this.active = 0;
+    this.layoutSteps();
+  }
+
+  /** "Next": the next unopened window, else the name window with the Start button. */
+  private next() {
+    this.hooks_.sound("sound/feedback/ui_confirm.ogg");
+    this.opened = Math.min(this.steps.length + 1, this.opened + 1);
+    this.active = this.opened - 1;
+    this.layoutSteps();
+  }
+
+  /** A collapsed window's highlight opens it again (the others collapse). */
+  private activate(i: number) {
+    if (i >= this.opened) return;
+    this.hooks_.sound("sound/feedback/ui_dropdown_select.ogg");
+    this.active = i;
+    this.layoutSteps();
+  }
+
+  /**
+   * Shows the windows as the client leaves them: opened ones visible, the active one expanded
+   * and the others collapsed to their headers (with the highlight that re-opens them, and a
+   * check mark); the name window and Start once every window has been through.
+   */
+  private layoutSteps() {
+    const ui = this.root;
+    if (!ui) return;
+    this.steps.forEach((w, i) => {
+      w.visible = i < this.opened;
+      const open = i === this.active;
+      for (const t of ["icontable"]) for (const c of findAll(w, t)) c.visible = open;
+      for (const c of findAll(w, "container_random")) c.visible = open && c !== findAll(w, "container_random")[0];
+      const b = w.find("expandbutton");
+      if (b) b.visible = !open;
+      const check = w.find("checkmark");
+      if (check) check.visible = !open;
+    });
+    const naming = this.opened > this.steps.length;
+    if (this.nameWindow) {
+      this.nameWindow.visible = naming;
+      const content = this.nameWindow.find("content");
+      if (content) content.visible = this.active === this.steps.length;
+      const b = this.nameWindow.find("expandbutton");
+      if (b) b.visible = naming && this.active !== this.steps.length;
+    }
+    const next = ui.find("button_next"), start = ui.find("button_start");
+    if (next) next.visible = !naming;
+    if (start) start.visible = naming;
+    if (naming && this.active === this.steps.length) setTimeout(() => this.focusName(), 0);
+  }
 
   constructor(ctx: GuiContext, private readonly hooks_: CreateHooks) {
     super(ctx, "createCanvas");
@@ -112,7 +180,9 @@ export class CreateKnight extends FloatScreen {
     }
     const field = this.root?.find("namefield");
     if (field) field.text = this.name;
+    const fresh = !this.isOpen;
     await this.show();
+    if (fresh) this.restart();
     this.hooks_.preview(this.look());
   }
 
@@ -142,11 +212,18 @@ export class CreateKnight extends FloatScreen {
   protected async build(): Promise<Component | null> {
     const ui = await this.ui("ui/create/interface.dat");
     if (!ui) return null;
-    // single player has nothing behind the step buttons, the server line or the controls
-    for (const tag of ["button_next", "back", "server_status", "randomname", "expandbutton"]) for (const c of findAll(ui, tag)) c.visible = false;
+    // single player has no server line, and no random names (the client's are hidden too)
+    for (const tag of ["server_status", "randomname"]) for (const c of findAll(ui, tag)) c.visible = false;
     const windows = ui.find("customize_container")?.children ?? [];
     // the Detail window: accessories are not part of a new knight here
     if (windows[1]) windows[1].visible = false;
+    this.steps = windows.filter((_, i) => i !== 1);
+    this.nameWindow = ui.find("container_name");
+    this.steps.forEach((w, i) => { const b = w.find("expandbutton"); if (b) b.onAction = () => this.activate(i); });
+    const nameExpand = this.nameWindow?.find("expandbutton");
+    if (nameExpand) nameExpand.onAction = () => this.activate(this.steps.length);
+    this.on(ui, "button_next", () => this.next());
+    this.on(ui, "back", () => { this.hooks_.sound("sound/feedback/ui_dismiss.ogg"); this.hooks_.back(); });
     // the Personalize window's height and eyes rows
     for (const tag of ["slider_height", "slider_eyetype"]) {
       const s = ui.find(tag), row = s && parentOf(ui, s);

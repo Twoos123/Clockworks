@@ -22,7 +22,7 @@ const mix = (files: [string, number][], gain: number, crossFade: number, source:
 const SG = "scene_global: ";
 /** Places, mostly straight from the data (scene globals and the cached scenes' own music). */
 export const PLACES = {
-  title: one("main_theme", 0.45, "ours: the game's main theme for the title screen"),
+  title: one("title", 0.45, "ProjectXApp and dK: sound/music/title.ogg (\"Cradle\") at 0.45 on the login and knight select screens"),
   haven: one("haven", 0.25, SG + "Environment/Custom/Town/Haven/Default/Music"),
   havenWinter: one("haven_winter", 0.35, SG + "Environment/Custom/Town/Haven/Winter/Music"),
   havenHaunted: one("haven_haunted", 0.25, "scenes cache: haven_town_square (Environment/Music)"),
@@ -48,7 +48,7 @@ export const PLACES = {
   swarm: one("whitespace_ambient", 0.45, "character/npc/monster/swarm/model.dat"),
   swarmBattle: one("whitespace_swarm", 0.45, "character/npc/monster/swarm/model.dat"),
   /** The intro cinematic's score (the prologue plays before character creation). */
-  prologue: one("prologue_audio_only", 0.6, "ours: prologue_audio_only.ogg"),
+  prologue: one("prologue_audio_only", 0.45, "dK: sound/music/prologue_audio_only.ogg at 0.45, a 0.5 s fade, played once"),
 } satisfies Record<string, Track>;
 
 /**
@@ -185,6 +185,8 @@ export function floorMusic(f: Floor): Track {
 /** Music for a cached scene that names none, by its name (null when nothing fits). */
 export function sceneMusic(name: string): Track | null {
   const n = name.toLowerCase();
+  // knight creation at the crash site (client S): title.ogg plays on from the prologue's end (dK)
+  if (/^crash site$/.test(n)) return PLACES.title;
   if (/haven|bazaar/.test(n)) return PLACES.haven;
   if (/arcade/.test(n)) return PLACES.arcade;
   if (/terminal core|core/.test(n)) return PLACES.core;
@@ -202,8 +204,14 @@ export function sceneMusic(name: string): Track | null {
 }
 
 /** Every music file this table plays (for the docs and a test against the install's list). */
+/**
+ * Tracks the levels themselves play: their logic spawns "Environment/Music" actors with a File
+ * (e.g. the Royal Jelly court's arena plays main_theme.ogg under the tag "music 1g").
+ */
+export const SCRIPTED_MUSIC = [M("main_theme")];
+
 export function mappedFiles(): Set<string> {
-  const out = new Set<string>();
+  const out = new Set<string>(SCRIPTED_MUSIC);
   const add = (t: Track) => t.files.forEach(f => out.add(f.file));
   [...Object.values(PLACES), ...Object.values(MISSION_MUSIC), ...Object.values(FAMILY_MUSIC), ...Object.values(ELEMENT_MUSIC), ...Object.values(STYLE_MUSIC)].forEach(add);
   for (const b of Object.values(BOSS_MUSIC)) { add(b.level); add(b.fight); }

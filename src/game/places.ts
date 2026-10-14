@@ -17,7 +17,26 @@ export const CREATE_KNIGHT = "rsrc:world/createknight/scene.dat";
 const NAMES: Record<string, string> = { [READY_ROOM]: "ready room", [CREATE_KNIGHT]: "crash site" };
 
 /** Where the knight stands in scenes without a start platform. */
-export const PLACE_SPAWN: Record<string, [number, number]> = { [READY_ROOM]: [0, 0], [CREATE_KNIGHT]: [0.5, 0.5] };
+export const PLACE_SPAWN: Record<string, [number, number]> = { [READY_ROOM]: [0, 0], [CREATE_KNIGHT]: [0, 0] };
+
+/**
+ * Knight creation is a stage too (client S, the creator's scene view): its own knight
+ * (a Dungeoneer with the starter sword and Proto Shield) stands at the origin facing -pi/2, the
+ * camera on it; it takes no orders. Holding the mouse on the scene turns it: a half turn a
+ * second, toward the side of the knight the pointer is on (client T), once the scene has been
+ * up 3.5 s (client U).
+ */
+export const CREATE_KNIGHT_POSE = { heading: -Math.PI / 2, turnSpeed: Math.PI, turnDelay: 3.5 };
+
+/**
+ * The creation camera, as the real client's screen shows it (the scene names no camera of its
+ * own): low and close, a little to the knight's left, the knight standing right of centre.
+ * The offset moves the camera's target 0.8 units to the screen's left of the knight.
+ */
+export const CREATE_KNIGHT_CAMERA: CameraView = {
+  zoom: 0, fov: 0.75, azimuth: 0.35, elevation: 0.15, distance: 6.5,
+  offset: [-0.8 * Math.cos(0.35), -0.8 * Math.sin(0.35), 1],
+};
 
 /**
  * The Ready Room is a stage, not a place to walk (the client's ReadyRoomSceneConfig and its

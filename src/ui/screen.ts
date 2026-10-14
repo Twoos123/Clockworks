@@ -17,6 +17,8 @@ const BAR = "ui/window/tooltip_parts/stat_bar.dat";
 const COMPARE = "ui/window/tooltip_compare.dat";
 /** Pixels between a docked window and the screen's edge. */
 const DOCK_MARGIN = 8;
+/** The HUD's height under a left-docked list (as.i: the display height less 145). */
+const DOCK_BOTTOM = 145;
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 
 export interface ScreenHost {
@@ -33,6 +35,9 @@ export interface ScreenHost {
 
 /** A model shown in a RenderableView instead of the knight: its reference (null for none) and idle animation. */
 export interface ViewModel { ref: any; idle: string | null }
+
+/** A popup menu entry whose icon may still be loading (it is put in when it arrives). */
+export type PopupEntry = Omit<MenuEntry, "icon"> & { icon?: GuiImage | null | Promise<GuiImage | null> };
 
 /** A ConfigReference to an interface with arguments. */
 export function uiRef(name: string, args: Record<string, unknown> = {}) {
@@ -134,9 +139,6 @@ export function row(kids: Component[], gap = 0, align = "TOP"): Component {
   return c;
 }
 
-/** Every window made; the left-docked ones among them lay out side by side. */
-const SCREENS: GuiScreen[] = [];
-
 export abstract class GuiScreen {
   protected root: Component | null = null;
   /** Modal interfaces over the root, topmost last. */
@@ -145,6 +147,8 @@ export abstract class GuiScreen {
   private running = false;
   private building: Promise<Component | null> | null = null;
   private pointer: { x: number; y: number } | null = null;
+  /** Where the last press or release was (a menu a click asks for opens there). */
+  private pressed: { x: number; y: number } | null = null;
   /** Tooltips by component: the tooltip interface's reference, built on first hover. */
   protected tips = new Map<Component, TipSpec>();
   /** Click handlers for components Clyde's dispatch does not press (sockets, icons). */
@@ -157,7 +161,6 @@ export abstract class GuiScreen {
   private last = 0;
 
   constructor(protected readonly ctx: GuiContext, protected readonly host: ScreenHost, id: string) {
-    SCREENS.push(this);
     const c = this.canvas = document.createElement("canvas");
     c.id = id;
     c.className = "title-canvas options-canvas gui-screen";
@@ -168,7 +171,11 @@ export abstract class GuiScreen {
     const ev = (type: "down" | "up" | "move" | "wheel") => (e: PointerEvent | WheelEvent) => {
       const r = this.canvas.getBoundingClientRect();
       const x = e.clientX - r.left, y = e.clientY - r.top;
+      // the docked windows open beside each other (the Event Hub beside the uplink): a pointer
+      // off this one's windows goes on to the window canvas beneath it
+      if (this.forward(e, type, x, y)) { this.pointer = null; if (this.root && type === "move") dispatch(this.root, { type: "move", x: -1, y: -1 }); return; }
       this.pointer = { x, y };
+      if (type === "down" || type === "up") this.pressed = { x, y };
       // a press keeps its window until the release (the side window or the main one)
       const target = type === "down" || !this.captured ? this.targetAt(x, y) : this.captured;
       if (!target) return;
@@ -197,6 +204,31 @@ export abstract class GuiScreen {
   }
 
   get isOpen() { return !this.canvas.hidden; }
+
+  /** The window canvas a press was passed on to, which keeps the pointer until the release. */
+  private forwardTo: HTMLCanvasElement | null = null;
+
+  /**
+   * Passes a pointer event that lands off this window's interfaces (with nothing modal up)
+   * to the open window canvas beneath, if there is one. True when it was passed on.
+   */
+  private forward(e: PointerEvent | WheelEvent, type: string, x: number, y: number): boolean {
+    let to = this.forwardTo;
+    if (!to) {
+      if (type === "up" || this.captured || this.overlays.length || this.root?.overlay || this.side?.overlay) return false;
+      if ((this.root && hitTest(this.root, x, y)) || (this.side && hitTest(this.side, x, y))) return false;
+      to = (document.elementsFromPoint?.(e.clientX, e.clientY) ?? []).find((el): el is HTMLCanvasElement =>
+        el !== this.canvas && el instanceof HTMLCanvasElement && el.classList.contains("gui-screen") && !el.hidden) ?? null;
+      if (!to) return false;
+    }
+    if (type === "down") this.forwardTo = to;
+    if (type === "up") this.forwardTo = null;
+    const Ctor = (e instanceof WheelEvent ? WheelEvent : PointerEvent) as any;
+    const copy = new Ctor(e.type, e);
+    to.dispatchEvent(copy);
+    if (copy.defaultPrevented) e.preventDefault();
+    return true;
+  }
 
   /** Builds the interface tree (once). */
   protected abstract build(): Promise<Component | null>;
@@ -249,13 +281,34 @@ export abstract class GuiScreen {
    * Pops up a menu built in code (the client's item and sort menus, client/ui/E.bH) under the
    * pointer, over the topmost interface; a chosen item calls `choose` with its action.
    */
-  async popupMenu(entries: MenuEntry[], title: string | undefined, choose: (action: string) => void) {
-    const at = this.pointer;
+  async popupMenu(entries: PopupEntry[], title: string | undefined, choose: (action: string) => void): Promise<Component | null> {
+    // the point and the window are those of the click that asked for the menu, taken before
+    // anything is awaited (the pointer may move or leave the canvas while the menu is built)
+    const at = this.pointer ?? this.pressed;
     const target = at ? this.targetAt(at.x, at.y) : this.overlays[this.overlays.length - 1] ?? this.root;
-    if (!target || !entries.length) return;
-    const menu = await buildMenu(this.ctx, entries, title);
-    menu.onAction = (_c, a) => { this.host.sound("sound/feedback/ui_dropdown_select.ogg"); choose(a); };
-    openMenu(target, menu, at?.x ?? this.canvas.clientWidth / 2, at?.y ?? this.canvas.clientHeight / 2, this.canvas.clientWidth, this.canvas.clientHeight);
+    if (!target || !entries.length || !this.isOpen) return null;
+    try {
+      // icons still loading are left out; each is put in when it arrives
+      const menu = await buildMenu(this.ctx, entries.map(e => ({ ...e, icon: e.icon instanceof Promise ? null : e.icon ?? null })), title);
+      if (!this.isOpen) return null;
+      menu.onAction = (_c, a) => { this.host.sound("sound/feedback/ui_dropdown_select.ogg"); choose(a); };
+      openMenu(target, menu, at?.x ?? this.canvas.clientWidth / 2, at?.y ?? this.canvas.clientHeight / 2, this.canvas.clientWidth, this.canvas.clientHeight);
+      const first = title ? 1 : 0;
+      entries.forEach((e, i) => {
+        if (!(e.icon instanceof Promise)) return;
+        e.icon.then(im => {
+          const item = menu.children[first + i];
+          if (!im || !item) return;
+          item.icon = im;
+          // the menu grows to fit (PopupMenu.packAndFit keeps it on screen when drawn)
+          pack(menu);
+        }, err => console.error("menu icon failed", err));
+      });
+      return menu;
+    } catch (e) {
+      console.error("popup menu failed", e);
+      return null;
+    }
   }
 
   /**
@@ -267,14 +320,14 @@ export abstract class GuiScreen {
   /** Docks the main window at the screen's right edge instead of centring it (item/client/i). */
   protected dockRight = false;
   /**
-   * Docks the main window at the screen's top left (client/g with its right flag off: x 0, at
-   * the top), beside the other left-docked windows that are open and come before it in
-   * `dockOrder`: the social window (0) first, then the event hub (1).
+   * Docks the main window at the screen's left edge, full height above the HUD (client/g with
+   * its left side), at the x this returns: past the windows docked there before it.
    */
-  protected dockLeft = false;
-  protected dockOrder = 0;
-  /** The width the window was last drawn at (the next left-docked window starts after it). */
-  private drawnWidth = 0;
+  protected dockLeft: (() => number) | null = null;
+  /** The left-docked window's width as last drawn (for the windows docked beside it). */
+  dockedWidth = 0;
+  /** Darkens the game behind the window (a docked list leaves it be). */
+  protected dim = true;
   private captured: Component | null = null;
 
   /** The window under a point: the top overlay, else the side window, else the main one. */
@@ -385,19 +438,25 @@ export abstract class GuiScreen {
     g.clearRect(0, 0, w, h);
     g.scale(dpr, dpr);
     const cw = w / dpr, ch = h / dpr;
-    g.fillStyle = "rgba(4,10,18,0.6)";
-    g.fillRect(0, 0, cw, ch);
+    if (this.dim) {
+      g.fillStyle = "rgba(4,10,18,0.6)";
+      g.fillRect(0, 0, cw, ch);
+    }
     const now = performance.now(), dt = this.last ? Math.min(0.5, (now - this.last) / 1000) : 0;
     this.last = now;
     for (const r of this.runners.values()) r.tick(dt);
     this.tick();
     if (this.root) {
-      const s = pack(this.root);
-      this.drawnWidth = s.width;
       if (this.dockLeft) {
-        const x = SCREENS.filter(o => o !== this && o.dockLeft && o.isOpen && o.dockOrder < this.dockOrder).reduce((a, o) => a + o.drawnWidth, 0);
-        render(this.root, g, x, s.height, this.hooks);
-      } else render(this.root, g, this.dockRight ? Math.max(0, cw - s.width - DOCK_MARGIN) : Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+        // client/g.Ah: the screen's height less the HUD's 145 pixels, from the top edge
+        this.root.preferredSize = { width: -1, height: Math.max(200, Math.round(ch - DOCK_BOTTOM)) };
+        const s = pack(this.root);
+        this.dockedWidth = s.width;
+        render(this.root, g, Math.min(Math.max(0, cw - s.width), this.dockLeft()), s.height, this.hooks);
+      } else {
+        const s = pack(this.root);
+        render(this.root, g, this.dockRight ? Math.max(0, cw - s.width - DOCK_MARGIN) : Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+      }
     }
     if (this.side) {
       const s = pack(this.side);

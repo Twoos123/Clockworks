@@ -40,7 +40,7 @@ export const ACTIONS = {
   panels: { label: "Inventory", key: "tab" },
   mission: { label: "Missions", key: "m" },
   social: { label: "Social", key: "f6" },
-  feed: { label: "News feed", key: "f7" },
+  feed: { label: "Event Hub", key: "f7" },
   uplink: { label: "Mail", key: "" },
   map: { label: "Map overlay", key: "b" },
   hudLock: { label: "Lock HUD", key: "`" },

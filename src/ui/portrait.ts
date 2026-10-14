@@ -18,6 +18,22 @@ const FRAME_INTERVAL = 1 / 15;
 /** Supersampling factor (the offscreen buffer has no multisampling). */
 const SUPERSAMPLE = 2;
 
+/**
+ * A RenderableView's orbit camera (OrbitCameraHandler): the target stays at the origin and the
+ * view model's transform moves the model, not the camera (the heat flame sits a little left of
+ * centre this way); azimuth 0 puts the camera south of the target, looking north.
+ */
+export function orbitView(view: any): Mat4 {
+  const az = view?.azimuth ?? 0, el = view?.elevation ?? Math.PI / 4, dist = view?.distance ?? 10;
+  const eye: [number, number, number] = [Math.sin(az) * Math.cos(el) * dist, -Math.cos(az) * Math.cos(el) * dist, Math.sin(el) * dist];
+  return lookAt(eye, [0, 0, 0], [0, 0, 1]);
+}
+
+/** A RenderableView's lens (ComponentConfig.RenderableView: 60 degrees, near 1, far 100 by default). */
+export function viewProjection(view: any, aspect: number): Mat4 {
+  return perspective(view?.fov ?? Math.PI / 3, aspect, view?.near ?? 1, view?.far ?? 100);
+}
+
 export class PortraitView {
   private instance: ModelInstance | null = null;
   private placement: Mat4 | null = null;
@@ -86,20 +102,8 @@ export class PortraitView {
     let cam: Mat4;
     if (view.viewNode && inst.world.has(view.viewNode)) {
       cam = invert(multiply(placement, inst.nodeMatrix(view.viewNode)));
-    } else {
-      // OrbitCameraHandler's target stays at the origin; the view model's transform moves the
-      // model, not the camera (the heat flame sits a little left of centre this way)
-      const target: [number, number, number] = [0, 0, 0];
-      const az = view.azimuth ?? 0, el = view.elevation ?? Math.PI / 4, dist = view.distance ?? 10;
-      // OrbitCameraHandler: azimuth 0 puts the camera south of the target, looking north
-      const eye: [number, number, number] = [
-        target[0] + Math.sin(az) * Math.cos(el) * dist,
-        target[1] - Math.cos(az) * Math.cos(el) * dist,
-        target[2] + Math.sin(el) * dist,
-      ];
-      cam = lookAt(eye, target, [0, 0, 1]);
-    }
-    const proj = perspective(view.fov ?? Math.PI / 3, pw / ph, view.near ?? 1, view.far ?? 100);
+    } else cam = orbitView(view);
+    const proj = viewProjection(view, pw / ph);
     const img = this.renderer.renderToPixels([{ instance: inst, matrix: placement }], proj, cam, pw, ph);
     const canvas = this.canvas && this.canvas.width === pw && this.canvas.height === ph ? this.canvas : new OffscreenCanvas(pw, ph);
     const g = canvas.getContext("2d")!;

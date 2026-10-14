@@ -19,7 +19,7 @@ import type { World } from "../game/world";
 import type { ColorPository } from "../colors";
 import type { Economy } from "../game/economy";
 import { cachedPlacements, guildOf } from "../game/guild";
-import { cachedHallId, CREATE_KNIGHT, GUILD_HALL, placeCamera, placeRoot, PLACE_SPAWN, READY_ROOM, READY_ROOM_POSE } from "../game/places";
+import { cachedHallId, CREATE_KNIGHT, CREATE_KNIGHT_CAMERA, CREATE_KNIGHT_POSE, GUILD_HALL, placeCamera, placeRoot, PLACE_SPAWN, READY_ROOM, READY_ROOM_POSE } from "../game/places";
 import { writeSave } from "../game/save";
 import { FurnitureLayer, FurnitureWindow, type FurnitureHost } from "./furniture";
 import { GuildWindow } from "./guild";
@@ -64,6 +64,26 @@ export class Places {
   private swatches: { print: number; name: string; rgb: [number, number, number] }[] = [];
   /** Called when knight creation finishes (the viewer enters Haven). */
   onCreated: (() => void) | null = null;
+  /** Called on knight creation's Back. */
+  onCreationBack: (() => void) | null = null;
+  /** When the creation scene came up (the knight turns only 3.5 s after). */
+  creationAt = 0;
+  /** Which way the creator's knight faces (turned with the mouse). */
+  creationHeading = CREATE_KNIGHT_POSE.heading;
+
+  /**
+   * Turns the creator's knight (client T): `side` is -1 with the pointer left of the knight,
+   * +1 right of it; a half turn a second, once the scene has been up 3.5 s.
+   */
+  turnKnight(side: number, dt: number) {
+    if (!this.create.isOpen || performance.now() - this.creationAt < CREATE_KNIGHT_POSE.turnDelay * 1000) return;
+    this.creationHeading += side * CREATE_KNIGHT_POSE.turnSpeed * dt;
+    const w = this.host.world();
+    if (w) w.knight.heading = this.creationHeading;
+  }
+
+  /** The creator's knight may be turned now. */
+  canTurn() { return this.create.isOpen && performance.now() - this.creationAt >= CREATE_KNIGHT_POSE.turnDelay * 1000; }
 
   constructor(private readonly host: PlacesHost) {
     this.layer = new FurnitureLayer(host);
@@ -88,6 +108,7 @@ export class Places {
       colors: () => this.swatches,
       preview: look => this.preview(look),
       done: (name, look) => this.created(name, look),
+      back: () => this.onCreationBack?.(),
       sound: f => host.sound(f),
     });
     void host.colors().then(pos => {
@@ -110,7 +131,7 @@ export class Places {
   }
 
   /** The scene is a stage (the Ready Room): the knight is shown, not played. */
-  staged(id: string | undefined) { return id === READY_ROOM; }
+  staged(id: string | undefined) { return id === READY_ROOM || id === CREATE_KNIGHT; }
 
   /** Where the knight stands in a special scene without a start platform. */
   spawn(id: string | undefined): [number, number] | null {
@@ -130,7 +151,14 @@ export class Places {
       this.host.world()?.stage(p.heading, p.start, p.loop);
       if (this.stageView) this.host.stageCamera(this.stageView);
     } else this.from = null;
-    if (id === CREATE_KNIGHT) this.host.camera(-Math.PI / 2 + 0.35, 0.2, 6.5);
+    if (id === CREATE_KNIGHT) {
+      // the creator's knight on display, facing the camera (client S); a new look (the knight
+      // dressed again) keeps the way it was turned
+      if (!this.create.isOpen) { this.creationHeading = CREATE_KNIGHT_POSE.heading; this.creationAt = performance.now(); }
+      const w = this.host.world();
+      if (w) w.knight.heading = this.creationHeading;
+      this.host.stageCamera(CREATE_KNIGHT_CAMERA);
+    }
   }
 
   inHall() { return this.host.scene()?.id === GUILD_HALL; }

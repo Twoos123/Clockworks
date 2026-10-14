@@ -49,7 +49,7 @@ export class InventoryPanel {
     const panel = new InventoryPanel(ui, list, screen, pack, eco, changed);
     list.onPick = e => {
       const item = catalogue(pack.data()).find(x => x.name === e.key);
-      if (item) void panel.gearMenu(item);
+      if (item) panel.gearMenu(item).catch(err => console.error("item menu failed", err));
     };
     return panel;
   }
@@ -58,9 +58,10 @@ export class InventoryPanel {
   private async gearMenu(item: ItemEntry) {
     const save = this.pack.save(), costume = this.pack.outfit().appearance.costume;
     const icon = (n: string) => this.eco.info(n)?.icon ?? this.pack.data().resolveSync("config/item.dat", { name: n }, "item")?.icon ?? null;
-    const entries = await Promise.all(itemMenu(save, costume, item).map(async m => ({ action: m.action, text: m.text, enabled: m.enabled,
-      icon: m.slot === undefined ? null : m.item ? await this.screen.iconImage(icon(m.item), 25)
-        : await this.screen.styleImage("Status/Equip Socket/Backing, Icon", { File: "ui/icon/inventory/categories/" + SLOT_ICON[m.slot] }, 25) })));
+    // the menu opens at once; the slot icons are put in as they load
+    const entries = itemMenu(save, costume, item).map(m => ({ action: m.action, text: m.text, enabled: m.enabled,
+      icon: m.slot === undefined ? null : m.item ? this.screen.iconImage(icon(m.item), 25)
+        : this.screen.styleImage("Status/Equip Socket/Backing, Icon", { File: "ui/icon/inventory/categories/" + SLOT_ICON[m.slot] }, 25) }));
     await this.screen.popupMenu(entries, this.eco.displayName(item.name, save.gear[item.name]), async a => {
       const r = applyItemAction(save, item, a);
       if (r?.loadout) { save.loadout = r.loadout; this.pack.write?.(); }

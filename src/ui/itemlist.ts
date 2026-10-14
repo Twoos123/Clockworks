@@ -47,7 +47,7 @@ export interface ListEntry {
 }
 
 export interface ListGroup {
-  id: string; label: string; icon: string; entries: ListEntry[];
+  id: string; label: string; icon: string | null; entries: ListEntry[];
   /** Pills shown while the search field is empty (a long group is narrowed by searching). */
   limit?: number;
   /** Shown (disabled) with nothing in it, as the client's weapon, gear and material groups are. */
@@ -121,6 +121,10 @@ export class ItemList {
   /** The message bundle of the sort names and the empty list's text (the client's list bundle). */
   bundle = "item";
   onPick: ((e: ListEntry) => void) | null = null;
+  /** Called after a category is folded or opened (a list that keeps its folds). */
+  onToggle: (() => void) | null = null;
+  /** The row shown when nothing is listed (client/d.BX), in place of the bundle's m.empty label. */
+  emptyRow: any = null;
   /** Called with each pill as it is shown (a window drawing icons of its own). */
   onRow: ((e: ListEntry, c: Component) => void) | null = null;
   private list: Component | null;
@@ -335,6 +339,7 @@ export class ItemList {
   clicks = new Map<Component, () => void>();
 
   private emptyLabel(): Promise<Component | null> {
+    if (this.emptyRow) return this.build("emptyrow", this.emptyRow);
     const key = "empty:" + this.bundle;
     let p = this.cache.get(key);
     if (!p) { p = styledLabel(this.ctx, bundleText(this.bundle, "m.empty", "- Empty -"), "Default/Label"); this.cache.set(key, p); }
@@ -367,6 +372,7 @@ export class ItemList {
 
   private toggle(id: string) {
     if (this.collapsed.has(id)) this.collapsed.delete(id); else this.collapsed.add(id);
+    this.onToggle?.();
     this.sound("sound/feedback/ui_dropdown_select.ogg");
     void this.fill();
   }

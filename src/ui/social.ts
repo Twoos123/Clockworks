@@ -41,8 +41,9 @@ export class SocialScreen extends GuiScreen {
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly social: SocialHost) {
     super(ctx, social, "socialCanvas");
-    this.dockLeft = true;
-    this.dockOrder = 0;
+    // client/g: docked at the left edge (the event hub docks beside it), the game left undimmed
+    this.dockLeft = () => 0;
+    this.dim = false;
   }
 
   toggle() { if (this.isOpen) this.close(); else void this.open(); }
@@ -56,12 +57,6 @@ export class SocialScreen extends GuiScreen {
     list.clicks = this.clicks;
     list.menu = (e, t, c) => void this.popupMenu(e, t, c);
     return ui;
-  }
-
-  /** client/g.Ah: the window's height is the screen's less 145 pixels. */
-  protected tick() {
-    const r = this.root;
-    if (r) r.preferredSize = { width: r.preferredSize?.width ?? 214, height: Math.max(300, this.canvas.clientHeight - 145) };
   }
 
   protected async refresh() {

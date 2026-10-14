@@ -1,85 +1,70 @@
-// The title screen: the game's own logon interface (rsrc/ui/logon/interface.dat) with its
-// logo and buttons, drawn over the Haven scene. There is no account to log on to, so the
-// credentials and terms-of-service parts are hidden and the log-on button starts the game.
+// The log-on screen, as the client opens it (ProjectXApp.aQ shows LogonWindow, client bN, with
+// sound/music/title.ogg): the game's own rsrc/ui/logon/interface.dat over the whole screen.
+//  - Its "skybox" part (ui/logon/parts/skybox.dat) is a full-screen RenderableView of the
+//    Cradle skybox (world/skybox/cradle/parts/model_base.dat: the planet, its golden ring, the
+//    moon and the drifting debris) inside a rounded dark frame (ui/logon/border.png).
+//  - The SPIRAL KNIGHTS logo drops in (script "Logo": 0.2 s, then a 0.3 s overshooting move
+//    from 3x size, 200 px up), and the log-on panel fades in after a second ("Logon Info").
+//  - The Grey Havens footer sits at the bottom.
+// There is no account here: the name and password fields, the Steam and guest boxes, the terms
+// line and the web links are hidden; the Log On button plays (to the knight select window, or
+// a new knight's prologue), and Quit and Options stay.
 
 import { CONFIG_REF } from "../config/params";
-import { buildInterface, hitTest, pack, render, type Component, type GuiContext } from "./gui";
+import { buildInterface, type Component } from "./gui";
+import { GlScreen, walk } from "./glscreen";
 
-export interface TitleActions { play(): void; options(): void; viewer?: () => void }
+export interface TitleActions {
+  play(): void;
+  options(): void;
+  quit(): void;
+  /** The asset viewer (development builds). */
+  viewer?: () => void;
+}
 
-export class TitleScreen {
-  private ui: Component | null = null;
-  private running = false;
-  private hovered: Component | null = null;
+/** Log-on panel parts that belong to accounts, servers and the web. */
+const ACCOUNT_PARTS = new Set(["creds_cont", "steam_cont", "tos_cont", "devtools", "TOS", "support", "forgot_password", "game_website"]);
 
-  constructor(private readonly ctx: GuiContext, private readonly canvas: HTMLCanvasElement, private readonly actions: TitleActions) {
-    canvas.addEventListener("pointermove", e => this.pointer(e, false));
-    canvas.addEventListener("pointerdown", e => { if (e.button === 0) this.pointer(e, true); });
+export class TitleScreen extends GlScreen {
+  actions: TitleActions | null = null;
+  /** The status line under the panel (e.g. how many knights are saved). */
+  status = "";
+
+  protected async build(): Promise<Component | null> {
+    const ui = await buildInterface(this.ctx, { $class: CONFIG_REF, name: "ui/logon/interface.dat" });
+    if (!ui) return null;
+    walk(ui, c => { if (ACCOUNT_PARTS.has(c.tag)) c.visible = false; });
+    // the web links' row under the panel
+    const links = ui.find("support");
+    if (links) for (const c of ui.find("logon_info")?.children ?? []) if (c.children.includes(links)) c.visible = false;
+    const on = (tag: string, fn: () => void, text?: string) => {
+      const b = ui.find(tag);
+      if (!b) return;
+      b.onAction = () => fn();
+      if (text) b.text = text;
+    };
+    on("logon", () => this.actions?.play(), "Play");
+    on("options", () => this.actions?.options());
+    on("quit", () => this.actions?.quit());
+    // the panel's hidden third button (the client's external log-on) opens the asset viewer in
+    // development builds
+    const ext = ui.find("ext_logon");
+    if (ext && this.actions?.viewer) { ext.visible = true; ext.text = "Asset Viewer"; ext.onAction = () => this.actions?.viewer?.(); }
+    return ui;
   }
 
-  get visible() { return !this.canvas.hidden; }
-
-  async show() {
-    this.canvas.hidden = false;
-    if (!this.ui) {
-      const ui = await buildInterface(this.ctx, { $class: CONFIG_REF, name: "ui/logon/interface.dat" });
-      if (ui) {
-        // find() returns the first match only; hide every component with these tags
-        const hide = new Set(["creds_cont", "steam_cont", "tos_cont", "status", "devtools", "TOS", "support", "forgot_password", "game_website"]);
-        const walk = (c: Component) => { if (hide.has(c.tag)) c.visible = false; c.children.forEach(walk); };
-        walk(ui);
-        const set = (tag: string, text: string | null) => {
-          const b = ui.find(tag);
-          if (!b) return;
-          if (text === null) b.visible = false; else b.text = text;
-        };
-        set("logon", "Play");
-        set("options", "Options");
-        set("quit", this.actions.viewer ? "Asset Viewer" : null);
-        this.ui = ui;
-      }
-    }
-    if (!this.running) { this.running = true; requestAnimationFrame(this.frame); }
+  protected refresh() {
+    const s = this.root?.find("status");
+    if (s) s.text = this.status || " ";
   }
 
-  hide() { this.canvas.hidden = true; this.running = false; }
+  /** Replays the logo and panel entrances (on coming back to the screen). */
+  replay() {
+    if (this.root?.addAction) this.runner(this.root).execute(this.root.addAction);
+  }
 
-  private frame = () => {
-    if (!this.running) return;
-    const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1);
-    const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
-    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-    const g = c.getContext("2d")!;
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, w, h);
-    g.scale(dpr, dpr);
-    const cw = w / dpr, ch = h / dpr;
-    // a soft vignette over the town behind
-    const grad = g.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * 0.2, cw / 2, ch / 2, Math.max(cw, ch) * 0.7);
-    grad.addColorStop(0, "rgba(4,10,18,0.25)");
-    grad.addColorStop(1, "rgba(4,10,18,0.85)");
-    g.fillStyle = grad;
-    g.fillRect(0, 0, cw, ch);
-    if (this.ui) {
-      const s = pack(this.ui);
-      render(this.ui, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), {});
-    }
-    requestAnimationFrame(this.frame);
-  };
-
-  private pointer(e: PointerEvent, click: boolean) {
-    if (!this.ui) return;
-    const r = this.canvas.getBoundingClientRect();
-    const hit = hitTest(this.ui, e.clientX - r.left, e.clientY - r.top, c => c.kind === "button");
-    if (this.hovered !== hit) {
-      if (this.hovered) this.hovered.hover = false;
-      if (hit) hit.hover = true;
-      this.hovered = hit;
-      this.canvas.style.cursor = hit ? "pointer" : "";
-    }
-    if (!click || !hit) return;
-    if (hit.tag === "logon") this.actions.play();
-    else if (hit.tag === "options") this.actions.options();
-    else if (hit.tag === "quit") this.actions.viewer?.();
+  setStatus(text: string) {
+    this.status = text;
+    void this.refresh();
   }
 }

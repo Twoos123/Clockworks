@@ -13,7 +13,7 @@
 // Change) opens the custom controls page (key bindings, src/ui/keybinds.ts).
 
 import { CONFIG_REF } from "../config/params";
-import { loadSave, writeSave, type SaveData } from "../game/save";
+import { LEGACY_KEY, loadSave, normalizeSave, reloadRoster, ROSTER_KEY, writeSave, type SaveData } from "../game/save";
 import { checklist } from "../game/levels";
 import { message, messages, text } from "../i18n";
 import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, restyle, selectTab, setComboItems, type GuiContext, type GuiImage } from "./gui";
@@ -91,7 +91,6 @@ const PROMPTS = ["register_recipe", "use_upgrade", "auto_create", "offer_end_sur
 const SCHEMES = ["mouse_move", "wasd_move", "gamepad"] as const;
 type Scheme = (typeof SCHEMES)[number] | "custom";
 
-const SAVE_KEY = "clyde-web-save";
 /** OptionsDialog's fixed UI scale buttons. */
 const SCALES: [string, number][] = [["scale100", 1], ["scale150", 1.5], ["scale200", 2], ["scale250", 2.5]];
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
@@ -683,7 +682,7 @@ export class OptionsScreen {
         const data = JSON.parse(await f.text());
         if (!data || typeof data !== "object" || !data.loadout) throw new Error("not a save");
         void this.prompt("Import Save", "Replace this browser's save with the one in the file?", () => {
-          writeSave(data);
+          writeSave(normalizeSave(data));
           this.replaced();
           void this.prompt("Save Imported", "The save was imported.", null);
         });
@@ -703,8 +702,9 @@ export class OptionsScreen {
   }
 
   private confirmReset() {
-    void this.prompt("Reset Save", "Delete this browser's save and start over? This cannot be undone.", () => {
-      try { localStorage.removeItem(SAVE_KEY); } catch { /* storage unavailable */ }
+    void this.prompt("Reset Save", "Delete every knight saved in this browser and start over? This cannot be undone.", () => {
+      try { localStorage.removeItem(ROSTER_KEY); localStorage.removeItem(LEGACY_KEY); } catch { /* storage unavailable */ }
+      reloadRoster();
       this.replaced();
     });
   }

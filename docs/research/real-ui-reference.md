@@ -256,3 +256,97 @@ edges, like old film, and a small SKIP button at the bottom right.
 - **Next:** a "Next ▼" bar under the panel moves to the next page (colours, name, and so on).
 - **Back:** a "BACK" button with the knight emblem at the bottom left.
 - **Spinning:** the user says the knight can be spun around.
+
+## A full Clockworks floor (lobby → depth 1 → Level Complete)
+
+From a 135-second recording of the real client; frames are in `.scratch/vid2` (one every 2
+seconds, git-ignored). They show the gate lobby, then a Gremlin floor of Cooling Chamber.
+
+- **Loading screen:**
+  - A dark band across the middle of the screen with "Loading...39%" in gold.
+  - At the left, a tip card: a cog icon, a title bar "The world is always changing...", and
+    text: "The Clockworks below the surface cycle levels in real time. You will never see all
+    the levels a world has to offer in a single trip. Only a true adventurer will discover all
+    the secrets!"
+  - Under the band, the level name in big gold italic ("Cooling Chamber") with the stratum
+    under it ("Gremlin Grounds").
+  - A gold "DEPTH 1" tab at the bottom right.
+- **During play:**
+  - Monsters show small red health bars above them.
+  - Explosive blocks and timed explosive blocks (with a big digit countdown) go off in chains.
+  - Damage numbers appear.
+  - The chat area at the bottom left fills with grey loot lines as items are picked up (the
+    Chat option "Loot Messages: All").
+- **Floor end:** the knight walks onto the exit elevator. Then the Level Complete screen:
+  - **Title:** "Level Complete!" in big gold letters across the top, over a darkened view.
+  - **PRIZE WHEEL (left):** a gold title bar, then a tall panel where a reel spins and lands on
+    a prize. It shows a silver crown coin, with "10 Crowns" in the reel's header strip. It
+    stays up after the main window goes.
+  - **Centre card:** "Advancing to:", "Jigsaw Valley", "Perimeter Promenade", "DEPTH 2", the
+    knight posed on a bright burst, and "in 09 seconds..." counting down. Under it are a big
+    "ADVANCE NOW" button (green knight icon, arrow) and a small "QUIT EXPEDITION" button: "Leave
+    the party and return to Haven."
+  - **HEAT ACQUIRED (right):** the heat bar, then one card per item that gained heat (icon, name,
+    heat bar, level number). The levelled item is highlighted orange ("Blitz Needle 09 LEVEL").
+    The note "Heat levels up your weapons and gear and makes them stronger." sits under them.
+  - **After choosing:** the centre card goes. The prize wheel and heat panel stay over the next
+    view for a moment.
+
+## Combat up close (Jigsaw Valley, gremlins)
+
+From a 45-second recording; frames are in `.scratch/vid3` (one per second, git-ignored).
+
+- **Weapon switch:** a small card pops up beside the knight with the new weapon's icon and
+  name ("Blitz Needle"), then fades.
+- **Floating text:**
+  - "Health At Max!" (white) over the knight when a heart is picked up at full health.
+  - "FIRE!" (red-orange) over a monster as fire takes hold.
+  - Damage numbers on hits.
+- **Loot lines:** "You have obtained …" in the chat area at the bottom left, about eight lines
+  stacked.
+- **Shield:** a translucent bubble in the shield's own colour (green-tinted for this shield),
+  with a bright ring at the knight's feet.
+- **Quickbar:** the three weapons, then the pocket items (vials and capsules, with counts), then
+  the vitapod slot.
+- **Other sights:** explosions throw debris and leave scorch decals. Orange crystal blocks sit
+  in clusters, and gremlins carry bombs and hammers.
+
+## Haven tour: shops, alchemy, auction house, Arcade, forge
+
+From a 215-second recording; frames are in `.scratch/vid4` (one every 2 seconds, git-ignored).
+
+- **Loading into Haven:** the same loading screen, titled "Haven 5" (the town instance number)
+  with "Town Square", "Bazaar" or "Arcade" under it.
+- **Facing a vendor or machine:**
+  - The top centre shows "Press ATTACK <Left Mouse> to browse vendor goods".
+  - The target panel at the top shows the NPC's portrait icon, name and title ("Quillion /
+    Blade Merchant", "Alchemy Machine").
+  - Names float over NPCs and players, with the title in gold under NPC names.
+- **Vendor (for example Quillion):**
+  - A "VENDOR" list window docked at the left: item rows with icon, name and crown price (3,000
+    / 7,500 ...), and a Preview button at the bottom.
+  - ARSENAL docked at the right.
+  - A "SHOPPING CART" window at the bottom centre, with the keeper's portrait big behind it, the
+    cart lines, "CROWNS -7,500", Empty Cart and Checkout. Its footer row reads "GET 2,765 FOR
+    ⊙100 ▶ Get Crowns! | Buy Energy".
+  - The Energy widget shows at the bottom right.
+- **Alchemy machine:**
+  - A "RECIPES" list at the left: groups such as Bomb, Armor, Shield and Rarity, with a Preview
+    button.
+  - Beside it, a recipe card: the item's name, heat bar and "01 LEVEL", its stat bars, the
+    bound-on-equip line, the description, the star rank and a 3D preview.
+  - Next to the card, the ingredient list with have/need counts ("Blue Shard 450 / 15", "Spark
+    Plug 558 / 4", ...), the crown cost (2,500) and a "Transmute" button.
+  - An orb panel underneath: "Elite Orb of Alchemy ★4" with Buy Item.
+  - ARSENAL at the right, and the energy widget.
+- **Mysterious Alchemy Machine (the Arcade):** the same interaction, with the name floating over
+  the machine.
+- **Auction House:** an "AUCTION HOUSE" window at the left with categories, a results table and
+  pages, with ARSENAL at the right. It is a player market, so a single-player port leaves it
+  out.
+- **Forge:** pressing Forge shows a centred "FORGING" title over the dial, with the item's icon
+  in the middle while the lights run around the ring. Then comes the success or failure popup.
+- **Loot line wording, exact:**
+  - "You have obtained Material (Bronze Bolt)."
+  - "You have obtained Rarity (Warm Fire Crystal)."
+- **Haven activities:** Ready Room, Missions, Guild Halls, Coliseum, Party Finder, Supply Depot.

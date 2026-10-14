@@ -8,6 +8,7 @@ import { normalizeAppearance, type Appearance } from "./accessories";
 import { normalizeAchievements, type AchievementSave } from "./achievements";
 import { normalizeSpriteSave, type SpriteSave } from "./sprites";
 import { normalizeEnergy, type EnergyState } from "./energy";
+import { normalizeFeed, type FeedRecord } from "./feed";
 
 export interface Loadout {
   /** Item config names, e.g. "Weapon/Sword/Proto Sword"; up to three weapons. */
@@ -64,6 +65,10 @@ export interface SaveData {
   loadouts?: SavedLoadout[];
   /** Achievements earned, the statistics behind them and the run under way (achievements.ts). */
   achievements?: AchievementSave;
+  /** Seconds played as this knight (the knight select card's "Played"). */
+  played?: number;
+  /** Deeds the Event Hub lists besides the achievements: bosses defeated, ranks earned (feed.ts). */
+  feed?: FeedRecord[];
 }
 
 /** A named loadout: the gear, the costumes and accessories, and the battle sprite. */
@@ -139,8 +144,6 @@ export const knightName = (d: SaveData) => d.knight?.name || "Knight";
 
 import type { MissionProgress } from "./missions";
 
-const KEY = "clyde-web-save";
-
 /** Pocket slots on the quickbar. */
 export const POCKET_SLOTS = 4;
 
@@ -153,15 +156,20 @@ export const DEFAULT_LOADOUT: Loadout = {
   vitapod: "",
 };
 
-export function loadSave(): SaveData {
-  const fresh: SaveData = { version: 2, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons], trinkets: [] }, crowns: 0, heat: 0,
+/** A fresh save: a new knight's starting gear and nothing else. */
+export function freshSave(): SaveData {
+  return { version: 2, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons], trinkets: [] }, crowns: 0, heat: 0,
     materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield], gear: {}, recipes: [], color: 257,
-    pocket: [], heatAmplifier: 0, energy: normalizeEnergy(null) };
+    pocket: [], heatAmplifier: 0, energy: normalizeEnergy(null), played: 0 };
+}
+
+/** A stored save (any version) repaired into the current shape; a fresh save when it is not one. */
+export function normalizeSave(raw: unknown): SaveData {
+  const fresh = freshSave();
   let out = fresh;
   try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const d = JSON.parse(raw) as Partial<SaveData> & { weaponHeat?: unknown };
+    if (raw && typeof raw === "object") {
+      const d = JSON.parse(JSON.stringify(raw)) as Partial<SaveData> & { weaponHeat?: unknown };
       // version 1 kept tuning-scale weapon heat; items start over at level 1
       delete d.weaponHeat;
       out = {
@@ -177,6 +185,8 @@ export function loadSave(): SaveData {
         loadouts: normalizeLoadouts(d.loadouts),
         achievements: normalizeAchievements(d.achievements),
         energy: normalizeEnergy(d.energy),
+        played: Math.max(0, Number(d.played) || 0),
+        feed: normalizeFeed(d.feed),
         owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? []), d.loadout?.vitapod]
           .filter((x): x is string => !!x))],
       };
@@ -191,14 +201,152 @@ export function loadSave(): SaveData {
   return out;
 }
 
+// ---------------------------------------------------------------- the knights (several saves)
+//
+// The game's account holds up to three knights (PlayerObject.availableKnights; the knight
+// select window ui/pick/interface.dat has three cards). Here each knight is a whole save of
+// its own (its arsenal, crowns, missions, rank, played time and look), kept together in one
+// roster under ROSTER_KEY; `current` is the knight being played. A browser that still has the
+// old single save (LEGACY_KEY) has it moved into the first slot when the roster first loads.
+
+/** Knight slots (the knight select window's cards). */
+export const MAX_KNIGHTS = 3;
+
+export interface Roster {
+  version: 1;
+  /** Each knight's save. A save without `knight` is one whose creation has not finished. */
+  knights: SaveData[];
+  /** The knight being played (an index into `knights`), or -1 for none. */
+  current: number;
+}
+
+/** The storage the saves live in (localStorage in the browser; a map in tests). */
+export interface SaveStore { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
+
+export const LEGACY_KEY = "clyde-web-save";
+export const ROSTER_KEY = "clyde-web-knights";
+
+function browserStore(): SaveStore | null {
+  try { return (globalThis as any).localStorage ?? null; } catch { return null; }
+}
+
+/**
+ * The roster from storage: the stored roster, else the old single save migrated into the
+ * first slot (with all its progress, even when its knight was never named), else empty.
+ */
+export function parseRoster(rosterRaw: string | null, legacyRaw: string | null): Roster {
+  if (rosterRaw) {
+    try {
+      const r = JSON.parse(rosterRaw);
+      if (r && Array.isArray(r.knights)) {
+        const knights = (r.knights as unknown[]).filter(k => !!k && typeof k === "object").slice(0, MAX_KNIGHTS).map(normalizeSave);
+        const cur = Number.isInteger(r.current) && r.current >= 0 && r.current < knights.length ? r.current : (knights.length ? 0 : -1);
+        return { version: 1, knights, current: cur };
+      }
+    } catch { /* a broken roster: try the old save */ }
+  }
+  if (legacyRaw) {
+    try {
+      const d = JSON.parse(legacyRaw);
+      if (d && typeof d === "object" && !Array.isArray(d)) return { version: 1, knights: [normalizeSave(d)], current: 0 };
+    } catch { /* not a save */ }
+  }
+  return { version: 1, knights: [], current: -1 };
+}
+
+/** Reads the roster, migrating the old single save (whose key goes once the roster is written). */
+export function loadRoster(s: SaveStore | null = browserStore()): Roster {
+  if (!s) return { version: 1, knights: [], current: -1 };
+  let rosterRaw: string | null = null, legacyRaw: string | null = null;
+  try { rosterRaw = s.getItem(ROSTER_KEY); legacyRaw = s.getItem(LEGACY_KEY); } catch { /* storage unavailable */ }
+  const r = parseRoster(rosterRaw, rosterRaw ? null : legacyRaw);
+  if (!rosterRaw && legacyRaw && r.knights.length && writeRoster(r, s)) {
+    try { s.removeItem(LEGACY_KEY); } catch { /* kept */ }
+  }
+  return r;
+}
+
+export function writeRoster(r: Roster, s: SaveStore | null = browserStore()): boolean {
+  if (!s) return false;
+  try { s.setItem(ROSTER_KEY, JSON.stringify(r)); return true; } catch { return false; }
+}
+
+/** The knights whose creation finished, with their slots (the knight select window's cards). */
+export function namedKnights(r: Roster): { slot: number; save: SaveData }[] {
+  return r.knights.map((save, slot) => ({ slot, save })).filter(k => !!k.save.knight);
+}
+
+/**
+ * Starts a new knight: a slot whose creation never finished is reused (keeping what it has),
+ * else a fresh save is added. Its slot becomes current; -1 when every slot holds a knight.
+ */
+export function addKnight(r: Roster): number {
+  let i = r.knights.findIndex(k => !k.knight);
+  if (i < 0) {
+    if (r.knights.length >= MAX_KNIGHTS) return -1;
+    r.knights.push(freshSave());
+    i = r.knights.length - 1;
+  }
+  r.current = i;
+  return i;
+}
+
+/** Plays as the knight in a slot: its save, or null for an empty slot. */
+export function selectKnight(r: Roster, slot: number): SaveData | null {
+  if (slot < 0 || slot >= r.knights.length) return null;
+  r.current = slot;
+  return r.knights[slot];
+}
+
+/** Deletes the knight in a slot (the others keep their saves); `current` follows its knight. */
+export function deleteKnight(r: Roster, slot: number): boolean {
+  if (slot < 0 || slot >= r.knights.length) return false;
+  const cur = r.knights[r.current] ?? null;
+  r.knights.splice(slot, 1);
+  r.current = cur ? r.knights.indexOf(cur) : -1;
+  return true;
+}
+
+/** Puts a knight's save in the roster: in the current slot, or a new one when none is current. */
+export function storeKnight(r: Roster, d: SaveData) {
+  if (r.knights[r.current] === d) return;
+  if (r.current >= 0 && r.current < r.knights.length) r.knights[r.current] = d;
+  else if (r.knights.length < MAX_KNIGHTS) { r.knights.push(d); r.current = r.knights.length - 1; }
+}
+
+/** The roster the game plays from (read once). */
+let roster: Roster | null = null;
+export function gameRoster(): Roster { return roster ??= loadRoster(); }
+/** Forgets the roster read, so the next use reads storage again (after an import or a reset). */
+export function reloadRoster() { roster = null; }
+
+/** The current knight's save, or a fresh one (not in the roster yet) when no knight is chosen. */
+export function loadSave(): SaveData {
+  const r = gameRoster();
+  return r.knights[r.current] ?? freshSave();
+}
+
+/** "Played" as the card shows it: days:hours:minutes:seconds, two digits each. */
+export function playedText(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds)), m = Math.floor(s / 60), h = Math.floor(m / 60);
+  const two = (n: number) => String(n).padStart(2, "0");
+  return `${two(Math.floor(h / 24))}:${two(h % 24)}:${two(m % 60)}:${two(s % 60)}`;
+}
+
 /** The knight's energy, made on first use (a full mist tank). */
 export function energyOf(d: SaveData): EnergyState {
   return d.energy ??= normalizeEnergy(null);
 }
 
+/** Writes the knight's save: into its slot of the roster, and the roster to storage. */
 export function writeSave(d: SaveData) {
-  try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* storage unavailable */ }
+  const r = gameRoster();
+  storeKnight(r, d);
+  writeRoster(r);
 }
+
+/** Writes the roster as it stands (after choosing, adding or deleting a knight). */
+export function saveRoster() { writeRoster(gameRoster()); }
 
 /**
  * Gear prices by star rating, in crowns: config/item_property.dat ItemProps buyPrice of

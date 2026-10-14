@@ -13,13 +13,16 @@ import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
 import { catalogue } from "./game/items";
-import { energyOf, knightName, loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import { addKnight, deleteKnight, energyOf, gameRoster, knightName, loadSave, namedKnights, saveRoster, selectKnight, shopTier, writeSave, type SaveData } from "./game/save";
 import { energyNow, exchangeCost, payEnergy, SPARK_COST } from "./game/energy";
 import { ECONOMY_FILES, Economy } from "./game/economy";
 import { Places } from "./ui/places";
 import { GameScreens } from "./ui/screens";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
+import { PickScreen, type KnightCard } from "./ui/pick";
+import { PrologueScreen } from "./ui/prologue";
+import { dressArgs, emptyAppearance, resolveDressing } from "./game/accessories";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen, type HeatReport, type HeatRow } from "./ui/elevator";
@@ -56,17 +59,26 @@ import {
   recordRunEnd, recordRunStart, type AchievementType,
 } from "./game/achievements";
 import { UplinkScreen, mailbox } from "./ui/uplink";
+import { EventHubScreen } from "./ui/eventhub";
+import { FEED_BOSS, logFeed } from "./game/feed";
 import { TooSmallWarning } from "./ui/toosmall";
 import { itemTip } from "./ui/itemlist";
-import { cachedHallId, GUILD_HALL, READY_ROOM } from "./game/places";
+import { cachedHallId, CREATE_KNIGHT, GUILD_HALL, READY_ROOM } from "./game/places";
 import { HelpScreen, type HelpTab } from "./ui/help";
 import { SocialScreen } from "./ui/social";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
 
-/** Towns and lobbies: no monsters, and the run starts or ends here. */
-const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site|rescue camp/i;
+/**
+ * Towns: safe places where the knight walks unarmed, with the town HUD. Lobbies are not towns:
+ * the client's LOBBY levels (the Arcade's party lobby, the Mission Lobby, a mission's own lobby)
+ * are dungeon levels (DungeonCodes.LevelType.LOBBY: safe, but the knight is armed, the dungeon
+ * HUD shows and the map is FULL).
+ */
+const TOWN = /haven|bazaar|^hall|ready room|crash site|rescue camp/i;
+/** The lobbies (dungeon levels of type LOBBY): no monsters, never a floor of the legacy run. */
+const LOBBY = /lobby/i;
 /** The Rescue Camp's scenes (the archive's "rescue camp central", "rescue camp state 1"...). */
 const RESCUE_CAMP = /^rescue camp/i;
 /**
@@ -355,6 +367,12 @@ class Viewer {
       this.canvas.focus();
     };
     const typing = () => document.activeElement instanceof HTMLInputElement && document.activeElement.type !== "checkbox";
+    // the log-on, knight select and prologue screens: Escape closes a prompt, or skips the prologue
+    addEventListener("keydown", e => {
+      const s = this.glScreen();
+      if (!s || e.key !== "Escape" || this.options?.isOpen) return;
+      if (s.escape()) e.preventDefault();
+    });
     addEventListener("keydown", e => {
       if (!this.world || typing()) return;
       if (this.places.key(e)) { e.preventDefault(); return; }
@@ -376,6 +394,8 @@ class Viewer {
       if (this.options?.isOpen) return;
       // on a stage (the Ready Room) only the HUD's commands answer: there is no knight to steer
       if (this.staged) {
+        // knight creation answers only its own window: no arsenal, no menus
+        if (this.places.create.isOpen) return;
         if (!e.repeat) for (const [a, run] of Object.entries(this.commands()) as [Action, () => void][]) if (b(a)) run();
         return;
       }
@@ -506,30 +526,158 @@ class Viewer {
   private showLoading(id: string): LoadingScreen | null {
     if (!GAME && !this.played) return null;
     const { loading } = this.screens();
-    const f = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null;
+    const f = this.gate && (this.run.depth > 0 || this.gateLobby) ? this.floors[this.run.depth] ?? null : null;
     const name = this.genNames.get(id) ?? this.sceneList.find(s => s.id === id)?.name ?? id;
     void loading.show(loadingInfo(this.arenaMode ? "arena" : name, f, this.gate?.name));
     loading.progress(0.05);
     return loading;
   }
 
-  /** The title screen over Haven (the game app's start; the asset viewer lives behind #viewer). */
+  private pick: PickScreen | null = null;
+  private prologue: PrologueScreen | null = null;
+
+  /** The full-screen interface on the game canvas (log-on, knight select, prologue), if one is up. */
+  private glScreen(): TitleScreen | PickScreen | PrologueScreen | null {
+    for (const s of [this.prologue, this.pick, this.title]) if (s?.visible) return s;
+    return null;
+  }
+
+  /**
+   * The log-on screen (the game app's start; the asset viewer lives behind #viewer), as the
+   * client's startup shows it: ui/logon over the Cradle skybox, with title.ogg.
+   */
   private async enterTitle() {
     document.body.classList.add("game");
     this.music.title();
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    this.title ??= new TitleScreen(this.gui, $<HTMLCanvasElement>("titleCanvas"), {
-      play: () => {
-        this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide();
-        // a fresh save makes its knight first, then enters Haven
-        if (this.places.needsKnight()) void this.places.startCreation(); else void this.startPlaying();
-      },
-      options: () => void this.openOptions(),
-      viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
-    });
-    const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
-    if (haven && this.scene?.id !== haven.id) await this.selectScene(haven.id);
+    if (!this.title) {
+      this.title = new TitleScreen(this.gui, this.renderer, this.loader, "titleScreen");
+      this.title.sound = f => this.uiSound(f);
+      this.title.actions = {
+        play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.logOn(); },
+        options: () => void this.openOptions(),
+        quit: () => {
+          // a browser tab closes itself only when a script opened it
+          window.close();
+          this.title?.setStatus("Close this tab to quit.");
+        },
+        viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
+      };
+    } else this.title.replay();
+    this.pick?.hide();
+    this.prologue?.hide();
+    const n = namedKnights(gameRoster()).length;
+    this.title.setStatus(n ? `${n} knight${n === 1 ? "" : "s"} saved in this browser` : "");
     await this.title.show();
+  }
+
+  /**
+   * Log On (ProjectXApp.Gx): an account with knights goes to the knight select window (client
+   * cB); one with none plays the prologue (dK) and then knight creation.
+   */
+  private logOn() {
+    if (namedKnights(gameRoster()).length) void this.showPick();
+    else this.newKnight();
+  }
+
+  /** The knight select window with the roster's knights. */
+  private async showPick() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    if (!this.pick) {
+      this.pick = new PickScreen(this.gui, this.renderer, this.loader, "pickScreen");
+      this.pick.sound = f => this.uiSound(f);
+      this.pick.actions = {
+        choose: slot => void this.playKnight(slot),
+        create: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.newKnight(); },
+        remove: slot => {
+          const r = gameRoster(), gone = r.knights[slot];
+          deleteKnight(r, slot);
+          saveRoster();
+          if (gone === this.save) this.save = loadSave();
+          if (namedKnights(r).length) void this.showPick(); else void this.enterTitle();
+        },
+        back: () => { this.uiSound("sound/feedback/ui_dismiss.ogg"); void this.enterTitle(); },
+      };
+    }
+    this.music.title();
+    const cards = await Promise.all(namedKnights(gameRoster()).map(async ({ slot, save }): Promise<KnightCard> => ({
+      slot, save, name: knightName(save), rank: rankLabel(progressOf(save)), guild: save.guild?.name ?? "",
+      look: await this.knightLook(save).catch(() => [["Colorization", save.color]] as [string, any][]),
+    })));
+    this.title?.hide();
+    this.prologue?.hide();
+    await this.pick.setKnights(cards);
+  }
+
+  /**
+   * A knight's look as model arguments for the knight select cards: its colour, its armour and
+   * helmet (the proto parts without), its shield, and its costumes and accessories.
+   */
+  private async knightLook(save: SaveData): Promise<[string, any][]> {
+    const data = this.world?.data ?? new GameData(this.loader);
+    const ref = (name: string, args: [string, unknown][]) => ({ $class: "com.threerings.config.ConfigReference", name,
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } });
+    const colored = (r: any) => !r?.arguments?.entries?.some(([k]: [string]) => k === "Colorization") ? r
+      : { ...r, arguments: { ...r.arguments, entries: r.arguments.entries.map(([k, v]: [string, unknown]) => [k, k === "Colorization" ? save.color : v]) } };
+    const args: [string, any][] = [["Colorization", save.color]];
+    const armor = save.loadout.armor ? await data.armor(save.loadout.armor) : null;
+    const helmet = save.loadout.helmet ? await data.armor(save.loadout.helmet) : null;
+    args.push(["Armor", colored(armor?.model ?? ref("item/gear/armor/doublebelt/model.dat", [["Colorization", save.color], ["Variant", "grey"]]))]);
+    args.push(["Helmet", colored(helmet?.model ?? ref("item/gear/helm/pith/model.dat", [["Colorization", save.color], ["Variant", "grey"]]))]);
+    const shield = save.loadout.shield ? await data.shield(save.loadout.shield).catch(() => null) : null;
+    if (shield?.model) args.push(["Shield", shield.model]);
+    const dressing = await resolveDressing(data, save.appearance ?? emptyAppearance()).catch(() => null);
+    return dressing ? dressArgs(args, dressing, save.color) : args;
+  }
+
+  /** Plays as a knight from the select window: its save, in Haven. */
+  private async playKnight(slot: number) {
+    const r = gameRoster();
+    const save = selectKnight(r, slot);
+    if (!save) { this.pick?.ready(); return; }
+    saveRoster();
+    this.uiSound("sound/feedback/ui_confirm.ogg");
+    this.save = save;
+    this.run = { depth: 1, health: null, floors: 0 };
+    this.gate = null;
+    const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+    this.pick?.hide();
+    this.title?.hide();
+    this.stopPlaying();
+    if (haven) await this.selectScene(haven.id);
+    await this.startPlaying();
+  }
+
+  /**
+   * A new knight (Create a Knight, or Log On with none): a slot for it, then the prologue
+   * (client dK, with prologue_audio_only.ogg), then knight creation at the crash site.
+   */
+  private newKnight() {
+    const r = gameRoster();
+    if (addKnight(r) < 0) { this.pick?.ready(); return; }
+    saveRoster();
+    this.save = r.knights[r.current];
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    if (!this.prologue) {
+      this.prologue = new PrologueScreen(this.gui, this.renderer, this.loader, "prologueScreen");
+      this.prologue.sound = f => this.uiSound(f);
+      this.prologue.onDone = () => {
+        // dK.wasRemoved: the title music again, under knight creation
+        this.music.title();
+        void this.places.startCreation();
+      };
+    }
+    this.title?.hide();
+    this.pick?.hide();
+    this.music.prologue();
+    void this.prologue.play();
+  }
+
+  /** Knight creation's Back: the knight select window when there are knights, else the log-on screen. */
+  private leaveCreation() {
+    this.places.create.close();
+    this.stopPlaying();
+    if (namedKnights(gameRoster()).length) void this.showPick(); else void this.enterTitle();
   }
 
   private instanceOf(model: LoadedModel): Promise<ModelInstance> {
@@ -801,8 +949,11 @@ class Viewer {
     world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
     world.pocket = this.save.pocket;
     await this.outfit.dress(world);
+    // the party lobby's gate pillar shows the gate being played: its six strata's themes, launched
+    if (this.gateLobby && this.gate) world.gateDisplay = { themes: this.gate.real?.themes ?? this.gate.strata.map(st => st.theme), active: true };
     // towns and the Rescue Camp are safe places: the knight walks them unarmed
-    await world.start(spawn, this.save.loadout, TOWN.test(this.scene.name));
+    // (the creator's knight at the crash site holds the starter sword and shield, client S)
+    await world.start(spawn, this.save.loadout, TOWN.test(this.scene.name) && this.scene.id !== CREATE_KNIGHT);
     if (arrival && !this.places.spawn(this.scene.id)) world.knight.heading = arrival.heading;
     if (resume && !this.places.spawn(this.scene.id)) world.knight.heading = resume.heading;
     this.eco ??= world.economy;
@@ -873,6 +1024,8 @@ class Viewer {
     this.status(`Playing in ${this.scene.name}`);
     this.canvas.focus();
     this.places.started(this.scene.id);
+    // the session's first arrival in town opens the uplink's news and the Event Hub (as.DX)
+    this.welcome();
   }
 
   /** The portal tag the knight arrives at in the next scene (a town exit walked through). */
@@ -912,6 +1065,8 @@ class Viewer {
 
   private stopPlaying() {
     if (!this.world) return;
+    // the time played so far goes into the knight's save
+    if (this.save.knight) writeSave(this.save);
     this.conversation?.end();
     this.outfit.leave(this.world);
     this.world = null;
@@ -1004,6 +1159,8 @@ class Viewer {
   /** The minimap's label: the depth in the Clockworks, or the town's name. */
   private floorLabel(): string {
     if (!this.scene) return "";
+    // the party lobby has no depth (NO_DEPTH): the client's minimap names the level ("The Clockworks")
+    if (this.gateLobby) return this.floors[this.run.depth]!.name;
     return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase())
       // the dungeon minimap names the depth as the client does (the dungeon bundle's m.depth)
       : hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", this.scaleDepth()) : `Depth ${this.scaleDepth()}`;
@@ -1310,6 +1467,7 @@ class Viewer {
       const haven = camp ?? this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
       if (haven) void (async () => { this.stopPlaying(); await this.selectScene(haven.id); await this.startPlaying(); })();
     };
+    places.onCreationBack = () => this.leaveCreation();
     return places;
   }
 
@@ -1361,17 +1519,25 @@ class Viewer {
       whereabouts: () => this.scene?.id === GUILD_HALL ? "guild" : this.hudContext().town ? "town" : "dungeon",
       guildOptions: () => this.guildOptions(),
     });
-    return { uplink: this.uplink, help: this.help, social: this.social };
+    this.eventHub ??= new EventHubScreen(gui, { ...host, save: () => this.save, name: () => knightName(this.save),
+      missions: () => this.missions().hubMissions(),
+      inspect: id => void this.missions().inspect(id),
+      // social/client/i.Cj: past the Social window (as.DK) when it is docked open at the left
+      dockX: () => (this.social?.isOpen ? this.social.dockedWidth : 0) });
+    return { uplink: this.uplink, help: this.help, social: this.social, eventHub: this.eventHub };
   }
 
   private social: SocialScreen | null = null;
+  private eventHub: EventHubScreen | null = null;
 
   /** True while one of the windows above is open. */
-  private anyWindowOpen() { return !!(this.uplink?.isOpen || this.help?.isOpen || this.social?.isOpen || this.summaryScreen?.isOpen); }
+  private anyWindowOpen() {
+    return !!(this.uplink?.isOpen || this.help?.isOpen || this.social?.isOpen || this.eventHub?.isOpen || this.summaryScreen?.isOpen);
+  }
 
   /** Escape: closes the topmost of the windows above; false when none is open. */
   private escapeWindow(): boolean {
-    for (const w of [this.summaryScreen, this.help, this.uplink, this.social]) if (w?.isOpen) { w.escape(); return true; }
+    for (const w of [this.summaryScreen, this.help, this.uplink, this.eventHub, this.social]) if (w?.isOpen) { w.escape(); return true; }
     return false;
   }
 
@@ -1390,17 +1556,44 @@ class Viewer {
     const screens = this.ensureScreens();
     if (screens.arsenal.isOpen) {
       screens.closeAll();
-      for (const w of [this.help, this.uplink, this.social]) w?.close();
+      for (const w of [this.help, this.uplink, this.social, this.eventHub]) w?.close();
       return;
     }
     void screens.toggle(screens.arsenal);
   }
 
-  /** The news feed: what this port has and lacks (the game's feed came from its servers). */
-  private openFeed() { this.paused = !!this.world; void this.windows().uplink.show("news"); }
+  /** as.DO: the Event Hub (F7) opens, or closes when it is open. */
+  private openFeed() {
+    const hub = this.windows().eventHub;
+    if (hub.isOpen) { hub.close(); return; }
+    this.paused = !!this.world;
+    void hub.open();
+  }
 
-  /** The mailbox: letters kept in the save (a welcome note; missions add their rewards here). */
-  private openMail() { this.paused = !!this.world; void this.windows().uplink.show("mail"); }
+  /** as.DP: the uplink on its Mail tab (letters kept in the save), or closed when it is open. */
+  private openMail() {
+    const up = this.windows().uplink;
+    if (up.isOpen) { up.close(); return; }
+    this.paused = !!this.world;
+    void up.show("mail");
+  }
+
+  /** as.DX's once-a-session windows are still to open (aV.EO: the session's first arrival). */
+  private welcomePending = true;
+
+  /**
+   * as.DX, on the session's first loading screen finishing (aV.ER): the uplink on its News tab
+   * (the live client's content_url deployment) and the Event Hub (outside the development
+   * build), unless a scene dialog is up. Here: the first arrival in a town with a knight made.
+   */
+  private welcome() {
+    if (!GAME || !this.welcomePending || !this.save.knight || !this.scene || !TOWN.test(this.scene.name) || /crash site/i.test(this.scene.name)) return;
+    if (this.talking || this.anyWindowOpen() || this.missionBoard?.isOpen) return;
+    this.welcomePending = false;
+    const { uplink, eventHub } = this.windows();
+    this.paused = !!this.world;
+    void uplink.show("news").then(() => eventHub.open());
+  }
 
   /** The help window (the HUD's help button, F1) on its controls page, or the support page (the main menu's Support). */
   private toggleHelp(tab: HelpTab = "controls") {
@@ -1436,9 +1629,9 @@ class Viewer {
         return true;
       },
       returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
-      quit: () => this.leaveGame(),
-      // Logoff: back to the log-on screen, where the knight is chosen (this port has the one knight)
-      logoff: () => this.leaveGame(),
+      quit: () => this.leaveGame(false),
+      // Logoff: back to the knight select window (the log-on screen when no knight is saved)
+      logoff: () => this.leaveGame(true),
       awayFrom: () => (this.world && !/haven/i.test(this.scene?.name ?? "") ? "Haven" : null),
       closed: () => { this.paused = false; this.canvas.focus(); },
       playing: () => !!this.world,
@@ -1447,14 +1640,15 @@ class Viewer {
     });
   }
 
-  /** Quit and Logoff: the windows close, play stops and the title (log-on) screen comes back. */
-  private leaveGame() {
+  /** Quit and Logoff: the windows close, play stops and the log-on screen (or, logging off, the knight select) comes back. */
+  private leaveGame(logoff: boolean) {
     this.paused = false;
     this.gameHud?.closeMenu();
     this.itemScreens?.closeAll();
-    for (const w of [this.help, this.uplink, this.social]) w?.close();
+    for (const w of [this.help, this.uplink, this.social, this.eventHub]) w?.close();
     this.stopPlaying();
-    if (GAME) void this.enterTitle();
+    if (!GAME) return;
+    void this.enterTitle().then(() => { if (logoff && namedKnights(gameRoster()).length) void this.showPick(); });
   }
 
   /** Plays a UI feedback sound once audio exists (it starts with the first play). */
@@ -1594,12 +1788,13 @@ class Viewer {
     if (this.inLobby && this.gate) {
       // the Mission Lobby's elevator: down to the mission's first floor
       const next = this.floors[this.run.depth + 1];
+      const here = this.floors[this.run.depth], mission = this.gate.id.startsWith("mission:");
       void this.screens().elevator.show({
-        title: messageText("%dungeon:m.mission_lobby"),
+        title: here?.kind === "lobby" ? here.name : messageText("%dungeon:m.mission_lobby"),
         next: next ? loadingInfo(next.name, next, this.gate.name) : null,
         tally: this.gate.name,
         advance: { label: "Advance", run: () => { this.inLobby = false; void this.descend(); } },
-        quit: { run: () => { this.inLobby = false; this.paused = false; this.gate = null; this.missionBoard?.runAbandoned(); void this.returnToHaven(); } },
+        quit: { run: () => { this.inLobby = false; this.paused = false; this.gate = null; if (mission) this.missionBoard?.runAbandoned(); void this.returnToHaven(); } },
       });
       return;
     }
@@ -1609,7 +1804,12 @@ class Viewer {
     const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
     recordKills(this.save, this.world.killCount);
-    this.achieve(this.bossFloor && !this.bossAlive() ? recordBoss(this.save, this.bossFloor) : []);
+    if (this.bossFloor && !this.bossAlive()) {
+      // the Event Hub's boss line (FeedEvent.Boss): the lair's boss in a Shadow Lair
+      const key = FEED_BOSS[this.bossFloor];
+      if (key) logFeed(this.save, { kind: "boss", key: /^lair:/.test(this.gate?.id ?? "") ? "sl_" + key : key, at: Date.now() });
+      this.achieve(recordBoss(this.save, this.bossFloor));
+    } else this.achieve();
     const t = this.runTotals;
     t.kills += this.world.killCount; t.crowns += l.crowns; t.heat += l.heat;
     t.materials += [...l.materials.values()].reduce((a, b) => a + b, 0);
@@ -1872,10 +2072,13 @@ class Viewer {
     const own = g.lobby ? this.archive.level(`m.${g.lobby}`) : null;
     const lobby = g.id.startsWith("mission:") && g.lobby !== null ? own ?? this.sceneList.filter(s => /^mission lobby$/i.test(s.name) && Number(s.id) < 1e6)
       .sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null : null;
-    if (lobby) {
+    // an Arcade gate starts in its party lobby (depth 0, the client's arcade_lobby level: the
+    // gate's pillar, the lobby consoles, Kozma's Supply Depot and the elevator to depth 1)
+    const party = !lobby && this.run.depth === 0 && floors[0]?.kind === "lobby" ? this.archive.level("m.arcade_lobby") : null;
+    if (lobby || party) {
       this.inLobby = true;
       this.stopPlaying();
-      await this.selectScene(lobby.id);
+      await this.selectScene((lobby ?? party)!.id);
       await this.startPlaying();
       return;
     }
@@ -2052,8 +2255,10 @@ class Viewer {
   }
 
   private usedScenes = new Set<string>();
-  /** In the Mission Lobby before a mission's first floor. */
+  /** In the Mission Lobby before a mission's first floor (or a gate's party lobby). */
   private inLobby = false;
+  /** In an Arcade gate's party lobby (depth 0, the arcade_lobby level). */
+  private get gateLobby(): boolean { return !!this.gate && this.inLobby && this.floors[this.run.depth]?.kind === "lobby"; }
 
   /** A boss floor: the boss's fight director runs its arena; the exit stays shut until it is won. */
   private spawnBoss(key: BossKey, ultimate = false) {
@@ -2090,7 +2295,7 @@ class Viewer {
   private runLevels(): { id: string; name: string }[] {
     const levels = RUN_ORDER.map(n => this.sceneList.find(s => s.name.toLowerCase().startsWith(n))).filter((s): s is { id: string; name: string } => !!s);
     // levels in the cache that the order does not name come before the Core
-    for (const s of this.sceneList) if (!TOWN.test(s.name) && !levels.includes(s)) levels.splice(levels.length - 1, 0, s);
+    for (const s of this.sceneList) if (!TOWN.test(s.name) && !LOBBY.test(s.name) && !levels.includes(s)) levels.splice(levels.length - 1, 0, s);
     return levels;
   }
 
@@ -2110,7 +2315,7 @@ class Viewer {
 
   private nextLevel(): { id: string; name: string } | null {
     const levels = this.runPlan();
-    if (!this.scene || TOWN.test(this.scene.name)) return levels[0] ?? null;
+    if (!this.scene || TOWN.test(this.scene.name) || LOBBY.test(this.scene.name)) return levels[0] ?? null;
     const i = levels.findIndex(s => s.id === this.scene!.id);
     return i >= 0 && i + 1 < levels.length ? levels[i + 1] : null;
   }
@@ -2351,6 +2556,8 @@ class Viewer {
       }
       // furniture mode: clicks place, pick up and drop furniture instead of attacking
       if (this.world && this.places.pointerDown(e.button)) return;
+      // knight creation: holding the left button on the scene turns the knight
+      if (this.staged && this.places.create.isOpen && e.button === 0) { this.turning = true; c.setPointerCapture(e.pointerId); return; }
       // a stage's knight takes no orders and its camera does not turn
       if (this.staged) return;
       if (this.world && (e.button === 0 || e.button === 2)) {
@@ -2375,6 +2582,7 @@ class Viewer {
       c.setPointerCapture(e.pointerId);
     });
     const release = (e: PointerEvent) => {
+      if (e.button === 0) this.turning = false;
       if (this.options_.mouseMove) {
         if (e.button === 0) this.mouseMoveHeld = false;
         if (e.button === 2) this.attackHeld = false;
@@ -2384,10 +2592,17 @@ class Viewer {
       if (e.button === 2) this.shieldHeld = false;
     };
     c.addEventListener("pointerup", release);
-    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; this.mouseMoveHeld = false; });
+    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; this.mouseMoveHeld = false; this.turning = false; });
     c.addEventListener("pointermove", e => {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
+      // knight creation: the scene shows the turning arrows (client T: the arrow cursor turned
+      // to point at the side the knight will turn toward)
+      if (this.staged && this.places.create.isOpen && this.world) {
+        const side = this.places.canTurn() ? this.screenSide(this.world.knight) : 0;
+        c.style.cursor = side ? this.turnCursor(side) : "";
+        return;
+      }
       // hovering the HUD's buttons
       const s = uiScale(this.options_);
       if (this.gameHud) { this.gameHud.pointer(this.mouse[0] / s, this.mouse[1] / s, false); c.style.cursor = this.gameHud.covers(this.mouse[0] / s, this.mouse[1] / s) ? "pointer" : ""; }
@@ -2418,23 +2633,74 @@ class Viewer {
     }, { passive: false });
   }
 
+  /** The left button is held on the knight creation scene (the knight turns). */
+  private turning = false;
+
+  /** Which side of the knight the pointer is on, on screen: -1 left, +1 right (0 unknown). */
+  private screenSide(k: { x: number; y: number; z: number }): number {
+    if (!this.mouse || !this.lastProj || !this.lastView) return 0;
+    const m = multiplyMat(this.lastProj, this.lastView);
+    const cx = m[0] * k.x + m[4] * k.y + m[8] * (k.z + 1) + m[12], cw = m[3] * k.x + m[7] * k.y + m[11] * (k.z + 1) + m[15];
+    if (cw <= 0) return 0;
+    const sx = (cx / cw * 0.5 + 0.5) * this.canvas.clientWidth;
+    return this.mouse[0] < sx ? -1 : 1;
+  }
+
+  private turnCursors: Record<string, string> = {};
+  /**
+   * The turning cursor (client dt.s): ui/cursor/arrow.png turned by -pi/2 (left) or -3pi/2
+   * (right) plus pi/4, its hot spot at the arrow's tip.
+   */
+  private turnCursor(side: number): string {
+    const key = side < 0 ? "l" : "r";
+    if (this.turnCursors[key] !== undefined) return this.turnCursors[key];
+    this.turnCursors[key] = "ew-resize";
+    void this.gui?.image("ui/cursor/arrow.png").then(im => {
+      if (!im) return;
+      const w = im.width, h = im.height, a = (side < 0 ? 8 : 24) * (-Math.PI / 16);
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      const g = cv.getContext("2d")!;
+      g.translate(w / 2, h / 2);
+      g.rotate(a + Math.PI / 4);
+      g.translate(-w / 2, -h / 2);
+      g.drawImage(im.source, 0, 0);
+      const r = w * Math.SQRT2 * 0.25;
+      const hx = Math.round(w / 2 + r * Math.sin(a)), hy = Math.round(h / 2 - r * Math.cos(a));
+      this.turnCursors[key] = `url(${cv.toDataURL()}) ${Math.max(0, Math.min(w - 1, hx))} ${Math.max(0, Math.min(h - 1, hy))}, ew-resize`;
+    }).catch(() => {});
+    return this.turnCursors[key];
+  }
+
   private frame = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1) * this.options_.renderScale;
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    // the log-on screen, the knight select window and the prologue are the whole screen
+    const screen = this.glScreen();
+    if (screen) {
+      try { screen.draw(dt); } catch (e) { console.error("screen draw failed", e); }
+      requestAnimationFrame(this.frame);
+      return;
+    }
     if (this.instance || this.sceneItems) {
       if (!this.paused) {
         if (this.instance) this.instance.time += dt;
         // shared instances appear in several placements; advance each clock once per frame
         for (const it of this.sceneItems ?? []) it.instance.time += dt / (this.shares.get(it.instance) ?? 1);
       }
-      // the title screen's camera drifts slowly around the town
-      if (!this.world && this.title?.visible) this.az += dt * 0.04;
+      // time played as this knight (the knight select card's "Played"), saved with its save
+      if (this.world && !this.paused && this.save.knight) this.save.played = (this.save.played ?? 0) + dt;
       if (this.world && this.staged) {
-        // a stage (the Ready Room): the knight holds its pose and the camera its place
+        // a stage (the Ready Room, knight creation): the knight holds its pose and the camera its place
         if (!this.paused) this.world.update(dt, { move: [0, 0], attackDown: false, attackHeld: false, shield: false, aim: null, weaponSlot: null, interact: false, dash: false, bash: false });
+        // knight creation: the mouse held on the scene turns the knight (client T)
+        if (this.turning && this.mouse && this.places.canTurn()) {
+          const side = this.screenSide(this.world.knight);
+          if (side) this.places.turnKnight(side, dt);
+        }
         this.attackPressed = this.dashPressed = this.bashPressed = this.interactPressed = false;
         this.weaponSlot = null;
         const k = this.world.knight, off = this.cam?.to.offset ?? [0, 0, 1];
@@ -2456,10 +2722,13 @@ class Viewer {
             this.weaponSlot = (this.world.knight.slot + pad.cycle + n) % n;
           }
         }
-        // the Arcade's gate control panels (their server action picks the gate): the gate board
-        if (!this.paused && (this.interactPressed || pad?.interact) && this.scene && /arcade/i.test(this.scene.name) && !this.gate) {
+        // the Arcade's gate control panels (their server action picks the gate): the gate board;
+        // in a gate's party lobby its lobby consoles show the gate being played
+        const lobbyHere = this.gateLobby;
+        if (!this.paused && (this.interactPressed || pad?.interact) && this.scene && ((/arcade/i.test(this.scene.name) && !this.gate) || lobbyHere)) {
           const k = this.world.knight;
-          if (this.scene.logic.some(e => /Gates\/Control Panel/.test(e.name) && Math.hypot(e.x - k.x, e.y - k.y) < 3)) {
+          const panel = lobbyHere ? /Gates\/Lobby Console/ : /Gates\/Control Panel/;
+          if (this.scene.logic.some(e => panel.test(e.name) && Math.hypot(e.x - k.x, e.y - k.y) < 3)) {
             this.interactPressed = false;
             this.openGates();
           }
@@ -2534,8 +2803,10 @@ class Viewer {
           const dungeon = !!this.scene && !TOWN.test(this.scene.name);
           // the client's map types: Clockworks levels reveal their map as the knight explores
           // (DISCOVER); terminals, towns and arenas show it all (FULL)
-          const floor = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] : null;
-          const discover = dungeon && !this.world.arena && !(floor && (floor.kind === "terminal" || floor.kind === "subtown" || floor.kind === "core"));
+          const floor = this.gate && (this.run.depth > 0 || this.gateLobby) ? this.floors[this.run.depth] : null;
+          // (lobbies are FULL too: LevelType.LOBBY.mapType())
+          const discover = dungeon && !this.world.arena && !LOBBY.test(this.scene!.name)
+            && !(floor && (floor.kind === "terminal" || floor.kind === "subtown" || floor.kind === "core" || floor.kind === "lobby"));
           gh?.minimap.setWorld(this.world, this.scene, { discover, dungeon });
           gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
             dungeon,

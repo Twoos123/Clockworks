@@ -200,7 +200,14 @@ export class Logic {
 
   /** ProjectX Interaction handlers: the player used the entity (pressed the action key). */
   interact(target: Entity, activator: Entity) {
-    for (const h of target.handlers) if (h.kind === "Interaction") this.run(h.cfg.action, h.source, activator);
+    for (const h of target.handlers) {
+      if (h.kind !== "Interaction") continue;
+      // the Spiral Quartermaster (Kozma, in the Arcade's party lobby): his Interaction's action
+      // is the server's (the Supply Depot), dropped from the data; he opens his shop
+      if (h.cfg.action == null && h.source.isActor && /Spiral Quartermaster$/.test(h.source.name))
+        this.host.gameAction({ $class: "com.threerings.projectx.shop.config.ShopActionConfig$OpenShop" }, h.source, activator, this);
+      else this.run(h.cfg.action, h.source, activator);
+    }
   }
 
   /** ProjectX Damage handlers: the entity took damage from the activator. */
