@@ -1075,8 +1075,9 @@ class Viewer {
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
       case "button_missions": void this.missions().toggle(); break;
-      // the minimap's map button: the Gate Map, on the gate of the run when in one
-      case "button_map": this.openGates(); break;
+      // the minimap's buttons: the map overlay (TOGGLE_MAP) and the camera zoom (TOGGLE_ZOOM)
+      case "button_map": this.gameHud?.minimap.toggleOverlay(); break;
+      case "button_zoom": this.toggleZoom(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       default: break;
     }
@@ -2150,9 +2151,13 @@ class Viewer {
         this.lastView = view;
         if (this.world && this.hud) {
           const gh = this.gameHud;
-          gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
-            dungeon: !!this.scene && !TOWN.test(this.scene.name),
+          const ctx = this.hudContext(), dungeon = !!this.scene && !TOWN.test(this.scene.name);
+          // Clockworks levels reveal their map as the knight explores (terminals show it all);
+          // the zoom button shows in towns, guild halls and arenas
+          gh?.minimap.setWorld(this.world, this.scene, { discover: dungeon && !ctx.town && !this.world.arena, zoom: !dungeon || !!this.world.arena, dungeon });
+          if (gh) gh.minimap.zoomed = (this.cam?.zoom ?? 0) > 0;
+          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...ctx, rank: rankLabel(progressOf(this.save)),
+            dungeon,
             pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))) }, dt);
           // items the knight gained come up as the HUD's acquire icons
           while (this.world.acquired.length) { const a = this.world.acquired.shift()!; gh?.acquire(a); }

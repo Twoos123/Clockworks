@@ -25,6 +25,30 @@ export interface PropShape {
   maxY: number;
 }
 
+/** Each cell a tile at (x, y) covers, with its collision flags there (TileConfig.getRotatedValue). */
+export function forTileCells(impl: any, x: number, y: number, rotation: number, fn: (x: number, y: number, flags: number) => void) {
+  const width = impl.width ?? 1, height = impl.height ?? 1;
+  const flagsTable: ArrayLike<number>[] = impl.collisionFlags ?? [[1]];
+  const w = rotation % 2 === 0 ? width : height, h = rotation % 2 === 0 ? height : width;
+  for (let ty = y; ty < y + h; ty++) {
+    for (let tx = x; tx < x + w; tx++) {
+      let fx: number, fy: number;
+      switch (rotation) {
+        case 1: fx = ty - y; fy = tx - x; break;
+        case 2: fx = width - 1 - (tx - x); fy = ty - y; break;
+        case 3: fx = width - 1 - (ty - y); fy = height - 1 - (tx - x); break;
+        default: fx = tx - x; fy = height - 1 - (ty - y);
+      }
+      let flags = 0;
+      if (flagsTable.length) {
+        const row = flagsTable[fy % flagsTable.length];
+        flags = row && row.length ? row[fx % row.length] : 0;
+      }
+      fn(tx, ty, flags);
+    }
+  }
+}
+
 export class CollisionMap {
   readonly cells = new Map<number, CellInfo>();
   readonly props: PropShape[] = [];
@@ -35,31 +59,14 @@ export class CollisionMap {
 
   /** TileConfig.Original at (x, y) with rotation and elevation. */
   addTile(impl: any, x: number, y: number, rotation: number, elevation: number, elevationScale: number) {
-    const width = impl.width ?? 1, height = impl.height ?? 1;
-    const flagsTable: ArrayLike<number>[] = impl.collisionFlags ?? [[1]];
     const floor = ((impl.floorFlags ?? 1) & 1) !== 0;
-    const w = rotation % 2 === 0 ? width : height, h = rotation % 2 === 0 ? height : width;
-    for (let ty = y; ty < y + h; ty++) {
-      for (let tx = x; tx < x + w; tx++) {
-        let fx: number, fy: number;
-        switch (rotation) {
-          case 1: fx = ty - y; fy = tx - x; break;
-          case 2: fx = width - 1 - (tx - x); fy = ty - y; break;
-          case 3: fx = width - 1 - (ty - y); fy = height - 1 - (tx - x); break;
-          default: fx = tx - x; fy = height - 1 - (ty - y);
-        }
-        let flags = 0;
-        if (flagsTable.length) {
-          const row = flagsTable[fy % flagsTable.length];
-          flags = row && row.length ? row[fx % row.length] : 0;
-        }
-        const k = CollisionMap.key(tx, ty);
-        const c = this.cells.get(k) ?? { flags: 0, floor: false, z: -Infinity };
-        c.flags |= flags;
-        if (floor) { c.floor = true; c.z = Math.max(c.z, elevation * elevationScale); }
-        this.cells.set(k, c);
-      }
-    }
+    forTileCells(impl, x, y, rotation, (tx, ty, flags) => {
+      const k = CollisionMap.key(tx, ty);
+      const c = this.cells.get(k) ?? { flags: 0, floor: false, z: -Infinity };
+      c.flags |= flags;
+      if (floor) { c.floor = true; c.z = Math.max(c.z, elevation * elevationScale); }
+      this.cells.set(k, c);
+    });
   }
 
   /** A placeable prop with a ShapeConfig, placed by transform. */

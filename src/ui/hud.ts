@@ -235,9 +235,9 @@ export class GameHud {
 
   constructor(private readonly ctx: GuiContext, readonly hooks: RenderHooks = {}) {
     this.minimap = new Minimap(ctx);
-    // the map draws over the map background, under the hash marks and gloss (the map layer
-    // spacer has no size of its own)
-    hooks.tagged = { ...(hooks.tagged ?? {}), mapbackground: (_c, g, x, y, w, h) => this.minimap.draw(g, x, y, w, h) };
+    // the map draws in the map layer (after the faceplate, under the hash marks and gloss), in
+    // the mask's square at the layer's upper-right corner
+    hooks.tagged = { ...(hooks.tagged ?? {}), maplayer: (_c, g, x, y, w, h) => this.minimap.draw(g, x, y, w, h) };
   }
 
   /** Starts loading the interfaces; draw() shows them once ready. */
@@ -554,6 +554,7 @@ export class GameHud {
     if (this.quickbar) this.bindQuickbar(this.quickbar, state);
     const label = this.minimapUi?.find("floorlabel");
     if (label) label.text = state.floor;
+    if (this.minimapUi) this.minimap.bind(this.minimapUi);
     // the activities panel is open in towns and folded in the Clockworks
     if (this.activities && this.townBuilt !== state.town) {
       this.townBuilt = state.town;
@@ -750,6 +751,8 @@ export class GameHud {
 
   /** Draws the HUD into a canvas sized cw x ch CSS pixels. */
   draw(g: CanvasRenderingContext2D, cw: number, ch: number) {
+    // the map overlay is a window under the HUD
+    this.minimap.drawOverlay(g, cw, ch);
     // full-screen frames sit under the panels
     const fullScreen = (ui: Component | null, tags: string[]) => {
       if (!ui) return;
