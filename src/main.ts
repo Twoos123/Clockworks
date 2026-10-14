@@ -607,6 +607,7 @@ class Viewer {
     const cards = await Promise.all(namedKnights(gameRoster()).map(async ({ slot, save }): Promise<KnightCard> => ({
       slot, save, name: knightName(save), rank: rankLabel(progressOf(save)), guild: save.guild?.name ?? "",
       look: await this.knightLook(save).catch(() => [["Colorization", save.color]] as [string, any][]),
+      weapon: await this.cardWeapon(save).catch(() => null),
     })));
     this.title?.hide();
     this.prologue?.hide();
@@ -632,6 +633,19 @@ class Viewer {
     if (shield?.model) args.push(["Shield", shield.model]);
     const dressing = await resolveDressing(data, save.appearance ?? emptyAppearance()).catch(() => null);
     return dressing ? dressArgs(args, dressing, save.color) : args;
+  }
+
+  /**
+   * The weapon a knight select card raises on hover (client cB.a): the knight's first weapon's
+   * model and its ready pose (ready_sword, ready_pistol or ready_bomb by the weapon's kind).
+   */
+  private async cardWeapon(save: SaveData): Promise<{ model: any; idle: string } | null> {
+    const name = save.loadout.weapons[0];
+    if (!name) return null;
+    const w = await (this.world?.data ?? new GameData(this.loader)).weapon(name);
+    if (!w?.model) return null;
+    const idle = w.kind === "Handgun" ? "ready_pistol" : w.kind === "Bomb" ? "ready_bomb" : "ready_sword";
+    return { model: w.model, idle };
   }
 
   /** Plays as a knight from the select window: its save, in Haven. */

@@ -270,6 +270,9 @@ export abstract class GlScreen {
     return true;
   }
 
+  /** A view's first model, once loaded. */
+  protected viewInstance(c: Component): ModelInstance | null { return this.views.get(c)?.models?.[0]?.instance ?? null; }
+
   /** Reloads a view's models (its model references changed). */
   protected reloadView(c: Component) { this.views.delete(c); this.viewState(c); }
 
