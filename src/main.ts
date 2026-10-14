@@ -14,7 +14,9 @@ import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
 import { catalogue } from "./game/items";
 import { addKnight, deleteKnight, energyOf, gameRoster, knightName, loadSave, namedKnights, saveRoster, selectKnight, shopTier, writeSave, type SaveData } from "./game/save";
-import { energyNow, exchangeCost, payEnergy, SPARK_COST } from "./game/energy";
+import { energyNow, exchangeCost, payEnergy, spendEnergy, SPARK_COST } from "./game/energy";
+import type { Difficulty } from "./game/depth";
+import { difficultyPref } from "./game/difficulty";
 import { ECONOMY_FILES, Economy } from "./game/economy";
 import { Places } from "./ui/places";
 import { GameScreens } from "./ui/screens";
@@ -30,6 +32,7 @@ import { GateBoard } from "./ui/gates";
 import { GateSource } from "./game/gatesource";
 import { lockNext } from "./game/gatemap";
 import { RunSummaryScreen } from "./ui/runsummary";
+import { ReportScreen } from "./ui/report";
 import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
@@ -526,7 +529,15 @@ class Viewer {
     const { loading } = this.screens();
     const f = this.gate && (this.run.depth > 0 || this.gateLobby) ? this.floors[this.run.depth] ?? null : null;
     const name = this.genNames.get(id) ?? this.sceneList.find(s => s.id === id)?.name ?? id;
-    void loading.show(loadingInfo(this.arenaMode ? "arena" : name, f, this.gate?.name));
+    const info = loadingInfo(this.arenaMode ? "arena" : name, f, this.gate?.name);
+    // a mission's lobby arrives under the mission's name, the lobby's under it ("Dreams and
+    // Nightmares" / "Mission Lobby"; a mission's own lobby: "Base Camp", "Ancient Grove")
+    if (this.gate?.id.startsWith("mission:") && this.inLobby && !f) {
+      info.title = this.gate.name;
+      info.zone = this.gate.lobby ? text("dungeon", `m.${this.gate.lobby}`, info.zone) : text("dungeon", "m.mission_lobby", "Mission Lobby");
+      info.depth = "";
+    }
+    void loading.show(info);
     loading.progress(0.05);
     return loading;
   }
@@ -909,7 +920,9 @@ class Viewer {
     this.audio ??= new AudioSystem(this.vfs, this.loader);
     this.audio.unlock();
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
-      { audio: this.audio, depth: this.scaleDepth(), arena: this.arenaMode && !TOWN.test(this.scene.name) });
+      { audio: this.audio, depth: this.scaleDepth(), arena: this.arenaMode && !TOWN.test(this.scene.name),
+        // a gate's floors at the run's difficulty (the cached-level run and the arena as before)
+        ...(this.gate && !TOWN.test(this.scene.name) ? { difficulty: this.runDifficulty } : {}) });
     world.onArenaCheckpoint = wave => this.arenaCheckpoint(wave);
     this.itemScreens?.closeAll();
     world.onNextFloor = () => this.floorCleared();
@@ -1247,7 +1260,19 @@ class Viewer {
    * which no town, gate floor or arena here has, so it stays hidden as the client's does with none.
    */
   private hudContext(): { objectives: string[]; town: boolean } {
-    return { objectives: [], town: !!this.scene && TOWN.test(this.scene.name) };
+    return { objectives: this.missionObjectives(), town: !!this.scene && TOWN.test(this.scene.name) };
+  }
+
+  /**
+   * A mission's objective lines while it is played (its lobby and its floors): the mission's
+   * objective (o.<id>, the board's gold line, "Prepare for the worst and journey to the Core"),
+   * as the client's CURRENT OBJECTIVE panel shows it under the minimap in a mission lobby.
+   */
+  private missionObjectives(): string[] {
+    const id = /^mission:(.+)$/.exec(this.gate?.id ?? "")?.[1];
+    const m = id ? this.missionBoard?.byId(id) : null;
+    // (a mission without one of its own reads "No current objective" on the board; none here)
+    return m?.objective && hasMessage("mission", `o.${m.id}`) ? [m.objective.replace(/\{0\}/g, knightName(this.save))] : [];
   }
 
   /**
@@ -1427,6 +1452,8 @@ class Viewer {
 
   private missions(): MissionBoard {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    // (the Featured Items price the depot's goods from the economy)
+    if (!this.eco) void this.economy();
     return this.missionBoard ??= new MissionBoard({
       data: this.world?.data ?? new GameData(this.loader), gui: this.gui,
       save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
@@ -1435,8 +1462,30 @@ class Viewer {
       arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
       openForge: () => { if (!this.itemScreens?.recipes.isOpen) void this.ensureScreens().toggleRecipes(); },
       pause: on => { this.paused = on && !!this.world; },
-      startRun: (g, floors) => void this.enterGate(g, floors),
+      startRun: (g, floors, difficulty) => void this.enterGate(g, floors, false, { difficulty }),
       openGates: () => this.openGates(),
+      // the ARCADE tab: today's gates, the run's place on the map, entering a gate at a tier
+      gates: () => this.gateSource.choices(0),
+      gateRun: () => this.gate?.real ? { gate: this.gate, depth: this.run.depth, wedges: this.floors.slice(0, this.run.depth + 1).map(f => f?.wedge ?? 0) } : null,
+      enterGate: (g, tier, difficulty) => {
+        if (this.gate) { notice("Finish this run, or return to Haven, before entering another gate."); return; }
+        void this.enterGate(g, gateFloors(g), false, { tier, difficulty });
+      },
+      // the Featured Items: gear the depot prices in energy (src/game/featured.ts)
+      featured: {
+        source: () => {
+          const eco = this.eco;
+          return eco ? { info: n => eco.info(n), depotCost: n => eco.depotCost(n) } : null;
+        },
+        energy: () => energyNow(energyOf(this.save)),
+        buy: (name, price) => {
+          if (!this.eco || this.save.owned.includes(name) || !spendEnergy(energyOf(this.save), price)) return false;
+          this.eco.grant(this.save, name, []);
+          writeSave(this.save);
+          return true;
+        },
+        openDepot: () => void this.openShop("Supply Depot"),
+      },
       // the sprite missions (Drakon, Maskeraith, Seraphynx) give the knight that battle sprite
       completed: m => {
         const sprite = /(Drakon|Maskeraith|Seraphynx)/.exec(m.title)?.[1];
@@ -1646,6 +1695,10 @@ class Viewer {
     this.save.crowns += l.crowns;
     this.save.heat += l.heat;
     for (const [k, v] of l.materials) this.save.materials[k] = (this.save.materials[k] ?? 0) + v;
+    // (the expedition's loot, for its REPORT)
+    this.runCrowns += l.crowns;
+    for (const [k, v] of l.materials) this.runLoot.set(k, (this.runLoot.get(k) ?? 0) + v);
+    for (const it of l.items) this.runLoot.set(it.name, (this.runLoot.get(it.name) ?? 0) + 1);
     for (const it of l.items) {
       if (!eco) break;
       if (this.save.owned.includes(it.name)) {
@@ -1699,9 +1752,10 @@ class Viewer {
       void this.screens().elevator.show({
         title: here?.kind === "lobby" ? here.name : messageText("%dungeon:m.mission_lobby"),
         next: next ? loadingInfo(next.name, next, this.gate.name) : null,
-        tally: this.gate.name,
+        // (a lobby is a safe level: the stripe without its title; no tally, labelWaiting stays hidden)
+        tally: "", safe: true,
         advance: { label: "Advance", run: () => { this.inLobby = false; void this.descend(); } },
-        quit: { run: () => { this.inLobby = false; this.paused = false; this.gate = null; if (mission) this.missionBoard?.runAbandoned(); void this.returnToHaven(); } },
+        quit: { run: () => { if (mission) this.missionBoard?.runAbandoned(); this.quitExpedition(); } },
       });
       return;
     }
@@ -1734,7 +1788,7 @@ class Viewer {
       void elevator.show({
         title: `Depth ${this.run.depth} cleared`, next: loadingInfo(first.name, first, run.gate.name), tally, heat,
         advance: { label: "Advance", run: () => { this.elevator?.hide(); void this.enterGate(run.gate, run.floors, true); } },
-        quit: { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } },
+        quit: { run: () => this.quitExpedition() },
       });
       return;
     }
@@ -1749,11 +1803,11 @@ class Viewer {
         next: next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" },
         tally, heat,
         advance: { label: next ? "Advance" : "Ride Up", run: () => void this.descend() },
-        quit: next ? { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } } : null,
+        quit: next ? { run: () => this.quitExpedition() } : null,
       });
       // an Arcade stratum cleared counts for prestige gate missions of its theme
       const here = this.floors[this.run.depth], s = here?.stratum;
-      if (s && here.depth === s.last && !/^(mission|lair):/.test(this.gate.id)) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
+      if (s && here.depth === s.last && !/^(mission|lair):/.test(this.gate.id)) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme, this.runDifficulty)); }
     } else {
       const nl = this.nextLevel();
       // past the Core the Clockworks go on: cycle the levels again, deeper
@@ -1893,13 +1947,46 @@ class Viewer {
   /** The run summary on arrival in Haven (the game's mission-complete window). */
   private summaryScreen: RunSummaryScreen | null = null;
 
-  private async returnToHaven() {
+  private report: ReportScreen | null = null;
+
+  /**
+   * QUIT EXPEDITION at the elevator (EndOfLevelWindow.bX(false), then its END state): the
+   * expedition's REPORT (dungeon/client/e) over the level, the knight and the loot the run
+   * took; ADVANCE NOW goes on to the loading screen back to Haven.
+   */
+  private quitExpedition() {
+    if (/^mission:/.test(this.gate?.id ?? "")) this.missionBoard?.runAbandoned();
+    this.paused = true;
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    this.report ??= new ReportScreen(this.gui, { sound: f => this.uiSound(f), closed: () => undefined }, (c, g, x, y, w, h) => {
+      const wd = this.world;
+      if (!wd) return;
+      const key = JSON.stringify(wd.portraitRef(), (k, v) => (k === "$outer" ? undefined : v));
+      if (this.reportView?.key !== key) this.reportView = { key, view: new PortraitView(this.renderer, this.loader, wd.portraitRef(), "character/pc/animation_pose_dash.dat") };
+      this.reportView.view.draw(c, g, x, y, w, h);
+    });
+    const eco = this.eco;
+    const loot = [...this.runLoot].map(([name, count]) => {
+      const it = eco?.info(name);
+      return { name, label: itemName(name), count, rarity: it?.rarity ?? 0, icon: it?.icon ?? null };
+    });
+    void this.report.show({ knight: knightName(this.save), crowns: this.runCrowns, loot, done: () => { this.paused = false; void this.returnToHaven(false); } });
+  }
+  private reportView: { key: string; view: PortraitView } | null = null;
+  /** The expedition's crowns and loot so far (for its REPORT). */
+  private runCrowns = 0;
+  private runLoot = new Map<string, number>();
+
+  /** Back to Haven; the end of a gate run shows what it brought home unless its REPORT has (`summary` false). */
+  private async returnToHaven(summaryShown = true) {
     this.inLobby = false;
     // the last boss floor's boss is not this level's (its music, locked exit, records)
     this.bossFloor = null;
     // the end of a gate run: a summary of what it brought home
     const t = this.runTotals;
-    const summary = this.gate || t.deepest ? { ...t, best: this.save.bestDepth } : null;
+    const summary = summaryShown && (this.gate || t.deepest) ? { ...t, best: this.save.bestDepth } : null;
+    this.runCrowns = 0;
+    this.runLoot = new Map();
     this.gate = null;
     recordRunEnd(this.save);
     this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "", notes: [] };
@@ -1958,19 +2045,35 @@ class Viewer {
     void this.gateBoard.openOn(this.gate);
   }
 
-  /** Starts a gate at depth 1. */
-  private async enterGate(g: Gate, floors = gateFloors(g), keepTotals = false) {
+  /**
+   * Starts a gate at depth 1, or (the mission board's tier buttons, board/a/b: "TIER 2 (Depth
+   * 8)") at its tier's first depth, at a difficulty (the party configuration's; DungeonCodes
+   * Difficulty: monster health, status effects and rewards).
+   */
+  private async enterGate(g: Gate, floors = gateFloors(g), keepTotals = false, opts: { tier?: number; difficulty?: Difficulty } = {}) {
     this.gate = g;
     this.bossFloor = null;
+    this.runDifficulty = opts.difficulty ?? (keepTotals ? this.runDifficulty : difficultyPref());
     if (keepTotals) this.runTotals.gate = g.name;
-    else this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
+    else {
+      this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
+      this.runCrowns = 0;
+      this.runLoot = new Map();
+    }
     this.usedScenes.clear();
     this.floors = floors;
+    const startAt = [1, 8, 18][Math.max(0, Math.min(2, (opts.tier ?? 1) - 1))];
     // a real gate: the first depth's level is the one the Arcade's elevator leads to now
-    if (g.real) this.floors[1] = realFloor(g, 1, lockNext(g.real, 0, 0, Date.now()));
+    if (g.real) this.floors[startAt] = realFloor(g, startAt, lockNext(g.real, startAt - 1, 0, Date.now()));
     this.arenaMode = false;
-    // the descent starts above the first floor (a mission's floors start deeper)
+    // the descent starts above the first floor (a mission's floors start deeper; a deeper tier's above its first depth)
     this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
+    if (startAt > 1 && this.floors[startAt]) {
+      this.run.depth = startAt - 1;
+      recordRunStart(this.save, this.run.depth);
+      await this.descend();
+      return;
+    }
     if (!/^(mission|lair):/.test(g.id)) recordRunStart(this.save, this.run.depth);
     // a mission starts in the Mission Lobby (the client's LOBBY level: knights gear up, then
     // its elevator takes them down), or its own lobby (Base Camp, Ancient Grove...), when the
@@ -2164,6 +2267,8 @@ class Viewer {
   private usedScenes = new Set<string>();
   /** In the Mission Lobby before a mission's first floor (or a gate's party lobby). */
   private inLobby = false;
+  /** The difficulty the gate run is played at (the party configuration's; DungeonCodes.Difficulty). */
+  private runDifficulty: Difficulty = "medium";
   /** In an Arcade gate's party lobby (depth 0, the arcade_lobby level). */
   private get gateLobby(): boolean { return !!this.gate && this.inLobby && this.floors[this.run.depth]?.kind === "lobby"; }
 
@@ -2714,8 +2819,10 @@ class Viewer {
             pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))), ...this.hudExtras() }, dt);
           // items the knight gained come up as the HUD's acquire icons
           while (this.world.acquired.length) { const a = this.world.acquired.shift()!; gh?.acquire(a); }
-          // (the HUD hides while the knight talks, as the game's conversation dialog hides it)
-          this.hud.draw(this.world, proj, view, gh && !this.talking ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
+          // (the HUD hides while the knight talks, as the game's conversation dialog hides it,
+          // and while the elevator's Advancing card or the expedition's report is up)
+          const hudOff = this.talking || !!this.elevator?.current || !!this.report?.isOpen;
+          this.hud.draw(this.world, proj, view, gh && !hudOff ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }
       }
       else this.renderer.draw(this.instance!, proj, view);

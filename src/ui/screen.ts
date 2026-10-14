@@ -222,6 +222,7 @@ export abstract class GuiScreen {
     if (!to) {
       if (type === "up" || this.captured || this.overlays.length || this.root?.overlay || this.sides.some(d => d.overlay)) return false;
       if ((this.root && hitTest(this.root, x, y)) || this.sides.some(d => hitTest(d, x, y))) return false;
+      if (this.beside && this.besideShown && hitTest(this.beside, x, y)) return false;
       to = (document.elementsFromPoint?.(e.clientX, e.clientY) ?? []).find((el): el is HTMLCanvasElement =>
         el !== this.canvas && el instanceof HTMLCanvasElement && el.classList.contains("gui-screen") && !el.hidden) ?? null;
       if (!to) return false;
@@ -376,6 +377,10 @@ export abstract class GuiScreen {
   /** What a docked window builds against: this window's tooltips, clicks and popup menus. */
   get dockContext() { return { ctx: this.ctx, tips: this.tips, clicks: this.clicks, screen: this }; }
 
+  /** A window docked at the main window's left (drawn when both fit), or null. */
+  protected beside: Component | null = null;
+  private besideShown = false;
+
   /** The window under a point: the top overlay, else a docked window, else the main one. */
   private targetAt(x: number, y: number): Component | null {
     const top = this.overlays[this.overlays.length - 1];
@@ -384,6 +389,7 @@ export abstract class GuiScreen {
     for (const d of sides) if (d.overlay) return d;
     if (this.root?.overlay) return this.root;
     for (const d of sides) if (hitTest(d, x, y)) return d;
+    if (this.beside && this.besideShown && (this.beside.overlay || hitTest(this.beside, x, y))) return this.beside;
     return this.root;
   }
 
@@ -512,7 +518,21 @@ export abstract class GuiScreen {
       } else {
         const s = pack(this.root);
         const right = this.sides.length ? edge : cw - DOCK_MARGIN;
-        const x = this.dockLeft ? DOCK_MARGIN : this.dockRight ? right - s.width : Math.min(Math.round((cw - s.width) / 2), right - s.width);
+        let x = this.dockLeft ? DOCK_MARGIN : this.dockRight ? right - s.width : Math.min(Math.round((cw - s.width) / 2), right - s.width);
+        // a window docked to the main one's left (the mission board's Featured Items,
+        // mission/client/r.Ah): the main window moves right by half its width when both fit,
+        // and it sits at the main window's left, tops level; it is left off when they do not fit
+        const left = this.beside;
+        this.besideShown = false;
+        if (left && !this.dockLeft && !this.dockRight && !this.sides.length) {
+          const ls = pack(left);
+          if (s.width + ls.width <= cw) {
+            x = Math.round((cw - s.width + ls.width) / 2);
+            const top = Math.round((ch - s.height) / 2);
+            render(left, g, x - ls.width, Math.min(ch, top + ls.height), this.hooks);
+            this.besideShown = true;
+          }
+        }
         render(this.root, g, Math.max(0, x), Math.round((ch + s.height) / 2), this.hooks);
       }
     }

@@ -53,6 +53,11 @@ export interface ElevatorChoice {
   quit?: { run(): void } | null;
   /** The floor's heat report, when the floor gave heat to items that can take it. */
   heat?: HeatReport | null;
+  /**
+   * A safe level's elevator (a lobby, a terminal: LevelType.isSafe): the stripe shows without
+   * its "Level Complete" title (EndOfLevelWindow.a).
+   */
+  safe?: boolean;
 }
 
 // The client's end-of-level states: TITLE 1 s, HEAT_TITLE 1 s, HEAT_COUNT 3 s, then the choice.
@@ -201,16 +206,18 @@ export class ElevatorScreen extends OverlayScreen {
       if (c) { c.text = text; c.visible = visible; }
     };
     const m = this.main!, s = this.stripe!, n = ch.next;
-    set(s, "labelTitle", ch.title || "Level Complete!");
-    set(m, "labelNextUp", n ? "Next up:" : "");
+    set(s, "labelTitle", ch.title || "Level Complete!", !ch.safe);
+    set(m, "labelNextUp", n ? (hasMessage("dungeon", "m.nextup") ? message("dungeon", "m.nextup") : "Advancing to:") : "");
     set(m, "labelLevelType", n?.title ?? "");
     set(m, "labelLevelSubtype", n?.zone ?? "");
     set(m, "labelDepth", n?.depth ?? "", !!n?.depth);
     // the client counts down to the automatic advance here; the floor's tally (ours) takes the
     // window's spare "waiting" line
     set(m, "labelAutoAdvance", this.countdownText(AUTO_ADVANCE));
-    set(m, "buttonAdvance", ch.advance.label);
-    set(m, "buttonQuit", "Return to Haven", !!ch.quit);
+    // the window's own ADVANCE NOW and QUIT EXPEDITION (b.advance_newline, b.quit_expedition)
+    const own = (key: string, fallback: string) => hasMessage("dungeon", key) ? message("dungeon", key) : fallback;
+    set(m, "buttonAdvance", ch.advance.label === "Advance" ? own("b.advance_newline", "ADVANCE\nNOW") : ch.advance.label);
+    set(m, "buttonQuit", own("b.quit_expedition", "QUIT EXPEDITION"), !!ch.quit);
     set(m, "labelQuit", ch.quit ? say("m.leaveparty_return", "Haven", "Bank your loot and ride the elevator up to Haven.") : "", !!ch.quit);
     set(m, "labelWaiting", ch.tally, !!ch.tally);
     this.shown = -1;

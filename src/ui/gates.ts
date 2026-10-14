@@ -20,16 +20,15 @@
 // Level data and rotation come from src/game/gatemap.ts; generated gates (when the real ones
 // cannot be had) show their lineup with one level a depth.
 
-import { BOSSES, floorIcon, gateFloors, type Floor, type Gate } from "../game/clockworks";
-import { displayOrder, gateDate, gateEmblem, nextLevel, predictedPath, themeColours, UNKNOWN_ICON, fixedLevel, type GateEntry, type RealLevel } from "../game/gatemap";
+import type { Gate } from "../game/clockworks";
+import { gateDate, gateEmblem, nextLevel, UNKNOWN_ICON, type GateEntry, type RealLevel } from "../game/gatemap";
 import type { GateChoice } from "../game/gatesource";
-import { tierLock, type MissionProgress } from "../game/missions";
-import { levelText } from "../game/text";
-import { Component, messageText, type GuiContext, type GuiImage } from "./gui";
+import type { MissionProgress } from "../game/missions";
+import { Component, messageText, type GuiContext } from "./gui";
+import { GateMapView, hooked, ROW, type GateRun } from "./gatemapview";
 import { buildUi, GuiScreen, row, uiRef, type ScreenHost } from "./screen";
 
-/** A run in progress through a real gate: the wedge (level) taken at each depth so far. */
-export interface GateRun { gate: Gate; depth: number; wedges: number[] }
+export type { GateRun };
 
 export interface GateBoardHost extends ScreenHost {
   /** The gates to list: today's four, then `older` older ones. */
@@ -49,18 +48,11 @@ export interface GateBoardHost extends ScreenHost {
   missions(): void;
 }
 
-const MAP_ICON = "ui/adventureboard/parts/map_levelicon.dat";
 const TAG = "ui/adventureboard/dungeontag/interface.dat";
-const TIP = "ui/adventureboard/parts/tooltip.dat";
-const MAPICONS = "ui/adventureboard/images/mapicons/";
 /** The board's chess-piece gate icons (ui/adventureboard/gate_icons), for generated gates. */
 const PIECES = ["pawn", "rook", "knight", "bishop", "queen", "king"];
 const IMAGE = "com.threerings.opengl.gui.config.IconConfig$Image";
 const COLORIZED = "com.threerings.opengl.gui.config.IconConfig$ColorizedImage";
-/** The client's line colours (client/h): the path taken, and the levels it leads to. */
-const PATH = "rgb(163, 28, 0)", NEXT = "rgb(209, 140, 128)";
-/** A map row's height with its gap (map_icons.dat: 44 and 44), one a depth. */
-const ROW = 88;
 /** Older gates shown each time "Older Gates" is pressed. */
 const OLDER = 16;
 
@@ -92,49 +84,32 @@ function column(kids: Component[], gap = 0): Component {
   return c;
 }
 
-/** A spacer drawn by a render hook. */
-function hooked(tag: string, width: number, height: number): Component {
-  const c = new Component("spacer", null);
-  c.tag = tag;
-  c.preferredSize = { width, height };
-  return c;
-}
-
 /** The board's entries: gates (loaded or to load), the older-gates switch, the Arena. */
 type Entry = { choice: GateChoice } | { older: true } | { arena: true };
 
-/** One map icon: its component, level and depth. */
-interface Cell { ui: Component; level: RealLevel; depth: number; wedge: number }
-
-/** A gate's built map: its rows and icons. */
-interface MapRows { rows: Component[]; cells: Cell[][]; haven: Cell | null; spacers: Component[][] }
-
 export class GateBoard extends GuiScreen {
   private panel: Component | null = null;
-  private map: Component | null = null;
+  /** The gate map (shared with the mission board's Arcade tab). */
+  private readonly view: GateMapView;
   private entries: Entry[] = [];
   private tags: Component[] = [];
   private selected = 0;
   private olderShown = 0;
-  /** The gate on the map, and its built rows. */
-  private shown: Gate | null = null;
-  private built: MapRows | null = null;
-  private mapBuilds = new Map<string, Promise<MapRows>>();
-  /** Per-component drawings: emblems, theme icons, spacer images. */
+  /** Per-component drawings: the gate emblems. */
   private drawn = new Map<Component, { cfg: any; size: number }>();
-  /** The map's current path (wedge per depth, -1 for "any") and how far it is the run's. */
-  private path: number[] = [];
-  private visited = -1;
-  private signature = "";
   private lastTick = 0;
   private totem: Component[] = [];
   /** The window title's font, for the text drawn on canvas. */
   private font = "sans-serif";
-  private borders: { idle: GuiImage | null; selected: GuiImage | null } = { idle: null, selected: null };
 
   constructor(ctx: GuiContext, private readonly board: GateBoardHost) {
     super(ctx, board, "gatesCanvas");
+    this.view = new GateMapView(ctx, { tips: this.tips, icon: (cfg, size) => this.icon(cfg, size), progress: () => board.progress(), run: () => board.run() });
   }
+
+  private get shown(): Gate | null { return this.view.shown; }
+  private get built() { return this.view.built; }
+  private get path(): number[] { return this.view.path; }
 
   /** The entry being shown (for tests): its gate, or null for the Arena. */
   get selection(): Gate | null { const e = this.entries[this.selected]; return e && "choice" in e ? e.choice.gate : null; }
@@ -150,11 +125,10 @@ export class GateBoard extends GuiScreen {
     const [win, panel, map] = await Promise.all([
       this.ui("ui/window/titled.dat", { Title: messageText("m.gate_map_title", "dungeon") }),
       this.ui("ui/adventureboard/normal/panel.dat"),
-      this.ui("ui/adventureboard/parts/map_global_v2.dat"),
+      this.view.build(),
     ]);
     if (!win || !panel || !map) return null;
     this.panel = panel;
-    this.map = map;
     this.font = win.find("title")?.fontFamily ?? "sans-serif";
     this.on(win, "dismiss", () => this.close());
     this.on(panel, "start", () => this.start());
@@ -166,10 +140,6 @@ export class GateBoard extends GuiScreen {
       this.close();
       this.board.missions();
     });
-    const gatemap = map.find("gatemap");
-    if (gatemap) gatemap.visible = false;
-    const [idle, sel] = await Promise.all([this.ctx.image(MAPICONS + "border_idle.png"), this.ctx.image(MAPICONS + "border_selected.png")]);
-    this.borders = { idle, selected: sel };
     // the stratum totem: six theme icons beside the map
     this.totem = [0, 1, 2, 3, 4, 5].map(i => {
       const c = hooked("totem", 56, 64);
@@ -185,15 +155,9 @@ export class GateBoard extends GuiScreen {
     if (!content || !parent) return null;
     body.constraints = content.constraints;
     parent.children[parent.children.indexOf(content)] = body;
-    const drawIcon = (c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
-      const d = this.drawn.get(c);
-      const im = d ? this.icon(d.cfg, d.size) : null;
-      if (im) g.drawImage(im.source as CanvasImageSource, Math.round(x + (w - im.width) / 2), Math.round(y + (h - im.height) / 2), im.width, im.height);
-    };
     this.hooks = {
       tagged: {
-        mapspacer: drawIcon,
-        rows: (c, g, x, y, w, h) => this.drawLines(c, g, x, y, w, h),
+        ...this.view.hooks(),
         totem: (c, g, x, y, w, h) => this.drawTotem(c, g, x, y, w, h),
         totemhead: (_c, g, x, y, w, h) => this.text(g, "Strata", x + w / 2, y + h - 6, "center", 13, "#f3e7c4"),
         gatetimer: (_c, g, x, y, w, h) => this.drawTimer(g, x, y, w, h),
@@ -282,23 +246,8 @@ export class GateBoard extends GuiScreen {
     }
     this.selected = i;
     this.tags.forEach((t, k) => { const s = t.find("entryselect"); if (s) s.selected = k === i; });
-    const map = this.map;
-    if (!map) return;
-    const gate = "choice" in e ? e.choice.gate : null;
-    const title = map.find("title");
-    if (title) title.text = gate ? gate.name : "Arena";
-    const rows = map.find("rows");
-    if (!rows) return;
-    this.shown = gate;
-    this.signature = "";
-    this.built = gate ? await this.rowsFor(gate) : await this.arenaRows();
-    if (this.shown !== gate) return;
-    rows.tag = "rows";
-    rows.children = this.built.rows;
-    this.update(true);
-    // scrolled to the knight's depth in a run, else the top
-    const run = this.board.run();
-    this.scroll()?.setValue(run && gate && run.gate.id === gate.id ? Math.max(0, (run.depth - 1) * ROW) : 0);
+    // the gate on the map, scrolled to the knight's depth in a run, else the top
+    await this.view.show("choice" in e ? e.choice.gate : null);
   }
 
   /** Enters the selected gate (or the Arena). */
@@ -311,174 +260,11 @@ export class GateBoard extends GuiScreen {
     if ("choice" in e) this.board.enter(e.choice.gate!); else this.board.arena();
   }
 
-  // ------------------------------------------------------------------------------ the map
-
-  /** The map rows of a gate: Haven, then a row a depth (built once a gate). */
-  private rowsFor(g: Gate): Promise<MapRows> {
-    const p = this.board.progress();
-    const locks = [1, 2, 3].map(t => tierLock(t, p) !== null);
-    const key = g.id + locks.join();
-    let rows = this.mapBuilds.get(key);
-    if (!rows) {
-      rows = this.buildRows(g, locks);
-      this.mapBuilds.set(key, rows);
-    }
-    return rows;
-  }
-
-  private async buildRows(g: Gate, locks: boolean[]): Promise<MapRows> {
-    const levels: RealLevel[][] = g.real ? g.real.wheels.map(w => w.options) : gateFloors(g).map(f => [this.floorLevel(f)]);
-    const tierOf = (d: number) => (d >= 18 ? 3 : d >= 8 ? 2 : 1);
-    const haven = await this.cell(fixedLevel(-1), -1, 0, false, g);
-    const cells = await Promise.all(levels.map((opts, d) => Promise.all(opts.map((l, w) => this.cell(l, d, w, locks[tierOf(d) - 1], g)))));
-    const spacers = levels.map((opts, d) => {
-      if (opts.length < 2) return [];
-      const w = g.real?.wheels[d];
-      const kind = !w || w.random ? "random" : w.velocity < 0 || (w.velocity === 0 && w.dir === "l") ? "left" : "right";
-      return Array.from({ length: opts.length + 1 }, () => {
-        const c = hooked("mapspacer", 17, 34);
-        this.drawn.set(c, { cfg: { $class: IMAGE, file: `${MAPICONS}spacer_${kind}.png` }, size: 34 });
-        return c;
-      });
-    });
-    const rows = [row([haven!.ui], 0, "CENTER"), ...cells.map(r => row(r.map(c => c.ui), 0, "CENTER"))];
-    return { rows, cells, haven, spacers };
-  }
-
-  /** A generated gate's floor as a map level. */
-  private floorLevel(f: Floor): RealLevel {
-    const s = f.stratum;
-    const fam = s && ["Beast", "Construct", "Fiend", "Gremlin", "Slime", "Undead"].includes(s.theme) ? s.theme as any : null;
-    const el = s && ["Fire", "Freeze", "Poison", "Shock"].includes(s.theme) ? s.theme as any : null;
-    const kind = f.kind === "subtown" ? "town" : f.kind;
-    if (kind === "lobby" || kind === "terminal" || kind === "town" || kind === "core") return fixedLevel(f.depth);
-    return { code: "", key: f.levelKey ?? "", title: f.name, subtitle: f.zone ?? "", icon: floorIcon(f), colorizations: themeColours(el, fam),
-      kind: kind === "boss" ? "boss" : "level", style: s?.style.key ?? null, family: fam, element: el, ...(kind === "boss" && s?.boss ? { boss: s.boss } : {}) };
-  }
-
-  /** One map icon (map_levelicon.dat) with its level's colours and tooltip. */
-  private async cell(l: RealLevel, depth: number, wedge: number, locked: boolean, g: Gate): Promise<Cell> {
-    const file = `ui/icon/map/${l.icon}.png`;
-    const ui = (await buildUi(this.ctx, uiRef(MAP_ICON, { Icon: file, Locked: !locked, "You are Here": false, "Friend Here": false })))!;
-    // the client colours the icon with the level's colourisations (client/h.Cm)
-    const icon = ui.find("icon");
-    const im = await this.ctx.image(file, l.colorizations);
-    if (icon && im && icon.styles[0]?.background) {
-      const bg = icon.styles[0].background;
-      icon.styles[0] = { ...icon.styles[0], background: { ...bg, image: im } };
-    }
-    this.tips.set(ui, { ref: uiRef(TIP, { Name: l.subtitle ? `${l.title}\n${l.subtitle}` : l.title, Description: this.describe(l, depth, locked, g) }) });
-    return { ui, level: l, depth, wedge };
-  }
-
-  private describe(l: RealLevel, depth: number, locked: boolean, g: Gate): string {
-    const tier = depth >= 18 ? 3 : depth >= 8 ? 2 : 1;
-    const s = g.strata.find(x => depth >= x.first && depth <= x.last);
-    const desc = levelText(l.key + "_desc")?.title;
-    const where = depth < 0 ? "Home of the Strangers." : depth === 0 ? "The gate's lobby." : `Depth ${depth}, tier ${tier}${s ? `, stratum ${s.index} (${s.theme})` : ""}.`;
-    const what = l.kind === "boss" && l.boss ? `${BOSSES[l.boss].name} waits here.`
-      : l.kind === "vault" ? "A treasure vault." : l.kind === "miniboss" ? "A fearsome foe guards this level."
-      : l.family || l.element ? [l.family, l.element].filter(Boolean).join(", ") + "." : "";
-    const w = g.real?.wheels[depth];
-    const rot = !w || w.options.length < 2 ? "" : w.random ? " Randomised: the level is picked as the elevator is taken."
-      : ` One of ${w.options.length} levels turning ${w.velocity < 0 ? "left" : "right"}.`;
-    const lock = locked ? ` Locked: tier ${tier} needs a higher rank.` : "";
-    return `${desc ? desc + " " : ""}${where} ${what}${rot}${lock}`.replace(/\s+/g, " ").trim();
-  }
-
-  /** The Arena's map: Haven, the lobby, then waves. */
-  private async arenaRows(): Promise<MapRows> {
-    const mk = async (file: string, name: string, desc: string, here: boolean) => {
-      const c = await buildUi(this.ctx, uiRef(MAP_ICON, { Icon: file, Locked: true, "You are Here": here, "Friend Here": false }));
-      if (c) this.tips.set(c, { ref: uiRef(TIP, { Name: name, Description: desc }) });
-      return c;
-    };
-    const a = await mk("ui/icon/map/lobby.png", "Arcade", "The gate's lobby.", true);
-    const b = await mk("ui/icon/map/shield.png", "Arena", "Waves of monsters from the game's spawn tables on a cached level, deeper each wave. Every fifth wave banks the loot; every tenth brings a boss.", false);
-    return { rows: [a, b].filter((c): c is Component => !!c).map(c => row([c], 0, "CENTER")), cells: [], haven: null, spacers: [] };
-  }
-
-  /** The run's place and the path on the map: (re)orders rows as the wheels turn, marks borders. */
-  private update(force = false) {
-    const g = this.shown, b = this.built;
-    if (!g || !b || !b.cells.length) return;
-    const now = Date.now();
-    const run = this.board.run();
-    const mine = run && run.gate.id === g.id ? run : null;
-    // the path: the run's wedges to its depth, then where the elevators lead now
-    let path: number[];
-    if (g.real) {
-      const from = mine ? mine.depth : 0;
-      path = predictedPath(g.real, from, mine ? mine.wedges[from] ?? 0 : 0, now);
-      if (mine) for (let d = 0; d <= mine.depth; d++) path[d] = mine.wedges[d] ?? 0;
-    } else path = b.cells.map(() => 0);
-    const orders = g.real ? g.real.wheels.map(w => displayOrder(w, now)) : b.cells.map(() => [0]);
-    const visited = mine ? mine.depth : 0;
-    const sig = path.join() + "|" + orders.map(o => o.join("")).join() + "|" + visited;
-    if (!force && sig === this.signature) return;
-    this.signature = sig;
-    this.path = path;
-    this.visited = visited;
-    b.cells.forEach((cells, d) => {
-      const r = b.rows[d + 1];
-      const order = orders[d] ?? [0];
-      const sp = b.spacers[d] ?? [];
-      // the row turns with its wheel (dungeon/client/u.Pg), spacers between and at both ends
-      r.children = sp.length ? order.flatMap((w, k) => k === 0 ? [sp[0], cells[w].ui, sp[1]] : [cells[w].ui, sp[k + 1]]) : order.map(w => cells[w].ui);
-      for (const k of r.children) k.constraints = { fixed: true };
-      for (const c of cells) {
-        const onPath = d <= visited && path[d] === c.wedge;
-        this.border(c.ui, onPath);
-        const here = c.ui.find("youarehere");
-        if (here) here.visible = !!mine && d === mine.depth && path[d] === c.wedge;
-      }
-    });
-    if (b.haven) {
-      const here = b.haven.ui.find("youarehere");
-      if (here) here.visible = !mine;
-      this.border(b.haven.ui, true);
-    }
-  }
-
-  /** The selected border (images/mapicons/border_selected.png) on the path taken. */
-  private border(ui: Component, on: boolean) {
-    const btn = ui.find("button"), im = on ? this.borders.selected : this.borders.idle;
-    if (!btn || !im) return;
-    btn.styles = btn.styles.map(s => s?.background ? { ...s, background: { ...s.background, image: im } } : s);
-  }
-
   protected tick() {
     const now = performance.now();
     if (now - this.lastTick < 500) return;
     this.lastTick = now;
-    this.update();
-  }
-
-  /** The client's connecting lines (client/h.a): down from an icon, across, down to the next. */
-  private drawLines(rowsC: Component, g: CanvasRenderingContext2D, x: number, y: number, _w: number, h: number) {
-    const b = this.built, gate = this.shown;
-    if (!b || !gate || !b.cells.length) return;
-    const bottom = y + h;
-    const box = (c: Component, r: Component) => {
-      const left = x + r.x + c.x, top = bottom - r.y - c.y - c.height;
-      return { cx: Math.round(left + c.width / 2), top, bot: top + c.height };
-    };
-    const seg = (a: { cx: number; bot: number }, z: { cx: number; top: number }, colour: string) => {
-      const y1 = a.bot - 3, y2 = z.top + 3, mid = Math.round((y1 + y2) / 2);
-      g.fillStyle = colour;
-      g.fillRect(a.cx - 2, y1, 3, mid - y1 + 1);
-      g.fillRect(z.cx - 2, mid, 3, y2 - mid);
-      if (a.cx !== z.cx) g.fillRect(Math.min(a.cx, z.cx) - 2, mid - 2, Math.abs(a.cx - z.cx) + 3, 3);
-    };
-    // Haven to the lobby
-    if (b.haven) seg(box(b.haven.ui, b.rows[0]), box(b.cells[0][0].ui, b.rows[1]), PATH);
-    for (let d = 0; d + 1 < b.cells.length; d++) {
-      const from = this.path[d] >= 0 ? [b.cells[d][this.path[d]]] : b.cells[d];
-      const to = this.path[d + 1] >= 0 ? [b.cells[d + 1][this.path[d + 1]]] : b.cells[d + 1];
-      const colour = d + 1 <= this.visited ? PATH : NEXT;
-      for (const a of from) for (const z of to) if (a && z) seg(box(a.ui, b.rows[d + 1]), box(z.ui, b.rows[d + 2]), colour);
-    }
-    void rowsC;
+    this.view.update();
   }
 
   /** The totem: a stratum's theme icon and number, lit while the map shows it. */
@@ -497,7 +283,7 @@ export class GateBoard extends GuiScreen {
   }
 
   /** The map's vertical scroll model (on the scroll pane's viewport). */
-  scroll() { return this.map?.find("scrollpane")?.parts.viewport?.vmodel ?? null; }
+  scroll() { return this.view.scroll(); }
 
   private scrollToStratum(i: number) {
     const s = this.shown?.strata[i];
