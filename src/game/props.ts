@@ -110,3 +110,17 @@ export class Prop {
   /** The sprite's state animations (doors: close, closed, open, opened; switches: up, down). */
   get states(): any[] { return (this.cfg.sprite?.states ?? []).map((s: any) => s?.animation).filter(Boolean); }
 }
+
+/**
+ * A gate pillar showing a gate (the client's GateDisplay sprite, town/a/a/a): model_v2 with the
+ * six strata's theme icons (ui/icon/theme/<theme>.png, "unk" when unknown), no arrow, and the
+ * Launched state while the gate is active (the light beam), else Dormant.
+ */
+export function gateDisplayModel(themes: readonly string[], active: boolean): any {
+  const icon = (i: number) => `ui/icon/theme/${themes[i] ? themes[i].toLowerCase() : "unk"}.png`;
+  return {
+    $class: "com.threerings.config.ConfigReference", name: "world/dynamic/gates/arcade_pillar/model_v2.dat",
+    arguments: { $map: "com.threerings.config.ArgumentMap", entries: [
+      ...[0, 1, 2, 3, 4, 5].map(i => [`Icon${i + 1}`, icon(i)]), ["Arrow", "Off"], ["State", active ? "Launched" : "Dormant"]] },
+  };
+}

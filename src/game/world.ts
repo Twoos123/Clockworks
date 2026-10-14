@@ -15,7 +15,7 @@ import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef,
 import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
 import { addItemBonuses, capValue, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
-import { Prop, propKind, trapState } from "./props";
+import { gateDisplayModel, Prop, propKind, trapState } from "./props";
 import { BEAM_MODELS, DungeonObjects, isAlly, isCaptive, standInModel, type BeamResult } from "./objects";
 import { ENERGY_CROWNS } from "./energy";
 import { intersects } from "./shapes";
@@ -295,6 +295,11 @@ export class World implements LogicHost {
    * Called when a shopkeeper opens their shop (the NPC's name says what it sells), with the
    * keeper's model and the animation it plays while the shop is open (the vendor portrait).
    */
+  /**
+   * The gate a Gate Display pillar shows (TownActorSprite GateDisplay: the server's gate id,
+   * active flag and stratum themes), or null for a closed pillar.
+   */
+  gateDisplay: { themes: string[]; active: boolean } | null = null;
   onOpenShop: ((keeper: string, portrait: { ref: any; idle: any } | null) => void) | null = null;
   /** The knight talked to a townsperson: its actor name, the StartConversation action and its entity. */
   onConversation: ((actor: string, action: any, source: Entity) => void) | null = null;
@@ -699,6 +704,8 @@ export class World implements LogicHost {
     } else if (k === "PrismLaser") {
       // beams are traced by the prism system (objects.ts), not run as actors
       return null;
+    } else if (k === "GateDisplay" && this.gateDisplay) {
+      this.createProp(e, { ...cfg, sprite: { ...cfg.sprite, model: gateDisplayModel(this.gateDisplay.themes, this.gateDisplay.active) } }, ref);
     } else {
       this.createProp(e, cfg, ref);
     }
@@ -3341,3 +3348,4 @@ export function blockHits(name: string): number {
   if (/Empty Rocket/i.test(name)) return 2;
   return 1;
 }
+

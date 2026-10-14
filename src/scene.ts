@@ -240,7 +240,9 @@ export class SceneLoader {
       {
         const ptags = tagList(impl.tags);
         const actor = impl.actor?.name && /StatefulProp|ElevatorProp/.test(impl.$class) ? impl.actor : undefined;
-        if (impl.handlers?.length || ptags.length || actor) {
+        // (gate props too: the party lobby's consoles have no handlers of their own, the game
+        // finds them by name)
+        if (impl.handlers?.length || ptags.length || actor || /\$GateProp$/.test(impl.$class)) {
           const t = readTransform(e.transform);
           const rotZ = 2 * Math.atan2(t.r[2], t.r[3]);
           const rotation = Math.atan2(Math.sin(rotZ - Math.PI / 2), Math.cos(rotZ - Math.PI / 2));

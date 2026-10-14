@@ -64,8 +64,15 @@ import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
 
-/** Towns and lobbies: no monsters, and the run starts or ends here. */
-const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site|rescue camp/i;
+/**
+ * Towns: safe places where the knight walks unarmed, with the town HUD. Lobbies are not towns:
+ * the client's LOBBY levels (the Arcade's party lobby, the Mission Lobby, a mission's own lobby)
+ * are dungeon levels (DungeonCodes.LevelType.LOBBY: safe, but the knight is armed, the dungeon
+ * HUD shows and the map is FULL).
+ */
+const TOWN = /haven|bazaar|^hall|ready room|crash site|rescue camp/i;
+/** The lobbies (dungeon levels of type LOBBY): no monsters, never a floor of the legacy run. */
+const LOBBY = /lobby/i;
 /** The Rescue Camp's scenes (the archive's "rescue camp central", "rescue camp state 1"...). */
 const RESCUE_CAMP = /^rescue camp/i;
 /**
@@ -504,7 +511,7 @@ class Viewer {
   private showLoading(id: string): LoadingScreen | null {
     if (!GAME && !this.played) return null;
     const { loading } = this.screens();
-    const f = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null;
+    const f = this.gate && (this.run.depth > 0 || this.gateLobby) ? this.floors[this.run.depth] ?? null : null;
     const name = this.genNames.get(id) ?? this.sceneList.find(s => s.id === id)?.name ?? id;
     void loading.show(loadingInfo(this.arenaMode ? "arena" : name, f, this.gate?.name));
     loading.progress(0.05);
@@ -799,6 +806,8 @@ class Viewer {
     world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
     world.pocket = this.save.pocket;
     await this.outfit.dress(world);
+    // the party lobby's gate pillar shows the gate being played: its six strata's themes, launched
+    if (this.gateLobby && this.gate) world.gateDisplay = { themes: this.gate.real?.themes ?? this.gate.strata.map(st => st.theme), active: true };
     // towns and the Rescue Camp are safe places: the knight walks them unarmed
     await world.start(spawn, this.save.loadout, TOWN.test(this.scene.name));
     if (arrival && !this.places.spawn(this.scene.id)) world.knight.heading = arrival.heading;
@@ -1002,6 +1011,8 @@ class Viewer {
   /** The minimap's label: the depth in the Clockworks, or the town's name. */
   private floorLabel(): string {
     if (!this.scene) return "";
+    // the party lobby has no depth (NO_DEPTH): the client's minimap names the level ("The Clockworks")
+    if (this.gateLobby) return this.floors[this.run.depth]!.name;
     return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase())
       // the dungeon minimap names the depth as the client does (the dungeon bundle's m.depth)
       : hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", this.scaleDepth()) : `Depth ${this.scaleDepth()}`;
@@ -1461,12 +1472,13 @@ class Viewer {
     if (this.inLobby && this.gate) {
       // the Mission Lobby's elevator: down to the mission's first floor
       const next = this.floors[this.run.depth + 1];
+      const here = this.floors[this.run.depth], mission = this.gate.id.startsWith("mission:");
       void this.screens().elevator.show({
-        title: messageText("%dungeon:m.mission_lobby"),
+        title: here?.kind === "lobby" ? here.name : messageText("%dungeon:m.mission_lobby"),
         next: next ? loadingInfo(next.name, next, this.gate.name) : null,
         tally: this.gate.name,
         advance: { label: "Advance", run: () => { this.inLobby = false; void this.descend(); } },
-        quit: { run: () => { this.inLobby = false; this.paused = false; this.gate = null; this.missionBoard?.runAbandoned(); void this.returnToHaven(); } },
+        quit: { run: () => { this.inLobby = false; this.paused = false; this.gate = null; if (mission) this.missionBoard?.runAbandoned(); void this.returnToHaven(); } },
       });
       return;
     }
@@ -1739,10 +1751,13 @@ class Viewer {
     const own = g.lobby ? this.archive.level(`m.${g.lobby}`) : null;
     const lobby = g.id.startsWith("mission:") && g.lobby !== null ? own ?? this.sceneList.filter(s => /^mission lobby$/i.test(s.name) && Number(s.id) < 1e6)
       .sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null : null;
-    if (lobby) {
+    // an Arcade gate starts in its party lobby (depth 0, the client's arcade_lobby level: the
+    // gate's pillar, the lobby consoles, Kozma's Supply Depot and the elevator to depth 1)
+    const party = !lobby && this.run.depth === 0 && floors[0]?.kind === "lobby" ? this.archive.level("m.arcade_lobby") : null;
+    if (lobby || party) {
       this.inLobby = true;
       this.stopPlaying();
-      await this.selectScene(lobby.id);
+      await this.selectScene((lobby ?? party)!.id);
       await this.startPlaying();
       return;
     }
@@ -1919,8 +1934,10 @@ class Viewer {
   }
 
   private usedScenes = new Set<string>();
-  /** In the Mission Lobby before a mission's first floor. */
+  /** In the Mission Lobby before a mission's first floor (or a gate's party lobby). */
   private inLobby = false;
+  /** In an Arcade gate's party lobby (depth 0, the arcade_lobby level). */
+  private get gateLobby(): boolean { return !!this.gate && this.inLobby && this.floors[this.run.depth]?.kind === "lobby"; }
 
   /** A boss floor: the boss's fight director runs its arena; the exit stays shut until it is won. */
   private spawnBoss(key: BossKey, ultimate = false) {
@@ -1957,7 +1974,7 @@ class Viewer {
   private runLevels(): { id: string; name: string }[] {
     const levels = RUN_ORDER.map(n => this.sceneList.find(s => s.name.toLowerCase().startsWith(n))).filter((s): s is { id: string; name: string } => !!s);
     // levels in the cache that the order does not name come before the Core
-    for (const s of this.sceneList) if (!TOWN.test(s.name) && !levels.includes(s)) levels.splice(levels.length - 1, 0, s);
+    for (const s of this.sceneList) if (!TOWN.test(s.name) && !LOBBY.test(s.name) && !levels.includes(s)) levels.splice(levels.length - 1, 0, s);
     return levels;
   }
 
@@ -1977,7 +1994,7 @@ class Viewer {
 
   private nextLevel(): { id: string; name: string } | null {
     const levels = this.runPlan();
-    if (!this.scene || TOWN.test(this.scene.name)) return levels[0] ?? null;
+    if (!this.scene || TOWN.test(this.scene.name) || LOBBY.test(this.scene.name)) return levels[0] ?? null;
     const i = levels.findIndex(s => s.id === this.scene!.id);
     return i >= 0 && i + 1 < levels.length ? levels[i + 1] : null;
   }
@@ -2316,10 +2333,13 @@ class Viewer {
             this.weaponSlot = (this.world.knight.slot + pad.cycle + n) % n;
           }
         }
-        // the Arcade's gate control panels (their server action picks the gate): the gate board
-        if (!this.paused && (this.interactPressed || pad?.interact) && this.scene && /arcade/i.test(this.scene.name) && !this.gate) {
+        // the Arcade's gate control panels (their server action picks the gate): the gate board;
+        // in a gate's party lobby its lobby consoles show the gate being played
+        const lobbyHere = this.gateLobby;
+        if (!this.paused && (this.interactPressed || pad?.interact) && this.scene && ((/arcade/i.test(this.scene.name) && !this.gate) || lobbyHere)) {
           const k = this.world.knight;
-          if (this.scene.logic.some(e => /Gates\/Control Panel/.test(e.name) && Math.hypot(e.x - k.x, e.y - k.y) < 3)) {
+          const panel = lobbyHere ? /Gates\/Lobby Console/ : /Gates\/Control Panel/;
+          if (this.scene.logic.some(e => panel.test(e.name) && Math.hypot(e.x - k.x, e.y - k.y) < 3)) {
             this.interactPressed = false;
             this.openGates();
           }
@@ -2394,8 +2414,10 @@ class Viewer {
           const dungeon = !!this.scene && !TOWN.test(this.scene.name);
           // the client's map types: Clockworks levels reveal their map as the knight explores
           // (DISCOVER); terminals, towns and arenas show it all (FULL)
-          const floor = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] : null;
-          const discover = dungeon && !this.world.arena && !(floor && (floor.kind === "terminal" || floor.kind === "subtown" || floor.kind === "core"));
+          const floor = this.gate && (this.run.depth > 0 || this.gateLobby) ? this.floors[this.run.depth] : null;
+          // (lobbies are FULL too: LevelType.LOBBY.mapType())
+          const discover = dungeon && !this.world.arena && !LOBBY.test(this.scene!.name)
+            && !(floor && (floor.kind === "terminal" || floor.kind === "subtown" || floor.kind === "core" || floor.kind === "lobby"));
           gh?.minimap.setWorld(this.world, this.scene, { discover, dungeon });
           gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
             dungeon,

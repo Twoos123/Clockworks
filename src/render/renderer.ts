@@ -1360,17 +1360,19 @@ export class Renderer {
     gl.uniform1i(this.u.u_particle, 1);
     const data: number[] = [];
     for (const { emitter, matrix, filter } of list) {
-      emitter.states.forEach((state, li) => {
-        if (state.particles.length === 0) return;
-        if (!passesFilter(filter, state.layer.material.queue)) return;
+      // a system's layers in their drawing order (GroupPriority)
+      for (const li of emitter.order) {
+        const state = emitter.states[li];
+        if (state.particles.length === 0) continue;
+        if (!passesFilter(filter, state.layer.material.queue)) continue;
         if (state.layer.geometry === "Meshes") {
           this.drawMeshParticles(emitter, li, matrix);
           gl.bindVertexArray(this.particleVao);
-          return;
+          continue;
         }
         data.length = 0;
         emitter.emit(li, matrix, right, up, data);
-        if (data.length === 0) return;
+        if (data.length === 0) continue;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STREAM_DRAW);
         for (const pass of state.layer.material.passes) {
@@ -1383,7 +1385,7 @@ export class Renderer {
           gl.drawArrays(gl.TRIANGLES, 0, data.length / 9);
           this.stats.draws++;
         }
-      });
+      }
     }
     gl.uniform1i(this.u.u_particle, 0);
     gl.bindVertexArray(null);
