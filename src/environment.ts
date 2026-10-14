@@ -25,13 +25,34 @@ export interface Environment {
   background: Rgb | null;
   skyboxes: LoadedModel[];
   models: LoadedModel[];
-  camera: { azimuth: number; elevation: number; distance: number } | null;
+  /**
+   * The scene's camera (SceneGlobalConfig Camera; CameraConfig defaults filled in), and any
+   * other zoom levels it offers (a town's closer view).
+   */
+  camera: CameraView | null;
+  cameras?: CameraView[];
   /** Music tracks (a weighted mix picks one) and their gain. */
   music?: { files: { file: string; weight: number }[]; gain: number; crossFade?: number } | null;
   /** Looping ambient sounders (wind, rain) heard everywhere in the scene. */
   ambience?: any[];
   /** Colour and opacity of the round shadows under actors ("Environment/Shadow Color"). */
   shadow?: [number, number, number, number];
+}
+
+/** A CameraConfig: vertical field of view, orbit coordinates and the offset above its target. */
+export interface CameraView { zoom: number; fov: number; azimuth: number; elevation: number; distance: number; offset: [number, number, number] }
+
+/**
+ * A CameraConfig with the class defaults its export leaves out (tudey/config/CameraConfig:
+ * fov 60 degrees, coordinates azimuth 0, elevation 45 degrees, distance 10, offset 1 up).
+ */
+export function readCamera(c: any): CameraView {
+  const co = c?.coords ?? {}, o = c?.offset;
+  return {
+    zoom: c?.zoom ?? 0, fov: c?.fov ?? Math.PI / 3,
+    azimuth: co.azimuth ?? 0, elevation: co.elevation ?? Math.PI / 4, distance: co.distance ?? 10,
+    offset: o ? [o.x ?? 0, o.y ?? 0, o.z ?? 0] : [0, 0, 1],
+  };
 }
 
 export const VIEWER_ENVIRONMENT: Environment = {
@@ -145,8 +166,10 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
     const kind = cfg.$class ?? "";
     if (kind.endsWith("SceneGlobalConfig$EnvironmentModel")) await applyModel(cfg.model);
     else if (kind.endsWith("SceneGlobalConfig$Camera")) {
-      const c = cfg.camera?.coords;
-      if (c) env.camera = { azimuth: c.azimuth ?? 0, elevation: c.elevation ?? 0, distance: c.distance ?? 10 };
+      if (cfg.camera) {
+        env.camera = readCamera(cfg.camera);
+        env.cameras = [env.camera, ...(cfg.cameras ?? []).map(readCamera)];
+      }
     }
   }
   if (!sawAmbient) env.ambient = [0.2, 0.2, 0.2];

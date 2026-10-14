@@ -299,7 +299,15 @@ function nearestLights(lights: WorldLight[], box: Box): WorldLight[] {
 }
 
 /** Runtime state for one placed model (and, recursively, its attachments). */
+/** A colour multiplied into everything an instance draws (a hit flash), or null. */
+type Tint = readonly [number, number, number, number] | null;
+
 export class ModelInstance {
+  /**
+   * Multiplies the colour of this instance and its attachments (the model's colour state:
+   * the client flashes a struck actor red, fading to white).
+   */
+  tint: Tint = null;
   readonly parts: GpuPart[] = [];
   readonly children: { node: string; transform: Mat4; instance: ModelInstance }[] = [];
   /** Node name -> local transform (bind pose). */
@@ -1032,15 +1040,16 @@ export class Renderer {
 
     // Group placements by mesh part so each part and pass is one instanced draw. A part
     // belongs to one (possibly shared) ModelInstance, so all of its placements share a pose.
-    const groups = new Map<GpuPart, { inst: ModelInstance; matrices: Mat4[] }>();
+    const groups = new Map<GpuPart, { inst: ModelInstance; matrices: Mat4[]; tint: Tint }>();
     const dt = Math.min(0.1, Math.max(0, this.time - this.lastTime));
     const visits = new Map<ModelInstance, number>();
     const particles: { emitter: Emitter; matrix: Mat4 }[] = [];
     const lights: WorldLight[] = [];
     // skel: the nearest articulated ancestor, whose skeleton drives skinned meshes in wrapper
     // models below it (armour inside compound/conditional wrappers on a knight)
-    const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null) => {
+    const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null, parentTint: Tint = null) => {
       inst.update(frame);
+      const tint = inst.tint ?? parentTint;
       if (inst.model.light && !this.skyboxPass) lights.push(placeLight(inst.model.light, placement));
       if (inst.model.root) skel = { inst, placement };
       else if (skel && inst.model.parts.some(p => p.bones)) {
@@ -1074,7 +1083,7 @@ export class Renderer {
         const bb = gp.part.node ? inst.model.billboards.get(gp.part.node) : undefined;
         if (bb) m = this.faceCamera(m, bb);
         let g = groups.get(gp);
-        if (!g) groups.set(gp, g = { inst, matrices: [] });
+        if (!g) groups.set(gp, g = { inst, matrices: [], tint });
         g.matrices.push(m);
       }
       for (const c of inst.children) {
@@ -1088,25 +1097,25 @@ export class Renderer {
           : placement;
         const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
         if (bb) at = this.faceCamera(at, bb);
-        collect(c.instance, multiply(at, c.transform), skel);
+        collect(c.instance, multiply(at, c.transform), skel, tint);
       }
     };
     for (const it of items) collect(it.instance, it.matrix);
 
     // Placements of a part lit by different local lights are drawn as separate batches, so
     // each batch carries its own light set (most placements have none and stay together)
-    const batches: { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[] }[] = [];
+    const batches: { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[]; tint: Tint }[] = [];
     for (const [gp, g] of groups) {
       const lit = lights.length > 0 && g.inst.model.receivesLights !== false
         && gp.part.material.passes.some(p => p.lit && !p.ambient);
-      if (!lit) { batches.push({ gp, inst: g.inst, matrices: g.matrices, lights: [] }); continue; }
-      const byKey = new Map<string, { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[] }>();
+      if (!lit) { batches.push({ gp, inst: g.inst, matrices: g.matrices, lights: [], tint: g.tint }); continue; }
+      const byKey = new Map<string, { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[]; tint: Tint }>();
       const local = partBounds(gp.part);
       for (const m of g.matrices) {
         const chosen = nearestLights(lights, transformBox(m, local.c, local.e));
         const key = chosen.map(l => lights.indexOf(l)).join(",");
         let b = byKey.get(key);
-        if (!b) byKey.set(key, b = { gp, inst: g.inst, matrices: [], lights: chosen });
+        if (!b) byKey.set(key, b = { gp, inst: g.inst, matrices: [], lights: chosen, tint: g.tint });
         b.matrices.push(m);
       }
       batches.push(...byKey.values());
@@ -1129,7 +1138,7 @@ export class Renderer {
 
     order.forEach((b, i) => {
       this.setLocalLights(b.lights);
-      this.drawPart(b.inst, b.gp, offsets[i], b.matrices.length);
+      this.drawPart(b.inst, b.gp, offsets[i], b.matrices.length, b.tint);
     });
     this.setLocalLights([]);
     if (!this.skyboxPass) this.lastTime = this.time;
@@ -1260,7 +1269,7 @@ export class Renderer {
     }
   }
 
-  private drawPart(inst: ModelInstance, gp: GpuPart, first: number, instances: number) {
+  private drawPart(inst: ModelInstance, gp: GpuPart, first: number, instances: number, tint: Tint = null) {
     const gl = this.gl;
     const skinned = !!(gp.part.bones && gp.part.boneIndices && gp.part.boneWeights);
     gl.uniform1i(this.u.u_skinned, skinned ? 1 : 0);
@@ -1278,7 +1287,7 @@ export class Renderer {
       gl.vertexAttribDivisor(6 + k, 1);
     }
     gp.part.material.passes.forEach((pass, i) => {
-      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1);
+      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
       if (gp.indexed) gl.drawElementsInstanced(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0, instances);
       else gl.drawArraysInstanced(gp.primitive, 0, gp.count, instances);
       this.stats.draws++;
@@ -1288,7 +1297,7 @@ export class Renderer {
   }
 
   private applyPass(pass: PassState, texture: WebGLTexture | null, hasNormals: boolean, hasColors: boolean,
-    second: WebGLTexture | null = null, hasUv1 = false) {
+    second: WebGLTexture | null = null, hasUv1 = false, tint: Tint = null) {
     const gl = this.gl, g = gl as unknown as Record<string, number>;
     // unit 1: Fragment/Emissive's emissive map, or a second texture stage (texture unit 2 here,
     // as unit 1 holds the bone matrices)
@@ -1336,7 +1345,8 @@ export class Renderer {
     if (this.fogOn) gl.uniform1i(this.u.u_fogMode, pass.fog ? FOG_MODES[this.env.fog!.mode] : 0);
     gl.uniformMatrix4fv(this.u.u_texMatrix, false, unit?.transform ? unit.transform(this.time) : IDENTITY);
     const c = pass.color ?? [1, 1, 1, 1];
-    gl.uniform4f(this.u.u_color, c[0], c[1], c[2], c[3]);
+    if (tint) gl.uniform4f(this.u.u_color, c[0] * tint[0], c[1] * tint[1], c[2] * tint[2], c[3] * tint[3]);
+    else gl.uniform4f(this.u.u_color, c[0], c[1], c[2], c[3]);
     gl.uniform1i(this.u.u_useVertexColor, hasColors && !pass.ignoreVertexColors ? 1 : 0);
     gl.uniform1i(this.u.u_alphaFunc, Math.max(0, ALPHA_FUNCS.indexOf(pass.alphaFunc)));
     gl.uniform1f(this.u.u_alphaRef, pass.alphaRef);

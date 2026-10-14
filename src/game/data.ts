@@ -86,6 +86,13 @@ export interface MonsterDef {
   name: string;
   /** The monster's name key in the monster bundle (its description config's dname, "n.blast_cube"). */
   nameKey: string | null;
+  /**
+   * The description's target-panel parts (DescriptionConfig.Monster): its family icon, the
+   * damage type it is weak to and the one it deals ("NORMAL" when the export drops them).
+   */
+  descIcon?: string | null;
+  weakness?: string;
+  attackType?: string;
   model: any;
   scale: number;
   radius: number;
@@ -143,8 +150,21 @@ export interface WeaponDef {
   chainCooldown: number;
   /** Played when the chain is spent: a gun's reload. */
   cooldownAttack: AttackDef | null;
-  /** Movement speed factor while attacking, or null when attacks root the knight. */
-  attackingSpeed: number | null;
+  /** Movement speed factor during attacks (ItemConfig Weapon attackingSpeed, 1 by default). */
+  attackingSpeed: number;
+  /**
+   * Whether the knight may walk and turn during its blended attacks (the client's
+   * `Weapon.Vb`): never for swords, a handgun's `moveAndAttack` (true by default), always
+   * for bombs and the rest.
+   */
+  moves: boolean;
+  /**
+   * Whether the combo loops back to the first attack after the last (`Weapon.Vc`): swords,
+   * bombs and swinging handguns; plain handguns repeat their last attack instead.
+   */
+  cycles: boolean;
+  /** Auto-targeting also while walking (ItemConfig Weapon targetingMoving, true by default). */
+  targetingMoving: boolean;
   /** Movement factor while charging (ItemConfig Weapon chargingSpeed, 1 by default). */
   chargingSpeed: number;
   /** Auto-aim: distance and half-angle (degrees) within which attacks snap to a target. */
@@ -251,7 +271,7 @@ export class GameData {
     return (ref ? await this.description(ref) : null) ?? (await this.description({ name }));
   }
 
-  async description(ref: any): Promise<{ dname: string; title: string; description: string } | null> {
+  async description(ref: any): Promise<{ dname: string; title: string; description: string; icon: string | null; weakness: string; damage: string } | null> {
     if (!ref?.name) return null;
     const lib = await this.library("config/description.dat");
     let cfg: any = null, r = ref;
@@ -262,7 +282,9 @@ export class GameData {
       if (!String(cfg.$class ?? "").endsWith("DerivedConfig")) break;
       r = cfg.base;
     }
-    return cfg ? { dname: cfg.dname ?? "", title: cfg.title ?? "", description: cfg.description ?? "" } : null;
+    const enumOf = (v: any): string => (typeof v === "string" ? v : v?.name) ?? "NORMAL";
+    return cfg ? { dname: cfg.dname ?? "", title: cfg.title ?? "", description: cfg.description ?? "",
+      icon: cfg.icon?.file ?? null, weakness: enumOf(cfg.weakness), damage: enumOf(cfg.damage) } : null;
   }
 
   /** resolve() for a preloaded library, synchronously (game logic spawns immediately). */
@@ -392,6 +414,9 @@ export class GameData {
     return {
       name: ref?.name ?? "",
       nameKey: desc?.dname || null,
+      descIcon: desc?.icon ?? null,
+      weakness: desc?.weakness ?? "NORMAL",
+      attackType: desc?.damage ?? "NORMAL",
       model: sprite.model,
       scale: sprite.scale ?? 1,
       radius: m.shape?.radius ?? 0.5,
@@ -436,8 +461,11 @@ export class GameData {
       maxChain: w.maxChain ?? 0,
       chainCooldown: w.chainCooldown ?? 0,
       cooldownAttack: w.cooldownAttack ? await this.attack(w.cooldownAttack) : null,
-      attackingSpeed: w.attackingSpeed ?? null,
+      attackingSpeed: w.attackingSpeed ?? 1,
       chargingSpeed: w.chargingSpeed ?? 1,
+      moves: k === "Sword" ? false : k === "Handgun" || k === "SwingingHandgun" ? w.moveAndAttack !== false : true,
+      cycles: k !== "Handgun",
+      targetingMoving: w.targetingMoving !== false,
       // ItemConfig Weapon defaults: auto-targeting within 3 units and a 90 degree cone
       targetingDist: w.targetingDist ?? 3,
       targetingAngle: w.targetingAngle ?? 90,

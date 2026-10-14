@@ -3,7 +3,7 @@ import { loadAnimation, ModelLoader, type LoadedModel } from "./model";
 import { Renderer, type ModelInstance } from "./render/renderer";
 import { SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
-import { loadEnvironment, VIEWER_ENVIRONMENT, type Environment } from "./environment";
+import { loadEnvironment, readCamera, VIEWER_ENVIRONMENT, type CameraView, type Environment } from "./environment";
 import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
@@ -21,15 +21,17 @@ import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
-import { ElevatorScreen } from "./ui/elevator";
+import { ElevatorScreen, type HeatReport, type HeatRow } from "./ui/elevator";
 import { GateBoard } from "./ui/gates";
+import { GateSource } from "./game/gatesource";
+import { lockNext } from "./game/gatemap";
 import { RunSummaryScreen } from "./ui/runsummary";
 import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
-import { loadMessages, messages, text } from "./i18n";
+import { hasMessage, loadMessages, message, messages, text } from "./i18n";
 import { itemName, levelText } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
@@ -39,7 +41,7 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, bossName, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { bossName, BOSSES, gateFloors, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { LevelArchive } from "./game/archive";
 import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
@@ -270,6 +272,9 @@ class Viewer {
   /** The action key (F) went down since the last update. */
   private interactPressed = false;
   private dashPressed = false;
+  /** The mouse-move scheme's left button: run toward the pointer. */
+  private mouseMoveHeld = false;
+  private bashPressed = false;
   private readonly pads = new Gamepads();
   private shieldHeld = false;
   /** Mouse position over the canvas in CSS pixels, for aiming. */
@@ -284,6 +289,14 @@ class Viewer {
   private model: LoadedModel | null = null;
   private readonly datFiles: string[];
   private az = -0.6; private el = 0.35; private dist = 3;
+  /** Vertical field of view: the scene camera's in play (60 degrees by default), ours elsewhere. */
+  private fov = 0.75;
+  /**
+   * Play mode's camera (TudeySceneView): locked on the knight plus the config's offset, at the
+   * scene camera's coordinates; the zoom toggle (=) picks a scene's closer camera, easing there
+   * over 1.5 s (QuadraticOut), as the client's TOGGLE_ZOOM does.
+   */
+  private cam: { views: CameraView[]; zoom: number; from: CameraView; to: CameraView; t: number } | null = null;
   private target: Vec3 = [0, 0, 0.5];
   private home = { dist: 3, target: [0, 0, 0.5] as Vec3 };
   private paused = false;
@@ -347,6 +360,13 @@ class Viewer {
       (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
       if (b("dash") && !e.repeat) this.dashPressed = true;
+      // the mouse-move scheme's keys: Z attacks (Shift + Z bashes), X shields (Shift + X dodges)
+      if (this.options_.mouseMove && !e.repeat) {
+        if (key === "z") { if (e.shiftKey) this.bashPressed = true; else { this.attackPressed = true; this.attackHeld = true; } }
+        if (key === "x") { if (e.shiftKey) this.dashPressed = true; else this.shieldHeld = true; }
+      }
+      // the game's TOGGLE_ZOOM key
+      if ((e.key === "=" || e.key === "+") && !e.repeat && !this.paused) this.toggleZoom();
       if (b("help") && !e.repeat) this.toggleHelp();
       if (b("forge") && !e.repeat) void this.toggleArsenal("craft");
       if (key === "n" && !e.repeat) this.openFeed();
@@ -358,7 +378,12 @@ class Viewer {
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
-    addEventListener("keyup", e => this.keys.delete(e.key.toLowerCase()));
+    addEventListener("keyup", e => {
+      const key = e.key.toLowerCase();
+      this.keys.delete(key);
+      if (this.options_.mouseMove && key === "z") this.attackHeld = false;
+      if (this.options_.mouseMove && key === "x") this.shieldHeld = false;
+    });
     addEventListener("blur", () => { this.keys.clear(); this.attackHeld = false; this.shieldHeld = false; });
     const hash = new URLSearchParams(location.hash.substring(1));
     const fromHash = hash.get("model");
@@ -449,6 +474,7 @@ class Viewer {
         return (c, g, x, y, ww, h) => v.draw(c, g, x, y, ww, h);
       });
       this.elevator.onShow = () => this.music.stinger("elevator");
+      this.elevator.onSound = f => this.uiSound(f);
     }
     return { loading: this.loadingScreen, elevator: this.elevator };
   }
@@ -759,6 +785,7 @@ class Viewer {
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
+    this.hud.image = f => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f);
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
     // arriving in Haven, and the arsenal as it stands, may earn achievements
@@ -771,8 +798,17 @@ class Viewer {
     const heatView = new PortraitView(this.renderer, this.loader, undefined, null);
     const ringView = new PortraitView(this.renderer, this.loader, undefined, null);
     let targetView: { key: string; view: PortraitView } | null = null;
+    const acquireViews = new Map<string, PortraitView>();
     this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => {
-      if (c.viewOwner === "target") {
+      if (c.viewOwner?.startsWith("acquire:")) {
+        // each item-acquire icon plays its own 3D animation
+        let v = acquireViews.get(c.viewOwner);
+        if (!v) {
+          acquireViews.set(c.viewOwner, v = new PortraitView(this.renderer, this.loader, undefined, null));
+          if (acquireViews.size > 12) acquireViews.delete(acquireViews.keys().next().value!);
+        }
+        v.draw(c, g, x, y, w, h);
+      } else if (c.viewOwner === "target") {
         const t = world.hudTarget();
         if (!t) return;
         if (targetView?.key !== t.key) targetView = { key: t.key, view: new PortraitView(this.renderer, this.loader, undefined, t.idle) };
@@ -784,11 +820,10 @@ class Viewer {
     // in town, the item windows and the options are built while the player looks around, so
     // their first opening is instant
     if (TOWN.test(this.scene.name)) void this.prebuildWindows();
-    // the scene's own camera: its elevation and distance (scaled for this viewer's narrower lens)
-    const cam = this.environment.camera;
-    this.el = cam?.elevation ?? 0.785;
-    this.az = -Math.PI / 2;
-    this.dist = (cam?.distance ?? 10) * 1.35 * this.options_.zoom;
+    // the scene's own camera: its field of view, elevation, distance and offset
+    const cam = this.environment.camera ?? readCamera(undefined);
+    this.cam = { views: this.environment.cameras ?? [cam], zoom: 0, from: cam, to: cam, t: 1 };
+    this.applyCamView(cam);
     this.applyOptions();
     $("play").textContent = "Stop playing";
     document.body.classList.add("playing");
@@ -847,8 +882,42 @@ class Viewer {
   }
 
   /** Where the mouse points on the knight's ground plane, for aiming attacks. */
+  /**
+   * Where the pointer points for the knight's facing: TudeySceneController intersects the pick
+   * ray with the horizontal plane through the camera's target (the knight plus the camera
+   * offset, 1 unit up by default) and faces from the target toward that point.
+   */
   private aimPoint(): [number, number] | null {
-    return this.world ? this.rayPoint(this.world.knight.z + 0.5) : null;
+    if (!this.world) return null;
+    const k = this.world.knight, off = this.cam?.to.offset ?? [0, 0, 1];
+    const p = this.rayPoint(k.z + off[2]);
+    return p ? [p[0] - off[0], p[1] - off[1]] : null;
+  }
+
+  /** Puts the play camera at a CameraConfig's view (the distance times the Camera Distance option). */
+  private applyCamView(v: CameraView) {
+    this.el = v.elevation;
+    this.az = -Math.PI / 2 + v.azimuth;
+    this.dist = v.distance * this.options_.zoom;
+    this.fov = v.fov;
+  }
+
+  /** TOGGLE_ZOOM: the next zoom level the scene's cameras offer (a town's closer camera), eased over 1.5 s. */
+  private toggleZoom() {
+    const c = this.cam;
+    if (!c || c.views.length < 2) return;
+    const levels = [...new Set(c.views.map(v => v.zoom))].sort((a, b) => a - b);
+    const zoom = levels[(levels.indexOf(c.zoom) + 1) % levels.length];
+    const to = c.views.find(v => v.zoom === zoom);
+    if (!to) return;
+    c.zoom = zoom;
+    c.from = { ...c.to, ...this.currentView() };
+    c.to = to;
+    c.t = 0;
+  }
+
+  private currentView(): Partial<CameraView> {
+    return { elevation: this.el, distance: this.dist / (this.options_.zoom || 1), fov: this.fov };
   }
 
   /** Where the pointer's ray meets the horizontal plane at height gz. */
@@ -887,7 +956,9 @@ class Viewer {
   /** The minimap's label: the depth in the Clockworks, or the town's name. */
   private floorLabel(): string {
     if (!this.scene) return "";
-    return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase()) : `Depth ${this.run.depth}`;
+    return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase())
+      // the dungeon minimap names the depth as the client does (the dungeon bundle's m.depth)
+      : hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", this.run.depth) : `Depth ${this.run.depth}`;
   }
 
   private itemScreens: GameScreens | null = null;
@@ -991,6 +1062,8 @@ class Viewer {
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
       case "button_missions": void this.missions().toggle(); break;
+      // the minimap's map button: the Gate Map, on the gate of the run when in one
+      case "button_map": this.openGates(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       default: break;
     }
@@ -1015,7 +1088,7 @@ class Viewer {
       go: async id => { this.stopPlaying(); await this.selectScene(id); await this.startPlaying(); },
       restart: async () => { this.stopPlaying(); await this.startPlaying(); },
       world: () => this.world,
-      camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; },
+      camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; this.fov = 0.75; this.cam = null; },
       openArsenal: async () => { if (!this.itemScreens?.arsenal.isOpen) await this.toggleArsenal(); },
       arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
       colors: () => this.renderer.colors,
@@ -1225,6 +1298,33 @@ class Viewer {
     return notes;
   }
 
+  /**
+   * The floor's heat report (client EndOfLevelWindow), worked out before the heat is banked: the
+   * floor's heat shared evenly between the equipped items that can take it, each row's progress
+   * toward its next level before and after; items at the top level are listed with no gain.
+   */
+  private heatReport(raw: number): HeatReport | null {
+    const eco = this.eco ?? this.world?.economy ?? null;
+    if (!eco || raw <= 0) return null;
+    const items = eco.heatedItems(this.save);
+    if (!items.length) return null;
+    const total = eco.heatGain(this.save, raw);
+    const each = total / items.length;
+    const row = (name: string, gain: number): HeatRow => {
+      const state = this.save.gear[name] ?? { heat: 0, level: 1, variants: [] };
+      const before = eco.heatProgress(this.save, name);
+      const trial = { ...this.save, gear: { ...this.save.gear, [name]: { ...state, variants: [...(state.variants ?? [])], heat: state.heat + gain } } };
+      eco.levelUp(trial, name);
+      const levelUp = trial.gear[name].level > state.level;
+      const icon = eco.info(name)?.icon;
+      return { name: eco.displayName(name, state), icon: icon?.file ?? "ui/icon/inventory/blank.png", colorizations: icon?.colorizations ?? [],
+        level: state.level, before, after: levelUp ? 1 : eco.heatProgress(trial, name), levelUp };
+    };
+    const l = this.save.loadout;
+    const maxed = [...new Set([...l.weapons, l.shield, l.armor, l.helmet])].filter(n => n && !items.includes(n) && this.save.owned.includes(n) && eco.info(n)?.heatable);
+    return { total: Math.round(total), rows: [...items.map(n => row(n, each)), ...maxed.map(n => row(n, 0))] };
+  }
+
   /** The knight reached the exit elevator: offer the next floor. */
   private floorCleared() {
     if (!this.world) return;
@@ -1240,8 +1340,9 @@ class Viewer {
       });
       return;
     }
-    // bank what the floor gave
+    // bank what the floor gave (the heat report is read first, from the items' heat before)
     const l = this.world.loot;
+    const heat = this.heatReport(l.heat);
     const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
     recordKills(this.save, this.world.killCount);
@@ -1257,12 +1358,15 @@ class Viewer {
     const tally = `${l.crowns} crowns, ${l.heat} heat`;
     const { elevator } = this.screens();
     if (this.gate) {
-      // in a gate: on to the next depth, or ride back up to Haven with the loot banked
+      // in a gate: on to the next depth, or ride back up to Haven with the loot banked; on a real
+      // gate the next depth's level is locked in as the knight steps on the elevator
+      const d = this.run.depth, here0 = this.floors[d];
+      if (this.gate.real && d < 29) this.floors[d + 1] = realFloor(this.gate, d + 1, lockNext(this.gate.real, d, here0?.wedge ?? 0, Date.now()));
       const next = this.floors[this.run.depth + 1];
       void elevator.show({
         title: `Depth ${this.run.depth} cleared`,
         next: next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally,
+        tally, heat,
         advance: { label: next ? "Advance" : "Ride Up", run: () => void this.descend() },
         quit: next ? { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } } : null,
       });
@@ -1276,7 +1380,7 @@ class Viewer {
       void elevator.show({
         title: nl ? `Depth ${this.run.depth} cleared` : "Back to Haven",
         next: nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : deeper ? { title: "Deeper", zone: "A new floor below the Core", depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally,
+        tally, heat,
         advance: { label: nl || deeper ? "Advance" : "Ride Up", run: () => void this.descend(deeper) },
         quit: deeper ? { run: () => void this.descend() } : null,
       });
@@ -1423,15 +1527,23 @@ class Viewer {
   // ------------------------------------------------------------------ the Arcade and its gates
 
   private gateBoard_: GateBoard | null = null;
+  /** The Arcade's real gates (src/game/gatesource.ts), generated ones when they cannot be had. */
+  private readonly gateSource = new GateSource();
   /** The Arcade's gate board (the game's adventure board, src/ui/gates.ts). */
   get gateBoard(): GateBoard {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     return this.gateBoard_ ??= new GateBoard(this.gui, {
       sound: f => this.uiSound(f),
       closed: () => { this.paused = false; this.canvas.focus(); },
-      gates: () => arcadeGates(),
+      gates: older => this.gateSource.choices(older),
+      gate: e => this.gateSource.gate(e),
+      offline: () => this.gateSource.offline,
+      run: () => this.gate?.real ? { gate: this.gate, depth: this.run.depth, wedges: this.floors.slice(0, this.run.depth + 1).map(f => f?.wedge ?? 0) } : null,
       progress: () => progressOf(this.save),
-      enter: g => void this.enterGate(g),
+      enter: g => {
+        if (this.gate) { notice("Finish this run, or return to Haven, before entering another gate."); return; }
+        void this.enterGate(g);
+      },
       arena: () => void this.enterArena(),
       missions: () => void this.missions().open(),
     });
@@ -1443,7 +1555,7 @@ class Viewer {
    */
   private openGates() {
     this.paused = !!this.world;
-    void this.gateBoard.open();
+    void this.gateBoard.openOn(this.gate);
   }
 
   /** Starts a gate at depth 1. */
@@ -1452,6 +1564,8 @@ class Viewer {
     this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
     this.usedScenes.clear();
     this.floors = floors;
+    // a real gate: the first depth's level is the one the Arcade's elevator leads to now
+    if (g.real) this.floors[1] = realFloor(g, 1, lockNext(g.real, 0, 0, Date.now()));
     this.arenaMode = false;
     // the descent starts above the first floor (a mission's floors start deeper)
     this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
@@ -1495,6 +1609,7 @@ class Viewer {
     }
     const s = f.stratum!;
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
+    if (f.level) return this.realFloorScene(f, seed);
     // a boss stratum's own stage (the boss's lair on its last floor)
     if (f.levelKey) {
       const real = a.level(f.levelKey);
@@ -1525,6 +1640,38 @@ class Viewer {
     const id = f.kind === "boss" ? `gen:${theme}:${seed}:${s.boss}` : `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
+    if (f.special) this.genStyles.set(id, f.special);
+    return { id, name: `${f.name} · depth ${f.depth}` };
+  }
+  /**
+   * A real gate's level (src/game/gatemap.ts): the game's own from the archive (its fixed
+   * revision, or one of the floors of it the servers generated and the client cached); else a
+   * floor assembled from the captured prefab rooms of its style and status; else the older
+   * generator in its style's tiles, with the level's monster family.
+   */
+  private realFloorScene(f: Floor, seed: number): { id: string; name: string } | null {
+    const lv = f.level!, a = this.archive, s = f.stratum;
+    const copies = a.copies(lv.key);
+    if (copies.length) {
+      const fresh = copies.filter(c => !this.usedScenes.has(c.id));
+      const pick = (fresh.length ? fresh : copies)[Math.floor(rng(seed)() * (fresh.length || copies.length))];
+      this.usedScenes.add(pick.id);
+      return pick;
+    }
+    const family = lv.family ?? (s?.theme as any) ?? "Construct";
+    const tables = stratumTables(lv.family ?? s?.theme ?? "Construct", rng(seed));
+    const theme = genTheme(f.tileset || "clockworks");
+    const label = `${f.name}${f.zone ? " " + f.zone : ""}`;
+    if (lv.kind === "level" && lv.style && a.prefabSources(lv.style, null, true).length) {
+      const id = `gen:pf-${lv.style}-${lv.element ? lv.element.toLowerCase() : "none"}:${seed}`;
+      this.genFallback.set(id, theme);
+      this.genTables.set(id, tables);
+      this.genNames.set(id, `${label} · ${family}`);
+      return { id, name: `${f.name} · depth ${f.depth}` };
+    }
+    const id = f.kind === "boss" && lv.boss ? `gen:${theme}:${seed}:${lv.boss}` : `gen:${theme}:${seed}`;
+    this.genTables.set(id, tables);
+    this.genNames.set(id, f.kind === "boss" ? f.name : `${label} · ${family}`);
     if (f.special) this.genStyles.set(id, f.special);
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
@@ -1617,7 +1764,7 @@ class Viewer {
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
       this.achieve(recordDepth(this.save, f.depth));
-      this.bossFloor = f.kind === "boss" ? f.stratum!.boss : null;
+      this.bossFloor = f.kind === "boss" ? f.level?.boss ?? f.stratum!.boss : null;
       await this.selectScene(sc.id);
       await this.startPlaying();
       if (this.bossFloor) this.spawnBoss(this.bossFloor);
@@ -1660,7 +1807,12 @@ class Viewer {
     const f = (on("up") || k.has("arrowup") ? 1 : 0) - (on("down") || k.has("arrowdown") ? 1 : 0);
     const r = (on("right") || k.has("arrowright") ? 1 : 0) - (on("left") || k.has("arrowleft") ? 1 : 0);
     const fx = -Math.cos(this.az), fy = -Math.sin(this.az);
-    return { x: fx * f + fy * r, y: fy * f - fx * r };
+    // keys first (TudeySceneController: an absolute direction before a relative one), else the
+    // held left button's "forward": toward the pointer
+    if ((f || r) || !this.mouseMoveHeld || !this.world) return { x: fx * f + fy * r, y: fy * f - fx * r };
+    const kn = this.world.knight, aim = this.aimPoint();
+    const dx = aim ? aim[0] - kn.x : 0, dy = aim ? aim[1] - kn.y : 0, l = Math.hypot(dx, dy);
+    return l > 1e-3 ? { x: dx / l, y: dy / l } : { x: 0, y: 0 };
   }
 
   private renderList() {
@@ -1824,7 +1976,16 @@ class Viewer {
       if (this.world && (e.button === 0 || e.button === 2)) {
         // play mode: left attacks (hold to charge), right raises the shield
         // Shift + right click dashes (the game's default binding); right click alone shields
-        if (e.button === 0) { this.attackPressed = true; this.attackHeld = true; }
+        // the mouse-move scheme: the left button runs toward the pointer, the right attacks
+        if (this.options_.mouseMove) {
+          if (e.button === 0) this.mouseMoveHeld = true;
+          else { this.attackPressed = true; this.attackHeld = true; }
+          c.setPointerCapture(e.pointerId);
+          return;
+        }
+        // Shift + left click is the shield bash (the WASD scheme's SHIELD_BASH)
+        if (e.button === 0 && e.shiftKey) this.bashPressed = true;
+        else if (e.button === 0) { this.attackPressed = true; this.attackHeld = true; }
         else if (e.shiftKey) this.dashPressed = true;
         else this.shieldHeld = true;
         c.setPointerCapture(e.pointerId);
@@ -1834,11 +1995,16 @@ class Viewer {
       c.setPointerCapture(e.pointerId);
     });
     const release = (e: PointerEvent) => {
+      if (this.options_.mouseMove) {
+        if (e.button === 0) this.mouseMoveHeld = false;
+        if (e.button === 2) this.attackHeld = false;
+        return;
+      }
       if (e.button === 0) this.attackHeld = false;
       if (e.button === 2) this.shieldHeld = false;
     };
     c.addEventListener("pointerup", release);
-    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; });
+    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; this.mouseMoveHeld = false; });
     c.addEventListener("pointermove", e => {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
@@ -1909,19 +2075,28 @@ class Viewer {
             move, attackDown: this.attackPressed || !!pad?.attackDown, attackHeld: this.attackHeld || !!pad?.attackHeld,
             shield: this.shieldHeld || !!pad?.shield, aim, weaponSlot: this.weaponSlot,
             interact: this.interactPressed || !!pad?.interact, dash: this.dashPressed || !!pad?.dash,
+            bash: this.bashPressed,
           });
           this.dashPressed = false;
+          this.bashPressed = false;
           this.weaponSlot = null;
           this.interactPressed = false;
         }
         this.attackPressed = false;
-        // Q and E turn the camera; it follows the knight smoothly
+        // Q and E turn the camera (ours: the game's camera does not turn)
         if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options_.cameraSpeed;
         if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options_.cameraSpeed;
-        const k = this.world.knight;
-        const f = 1 - Math.exp(-dt * 10);
-        this.target = [this.target[0] + (k.x - this.target[0]) * f, this.target[1] + (k.y - this.target[1]) * f,
-          this.target[2] + (k.z + 1 - this.target[2]) * f];
+        // the camera is locked on the knight plus the camera offset, no smoothing (TudeySceneView)
+        const k = this.world.knight, cam = this.cam;
+        if (cam && cam.t < 1) {
+          cam.t = Math.min(1, cam.t + dt / 1.5);
+          const e = 1 - (1 - cam.t) * (1 - cam.t), lerp = (a: number, b: number) => a + (b - a) * e;
+          this.el = lerp(cam.from.elevation, cam.to.elevation);
+          this.dist = lerp(cam.from.distance, cam.to.distance) * this.options_.zoom;
+          this.fov = lerp(cam.from.fov, cam.to.fov);
+        }
+        const off = cam?.to.offset ?? [0, 0, 1];
+        this.target = [k.x + off[0], k.y + off[1], k.z + off[2]];
         if (this.knockedOut !== this.world.defeated) {
           this.knockedOut = this.world.defeated;
           // the game's revive window (Sparks of Life); in town the knight simply gets up
@@ -1936,11 +2111,12 @@ class Viewer {
         this.target[1] + this.dist * Math.cos(this.el) * Math.sin(this.az),
         this.target[2] + this.dist * Math.sin(this.el),
       ];
-      const proj = perspective(0.75, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
-      // camera shake from explosions (ShakeCamera actions)
-      const shake = this.world?.shake ?? 0;
-      if (shake > 0) for (let i = 0; i < 3; i++) eye[i] += (Math.random() - 0.5) * shake * 0.6;
-      const view = lookAt(eye, this.target, [0, 0, 1]);
+      const proj = perspective(this.fov, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
+      // camera shakes (ShakeCamera actions: hits, explosions) move the camera, not its aim
+      const shake = this.world?.cameraShake() ?? [0, 0, 0];
+      const aimAt: Vec3 = [this.target[0] + shake[0], this.target[1] + shake[1], this.target[2] + shake[2]];
+      for (let i = 0; i < 3; i++) eye[i] += shake[i];
+      const view = lookAt(eye, aimAt, [0, 0, 1]);
       if (this.world) this.audio?.setListener([this.world.knight.x, this.world.knight.y, this.world.knight.z]);
       if (!this.paused) this.renderer.time += dt;
       if (this.sceneItems) {
@@ -1962,7 +2138,11 @@ class Viewer {
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
+          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
+            dungeon: !!this.scene && !TOWN.test(this.scene.name),
+            pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))) }, dt);
+          // items the knight gained come up as the HUD's acquire icons
+          while (this.world.acquired.length) { const a = this.world.acquired.shift()!; gh?.acquire(a); }
           // (the HUD hides while the knight talks, as the game's conversation dialog hides it)
           this.hud.draw(this.world, proj, view, gh && !this.talking ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }

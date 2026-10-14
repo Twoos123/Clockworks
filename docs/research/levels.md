@@ -74,6 +74,9 @@ stratum of a gate has a monster family (Beast, Construct, Fiend, Gremlin, Slime,
 often a status theme (fire, freeze, poison, shock; sleep, curse). The levels a stratum uses
 follow from those. Clockwork Terminals sit at depths 4, 13 and 23, subtowns at 8 and 18. [1]
 
+The real gates, with each depth's level options and how they rotate, come from the community
+Gate Map; see gatemap.md.
+
 | Set | Levels | Where |
 |---|---|---|
 | Clockwork Tunnels [2] | six monster levels (Wild Path, Mechanized Mile, Infernal Passage, Gremlin Grounds, Slimeway, Haunted Passage) in each of five areas: Clockwork Tunnels, Blast Furnace (fire), Cooling Chamber (freeze), Wasteworks (poison), Power Complex (shock). 30 levels | any tier; the most common level type |

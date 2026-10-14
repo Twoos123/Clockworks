@@ -7,6 +7,7 @@ import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, rea
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join, normalize, sep } from "node:path";
+import { handleGates } from "./gates";
 import { readZipDirectory, readZipEntry, type ZipEntry } from "./zip";
 
 const GAME_DIR = "Spiral Knights";
@@ -197,6 +198,8 @@ export function installMiddleware(dir: () => string | null, archive = archiveDir
   return (req: IncomingMessage, res: ServerResponse) => {
     const root = dir();
     const url = decodeURIComponent((req.url ?? "").split("?")[0]);
+    // the Arcade's real gates (server/gates.ts): fetched from the community Gate Map and cached
+    if (handleGates(url, req, res)) return;
     if (!root) { res.statusCode = 404; res.end(); return; }
     const rsrc = join(root, "rsrc");
     if (url === "/ping") { res.end("ok"); return; }
