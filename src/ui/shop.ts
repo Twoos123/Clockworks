@@ -58,6 +58,22 @@ const GROUPS: { cats: string[]; key: string; icon: string }[] = [
   { cats: ["vitapod", "pickup", "other"], key: "m.usable", icon: CAT + "icon_core.png" },
 ];
 
+/**
+ * shop/client/m.a(Dungeon): a vitapod goes in the cart one at a time (more is adjusted to
+ * one); one already in the cart with as many capsules or more keeps the new one out, a
+ * smaller one is taken out for it; and one worn with as many or more keeps it out too.
+ * `adjusted` shows m.cart_vitapod_adjusted.
+ */
+export function vitapodRule(want: number, count: number, inCart: number | null, worn: number | null): { qty: number; removeCart: boolean; adjusted: boolean } {
+  let adjusted = want > 1, qty = Math.min(want, 1), removeCart = false;
+  if (inCart !== null) {
+    adjusted = true;
+    if (inCart >= count) qty = 0; else removeCart = true;
+  }
+  if (qty > 0 && worn !== null && worn >= count) { adjusted = true; qty = 0; }
+  return { qty, removeCart, adjusted };
+}
+
 export class ShopScreen extends GuiScreen {
   private vendor: ItemList | null = null;
   private arsenal: ItemList | null = null;
@@ -183,6 +199,18 @@ export class ShopScreen extends GuiScreen {
       // m.b: a recipe learned or held is not bought again, and one is enough; gear is one of a kind here
       const r = it?.category === "recipe" ? eco.recipeOfItem(name) : null;
       if (r && save.recipes.includes(r.name)) { this.status("m.cart_recipe_learned", "You have already learned this recipe!"); void this.refresh(); return; }
+      if (it?.category === "vitapod") {
+        // m.a(Dungeon): one vitapod, and only one better than the cart's and the one worn
+        const count = (n: string) => Number(this.shop.data().resolveSync("config/item.dat", { name: n }, "item")?.count ?? 0);
+        const other = this.cart.find(c => !c.sell && this.eco!.info(c.name)?.category === "vitapod");
+        const v = vitapodRule(qty, count(name), other ? count(other.name) : null, save.loadout.vitapod ? count(save.loadout.vitapod) : null);
+        if (v.removeCart && other) this.cart.splice(this.cart.indexOf(other), 1);
+        if (v.adjusted) this.status("m.cart_vitapod_adjusted", "You may only equip one best vitapod: cart adjusted.");
+        if (v.qty > 0) this.push({ name, price: stock.price, rarity: stock.rarity, sell, count: 1 });
+        if (v.qty > 0) this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
+        void this.refresh();
+        return;
+      }
       const single = !!r || (it?.category !== "pickup" && it?.category !== "material" && it?.category !== "mineral");
       if (single && save.owned.includes(name)) { this.message = `${itemLabel(name)} is already in your arsenal.`; this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.refresh(); return; }
       if (single && line) { if (r) this.status("m.cart_recipe_adjusted", "You will only need one of these recipes!"); void this.refresh(); return; }
