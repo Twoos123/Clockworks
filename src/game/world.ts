@@ -9,7 +9,7 @@ import { compose, multiply, readTransform, type Mat4, type Vec3 } from "../math"
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
-import type { CollisionMap } from "./collision";
+import { separationShares, type CollisionMap } from "./collision";
 import { dealt, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
@@ -143,6 +143,9 @@ abstract class Actor {
   undying = false;
   abstract radius: number;
   abstract get team(): Team;
+  /** What it is and what blocks it, for actors meeting each other (collision.ts collidesWith). */
+  abstract get collisionFlags(): number;
+  abstract get collisionMask(): number;
   constructor(public instance: ModelInstance, readonly scale = 1) {}
 
   /** Actor sprites face -y in model space (as the knight's face mesh shows). */
@@ -163,6 +166,9 @@ export interface Loadout { def: WeaponDef; instance: ModelInstance }
 export class Knight extends Actor {
   get team(): Team { return "knight"; }
   radius = KNIGHT_RADIUS;
+  // Character/PC/Default: flags 4 (nothing while dead, as the logic's knight entity), mask 43
+  get collisionFlags() { return this.dead ? 0 : 4; }
+  get collisionMask() { return KNIGHT_MASK; }
   /** The client's control rules: the activity, the combo's chain count, the dodge cooldown. */
   control = new KnightControl();
   /** The action button as the controller last saw it, and when it last changed (ms). */
@@ -209,6 +215,8 @@ export class Monster extends Actor {
   /** Allies in a cage stand still, untouchable, until released. */
   captive = false;
   get team(): Team { return this.ally ? "knight" : "monster"; }
+  get collisionFlags() { return this.def.collisionFlags; }
+  get collisionMask() { return this.def.collisionMask; }
   /** Monsters without attacks (traders, wandering townsfolk) are passive and untouchable. */
   get passive() { return this.captive || this.def.attacks.length === 0; }
   /** The monster's logic actor (tags such as its wave, handlers). */
@@ -3493,7 +3501,11 @@ export class World implements LogicHost {
     if (act) this.logic.execute(act, at, m.entity ?? at);
   }
 
-  /** Keeps actors from overlapping each other. */
+  /**
+   * Keeps actors from overlapping each other as their collision bits say (collision.ts
+   * separationShares): the knight walks through townsfolk's snipes (flags 4, outside its mask
+   * 43), and they, standing idle, are not shoved aside.
+   */
   private separate() {
     // stationary monsters (turrets) are not pushed around
     const actors: Actor[] = [this.knight, ...this.monsters.filter(m => m.state !== "dying" && m.def.targetedSpeed > 0)];
@@ -3502,9 +3514,12 @@ export class World implements LogicHost {
         const a = actors[i], b = actors[j];
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = a.radius + b.radius;
         if (d >= min || d < 1e-4) continue;
-        const push = (min - d) / 2, nx = dx / d, ny = dy / d;
-        if (!this.collision.collides(a.x - nx * push, a.y - ny * push, a.radius, MONSTER_MASK)) { a.x -= nx * push; a.y -= ny * push; }
-        if (!this.collision.collides(b.x + nx * push, b.y + ny * push, b.radius, MONSTER_MASK)) { b.x += nx * push; b.y += ny * push; }
+        // townsfolk (passive monsters) move only as their wander takes them
+        const moves = (x: Actor) => !(x instanceof Monster && x.passive);
+        const [sa, sb] = separationShares(a, b, moves(a), moves(b));
+        const pa = (min - d) * sa, pb = (min - d) * sb, nx = dx / d, ny = dy / d;
+        if (pa > 0 && !this.collision.collides(a.x - nx * pa, a.y - ny * pa, a.radius, MONSTER_MASK)) { a.x -= nx * pa; a.y -= ny * pa; }
+        if (pb > 0 && !this.collision.collides(b.x + nx * pb, b.y + ny * pb, b.radius, MONSTER_MASK)) { b.x += nx * pb; b.y += ny * pb; }
       }
     }
   }

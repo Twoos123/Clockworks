@@ -398,3 +398,27 @@ export class CollisionMap {
 }
 
 export type { Mat4 };
+
+/** An actor's collision bits: what it is (flags) and what blocks it (mask). */
+export interface ActorBits { collisionFlags: number; collisionMask: number }
+
+/**
+ * Whether actor a is blocked by actor b (Tudey's Actor.collidesWith: a's mask meets b's
+ * flags). It is one-way: a snipe (flags 4, mask 79) is blocked by the knight (flags 4) but the
+ * knight (mask 43) walks through it.
+ */
+export const collidesWith = (a: ActorBits, b: ActorBits) => (a.collisionMask & b.collisionFlags) !== 0;
+
+/**
+ * How much of an overlap between actors a and b each is pushed back (shares of it, a's then
+ * b's). Tudey never pushes an actor: a mover only stops where it would collide. Pushing apart
+ * stands in for that: both halfway when each would stop at the other (the knight and a
+ * monster); when only one would, it alone yields, and only if it is the kind that moves under
+ * its own power (`aMoves`, `bMoves`): the knight stops at a monster outside its own mask, but
+ * a townsperson's snipe it walks through (flags 4, outside the knight's mask 43) stays put.
+ */
+export function separationShares(a: ActorBits, b: ActorBits, aMoves = true, bMoves = true): [number, number] {
+  const ab = collidesWith(a, b), ba = collidesWith(b, a);
+  if (ab && ba) return [0.5, 0.5];
+  return [ab && aMoves ? 1 : 0, ba && bMoves ? 1 : 0];
+}

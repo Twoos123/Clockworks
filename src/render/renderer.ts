@@ -219,6 +219,21 @@ const SKY_QUEUES: { queue: string; fovScale: number }[] = [
  */
 const ambientOnly = (p: PassState) => p.lit && !!p.ambient && p.overrideLights === 0;
 const isSkyQueue = (q: string) => q === "Skybox" || q === "Skybox (Fov Standard)";
+const unlitPasses = new WeakMap<PassState, PassState>();
+/**
+ * A pass as a model draws it in a scene. A model whose InfluenceFlagConfig turns lights off
+ * (the snipes' character/npc/snipe/model.dat) takes no light state from the scene (Clyde's
+ * Model.setInfluences leaves it null); PassConfig looks up "lightState" through the scope chain
+ * (the model it is attached to, then the scene, which has none) and falls back to
+ * LightState.DISABLED, so a pass that would use the scene's draws at its texture colours. A pass
+ * with a light-state override of its own stays lit by it.
+ */
+export function modelPass(pass: PassState, receivesLights: boolean): PassState {
+  if (receivesLights || !pass.lit || pass.ambient) return pass;
+  let p = unlitPasses.get(pass);
+  if (!p) unlitPasses.set(pass, p = { ...pass, lit: false });
+  return p;
+}
 
 /**
  * A ViewerEffectConfig.Skybox model: placed each frame at camera + (origin - camera) * scale,
@@ -350,6 +365,12 @@ export class ModelInstance {
   tint: Tint = null;
   /** False leaves this instance and its attachments undrawn (a debugging aid). */
   visible = true;
+  /**
+   * Whether its passes take the scene's lights this frame (set as the frame collects it): see
+   * modelPass. Under a scene environment, a model whose InfluenceFlagConfig turns lights off
+   * takes its parent model's light state, and a root one none.
+   */
+  lightsOn = true;
   readonly parts: GpuPart[] = [];
   readonly children: { node: string; transform: Mat4; instance: ModelInstance }[] = [];
   /** Node name -> local transform (bind pose). */
@@ -1328,10 +1349,14 @@ export class Renderer {
     const lights: WorldLight[] = [];
     // skel: the nearest articulated ancestor, whose skeleton drives skinned meshes in wrapper
     // models below it (armour inside compound/conditional wrappers on a knight)
+    // Clyde's Model.setInfluences: a model with light influences off keeps no light state of its
+    // own, and its passes find one up the scope chain (the model it is attached to) or none
+    const influences = !!this.env.influences;
     const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null, parentTint: Tint = null,
-      filter: QueueFilter = undefined) => {
+      filter: QueueFilter = undefined, parentLit = false) => {
       if (!inst.visible) return;
       inst.update(frame);
+      inst.lightsOn = inst.model.receivesLights !== false || (influences && parentLit);
       const tint = inst.tint ?? parentTint;
       if (inst.model.light && !this.skyboxPass) lights.push(placeLight(inst.model.light, placement));
       if (inst.model.root) skel = { inst, placement };
@@ -1389,7 +1414,7 @@ export class Renderer {
           : placement;
         const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
         if (bb) at = this.faceCamera(at, bb);
-        collect(c.instance, multiply(at, c.transform), skel, tint, filter);
+        collect(c.instance, multiply(at, c.transform), skel, tint, filter, inst.lightsOn);
       }
     };
     for (const it of items) collect(it.instance, it.matrix, null, null, it.filter);
@@ -1398,7 +1423,7 @@ export class Renderer {
     // each batch carries its own light set (most placements have none and stay together)
     const batches: { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[]; tint: Tint }[] = [];
     for (const [gp, g] of groups) {
-      const lit = lights.length > 0 && g.inst.model.receivesLights !== false
+      const lit = lights.length > 0 && g.inst.lightsOn
         && gp.part.material.passes.some(p => p.lit && !p.ambient);
       if (!lit) { batches.push({ gp, inst: g.inst, matrices: g.matrices, lights: [], tint: g.tint }); continue; }
       const byKey = new Map<string, { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[]; tint: Tint }>();
@@ -1606,7 +1631,7 @@ export class Renderer {
       gl.vertexAttribDivisor(6 + k, 1);
     }
     gp.part.material.passes.forEach((pass, i) => {
-      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
+      this.applyPass(modelPass(pass, inst.lightsOn || !this.env.influences), gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
       if (gp.indexed) gl.drawElementsInstanced(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0, instances);
       else gl.drawArraysInstanced(gp.primitive, 0, gp.count, instances);
       this.stats.draws++;
