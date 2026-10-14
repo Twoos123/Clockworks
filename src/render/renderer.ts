@@ -194,6 +194,33 @@ const ENVS = ["Modulate", "Replace", "Add", "Decal"];
 const QUEUE_ORDER: Record<string, number> = {
   Skybox: 0, "Skybox (Fov Standard)": 0, Opaque: 1, Transparent: 3, Overlay: 4, Blurred: 5,
 };
+/** A part's place in the draw order: its queue, then its queue inside a group (skyboxes). */
+const queueRank = (m: { queue: string; subQueue?: string }) =>
+  (QUEUE_ORDER[m.queue] ?? 2) * 10 + (m.subQueue ? QUEUE_ORDER[m.subQueue] ?? 2 : 0);
+/**
+ * The skybox render queues (config/render_queue.dat, RenderQueueConfig.Skybox): drawn first,
+ * by priority, each with its field of view scaled and the depth buffer cleared afterwards.
+ */
+const SKY_QUEUES: { queue: string; fovScale: number }[] = [
+  { queue: "Skybox", fovScale: 1.25 }, { queue: "Skybox (Fov Standard)", fovScale: 1 },
+];
+/**
+ * Particles are drawn unlit, except under a light-state override with no lights of its own:
+ * then GL lights them by its global ambient alone (the skybox particles take their colours so).
+ */
+const ambientOnly = (p: PassState) => p.lit && !!p.ambient && p.overrideLights === 0;
+const isSkyQueue = (q: string) => q === "Skybox" || q === "Skybox (Fov Standard)";
+
+/**
+ * A ViewerEffectConfig.Skybox model: placed each frame at camera + (origin - camera) * scale,
+ * in world orientation. Its skybox-queue parts draw behind everything; any others (rain and fog
+ * overlays) draw with the level at that camera-relative place.
+ */
+export interface SkyboxItem { instance: ModelInstance; scale: Vec3; origin: Vec3 }
+
+/** Which parts a placement draws: all, one skybox queue only, or everything but skybox queues. */
+type QueueFilter = string | undefined;
+const passesFilter = (f: QueueFilter, q: string) => f === undefined ? true : f === "rest" ? !isSkyQueue(q) : q === f;
 
 interface GpuPart {
   part: MeshPart;
@@ -727,7 +754,7 @@ export class Renderer {
    * scene environment, with optional skyboxes drawn around the camera first.
    */
   drawAll(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4,
-    env: Environment = VIEWER_ENVIRONMENT, skyboxes: ModelInstance[] = [],
+    env: Environment = VIEWER_ENVIRONMENT, skyboxes: SkyboxItem[] = [],
     target?: { width: number; height: number; clear: [number, number, number, number] }) {
     const gl = this.gl;
     const w = target?.width ?? this.canvas.width, h = target?.height ?? this.canvas.height;
@@ -746,20 +773,43 @@ export class Renderer {
     this.sceneAmbient = env.ambient;
     this.setLights(env, view);
     this.view = view;
+    const skyItems: { instance: ModelInstance; matrix: Mat4; filter?: QueueFilter }[] = [];
     if (skyboxes.length) {
-      // skyboxes follow the camera: drop the view translation, never write depth
-      const sky = view.slice();
-      sky[12] = sky[13] = sky[14] = 0;
-      gl.uniformMatrix4fv(this.u.u_view, false, sky);
+      // ViewerEffectConfig.Skybox.update: the model's translation is the camera's plus
+      // (origin - camera) * translationScale, so a zero scale rides with the camera and a small
+      // one drifts slowly against it
+      const v = view;
+      const cam: Vec3 = [
+        -(v[0] * v[12] + v[1] * v[13] + v[2] * v[14]),
+        -(v[4] * v[12] + v[5] * v[13] + v[6] * v[14]),
+        -(v[8] * v[12] + v[9] * v[13] + v[10] * v[14])];
+      for (const s of skyboxes) {
+        const m = identity();
+        for (let i = 0; i < 3; i++) m[12 + i] = cam[i] + (s.origin[i] - cam[i]) * s.scale[i];
+        skyItems.push({ instance: s.instance, matrix: m });
+      }
+      gl.uniformMatrix4fv(this.u.u_view, false, view);
       this.setFog(null);
       this.skyboxPass = true;
-      this.drawItems(skyboxes.map(instance => ({ instance, matrix: identity() })));
+      for (const { queue, fovScale } of SKY_QUEUES) {
+        // RenderQueueConfig.Skybox: widen the field of view by fovScale (on-axis perspective)
+        let p = proj;
+        if (fovScale !== 1 && proj[15] === 0) {
+          const t = 1 / proj[5], k = Math.tan(fovScale * Math.atan(t)) / t;
+          p = proj.slice();
+          p[0] /= k; p[5] /= k;
+        }
+        gl.uniformMatrix4fv(this.u.u_proj, false, p);
+        this.drawItems(skyItems.map(it => ({ ...it, filter: queue })));
+        gl.depthMask(true);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+      }
       this.skyboxPass = false;
-      gl.clear(gl.DEPTH_BUFFER_BIT);
+      gl.uniformMatrix4fv(this.u.u_proj, false, proj);
     }
     gl.uniformMatrix4fv(this.u.u_view, false, view);
     this.setFog(env.fog);
-    this.drawItems(items);
+    this.drawItems(skyItems.length ? [...items, ...skyItems.map(it => ({ ...it, filter: "rest" }))] : items);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
   }
@@ -1034,7 +1084,7 @@ export class Renderer {
     }
   }
 
-  private drawItems(items: { instance: ModelInstance; matrix: Mat4 }[]) {
+  private drawItems(items: { instance: ModelInstance; matrix: Mat4; filter?: QueueFilter }[]) {
     const gl = this.gl;
     const frame = ++this.frame;
 
@@ -1043,11 +1093,12 @@ export class Renderer {
     const groups = new Map<GpuPart, { inst: ModelInstance; matrices: Mat4[]; tint: Tint }>();
     const dt = Math.min(0.1, Math.max(0, this.time - this.lastTime));
     const visits = new Map<ModelInstance, number>();
-    const particles: { emitter: Emitter; matrix: Mat4 }[] = [];
+    const particles: { emitter: Emitter; matrix: Mat4; filter?: QueueFilter }[] = [];
     const lights: WorldLight[] = [];
     // skel: the nearest articulated ancestor, whose skeleton drives skinned meshes in wrapper
     // models below it (armour inside compound/conditional wrappers on a knight)
-    const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null, parentTint: Tint = null) => {
+    const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null, parentTint: Tint = null,
+      filter: QueueFilter = undefined) => {
       inst.update(frame);
       const tint = inst.tint ?? parentTint;
       if (inst.model.light && !this.skyboxPass) lights.push(placeLight(inst.model.light, placement));
@@ -1067,16 +1118,18 @@ export class Renderer {
         const last = (emitter as any).lastTime as number | undefined;
         (emitter as any).lastTime = this.time;
         emitter.update(last === undefined ? dt : Math.min(0.1, Math.max(0, this.time - last)), placement);
-        particles.push({ emitter, matrix: placement });
+        particles.push({ emitter, matrix: placement, filter });
         // model-emitting layers place their model at each particle
         emitter.states.forEach((state, li) => {
           const model = state.layer.model;
           if (!model || state.layer.geometry === "Meshes") return;
           const meshInst = this.meshInstance(model);
-          if (meshInst) for (const m of emitter.meshMatrices(li, placement)) collect(meshInst, m);
+          if (meshInst) for (const m of emitter.meshMatrices(li, placement)) collect(meshInst, m, null, null, filter);
         });
       }
       for (const gp of inst.parts) {
+        // a skybox drawn in several passes draws each part in its own pass only
+        if (!passesFilter(filter, gp.part.material.queue)) continue;
         let m = gp.part.node ? multiply(placement, inst.nodeMatrix(gp.part.node)) : placement;
         // skinned meshes borrowing a parent's skeleton are positioned by the parent's bones
         if (gp.part.bones && !inst.model.root && inst.boneParent && inst.bonePlacement) m = inst.bonePlacement;
@@ -1097,10 +1150,10 @@ export class Renderer {
           : placement;
         const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
         if (bb) at = this.faceCamera(at, bb);
-        collect(c.instance, multiply(at, c.transform), skel, tint);
+        collect(c.instance, multiply(at, c.transform), skel, tint, filter);
       }
     };
-    for (const it of items) collect(it.instance, it.matrix);
+    for (const it of items) collect(it.instance, it.matrix, null, null, it.filter);
 
     // Placements of a part lit by different local lights are drawn as separate batches, so
     // each batch carries its own light set (most placements have none and stay together)
@@ -1125,8 +1178,7 @@ export class Renderer {
     let total = 0;
     for (const b of batches) total += b.matrices.length;
     if (this.instanceData.length < total * 16) this.instanceData = new Float32Array(total * 16 * 2);
-    const order = batches.sort((a, b) =>
-      (QUEUE_ORDER[a.gp.part.material.queue] ?? 2) - (QUEUE_ORDER[b.gp.part.material.queue] ?? 2));
+    const order = batches.sort((a, b) => queueRank(a.gp.part.material) - queueRank(b.gp.part.material));
     const offsets: number[] = [];
     let at = 0;
     for (const b of order) {
@@ -1197,7 +1249,7 @@ export class Renderer {
     return this.readyParticleTextures.get(key) ?? undefined;
   }
 
-  private drawParticles(list: { emitter: Emitter; matrix: Mat4 }[]) {
+  private drawParticles(list: { emitter: Emitter; matrix: Mat4; filter?: QueueFilter }[]) {
     const gl = this.gl, v = this.view;
     const right: [number, number, number] = [v[0], v[4], v[8]], up: [number, number, number] = [v[1], v[5], v[9]];
     gl.bindVertexArray(this.particleVao);
@@ -1210,9 +1262,10 @@ export class Renderer {
     gl.uniform1i(this.u.u_skinned, 0);
     gl.uniform1i(this.u.u_particle, 1);
     const data: number[] = [];
-    for (const { emitter, matrix } of list) {
+    for (const { emitter, matrix, filter } of list) {
       emitter.states.forEach((state, li) => {
         if (state.particles.length === 0) return;
+        if (!passesFilter(filter, state.layer.material.queue)) return;
         if (state.layer.geometry === "Meshes") {
           this.drawMeshParticles(emitter, li, matrix);
           gl.bindVertexArray(this.particleVao);
@@ -1229,7 +1282,7 @@ export class Renderer {
           if (tex === undefined || second === undefined) continue;
           // the material's own blend (its colours are premultiplied by the layer's alpha mode,
           // as Clyde's are); particles never write depth
-          this.applyPass({ ...pass, depthMask: false, cullFace: "DISABLED", lit: false }, tex, false, true, second);
+          this.applyPass({ ...pass, depthMask: false, cullFace: "DISABLED", lit: ambientOnly(pass) }, tex, false, true, second);
           gl.drawArrays(gl.TRIANGLES, 0, data.length / 9);
           this.stats.draws++;
         }
@@ -1259,7 +1312,7 @@ export class Renderer {
           gl.vertexAttrib4f(6 + k, m[k * 4], m[k * 4 + 1], m[k * 4 + 2], m[k * 4 + 3]);
         }
         passes.forEach((pass, i) => {
-          this.applyPass({ ...pass, color, depthMask: false, lit: false }, textures[i] ?? null, false, false, seconds[i] ?? null,
+          this.applyPass({ ...pass, color, depthMask: false, lit: ambientOnly(pass) }, textures[i] ?? null, false, false, seconds[i] ?? null,
             !!gp.part.texCoord1);
           if (gp.indexed) gl.drawElements(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0);
           else gl.drawArrays(gp.primitive, 0, gp.count);
@@ -1357,7 +1410,7 @@ export class Renderer {
       gl.blendFunc(g[pass.srcBlend] ?? gl.ONE, g[pass.destBlend] ?? gl.ZERO);
     }
     gl.depthFunc(g[pass.depthFunc] ?? gl.LEQUAL);
-    gl.depthMask(pass.depthMask && !this.skyboxPass);
+    gl.depthMask(pass.depthMask);
     if (pass.cullFace === "DISABLED") {
       gl.disable(gl.CULL_FACE);
     } else {

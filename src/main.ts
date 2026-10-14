@@ -1,10 +1,10 @@
 import { lookAt, perspective, type Vec3 } from "./math";
 import { loadAnimation, ModelLoader, type LoadedModel } from "./model";
-import { Renderer, type ModelInstance } from "./render/renderer";
+import { Renderer, type ModelInstance, type SkyboxItem } from "./render/renderer";
 import { SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
 import { loadEnvironment, readCamera, VIEWER_ENVIRONMENT, type CameraView, type Environment } from "./environment";
-import { identity, multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
+import { multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
 import { GuiContext, messageText } from "./ui/gui";
@@ -280,7 +280,7 @@ class Viewer {
   private lastProj: Mat4 | null = null;
   private lastView: Mat4 | null = null;
   private readonly keys = new Set<string>();
-  private skyboxes: ModelInstance[] = [];
+  private skyboxes: SkyboxItem[] = [];
   private readonly sceneLoader: SceneLoader;
   private readonly instances = new Map<LoadedModel, Promise<ModelInstance>>();
   private shares = new Map<ModelInstance, number>();
@@ -658,8 +658,8 @@ class Viewer {
       const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
       loading?.progress(0.9);
       const env = await loadEnvironment(this.loader, scene.globals);
-      for (const m of env.models) items.push({ instance: await this.instanceOf(m), matrix: identity() });
-      const skyboxes = await Promise.all(env.skyboxes.map(m => this.instanceOf(m)));
+      for (const m of env.models) items.push({ instance: await this.instanceOf(m.model), matrix: m.matrix });
+      const skyboxes = await Promise.all(env.skyboxes.map(async s => ({ instance: await this.instanceOf(s.model), scale: s.scale, origin: s.origin })));
       if (token !== this.loadToken) return;
       this.environment = env;
       this.skyboxes = skyboxes;

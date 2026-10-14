@@ -3,7 +3,8 @@
 // models and the default camera, as Clyde's SceneInfluencer and ViewerAffecter models do.
 
 import { applyArguments } from "./config/params";
-import type { LoadedModel, ModelLoader } from "./model";
+import { viewerEffects, type LoadedModel, type ModelLoader, type SkyboxDef } from "./model";
+import { readTransform, toMatrix, type Mat4 } from "./math";
 
 export type Rgb = [number, number, number];
 
@@ -23,8 +24,13 @@ export interface Environment {
   eyeSpace: boolean;
   fog: Fog | null;
   background: Rgb | null;
-  skyboxes: LoadedModel[];
-  models: LoadedModel[];
+  /**
+   * ViewerAffecterConfig Skybox effects (in environment models or on their own): drawn around
+   * the camera, their "Skybox" queues before the level with the depth buffer cleared after.
+   */
+  skyboxes: SkyboxDef[];
+  /** Environment models' other content, placed by the global's transform. */
+  models: { model: LoadedModel; matrix: Mat4 }[];
   /**
    * The scene's camera (SceneGlobalConfig Camera; CameraConfig defaults filled in), and any
    * other zoom levels it offers (a town's closer view).
@@ -96,7 +102,7 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
     return cfg;
   };
 
-  const applyModel = async (ref: any, depth = 0) => {
+  const applyModel = async (ref: any, depth = 0, matrix: Mat4 = toMatrix(readTransform(null))) => {
     if (!ref?.name || depth > 4) return;
     let root: any;
     try { root = applyArguments(await loader.importFile(ref.name), ref); } catch { return; }
@@ -140,19 +146,17 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
       } else if (ik === "Fog") {
         env.fog = readFog(inf.state);
       }
-    } else if (kind.endsWith("ViewerAffecterConfig")) {
-      const eff = impl.effect;
-      const ek = eff?.$class?.substring(eff.$class.lastIndexOf("$") + 1);
-      if (ek === "BackgroundColor") env.background = rgb(eff.color);
-      else if (ek === "Skybox") {
-        const m = await loader.loadRef(eff.model);
-        if (m) env.skyboxes.push(m);
-      }
     } else if (kind.endsWith("ModelConfig$Derived")) {
-      await applyModel(impl.model, depth + 1);
+      await applyModel(impl.model, depth + 1, matrix);
     } else {
+      // GlobalSprite.EnvironmentModel adds the model to the scene at the global's transform;
+      // the viewer affecters anywhere inside it (skyboxes, background colours) act on the view
       const m = await loader.loadRef(ref);
-      if (m && (m.parts.length || m.attachments.length)) env.models.push(m);
+      if (!m) return;
+      const fx = viewerEffects(m);
+      env.skyboxes.push(...fx.skyboxes);
+      if (fx.background) env.background = fx.background;
+      if (!m.skybox && (m.parts.length || m.attachments.length || m.particles?.length)) env.models.push({ model: m, matrix });
     }
   };
 
@@ -164,7 +168,7 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
     const cfg = resolveGlobal(ref);
     if (!cfg) continue;
     const kind = cfg.$class ?? "";
-    if (kind.endsWith("SceneGlobalConfig$EnvironmentModel")) await applyModel(cfg.model);
+    if (kind.endsWith("SceneGlobalConfig$EnvironmentModel")) await applyModel(cfg.model, 0, toMatrix(readTransform(cfg.transform)));
     else if (kind.endsWith("SceneGlobalConfig$Camera")) {
       if (cfg.camera) {
         env.camera = readCamera(cfg.camera);

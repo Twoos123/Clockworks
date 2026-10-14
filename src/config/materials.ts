@@ -65,6 +65,8 @@ export interface Wave {
 export interface ResolvedMaterial {
   name: string;
   queue: string;
+  /** For a GroupedEnqueuer, the queue its passes take inside the group (Opaque, Transparent). */
+  subQueue?: string;
   passes: PassState[];
   /** True when the material came from the library rather than a fallback. */
   resolved: boolean;
@@ -136,8 +138,22 @@ export class ConfigLibrary {
     }
     const technique = (impl?.techniques ?? [])[0];
     const enqueuer = technique?.enqueuer;
-    const passes: PassState[] = (enqueuer?.passes ?? []).map((p: any) => this.pass(p, local));
-    return { name: ref.name, queue: enqueuer?.queue ?? "Opaque", passes, resolved: true };
+    // GroupedEnqueuer (TechniqueConfig): its enqueuers go into a group inside its own queue
+    // ("Skybox" for the skybox materials), each into that group's queue of its own name;
+    // CompoundEnqueuer just lists enqueuers. Their passes are drawn in order.
+    const leaves: any[] = [];
+    const flatten = (e: any, d = 0) => {
+      if (!e || d > 4) return;
+      if (Array.isArray(e.enqueuers)) for (const c of e.enqueuers) flatten(c, d + 1);
+      else leaves.push(e);
+    };
+    flatten(enqueuer);
+    const passes: PassState[] = leaves.flatMap(e => (e.passes ?? []).map((p: any) => this.pass(p, local)));
+    const grouped = enqueuer?.$class?.endsWith("$GroupedEnqueuer");
+    const inner = leaves[0]?.queue ?? "Opaque";
+    return grouped
+      ? { name: ref.name, queue: enqueuer.queue ?? "Opaque", subQueue: inner, passes, resolved: true }
+      : { name: ref.name, queue: enqueuer?.$class?.endsWith("$CompoundEnqueuer") ? inner : enqueuer?.queue ?? "Opaque", passes, resolved: true };
   }
 
   private pass(p: any, local?: LocalConfigs): PassState {

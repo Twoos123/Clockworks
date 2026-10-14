@@ -81,8 +81,32 @@ export interface LoadedModel {
   bounds?: { min: [number, number, number]; max: [number, number, number] };
   /** SceneInfluencerConfig lights (LightConfig): lights nearby geometry inside their extent. */
   light?: LightDef;
+  /**
+   * ViewerAffecterConfig Skybox: a model drawn at the camera's position plus
+   * (origin - camera) * scale, in world orientation, whatever this model's own placement.
+   */
+  skybox?: SkyboxDef;
+  /** ViewerAffecterConfig BackgroundColor. */
+  background?: [number, number, number];
   /** False when the model's InfluenceFlagConfig turns light influences off. */
   receivesLights?: boolean;
+}
+
+export interface SkyboxDef {
+  model: LoadedModel;
+  /** ViewerEffectConfig.Skybox translationScale and translationOrigin. */
+  scale: [number, number, number];
+  origin: [number, number, number];
+}
+
+/** The skybox and background effects anywhere in a model's tree (attachments included). */
+export function viewerEffects(m: LoadedModel, out: { skyboxes: SkyboxDef[]; background: [number, number, number] | null } =
+  { skyboxes: [], background: null }, depth = 0) {
+  if (depth > 12) return out;
+  if (m.skybox) out.skyboxes.push(m.skybox);
+  if (m.background) out.background = m.background;
+  for (const a of m.attachments) viewerEffects(a.model, out, depth + 1);
+  return out;
 }
 
 /**
@@ -284,9 +308,11 @@ export class ModelLoader {
       return model;
     }
 
-    // Schemed models pick a variant per render scheme (quality level); show the first one
+    // Schemed models pick a variant per render scheme (quality level): the one for no scheme
+    // (the full-detail default Clyde's Schemed.getModel matches first), else the top of the list
     if (impl.$class.endsWith("ModelConfig$Schemed")) {
-      for (const sm of impl.models ?? []) {
+      const list: any[] = impl.models ?? [];
+      for (const sm of [...list.filter(m => m?.scheme == null), ...list.filter(m => m?.scheme != null)]) {
         const m = await this.loadRef(sm.model, depth, chain);
         if (m) return { ...m, path, kind: `Schemed → ${m.kind}` };
       }
@@ -307,6 +333,22 @@ export class ModelLoader {
         if (cm) { model.attachments.push({ node: "", transform: readTransform(c.transform), model: cm }); model.animations = { ...cm.animations }; return model; }
       }
       model.skipped.push("Conditional (no file-backed case)");
+      return model;
+    }
+
+    // ViewerAffecterConfig: an effect on the viewer (Unlimited extents act everywhere). A Skybox
+    // effect's model is added to the scene by itself, ignoring this model's transform, and
+    // follows the camera (ViewerEffectConfig.Skybox); a BackgroundColor sets the clear colour
+    if (impl.$class.endsWith("ViewerAffecterConfig")) {
+      const eff = impl.effect ?? {};
+      const ek = String(eff.$class ?? "").replace(/^.*\$/, "");
+      const v = (o: any): [number, number, number] => [o?.x ?? 0, o?.y ?? 0, o?.z ?? 0];
+      if (ek === "Skybox") {
+        const m = await this.loadRef(eff.model, depth, chain);
+        if (m) model.skybox = { model: m, scale: v(eff.translationScale), origin: v(eff.translationOrigin) };
+      } else if (ek === "BackgroundColor" && eff.color) {
+        model.background = [eff.color.r ?? 0, eff.color.g ?? 0, eff.color.b ?? 0];
+      } else model.skipped.push("ViewerEffect " + ek);
       return model;
     }
 
