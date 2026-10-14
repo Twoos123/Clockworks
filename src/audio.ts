@@ -248,6 +248,24 @@ export class AudioSystem {
     if (pick?.file) void this.playMusic(pick.file, cfg.gain ?? 1, cfg.fadeIn ?? 1);
   }
 
+  /**
+   * A sounder's stream held over the level's music until the returned function stops it (a
+   * conversation's music: the client's ConversationDialogInfo.music, started when the dialog
+   * is added and stopped when it is removed).
+   */
+  holdStream(ref: any): () => void {
+    let stop: ((fadeOut?: number) => void) | null = null, done = false;
+    void this.resolve(ref).then(cfg => {
+      if (!cfg || done) return;
+      const k = kind(cfg);
+      const queue: any[] = cfg.queue ?? [];
+      const file: string | undefined = k === "MetaStream" ? (cfg.files ?? []).find((f: any) => f?.file)?.file
+        : k === "Stream" ? (queue.find(q => q?.loop) ?? queue[queue.length - 1])?.file : undefined;
+      if (file) stop = this.playStream(file, cfg.gain ?? 1, cfg.fadeIn ?? 1);
+    });
+    return () => { done = true; stop?.(1); };
+  }
+
   /** The music file playing (or last asked for), for tests and the docs. */
   nowPlaying: string | null = null;
   /** The last stinger started. */

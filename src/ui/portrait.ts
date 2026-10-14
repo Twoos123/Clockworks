@@ -48,7 +48,13 @@ export class PortraitView {
     /** The animation the model idles with (a path or reference), or null for none. */
     private readonly idle: any = "character/pc/idle.dat",
     /** Rendered once at this pose and masked, instead of animated. */
-    private readonly still?: StillPortrait) {
+    private readonly still?: StillPortrait,
+    /**
+     * Without an idle, the model plays the animation it starts by itself (ArticulatedConfig's
+     * startAutomatically mapping, as Clyde starts it): a conversation's speaker whose node
+     * names no animation (Kora's comlink model idles on its own).
+     */
+    private readonly auto = false) {
     void still?.mask.then(m => { this.mask = m; this.canvas = null; });
   }
   private mask: GuiImage | null = null;
@@ -61,7 +67,8 @@ export class PortraitView {
       if (!ref?.name) return;
       const model = await this.loader.load(ref.name, ref);
       const inst = await this.renderer.instantiate(model);
-      const idle = this.idle ? await loadAnimation(this.loader, this.idle).catch(() => null) : null;
+      const play = this.idle || (this.auto ? model.autoRefs?.[0] ?? model.autoAnimations[0] : null);
+      const idle = play ? await loadAnimation(this.loader, play).catch(() => null) : null;
       if (idle) inst.play(idle, { loop: true });
       if (this.still) inst.time += this.still.time;
       const t = readTransform(vm?.transform);

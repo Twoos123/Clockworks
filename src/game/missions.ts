@@ -9,7 +9,9 @@
 // What it does not give: the missions' levels (server-streamed), their dialogue and briefing
 // text (message bundles in the code jars), the rank titles and the crown rewards. Dungeon
 // missions are played as themed generated floors chosen from the card image (its monster and
-// environment), conversations show a summary written here, and crowns are tuning numbers.
+// environment), conversations play their conversation configs through the game's conversation
+// interface (src/ui/conversation.ts; a summary written here stands in on the card where the
+// bundles have no briefing), and crowns are tuning numbers.
 
 import { applyArguments } from "../config/params";
 import { rng } from "../gen/layout";
@@ -65,6 +67,11 @@ export interface Mission {
   npcModel: string | null;
   npcVariant: string | null;
   conversation: string | null;
+  /**
+   * Conversations: the requirement's StartConversation (ProjectXActionConfig), played through
+   * the conversation interface: its speaker model, music and conversation.
+   */
+  talk?: any;
   /** Exchanges: fixed ingredients, or recipe choices (recipe name and count) one ingredient is drawn from. */
   ingredients: Ingredient[];
   choose: { recipe: string; count: number }[][];
@@ -199,6 +206,11 @@ export function parseMission(c: any, props: Map<string, any>): Mission | null {
     npcModel: conv?.model?.name ?? null,
     npcVariant: (argsOf(conv?.model).Variant as string | undefined) ?? null,
     conversation: conv?.conversation?.name ?? null,
+    // (a gate conversation, played in the Laboratory, holds no StartConversation: its
+    // conversation is named after the mission as the conversation missions' are,
+    // "Mission/Rank/Laboratory Visit A", its NPC's "... B" the one with the lines)
+    talk: conv ?? (reqKind === "GateConversation" && typeof i.id === "string"
+      ? { conversation: { name: `Mission/Rank/${i.id.split("_").map((w: string) => w[0].toUpperCase() + w.slice(1)).join(" ")} A` } } : null),
     ingredients, choose, gateTheme, setting: null,
     production: enumName(i.deployment) === "PRODUCTION",
     repeatable: i.repeatable === true, onceOnly: i.onceOnly === true, daily: i.daily === true,
