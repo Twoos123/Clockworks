@@ -6,6 +6,7 @@
 
 import { applyArguments } from "../config/params";
 import type { Difficulty } from "./depth";
+import { rewardScale } from "./difficulty";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 
@@ -92,8 +93,9 @@ export class SpawnTables {
         const list: any[] = e.entries ?? [];
         return list.length ? sub(list[Math.floor(Math.random() * list.length)]) : e.spawnTable ? this.evaluate(e.spawnTable, ctx, depth + 1) : [];
       }
-      case "OptionalEntry": return Math.random() < (e.probability ?? 0.5) ? sub(e.entry) : [];
-      case "OptionalElseEntry": return Math.random() < (e.probability ?? 0.5) ? sub(e.entry) : sub(e.elseEntry);
+      // (modifyForDifficulty: the chance times the difficulty's reward scale, OptionalEntry.a)
+      case "OptionalEntry": return Math.random() < chance(e, ctx) ? sub(e.entry) : [];
+      case "OptionalElseEntry": return Math.random() < chance(e, ctx) ? sub(e.entry) : sub(e.elseEntry);
       case "CompoundEntry": return ((e.entries ?? []) as any[]).flatMap(sub);
       case "FirstResultEntry": {
         for (const x of e.entries ?? []) { const r = sub(x); if (r.length) return r; }
@@ -150,7 +152,9 @@ export class SpawnTables {
     const [lo, hi] = valueRange(e.entries ?? [], ctx.depth + (e.offset ?? 0));
     const floor: any = (e.floorEntries ?? [])[0];
     const mult = floor ? (floor.minValue ?? 1) + Math.random() * Math.max(0, (floor.maxValue ?? floor.minValue ?? 1) - (floor.minValue ?? 1)) : 1;
-    let value = Math.round((lo + Math.random() * (hi - lo)) * mult) + (e.valueOffset ?? 0);
+    // modifyForDifficulty: the range times the difficulty's reward scale (ValueDepthListEntry.b)
+    const k = e.modifyForDifficulty ? rewardScale(ctx.difficulty) : 1;
+    let value = Math.round((lo + Math.random() * (hi - lo)) * mult * k) + (e.valueOffset ?? 0);
     const coins = ((e.actorEntries ?? []) as any[]).filter(a => a?.entry?.actor?.name).sort((a, b) => (b.value ?? 1) - (a.value ?? 1));
     const out: SpawnResult[] = [];
     for (const c of coins) {
@@ -160,6 +164,9 @@ export class SpawnTables {
     return out;
   }
 }
+
+/** An optional entry's chance, scaled by the difficulty's reward scale when the entry asks for it. */
+const chance = (e: any, ctx: SpawnContext) => (e.probability ?? 0.5) * (e.modifyForDifficulty ? rewardScale(ctx.difficulty) : 1);
 
 /** The [min, max] value of a ValueDepthEntry curve at a depth (linear between entries). */
 export function valueRange(entries: any[], depth: number): [number, number] {
