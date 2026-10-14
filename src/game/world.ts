@@ -612,7 +612,8 @@ export class World implements LogicHost {
     ke.collisionFlags = 4;
     ke.mobile = true;
     ke.shapeConfig = { $class: "ShapeConfig$Circle", radius: KNIGHT_RADIUS };
-    ke.game = { isPawn: true };
+    // WarpActor on the knight (a boss level's platform warps the party into the hall)
+    ke.game = { isPawn: true, warp: (x: number, y: number) => { k.x = x; k.y = y; } };
     ke.x = k.x; ke.y = k.y;
     this.knightEntity = ke;
     this.logic.startActor(ke);

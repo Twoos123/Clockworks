@@ -500,6 +500,15 @@ async function setStyle(ctx: GuiContext, c: Component, sref: any, local: Map<str
   if (res[0]) c.fontFamily = await ctx.font(res[0].font);
 }
 
+/** Component.setStyleConfig(name, args...): restyles a built component at run time. */
+export async function restyle(ctx: GuiContext, c: Component, name: string, args: Record<string, unknown> = {}) {
+  const entries = Object.entries(args);
+  const sref = entries.length ? { $class: CONFIG_REF, name, arguments: { $map: "com.threerings.config.ArgumentMap", entries } } : ref(name);
+  const size = c.preferredSize;
+  await setStyle(ctx, c, sref, c.local, DEFAULT_STYLES[c.kind]);
+  if (size) c.preferredSize = size;
+}
+
 /** A part Clyde creates in code (a scroll bar's well, a tab button), styled by name. */
 async function part(ctx: GuiContext, k: CompKind, style: any, local: Map<string, any>, owner: Component | null, states = 3, dflt = DEFAULT_STYLES[k]) {
   const c = new Component(k, null);

@@ -16,7 +16,19 @@ A single-player loop runs in the browser, built from the install's own data:
 3. **Runs.** Enter the Clockworks from town. Each cached combat level is followed by a
    newly generated floor of its theme, one depth per floor. The Core's elevator returns to
    Haven; "go deeper" past the end keeps generating floors.
-4. **Generated floors** (`src/gen`).
+4. **Gate floors on the game's own levels** (`src/game/archive.ts`). Each floor of a gate is
+   an archived level of its stratum's style and theme when the player's archive has one (the
+   Clockwork Tunnels by family and status area, Wolver Dens, Candlestick Keeps, Graveyards,
+   Devilish Drudgery, Lichenous Lairs, Compounds, Battle Arenas, and the fixed sets: Jigsaw
+   Valley, Aurora Isles, Starlight Cradle, Concrete Jungle, Dark City, Scarlet Fortress); a
+   boss stratum's floors are its stages (Terrilous Trail, Roarsterous Ruins, the Snarbolax's
+   lair...); terminals, Moorcroft Manor, Emberlight and the Core are their archived scenes.
+5. **Floors from the game's prefab rooms** (`src/gen/prefabs.ts`, `src/gen/assemble.ts`,
+   docs/research/prefab-generator.md). The floors the servers generated and the client cached
+   name each prefab they were built from; the rooms are cut out of them at their corridors and
+   joined anew at matching openings (start, rooms, airlock, rooms, exit, dead ends on every
+   other opening), with their own wiring, spawners, treasure and lighting.
+6. **Generated floors** (`src/gen`), for styles with no captured prefab floors and special floors.
    - The level editor's brush libraries ship empty, so the auto-tiling is learned from the
      theme's cached levels: which tile, rotation and elevation sits in which neighbourhood.
    - Layouts are rooms joined by corridors three cells wide.
@@ -24,23 +36,23 @@ A single-player loop runs in the browser, built from the install's own data:
      Activate" area, "Single Spawn" markers with spawn tables from the sources, and treasure
      boxes.
    - The start platform, exit elevator and lighting globals come from the source levels.
-5. **Levels play by their own wiring.**
+7. **Levels play by their own wiring.**
    - Spawners and trigger areas wake waves.
    - Clearing a wave opens or closes gates.
    - Buttons and platforms send signals.
    - Gold keys unlock gold gates.
    - Monsters drop crowns, heat and items.
    - The exit elevator ends the floor.
-6. **Knockouts.** A knocked-out knight can revive for crowns (25 per depth) or give up and
+8. **Knockouts.** A knocked-out knight can revive for crowns (25 per depth) or give up and
    ride back to Haven with nothing from the floor.
-7. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
+9. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
    deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
    boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
-8. **Crafting.** The game's forge (`ui/forge`, K): recipes from `config/recipe.dat` turn
+10. **Crafting.** The game's forge (`ui/forge`, K): recipes from `config/recipe.dat` turn
    materials, crowns and a levelled base item into the next item, with the forging animation
    played by the interface's own scripts. Shops use the game's vendor and cart windows
    (`ui/shop`).
-9. **Saving.** The browser keeps:
+11. **Saving.** The browser keeps:
    - loadout, owned items and colour;
    - banked crowns, heat and materials;
    - weapon heat and the pocket;
@@ -100,14 +112,17 @@ A single-player loop runs in the browser, built from the install's own data:
    is modelled (`save.heatAmplifier`, double heat) but cannot be bought. Minerals carry no
    energy in the data; they bank as materials and sell for nothing (their uses, sprite food
    and gate themes, are not modelled).
-5. **Boss levels.** The four Clockworks bosses have their own arena floors (`src/game/bosses.ts`):
+5. **Boss levels.** The four Clockworks bosses fight on their own archived levels: the level's
+   platforms, triggers and doors bring the boss on and open the way out, and a director
+   (`src/game/bosses.ts`) takes up the boss the level spawned. Without the level, a generated arena:
    the Royal Jelly's stage chain with polyps, minis it absorbs and its rage; the Snarbolax,
    hurt only while a Beast Bell's ring has it stunned; the Roarmulus Twins, exposed only by
    each other's rockets (pressure plates raise a blast wall); Lord Vanaduke's three body
    stages and two burning masks, put out with water pots. The fights' server logic is not in
    the client data (conditions, timers and signal names are stripped), so a director per boss
-   runs it, written from the configs and the wiki's fight descriptions. The arena layouts are
-   our own (the real levels are server-streamed).
+   runs it, written from the configs and the wiki's fight descriptions. On the real levels it
+   uses their markers (the Jelly's mini spawn points, the Snarbolax's warps, the Twins' lanes
+   and toggle walls, Vanaduke's seat and sprite wells).
 6. **Guilds and PvP.** Missions are in (below), but their own levels and dialogue are
    server data: dungeon missions play as themed generated floors, briefings show our summary.
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).
