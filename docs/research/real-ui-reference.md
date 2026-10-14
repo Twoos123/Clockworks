@@ -446,3 +446,17 @@ This corrects the earlier note that the client skips the Details window: it does
        and "Monsters Ahead! / Aim at enemies with your mouse and attack with <Left Mouse>".
      - Tutorial items lie on the ground, and the path leads up the stairs, past a pool, to the
        Rescue Camp.
+
+## Options in motion: UI scale and Controls
+
+From a 16-second recording; frames are in `.scratch/vid8` (git-ignored).
+
+- **UI Scaling (Video tab):** ticking "Max!" (orange, it gains a ✓) jumps the scale to the
+  screen's largest, 130% at 1335x800.
+  - The "100%" button greys out, and the slider moves to its right end and is disabled. Its
+    label reads "130%".
+  - The whole interface redraws larger at once, the options screen and HUD included.
+  - The Display Mode dropdown shows the window size ("1335x800").
+- **Controls tab:** hovering a tile darkens it and turns its icon and label yellow. The
+  selected scheme looks the same, and in the last frame "Custom (Click to Change)" is
+  selected that way. The HUD stays visible but dimmed behind the options.
