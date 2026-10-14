@@ -21,7 +21,7 @@ import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
-import { ElevatorScreen } from "./ui/elevator";
+import { ElevatorScreen, type HeatReport, type HeatRow } from "./ui/elevator";
 import { GateBoard } from "./ui/gates";
 import { RunSummaryScreen } from "./ui/runsummary";
 import { MusicPlayer } from "./game/musicplayer";
@@ -472,6 +472,7 @@ class Viewer {
         return (c, g, x, y, ww, h) => v.draw(c, g, x, y, ww, h);
       });
       this.elevator.onShow = () => this.music.stinger("elevator");
+      this.elevator.onSound = f => this.uiSound(f);
     }
     return { loading: this.loadingScreen, elevator: this.elevator };
   }
@@ -1284,6 +1285,33 @@ class Viewer {
     return notes;
   }
 
+  /**
+   * The floor's heat report (client EndOfLevelWindow), worked out before the heat is banked: the
+   * floor's heat shared evenly between the equipped items that can take it, each row's progress
+   * toward its next level before and after; items at the top level are listed with no gain.
+   */
+  private heatReport(raw: number): HeatReport | null {
+    const eco = this.eco ?? this.world?.economy ?? null;
+    if (!eco || raw <= 0) return null;
+    const items = eco.heatedItems(this.save);
+    if (!items.length) return null;
+    const total = eco.heatGain(this.save, raw);
+    const each = total / items.length;
+    const row = (name: string, gain: number): HeatRow => {
+      const state = this.save.gear[name] ?? { heat: 0, level: 1, variants: [] };
+      const before = eco.heatProgress(this.save, name);
+      const trial = { ...this.save, gear: { ...this.save.gear, [name]: { ...state, variants: [...(state.variants ?? [])], heat: state.heat + gain } } };
+      eco.levelUp(trial, name);
+      const levelUp = trial.gear[name].level > state.level;
+      const icon = eco.info(name)?.icon;
+      return { name: eco.displayName(name, state), icon: icon?.file ?? "ui/icon/inventory/blank.png", colorizations: icon?.colorizations ?? [],
+        level: state.level, before, after: levelUp ? 1 : eco.heatProgress(trial, name), levelUp };
+    };
+    const l = this.save.loadout;
+    const maxed = [...new Set([...l.weapons, l.shield, l.armor, l.helmet])].filter(n => n && !items.includes(n) && this.save.owned.includes(n) && eco.info(n)?.heatable);
+    return { total: Math.round(total), rows: [...items.map(n => row(n, each)), ...maxed.map(n => row(n, 0))] };
+  }
+
   /** The knight reached the exit elevator: offer the next floor. */
   private floorCleared() {
     if (!this.world) return;
@@ -1299,8 +1327,9 @@ class Viewer {
       });
       return;
     }
-    // bank what the floor gave
+    // bank what the floor gave (the heat report is read first, from the items' heat before)
     const l = this.world.loot;
+    const heat = this.heatReport(l.heat);
     const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
     recordKills(this.save, this.world.killCount);
@@ -1321,7 +1350,7 @@ class Viewer {
       void elevator.show({
         title: `Depth ${this.run.depth} cleared`,
         next: next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally,
+        tally, heat,
         advance: { label: next ? "Advance" : "Ride Up", run: () => void this.descend() },
         quit: next ? { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } } : null,
       });
@@ -1335,7 +1364,7 @@ class Viewer {
       void elevator.show({
         title: nl ? `Depth ${this.run.depth} cleared` : "Back to Haven",
         next: nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : deeper ? { title: "Deeper", zone: "A new floor below the Core", depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally,
+        tally, heat,
         advance: { label: nl || deeper ? "Advance" : "Ride Up", run: () => void this.descend(deeper) },
         quit: deeper ? { run: () => void this.descend() } : null,
       });
