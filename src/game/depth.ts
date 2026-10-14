@@ -54,9 +54,15 @@ export class DepthScales {
     if (!ref?.name || depthLimit <= 0) return 0;
     const base = this.table.get(ref.name);
     if (!base) return 0;
-    const impl = applyArguments(base, ref).implementation;
+    const cfg = applyArguments(base, ref);
+    // a DerivedConfig (most named scales: "Sword Base +05" is Base/Damage Multiplier with its
+    // arguments) evaluates its base reference, the caller's arguments over the base's own
+    if (String(cfg.$class ?? "").endsWith("DerivedConfig")) return this.evaluate(derivedRef(cfg.base, ref), ctx, depthLimit - 1);
+    // DepthScaleConfig holds its tree in root (no implementation field); an implementation
+    // wrapper is accepted for hand-built test configs
+    const impl = cfg.implementation;
     if (kind(impl) === "Derived") return this.evaluate(impl.depthScale, ctx, depthLimit - 1);
-    return this.node(impl?.root, ctx, depthLimit - 1);
+    return this.node(cfg.root ?? impl?.root, ctx, depthLimit - 1);
   }
 
   private node(n: any, ctx: DepthContext, lim: number): number {
@@ -165,4 +171,16 @@ function segmented(segs: any[], depth: number) {
     if (depth <= d1) return d1 === d0 ? v1 : v0 + (v1 - v0) * (depth - d0) / (d1 - d0);
   }
   return pts[pts.length - 1][1];
+}
+
+/** A DerivedConfig's base reference with the referring config's arguments laid over its own. */
+function derivedRef(base: any, outer: any): any {
+  const extra: [unknown, unknown][] = outer?.arguments?.entries ?? [];
+  if (!base || !extra.length) return base;
+  const entries: [unknown, unknown][] = [...(base.arguments?.entries ?? [])];
+  for (const [k, v] of extra) {
+    const i = entries.findIndex(([n]) => n === k);
+    if (i >= 0) entries[i] = [k, v]; else entries.push([k, v]);
+  }
+  return { ...base, arguments: { ...(base.arguments ?? { $map: "com.threerings.config.ArgumentMap" }), entries } };
 }
