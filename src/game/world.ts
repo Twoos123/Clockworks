@@ -556,7 +556,7 @@ export class World implements LogicHost {
   }
 
   /** Arena state: the current wave, the pause before the next, and its monster family. */
-  arena: { wave: number; timer: number; family: string } | null = null;
+  arena: { wave: number; timer: number; family: string; held?: boolean } | null = null;
   /** A safe place (a town, the Rescue Camp): the knight carries no weapons and raises no shield. */
   safe = false;
   /** Called every fifth arena wave cleared (a checkpoint to bank or carry on). */
@@ -995,8 +995,10 @@ export class World implements LogicHost {
         this.onOpenShop?.(source.name, model?.name ? { ref: model, idle } : null);
         return true;
       }
-      case "OpenCrafter":
-        // an alchemy machine (CraftActionConfig$OpenCrafter): the crafting window
+      case "OpenCrafter": case "OpenCatalogCrafter": case "OpenGuildCatalogCrafter":
+        // an alchemy machine (CraftActionConfig$OpenCrafter): the crafting window; Haven's
+        // sprite food machine and the event and guild obelisks (OpenCatalogCrafter and its guild
+        // kind, whose catalogue of recipes the server fills) open it too
         if (activator === this.knightEntity) this.onOpenCrafter?.(source.name);
         return true;
       case "NextFloor":
@@ -1061,8 +1063,10 @@ export class World implements LogicHost {
       // a wave was just cleared
       this.loot.crowns += 10 * a.wave;
       this.floaters.push({ x: this.knight.x, y: this.knight.y, z: this.knight.z + 2, text: `Wave ${a.wave} cleared  +${10 * a.wave} cr`, color: "#ffd84d", age: 0 });
-      if (a.wave % 5 === 0) { a.timer = 2.99; this.onArenaCheckpoint?.(a.wave); return; }
+      // every fifth wave the next waits on the checkpoint window (continueArena)
+      if (a.wave % 5 === 0) { a.timer = 2.99; a.held = true; this.onArenaCheckpoint?.(a.wave); return; }
     }
+    if (a.held) return;
     a.timer -= dt;
     if (a.timer > 0) return;
     a.wave++;
@@ -1097,7 +1101,7 @@ export class World implements LogicHost {
   }
 
   /** Resumes the arena after a checkpoint. */
-  continueArena() { if (this.arena) this.arena.timer = 2; }
+  continueArena() { if (this.arena) { this.arena.timer = 2; this.arena.held = false; } }
 
   /** Spawn tables have tiers by depth (1 to 8, 9 to 17, 18 and below). */
   /** The Clockworks tier of the current depth (tier 2 starts at Moorcroft Manor, depth 8). */
@@ -2864,7 +2868,7 @@ export class World implements LogicHost {
     // the server's ActionDesc.Shop for what opens goods (a shop, an alchemy machine, the
     // exchange): "Press ATTACK to browse vendor goods", as the client shows at both
     const vendor = (p: Prop | Monster) => p.entity?.handlers.some(h => h.kind === "Interaction"
-      && (/\$(OpenShop|OpenCrafter|OpenExchange)$/.test(String(h.cfg.action?.$class ?? "")) || (h.cfg.action?.actions ?? []).some((a: any) => /\$(OpenShop|OpenExchange)$/.test(String(a?.$class ?? "")))
+      && (/\$(OpenShop|OpenCrafter|OpenCatalogCrafter|OpenGuildCatalogCrafter|OpenExchange)$/.test(String(h.cfg.action?.$class ?? "")) || (h.cfg.action?.actions ?? []).some((a: any) => /\$(OpenShop|OpenExchange)$/.test(String(a?.$class ?? "")))
         || (h.cfg.action == null && /Spiral Quartermaster$/.test(p.entity?.name ?? "")))) ?? false;
     const target = (p: Prop | Monster, cfg: any, fallback: string) =>
       ({ hint: actionHint(cfg?.actionDesc, vendor(p) ? "m.shop" : fallback), desc: this.describe(p.entity?.name ?? "", cfg) });

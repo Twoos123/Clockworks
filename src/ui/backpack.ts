@@ -12,7 +12,8 @@ import type { GameData } from "../game/data";
 import type { Economy } from "../game/economy";
 import { catalogue, type ItemEntry } from "../game/items";
 import type { Outfit } from "../game/outfit";
-import type { SaveData } from "../game/save";
+import { energyOf, type SaveData } from "../game/save";
+import { energyNow } from "../game/energy";
 import { text } from "../i18n";
 import type { Component } from "./gui";
 import { ownedGroups } from "./equipment";
@@ -84,8 +85,10 @@ export class BackpackScreen extends GuiScreen {
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly pack: BackpackHost) {
     super(ctx, pack, "backpackCanvas");
-    // item/client/i: the inventory window sits at the screen's right
+    // item/client/i: the inventory window sits at the screen's right, full height, with the
+    // HUD's energy panel under it
     this.dockRight = true;
+    this.energy = () => energyNow(energyOf(this.pack.save()));
   }
 
   protected async build(): Promise<Component | null> {

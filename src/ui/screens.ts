@@ -10,8 +10,8 @@
 // The client's windows stand side by side: the arsenal at the screen's right edge, the loadouts
 // left of it (bL.Cj), the forge at the left. Here each window is the install's own interface on
 // its own canvas, and the arsenal and loadouts dock into the window already open (the forge,
-// crafting, the loadouts, the character window) instead of replacing it. The game pauses while
-// one is open. This keeps main.ts's hooks small: it hands over the save and a few callbacks.
+// crafting, the loadouts, the character window) instead of replacing it. The game goes on behind
+// them, as the online client's does. This keeps main.ts's hooks small: it hands over the save and a few callbacks.
 
 import type { ColorPository } from "../colors";
 import type { GameData } from "../game/data";
@@ -36,8 +36,8 @@ export interface ScreensHost {
   /** Writes the save after a change. */
   write(): void;
   sound(file: string): void;
-  /** A window opened (pause) or every window closed (resume). */
-  paused(on: boolean): void;
+  /** Every window closed (the game canvas takes the keys back). */
+  allClosed(): void;
   colors: Promise<ColorPository | null>;
   /** Draws the knight preview into a RenderableView. */
   view?(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, model?: ViewModel): void;
@@ -87,7 +87,7 @@ export class GameScreens {
 
   closeAll() { for (const s of this.all()) s.close(); }
 
-  private closed = () => { if (!this.isOpen) this.host.paused(false); };
+  private closed = () => { if (!this.isOpen) this.host.allClosed(); };
 
   private base() {
     const h = this.host;
@@ -158,14 +158,12 @@ export class GameScreens {
   /** Opens a shopkeeper's shop with its stock. */
   async openShop(title: string, stock: StockItem[], maxRarity: number, portrait: any = null, subtitle = "") {
     for (const o of this.all()) if (o !== this.shop) o.close();
-    this.host.paused(true);
     await this.shop.openFor(title, stock, maxRarity, portrait, subtitle);
   }
 
   /** Opens a window, closing any other. */
   private async open(s: GuiScreen) {
     for (const o of this.all()) if (o !== s) o.close();
-    this.host.paused(true);
     await s.open();
   }
 
@@ -201,6 +199,11 @@ export class GameScreens {
   toggleForge() { return this.toggleHost(this.forge); }
   /** F5: crafting (the arsenal opens beside it whatever). */
   toggleRecipes() { return this.toggleHost(this.recipes, [LOADOUTS]); }
+  /**
+   * An alchemy machine (CraftActionConfig$OpenCrafter): the crafting window with the arsenal
+   * beside it; using the machine again while it is up leaves it open (it does not toggle).
+   */
+  async openCrafter() { if (!this.recipes.isOpen) await this.toggleRecipes(); }
 
   /** L: the loadouts, docked into the open forge, crafting or character window, else on their own. */
   async toggleLoadouts() {

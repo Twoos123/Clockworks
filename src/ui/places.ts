@@ -56,7 +56,6 @@ export interface PlacesHost extends FurnitureHost {
   /** The economy (the guild storages list items as the arsenal does). */
   eco(): Promise<Economy>;
   returnToHaven(): void;
-  pause(on: boolean): void;
   focus(): void;
 }
 
@@ -107,7 +106,7 @@ export class Places {
       openFurniture: () => void this.openFurniture(),
       furnish: cached => void this.furnish(cached),
       inHall: () => this.inHall(),
-      onClose: () => { host.pause(false); host.focus(); },
+      onClose: () => host.focus(),
     });
     this.create = new CreateKnight(host.gui(), {
       gear: async () => {
@@ -297,7 +296,7 @@ export class Places {
       case "button_readyroom": void this.readyRoom(); return true;
       // in the Ready Room the Haven activity leaves it (client hud/b: the "readyroom" case)
       case "button_haven": if (!this.staged(this.host.scene()?.id)) return false; void this.leaveReadyRoom(); return true;
-      case "guild_window": this.host.pause(true); this.guild.open(); return true;
+      case "guild_window": this.guild.open(); return true;
       default: return false;
     }
   }
