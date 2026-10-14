@@ -84,6 +84,27 @@
   }
 
   const knightProjectiles = () => W().projectiles.some(p => p.team === "knight" && !p.done);
+  /** How far the knight is from a spot, and what its attacks' impulses add up to (their forward units). */
+  const travel = from => +Math.hypot(W().knight.x - from[0], W().knight.y - from[1]).toFixed(2);
+  const impulseOf = attacks => +attacks.reduce((s, a) => s + (a?.impulse?.forward ?? 0), 0).toFixed(2);
+
+  /**
+   * The blocks the blocks sweep breaks: one of each sprite kind and family (plain breakables
+   * with their destruction particles, the stone's cracking models, a mineral node's hit
+   * animations, crystals, treasure, a hedgehog, an explosive), with the arguments their
+   * placeables give them.
+   */
+  const BLOCKS = [
+    { name: "Block/Breakable/Parts/Clockworks (base)", args: [["Texture", "world/dynamic/block/breakable/clockworks/base.png"]] },
+    { name: "Block/Breakable/Graveyard" },
+    { name: "Block/Breakable/Shrub" },
+    { name: "Block/Stone" },
+    { name: "Block/Mineral/Crimsonite Node" },
+    { name: "Block/Crystal/Blue" },
+    { name: "Block/Treasure" },
+    { name: "Block/Barbed Hedgehog" },
+    { name: "Block/Explosive" },
+  ];
 
   /** What the audit's log saw since it was reset, for one run. */
   function runLog(who) {
@@ -122,6 +143,7 @@
       let dummy = await placeDummy(dist);
       if (!dummy) { rec.error = "no dummy"; return rec; }
       const aim = () => [dummy.x, dummy.y];
+      const home = [k.x, k.y];
 
       // the basic chain (a gun until its clip is spent and it reloads)
       const presses = def.kind === "Sword" ? def.attacks.length : Math.max(def.attacks.length, def.maxChain || 1);
@@ -140,13 +162,14 @@
       await step(4, drive, () => pressed >= presses && !k.attack && !knightProjectiles());
       await step(1, () => ({ aim: aim() }));
       await sleep(300);
-      rec.chain = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight") };
+      rec.chain = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), travel: travel(home), impulse: impulseOf(def.attacks.slice(0, presses)) };
 
       // a full charge and release
       if (def.chargedAttack) {
         fresh();
         dummy = await placeDummy(dist);
         if (!dummy) { rec.error = "no dummy"; return rec; }
+        const start = [k.x, k.y];
         await step(DT, { attackDown: true, attackHeld: true, aim: aim() });
         let chargePose = null;
         const full = await step(def.chargeTime / 1000 + 4, () => ({ aim: aim() }), () => {
@@ -162,7 +185,7 @@
         await step(4, () => ({ aim: aim() }), () => !k.attack && !knightProjectiles());
         await step(1, () => ({ aim: aim() }));
         await sleep(300);
-        rec.charge = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), full, pose: chargePose };
+        rec.charge = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), full, pose: chargePose, travel: travel(start), impulse: impulseOf([def.chargedAttack]) };
       }
       R().clearAll();
       return rec;
@@ -248,6 +271,51 @@
         rec.deathEffects = A().log().effects.slice(fx0).map(e => `${e.ref}${e.loaded === false ? " (failed)" : ""}`);
       }
       R().clearAll();
+      return rec;
+    },
+
+    /**
+     * Each block of BLOCKS placed ahead of the knight and struck through the world's own prop
+     * damage until it breaks: a shot after each hit and two of the break, with the effects each
+     * spawned (hit transients, the destruction transient and what its script spawns).
+     */
+    async blocks() {
+      const w = W();
+      const rec = { blocks: [], shots: [], console: [], problems: [] };
+      for (const b of BLOCKS) {
+        fresh();
+        const short = b.name.replace(/^Block\//, "");
+        const p = await R().placeBlock(b.name, 1.6, b.args);
+        if (!p) { rec.blocks.push({ name: b.name, error: "not placed" }); continue; }
+        const sp = p.cfg.sprite ?? {};
+        const one = { name: b.name, hits: p.health, broke: false, hasHitFx: !!sp.hitTransient, hasBreakFx: !!sp.destructionTransient, hitEffects: [], breakEffects: [], states: [] };
+        rec.blocks.push(one);
+        await step(0.5, () => ({}));
+        await sleep(300);
+        rec.shots.push(await shot(`${short}: before`, null));
+        const fxOf = n0 => A().log().effects.slice(n0).map(e => `${e.ref}${e.loaded === false ? " (failed)" : ""}`);
+        for (let i = 0; i < 6 && w.props.includes(p) && !p.entity.destroyed; i++) {
+          const n0 = A().log().effects.length;
+          w.damageProp(p, 1000, 2);
+          if (p.entity.destroyed) {
+            one.broke = true;
+            await step(0.12, () => ({}));
+            rec.shots.push(await shot(`${short}: break`, null));
+            await step(0.25, () => ({}));
+            rec.shots.push(await shot(`${short}: break +0.4`, null));
+            await sleep(300);
+            one.breakEffects = fxOf(n0);
+          } else {
+            await step(0.15, () => ({}));
+            await sleep(200);
+            one.hitEffects.push(fxOf(n0));
+            one.states.push(p.instance ? `${p.instance.model.path}: ${playing(p.instance)}` : "no model");
+            rec.shots.push(await shot(`${short}: hit ${i + 1}`, null));
+            await step(0.3, () => ({}));
+          }
+        }
+      }
+      fresh();
       return rec;
     },
 

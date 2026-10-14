@@ -260,6 +260,11 @@ export class DungeonObjects {
     return h?.mask ?? p.cfg.damageMask ?? 3;
   }
 
+  /** Whether a hit from `by` (1 hazard, 2 knight) strikes the prop at all (its damage mask). */
+  accepts(p: Prop, by: number): boolean {
+    return (this.damageMask(p) & by) !== 0;
+  }
+
   /**
    * A hit on a dungeon object from `by` (1 hazard, 2 knight). True when the object handled
    * it; false to let the default block damage run.
