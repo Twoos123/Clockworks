@@ -13,13 +13,16 @@ import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
 import { catalogue } from "./game/items";
-import { energyOf, knightName, loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import { addKnight, deleteKnight, energyOf, gameRoster, knightName, loadSave, namedKnights, saveRoster, selectKnight, shopTier, writeSave, type SaveData } from "./game/save";
 import { energyNow, exchangeCost, payEnergy, SPARK_COST } from "./game/energy";
 import { ECONOMY_FILES, Economy } from "./game/economy";
 import { Places } from "./ui/places";
 import { GameScreens } from "./ui/screens";
 import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
+import { PickScreen, type KnightCard } from "./ui/pick";
+import { PrologueScreen } from "./ui/prologue";
+import { dressArgs, emptyAppearance, resolveDressing } from "./game/accessories";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen, type HeatReport, type HeatRow } from "./ui/elevator";
@@ -60,7 +63,7 @@ import { EventHubScreen } from "./ui/eventhub";
 import { FEED_BOSS, logFeed } from "./game/feed";
 import { TooSmallWarning } from "./ui/toosmall";
 import { itemTip } from "./ui/itemlist";
-import { cachedHallId, GUILD_HALL, READY_ROOM } from "./game/places";
+import { cachedHallId, CREATE_KNIGHT, GUILD_HALL, READY_ROOM } from "./game/places";
 import { HelpScreen } from "./ui/help";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
 import { readConversation } from "./game/conversation";
@@ -356,6 +359,12 @@ class Viewer {
       this.canvas.focus();
     };
     const typing = () => document.activeElement instanceof HTMLInputElement && document.activeElement.type !== "checkbox";
+    // the log-on, knight select and prologue screens: Escape closes a prompt, or skips the prologue
+    addEventListener("keydown", e => {
+      const s = this.glScreen();
+      if (!s || e.key !== "Escape" || this.options?.isOpen) return;
+      if (s.escape()) e.preventDefault();
+    });
     addEventListener("keydown", e => {
       if (!this.world || typing()) return;
       if (this.places.key(e)) { e.preventDefault(); return; }
@@ -373,6 +382,8 @@ class Viewer {
       const key = e.key.toLowerCase(), b = (a: Action) => key === this.bound(a);
       // on a stage (the Ready Room) only the HUD's commands answer: there is no knight to steer
       if (this.staged) {
+        // knight creation answers only its own window: no arsenal, no menus
+        if (this.places.create.isOpen) return;
         if (!e.repeat) for (const [a, run] of Object.entries(this.commands()) as [Action, () => void][]) {
           if (b(a)) { if (/^f\d+$/.test(key)) e.preventDefault(); run(); }
         }
@@ -513,23 +524,151 @@ class Viewer {
     return loading;
   }
 
-  /** The title screen over Haven (the game app's start; the asset viewer lives behind #viewer). */
+  private pick: PickScreen | null = null;
+  private prologue: PrologueScreen | null = null;
+
+  /** The full-screen interface on the game canvas (log-on, knight select, prologue), if one is up. */
+  private glScreen(): TitleScreen | PickScreen | PrologueScreen | null {
+    for (const s of [this.prologue, this.pick, this.title]) if (s?.visible) return s;
+    return null;
+  }
+
+  /**
+   * The log-on screen (the game app's start; the asset viewer lives behind #viewer), as the
+   * client's startup shows it: ui/logon over the Cradle skybox, with title.ogg.
+   */
   private async enterTitle() {
     document.body.classList.add("game");
     this.music.title();
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    this.title ??= new TitleScreen(this.gui, $<HTMLCanvasElement>("titleCanvas"), {
-      play: () => {
-        this.uiSound("sound/feedback/ui_confirm.ogg"); this.title?.hide();
-        // a fresh save makes its knight first, then enters Haven
-        if (this.places.needsKnight()) void this.places.startCreation(); else void this.startPlaying();
-      },
-      options: () => void this.openOptions(),
-      viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
-    });
-    const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
-    if (haven && this.scene?.id !== haven.id) await this.selectScene(haven.id);
+    if (!this.title) {
+      this.title = new TitleScreen(this.gui, this.renderer, this.loader, "titleScreen");
+      this.title.sound = f => this.uiSound(f);
+      this.title.actions = {
+        play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.logOn(); },
+        options: () => void this.openOptions(),
+        quit: () => {
+          // a browser tab closes itself only when a script opened it
+          window.close();
+          this.title?.setStatus("Close this tab to quit.");
+        },
+        viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
+      };
+    } else this.title.replay();
+    this.pick?.hide();
+    this.prologue?.hide();
+    const n = namedKnights(gameRoster()).length;
+    this.title.setStatus(n ? `${n} knight${n === 1 ? "" : "s"} saved in this browser` : "");
     await this.title.show();
+  }
+
+  /**
+   * Log On (ProjectXApp.Gx): an account with knights goes to the knight select window (client
+   * cB); one with none plays the prologue (dK) and then knight creation.
+   */
+  private logOn() {
+    if (namedKnights(gameRoster()).length) void this.showPick();
+    else this.newKnight();
+  }
+
+  /** The knight select window with the roster's knights. */
+  private async showPick() {
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    if (!this.pick) {
+      this.pick = new PickScreen(this.gui, this.renderer, this.loader, "pickScreen");
+      this.pick.sound = f => this.uiSound(f);
+      this.pick.actions = {
+        choose: slot => void this.playKnight(slot),
+        create: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.newKnight(); },
+        remove: slot => {
+          const r = gameRoster(), gone = r.knights[slot];
+          deleteKnight(r, slot);
+          saveRoster();
+          if (gone === this.save) this.save = loadSave();
+          if (namedKnights(r).length) void this.showPick(); else void this.enterTitle();
+        },
+        back: () => { this.uiSound("sound/feedback/ui_dismiss.ogg"); void this.enterTitle(); },
+      };
+    }
+    this.music.title();
+    const cards = await Promise.all(namedKnights(gameRoster()).map(async ({ slot, save }): Promise<KnightCard> => ({
+      slot, save, name: knightName(save), rank: rankLabel(progressOf(save)), guild: save.guild?.name ?? "",
+      look: await this.knightLook(save).catch(() => [["Colorization", save.color]] as [string, any][]),
+    })));
+    this.title?.hide();
+    this.prologue?.hide();
+    await this.pick.setKnights(cards);
+  }
+
+  /**
+   * A knight's look as model arguments for the knight select cards: its colour, its armour and
+   * helmet (the proto parts without), its shield, and its costumes and accessories.
+   */
+  private async knightLook(save: SaveData): Promise<[string, any][]> {
+    const data = this.world?.data ?? new GameData(this.loader);
+    const ref = (name: string, args: [string, unknown][]) => ({ $class: "com.threerings.config.ConfigReference", name,
+      arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } });
+    const colored = (r: any) => !r?.arguments?.entries?.some(([k]: [string]) => k === "Colorization") ? r
+      : { ...r, arguments: { ...r.arguments, entries: r.arguments.entries.map(([k, v]: [string, unknown]) => [k, k === "Colorization" ? save.color : v]) } };
+    const args: [string, any][] = [["Colorization", save.color]];
+    const armor = save.loadout.armor ? await data.armor(save.loadout.armor) : null;
+    const helmet = save.loadout.helmet ? await data.armor(save.loadout.helmet) : null;
+    args.push(["Armor", colored(armor?.model ?? ref("item/gear/armor/doublebelt/model.dat", [["Colorization", save.color], ["Variant", "grey"]]))]);
+    args.push(["Helmet", colored(helmet?.model ?? ref("item/gear/helm/pith/model.dat", [["Colorization", save.color], ["Variant", "grey"]]))]);
+    const shield = save.loadout.shield ? await data.shield(save.loadout.shield).catch(() => null) : null;
+    if (shield?.model) args.push(["Shield", shield.model]);
+    const dressing = await resolveDressing(data, save.appearance ?? emptyAppearance()).catch(() => null);
+    return dressing ? dressArgs(args, dressing, save.color) : args;
+  }
+
+  /** Plays as a knight from the select window: its save, in Haven. */
+  private async playKnight(slot: number) {
+    const r = gameRoster();
+    const save = selectKnight(r, slot);
+    if (!save) { this.pick?.ready(); return; }
+    saveRoster();
+    this.uiSound("sound/feedback/ui_confirm.ogg");
+    this.save = save;
+    this.run = { depth: 1, health: null, floors: 0 };
+    this.gate = null;
+    const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+    this.pick?.hide();
+    this.title?.hide();
+    this.stopPlaying();
+    if (haven) await this.selectScene(haven.id);
+    await this.startPlaying();
+  }
+
+  /**
+   * A new knight (Create a Knight, or Log On with none): a slot for it, then the prologue
+   * (client dK, with prologue_audio_only.ogg), then knight creation at the crash site.
+   */
+  private newKnight() {
+    const r = gameRoster();
+    if (addKnight(r) < 0) { this.pick?.ready(); return; }
+    saveRoster();
+    this.save = r.knights[r.current];
+    this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
+    if (!this.prologue) {
+      this.prologue = new PrologueScreen(this.gui, this.renderer, this.loader, "prologueScreen");
+      this.prologue.sound = f => this.uiSound(f);
+      this.prologue.onDone = () => {
+        // dK.wasRemoved: the title music again, under knight creation
+        this.music.title();
+        void this.places.startCreation();
+      };
+    }
+    this.title?.hide();
+    this.pick?.hide();
+    this.music.prologue();
+    void this.prologue.play();
+  }
+
+  /** Knight creation's Back: the knight select window when there are knights, else the log-on screen. */
+  private leaveCreation() {
+    this.places.create.close();
+    this.stopPlaying();
+    if (namedKnights(gameRoster()).length) void this.showPick(); else void this.enterTitle();
   }
 
   private instanceOf(model: LoadedModel): Promise<ModelInstance> {
@@ -802,7 +941,8 @@ class Viewer {
     world.pocket = this.save.pocket;
     await this.outfit.dress(world);
     // towns and the Rescue Camp are safe places: the knight walks them unarmed
-    await world.start(spawn, this.save.loadout, TOWN.test(this.scene.name));
+    // (the creator's knight at the crash site holds the starter sword and shield, client S)
+    await world.start(spawn, this.save.loadout, TOWN.test(this.scene.name) && this.scene.id !== CREATE_KNIGHT);
     if (arrival && !this.places.spawn(this.scene.id)) world.knight.heading = arrival.heading;
     if (resume && !this.places.spawn(this.scene.id)) world.knight.heading = resume.heading;
     this.eco ??= world.economy;
@@ -914,6 +1054,8 @@ class Viewer {
 
   private stopPlaying() {
     if (!this.world) return;
+    // the time played so far goes into the knight's save
+    if (this.save.knight) writeSave(this.save);
     this.conversation?.end();
     this.outfit.leave(this.world);
     this.world = null;
@@ -1228,6 +1370,7 @@ class Viewer {
       const haven = camp ?? this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
       if (haven) void (async () => { this.stopPlaying(); await this.selectScene(haven.id); await this.startPlaying(); })();
     };
+    places.onCreationBack = () => this.leaveCreation();
     return places;
   }
 
@@ -2262,6 +2405,8 @@ class Viewer {
       }
       // furniture mode: clicks place, pick up and drop furniture instead of attacking
       if (this.world && this.places.pointerDown(e.button)) return;
+      // knight creation: holding the left button on the scene turns the knight
+      if (this.staged && this.places.create.isOpen && e.button === 0) { this.turning = true; c.setPointerCapture(e.pointerId); return; }
       // a stage's knight takes no orders and its camera does not turn
       if (this.staged) return;
       if (this.world && (e.button === 0 || e.button === 2)) {
@@ -2286,6 +2431,7 @@ class Viewer {
       c.setPointerCapture(e.pointerId);
     });
     const release = (e: PointerEvent) => {
+      if (e.button === 0) this.turning = false;
       if (this.options_.mouseMove) {
         if (e.button === 0) this.mouseMoveHeld = false;
         if (e.button === 2) this.attackHeld = false;
@@ -2295,10 +2441,17 @@ class Viewer {
       if (e.button === 2) this.shieldHeld = false;
     };
     c.addEventListener("pointerup", release);
-    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; this.mouseMoveHeld = false; });
+    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; this.mouseMoveHeld = false; this.turning = false; });
     c.addEventListener("pointermove", e => {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
+      // knight creation: the scene shows the turning arrows (client T: the arrow cursor turned
+      // to point at the side the knight will turn toward)
+      if (this.staged && this.places.create.isOpen && this.world) {
+        const side = this.places.canTurn() ? this.screenSide(this.world.knight) : 0;
+        c.style.cursor = side ? this.turnCursor(side) : "";
+        return;
+      }
       // hovering the HUD's buttons
       const s = uiScale(this.options_);
       if (this.gameHud) { this.gameHud.pointer(this.mouse[0] / s, this.mouse[1] / s, false); c.style.cursor = this.gameHud.covers(this.mouse[0] / s, this.mouse[1] / s) ? "pointer" : ""; }
@@ -2322,23 +2475,74 @@ class Viewer {
     c.addEventListener("wheel", e => { e.preventDefault(); if (!this.staged) this.dist *= Math.exp(e.deltaY * 0.0012); }, { passive: false });
   }
 
+  /** The left button is held on the knight creation scene (the knight turns). */
+  private turning = false;
+
+  /** Which side of the knight the pointer is on, on screen: -1 left, +1 right (0 unknown). */
+  private screenSide(k: { x: number; y: number; z: number }): number {
+    if (!this.mouse || !this.lastProj || !this.lastView) return 0;
+    const m = multiplyMat(this.lastProj, this.lastView);
+    const cx = m[0] * k.x + m[4] * k.y + m[8] * (k.z + 1) + m[12], cw = m[3] * k.x + m[7] * k.y + m[11] * (k.z + 1) + m[15];
+    if (cw <= 0) return 0;
+    const sx = (cx / cw * 0.5 + 0.5) * this.canvas.clientWidth;
+    return this.mouse[0] < sx ? -1 : 1;
+  }
+
+  private turnCursors: Record<string, string> = {};
+  /**
+   * The turning cursor (client dt.s): ui/cursor/arrow.png turned by -pi/2 (left) or -3pi/2
+   * (right) plus pi/4, its hot spot at the arrow's tip.
+   */
+  private turnCursor(side: number): string {
+    const key = side < 0 ? "l" : "r";
+    if (this.turnCursors[key] !== undefined) return this.turnCursors[key];
+    this.turnCursors[key] = "ew-resize";
+    void this.gui?.image("ui/cursor/arrow.png").then(im => {
+      if (!im) return;
+      const w = im.width, h = im.height, a = (side < 0 ? 8 : 24) * (-Math.PI / 16);
+      const cv = document.createElement("canvas");
+      cv.width = w; cv.height = h;
+      const g = cv.getContext("2d")!;
+      g.translate(w / 2, h / 2);
+      g.rotate(a + Math.PI / 4);
+      g.translate(-w / 2, -h / 2);
+      g.drawImage(im.source, 0, 0);
+      const r = w * Math.SQRT2 * 0.25;
+      const hx = Math.round(w / 2 + r * Math.sin(a)), hy = Math.round(h / 2 - r * Math.cos(a));
+      this.turnCursors[key] = `url(${cv.toDataURL()}) ${Math.max(0, Math.min(w - 1, hx))} ${Math.max(0, Math.min(h - 1, hy))}, ew-resize`;
+    }).catch(() => {});
+    return this.turnCursors[key];
+  }
+
   private frame = (now: number) => {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1) * this.options_.renderScale;
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    // the log-on screen, the knight select window and the prologue are the whole screen
+    const screen = this.glScreen();
+    if (screen) {
+      try { screen.draw(dt); } catch (e) { console.error("screen draw failed", e); }
+      requestAnimationFrame(this.frame);
+      return;
+    }
     if (this.instance || this.sceneItems) {
       if (!this.paused) {
         if (this.instance) this.instance.time += dt;
         // shared instances appear in several placements; advance each clock once per frame
         for (const it of this.sceneItems ?? []) it.instance.time += dt / (this.shares.get(it.instance) ?? 1);
       }
-      // the title screen's camera drifts slowly around the town
-      if (!this.world && this.title?.visible) this.az += dt * 0.04;
+      // time played as this knight (the knight select card's "Played"), saved with its save
+      if (this.world && !this.paused && this.save.knight) this.save.played = (this.save.played ?? 0) + dt;
       if (this.world && this.staged) {
-        // a stage (the Ready Room): the knight holds its pose and the camera its place
+        // a stage (the Ready Room, knight creation): the knight holds its pose and the camera its place
         if (!this.paused) this.world.update(dt, { move: [0, 0], attackDown: false, attackHeld: false, shield: false, aim: null, weaponSlot: null, interact: false, dash: false, bash: false });
+        // knight creation: the mouse held on the scene turns the knight (client T)
+        if (this.turning && this.mouse && this.places.canTurn()) {
+          const side = this.screenSide(this.world.knight);
+          if (side) this.places.turnKnight(side, dt);
+        }
         this.attackPressed = this.dashPressed = this.bashPressed = this.interactPressed = false;
         this.weaponSlot = null;
         const k = this.world.knight, off = this.cam?.to.offset ?? [0, 0, 1];

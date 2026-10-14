@@ -218,7 +218,11 @@ const isSkyQueue = (q: string) => q === "Skybox" || q === "Skybox (Fov Standard)
  * in world orientation. Its skybox-queue parts draw behind everything; any others (rain and fog
  * overlays) draw with the level at that camera-relative place.
  */
-export interface SkyboxItem { instance: ModelInstance; scale: Vec3; origin: Vec3 }
+export interface SkyboxItem {
+  instance: ModelInstance; scale: Vec3; origin: Vec3;
+  /** Its orientation and scale (an interface view's model transform); world-aligned when absent. */
+  basis?: Mat4;
+}
 
 /** Which parts a placement draws: all, one skybox queue only, or everything but skybox queues. */
 type QueueFilter = string | undefined;
@@ -757,14 +761,27 @@ export class Renderer {
    */
   drawAll(items: { instance: ModelInstance; matrix: Mat4 }[], proj: Mat4, view: Mat4,
     env: Environment = VIEWER_ENVIRONMENT, skyboxes: SkyboxItem[] = [],
-    target?: { width: number; height: number; clear: [number, number, number, number] }) {
+    target?: { width: number; height: number; clear: [number, number, number, number] },
+    /**
+     * An interface view's rectangle on the canvas (GL pixels, bottom-left origin): drawn there
+     * over what the canvas holds, only depth cleared, as Clyde's RenderableView draws.
+     */
+    region?: { x: number; y: number; width: number; height: number }) {
     const gl = this.gl;
-    const w = target?.width ?? this.canvas.width, h = target?.height ?? this.canvas.height;
-    gl.viewport(0, 0, w, h);
+    const w = region?.width ?? target?.width ?? this.canvas.width, h = region?.height ?? target?.height ?? this.canvas.height;
     const bg = env.background ?? [0.16, 0.18, 0.22];
-    if (target) gl.clearColor(...target.clear);
-    else gl.clearColor(bg[0], bg[1], bg[2], 1);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (region) {
+      gl.viewport(region.x, region.y, w, h);
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(region.x, region.y, w, h);
+      gl.depthMask(true);
+      gl.clear(gl.DEPTH_BUFFER_BIT);
+    } else {
+      gl.viewport(0, 0, w, h);
+      if (target) gl.clearColor(...target.clear);
+      else gl.clearColor(bg[0], bg[1], bg[2], 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    }
     gl.enable(gl.DEPTH_TEST);
     gl.useProgram(this.program);
     gl.uniformMatrix4fv(this.u.u_proj, false, proj);
@@ -786,14 +803,14 @@ export class Renderer {
         -(v[4] * v[12] + v[5] * v[13] + v[6] * v[14]),
         -(v[8] * v[12] + v[9] * v[13] + v[10] * v[14])];
       for (const s of skyboxes) {
-        const m = identity();
+        const m = s.basis ? s.basis.slice() as Mat4 : identity();
         for (let i = 0; i < 3; i++) m[12 + i] = cam[i] + (s.origin[i] - cam[i]) * s.scale[i];
         skyItems.push({ instance: s.instance, matrix: m });
       }
       gl.uniformMatrix4fv(this.u.u_view, false, view);
       this.setFog(null);
       // "Uniform Blur (Skybox)": the skybox goes into a texture first, then is blurred onto the screen
-      const blur = !target && env.skyBlur ? this.skyTarget(w, h) : null;
+      const blur = !target && !region && env.skyBlur ? this.skyTarget(w, h) : null;
       if (blur) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, blur.a.fb);
         gl.clearColor(bg[0], bg[1], bg[2], 1);
@@ -822,6 +839,71 @@ export class Renderer {
     this.drawItems(skyItems.length ? [...items, ...skyItems.map(it => ({ ...it, filter: "rest" }))] : items);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
+    if (region) gl.disable(gl.SCISSOR_TEST);
+  }
+
+  /** Clears the whole canvas (before a full-screen interface draws its views and layers). */
+  clearCanvas(rgb: [number, number, number] = [0, 0, 0]) {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.clearColor(rgb[0], rgb[1], rgb[2], 1);
+    gl.depthMask(true);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  }
+
+  private layerProgram: WebGLProgram | null = null;
+  private layerTexture: WebGLTexture | null = null;
+
+  /**
+   * Draws a 2D layer (an interface's components drawn between its 3D views) over the whole
+   * canvas, blended by its alpha.
+   */
+  drawLayer(source: TexImageSource) {
+    const gl = this.gl;
+    this.layerProgram ??= link(gl, `#version 300 es
+      out vec2 v_uv;
+      void main() {
+        vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
+        v_uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+        gl_Position = vec4(p, 0.0, 1.0);
+      }`, `#version 300 es
+      precision mediump float;
+      uniform sampler2D u_tex;
+      in vec2 v_uv;
+      out vec4 o;
+      void main() { o = texture(u_tex, v_uv); }`);
+    if (!this.layerTexture) {
+      this.layerTexture = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, this.layerTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.layerTexture);
+    // the canvas's pixels arrive premultiplied, blended as such
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    gl.useProgram(this.layerProgram);
+    gl.uniform1i(gl.getUniformLocation(this.layerProgram, "u_tex"), 0);
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(null);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
+    gl.useProgram(this.program);
   }
 
   /** Two screen-sized colour targets for the skybox blur (the first with depth). */

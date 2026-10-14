@@ -48,7 +48,7 @@ export const PLACES = {
   swarm: one("whitespace_ambient", 0.45, "character/npc/monster/swarm/model.dat"),
   swarmBattle: one("whitespace_swarm", 0.45, "character/npc/monster/swarm/model.dat"),
   /** The intro cinematic's score (the prologue plays before character creation). */
-  prologue: one("prologue_audio_only", 0.6, "ours: prologue_audio_only.ogg"),
+  prologue: one("prologue_audio_only", 0.45, "dK: sound/music/prologue_audio_only.ogg at 0.45, a 0.5 s fade, played once"),
 } satisfies Record<string, Track>;
 
 /**
@@ -185,6 +185,8 @@ export function floorMusic(f: Floor): Track {
 /** Music for a cached scene that names none, by its name (null when nothing fits). */
 export function sceneMusic(name: string): Track | null {
   const n = name.toLowerCase();
+  // knight creation at the crash site (client S): title.ogg plays on from the prologue's end (dK)
+  if (/^crash site$/.test(n)) return PLACES.title;
   if (/haven|bazaar/.test(n)) return PLACES.haven;
   if (/arcade/.test(n)) return PLACES.arcade;
   if (/terminal core|core/.test(n)) return PLACES.core;

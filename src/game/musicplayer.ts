@@ -40,10 +40,20 @@ export class MusicPlayer {
   title() {
     this.leave();
     this.base = PLACES.title;
-    this.play(PLACES.title, 2.5);
+    // (ProjectXApp and dK fade it in over half a second; already playing, it plays on)
+    this.play(PLACES.title, 0.5);
     const unlock = () => { this.audio().unlock(); removeEventListener("pointerdown", unlock); removeEventListener("keydown", unlock); };
     addEventListener("pointerdown", unlock);
     addEventListener("keydown", unlock);
+  }
+
+  /** The new knight's prologue (client dK): its score once through, at 0.45 after a 0.5 s fade. */
+  prologue() {
+    this.leave();
+    this.base = null;
+    const t = PLACES.prologue;
+    this.playing = t;
+    void this.audio().playMusic(t.files[0].file, t.gain, 0.5, false, 0.5);
   }
 
   /** The track a floor plays (exported for tests and the docs). */

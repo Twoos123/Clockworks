@@ -9,7 +9,7 @@
 // own label, check box and slider configs, so everything is drawn in the game's styles.
 
 import { CONFIG_REF } from "../config/params";
-import { loadSave, writeSave, type SaveData } from "../game/save";
+import { LEGACY_KEY, loadSave, normalizeSave, reloadRoster, ROSTER_KEY, writeSave, type SaveData } from "../game/save";
 import { checklist } from "../game/levels";
 import { messages, text } from "../i18n";
 import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, restyle, setComboItems, type GuiContext, type GuiImage } from "./gui";
@@ -51,7 +51,6 @@ const RANGES: Record<Range, { min: number; max: number; fmt: (v: number) => stri
   deadZone: { min: 0.05, max: 0.5, fmt: v => `${Math.round(v * 100)}%` },
 };
 
-const SAVE_KEY = "clyde-web-save";
 /** OptionsDialog's fixed UI scale buttons. */
 const SCALES: [string, number][] = [["scale100", 1], ["scale150", 1.5], ["scale200", 2], ["scale250", 2.5]];
 
@@ -505,7 +504,7 @@ export class OptionsScreen {
         const data = JSON.parse(await f.text());
         if (!data || typeof data !== "object" || !data.loadout) throw new Error("not a save");
         void this.prompt("Import Save", "Replace this browser's save with the one in the file?", () => {
-          writeSave(data);
+          writeSave(normalizeSave(data));
           this.replaced();
           void this.prompt("Save Imported", "The save was imported.", null);
         });
@@ -525,8 +524,9 @@ export class OptionsScreen {
   }
 
   private confirmReset() {
-    void this.prompt("Reset Save", "Delete this browser's save and start over? This cannot be undone.", () => {
-      try { localStorage.removeItem(SAVE_KEY); } catch { /* storage unavailable */ }
+    void this.prompt("Reset Save", "Delete every knight saved in this browser and start over? This cannot be undone.", () => {
+      try { localStorage.removeItem(ROSTER_KEY); localStorage.removeItem(LEGACY_KEY); } catch { /* storage unavailable */ }
+      reloadRoster();
       this.replaced();
     });
   }

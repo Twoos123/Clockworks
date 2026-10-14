@@ -36,8 +36,13 @@ export class ScriptRunner {
   private ticks: Tick[] = [];
   /** Plays a PlaySound action's sound, when set. */
   onSound: ((file: string) => void) | null = null;
+  /**
+   * Actions this runner does not play itself (SetConfig, PlayAnimation, EmitEvent): the
+   * owner's, which returns true when it took the action.
+   */
+  extra: ((kind: string, action: any, runner: ScriptRunner) => boolean) | null = null;
 
-  constructor(private readonly ui: Component) {}
+  constructor(readonly ui: Component) {}
 
   get busy() { return this.ticks.length > 0; }
 
@@ -65,6 +70,7 @@ export class ScriptRunner {
     if (k === "Compound") { for (const a of action.actions ?? []) this.execute(a); return; }
     if (k === "RunScript") { this.runScript(action.interfaceScript); return; }
     if (k === "PlaySound") { if (action.sound) this.onSound?.(action.sound); return; }
+    if (this.extra?.(k, action, this)) return;
     const target = action.target ? this.ui.find(action.target) : null;
     if (!target) return;
     const timed = (interval: number, step: (t: number) => void) => {
