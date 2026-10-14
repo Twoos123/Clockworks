@@ -59,7 +59,7 @@ import { bossName, BOSSES, gateFloors, realFloor, stratumTables, tierStars, type
 import { rng } from "./gen/layout";
 import { LevelArchive } from "./game/archive";
 import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
-import { lairRun, missionRun, rankLabel, tierLock } from "./game/missions";
+import { lairRun, missionRun, rankLabel, tierLock, type Mission } from "./game/missions";
 import { LAIR_GATES } from "./game/missionfloors";
 import type { Prop } from "./game/props";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
@@ -77,7 +77,7 @@ import { cachedHallId, crashSiteScene, CREATE_KNIGHT, GUILD_HALL, READY_ROOM, re
 import { HelpScreen, type HelpTab } from "./ui/help";
 import { SocialScreen } from "./ui/social";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
-import { readConversation } from "./game/conversation";
+import { missionConversation, readConversation, speakerActor, type NpcConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
 import { Balloons } from "./ui/balloons";
 import { rangeRoot, rangeSpawn, TEST_RANGE } from "./dev/rangescene";
@@ -1707,6 +1707,7 @@ class Viewer {
         },
         openDepot: () => void this.openShop("Supply Depot"),
       },
+      converse: m => this.missionConversation(m),
       // the sprite missions (Drakon, Maskeraith, Seraphynx) give the knight that battle sprite
       completed: m => {
         const sprite = /(Drakon|Maskeraith|Seraphynx)/.exec(m.title)?.[1];
@@ -1907,8 +1908,44 @@ class Viewer {
     if (cfg) source.rotation = Math.atan2(k.y - source.y, k.x - source.x);
     const npcRef = action.model ?? cfg?.sprite?.model ?? null;
     const idle = cfg?.sprite?.idles?.[0]?.animation ?? null;
+    await this.talk(conv, { ref: npcRef, idle }, action.music ?? null);
+  }
+
+  /**
+   * A conversation mission (MissionConfig.Conversation): its StartConversation played as the
+   * client plays it after attempt_mission, through the same conversation dialog: the
+   * speaker's model from the action (Kora's comlink portrait), the nodes' interface (the
+   * comlink's), the action's music. Resolves true when the knight talked it through (its end
+   * action completes the mission), false when it was left with Escape or cannot be played.
+   */
+  private async missionConversation(m: Mission): Promise<boolean> {
+    const w = this.world;
+    const action = m.talk;
+    if (!w || this.conversation?.isOpen || !action) return false;
+    await w.data.preload("config/conversation.dat", "config/actor.dat");
+    const conv = missionConversation(w.data, action);
+    if (!conv || this.world !== w) return false;
+    // (a gate conversation names no model: the speaker's own actor, Morlin in the Laboratory)
+    const look = action.model?.name ? { ref: action.model, idle: null }
+      : speakerActor(w.data, messageText(/^%/.test(conv.speaker) ? conv.speaker : `%${conv.bundle}:${conv.speaker}`)) ?? { ref: null, idle: null };
+    return this.talk(conv, look, action.music ?? null);
+  }
+
+  /** The portraits of the conversation in progress, by model and animation. */
+  private readonly talkViews = new Map<string, PortraitView>();
+  /** Settles the conversation in progress (true when talked through). */
+  private talkDone: ((completed: boolean) => void) | null = null;
+  /** Stops the conversation's music. */
+  private talkMusic: (() => void) | null = null;
+
+  /**
+   * Plays a conversation in the conversation dialog (src/ui/conversation.ts) with the speaker's
+   * look and the conversation's music (ConversationDialogInfo.music, a stream over the level's
+   * while the dialog is up); the world waits while they talk.
+   */
+  private talk(conv: NpcConversation, look: { ref: any; idle: any }, music: any): Promise<boolean> {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    const views = new Map<string, PortraitView>();
+    const views = this.talkViews;
     this.conversation ??= new ConversationScreen(this.gui, this.canvas.parentElement!, {
       sound: f => this.uiSound(f),
       view: (who, anim) => {
@@ -1917,18 +1954,32 @@ class Viewer {
         const a = who === "knight" ? "character/pc/idle.dat" : anim ?? this.talking?.idle ?? null;
         const key = who + JSON.stringify([ref, a], (kk, v) => (kk === "$outer" ? undefined : v));
         let v = views.get(key);
-        if (!v) views.set(key, v = new PortraitView(this.renderer, this.loader, ref, a));
+        // (a speaker whose node names no animation idles with its model's own)
+        if (!v) views.set(key, v = new PortraitView(this.renderer, this.loader, ref, a, undefined, who === "npc"));
         return (c, g, x, y, ww, h) => v!.draw(c, g, x, y, ww, h);
       },
-      closed: () => {
+      closed: completed => {
         this.talking = null; this.paused = false; views.clear(); this.canvas.focus();
+        this.talkMusic?.(); this.talkMusic = null;
         // the conversation controls hint shows until the knight has talked once
         if (this.save.knight && !this.save.knight.conversed) { this.save.knight.conversed = true; writeSave(this.save); }
+        const done = this.talkDone;
+        this.talkDone = null;
+        done?.(completed);
       },
     });
-    this.talking = { ref: npcRef, idle };
+    this.talking = look;
     this.paused = true;
-    await this.conversation.start(conv, knightName(this.save), !this.save.knight?.conversed);
+    this.talkMusic = music?.name ? this.ensureAudio().holdStream(music) : null;
+    const hint = !this.save.knight?.conversed;
+    return new Promise<boolean>(resolve => {
+      this.talkDone = resolve;
+      this.conversation!.start(conv, knightName(this.save), hint).catch(() => {
+        this.talking = null; this.paused = false; views.clear();
+        this.talkMusic?.(); this.talkMusic = null; this.talkDone = null;
+        resolve(false);
+      });
+    });
   }
   /** The NPC in the conversation: its model and idle animation. */
   private talking: { ref: any; idle: any } | null = null;

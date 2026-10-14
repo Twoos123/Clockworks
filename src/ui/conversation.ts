@@ -1,11 +1,13 @@
-// Talking to townsfolk: the game's conversation interface (rsrc/ui/conversation/interface.dat,
-// or a node's own, such as interface_centeredimage.dat), filled the way the client's
-// conversation dialog fills it:
+// Conversations with townsfolk, radio calls and conversation missions: the game's conversation
+// interface (rsrc/ui/conversation/interface.dat, or a node's own, such as the comlink's
+// interface_comlink.dat or interface_centeredimage.dat), filled the way the client's
+// conversation dialog (client C) fills it:
 //
 //  - #name: the speaker's name, #message: the node's message (the knight's name for {0});
 //  - #portrait: the NPC's model playing the node's animation, #portrait_reply: the knight;
 //  - #responses (parts/responses.dat): one row per response, a cursor beside the selected one
-//    (up and down or the mouse move it; Space, Enter or a click picks it), Escape leaves;
+//    (up and down or the mouse move it; Space, Enter or a click picks it), Escape leaves
+//    (the dialog's dismiss: the conversation is not talked through, so a mission stays undone);
 //  - until the knight has talked a conversation through, the helptips bundle's m.converse
 //    ("Use the arrow keys and spacebar to navigate the conversation.") in a
 //    Default/TooltipWindow label above the responses, centred (client C: at the bottom, as
@@ -27,8 +29,8 @@ export interface ConversationHost {
   sound(file: string): void;
   /** Draws a RenderableView: the NPC (with its model and animation) or the knight. */
   view(who: "npc" | "knight", anim: any): ViewHook | null;
-  /** The conversation ended. */
-  closed(): void;
+  /** The conversation ended: talked through (its last response chosen), or left (Escape). */
+  closed(completed: boolean): void;
 }
 
 export class ConversationScreen extends OverlayScreen {
@@ -70,18 +72,18 @@ export class ConversationScreen extends OverlayScreen {
     this.knight = knightName;
     this.came = [];
     this.knightView = this.host.view("knight", null);
-    await this.show(0);
+    await this.show(conv.start);
     this.open();
   }
 
-  /** Ends the conversation. */
-  end() {
+  /** Ends the conversation; `completed` when it was talked through rather than left. */
+  end(completed = false) {
     if (!this.conv) return;
     this.conv = null;
     this.node = -1;
     this.close();
     this.host.sound("sound/feedback/ui_dismiss.ogg");
-    this.host.closed();
+    this.host.closed(completed);
   }
 
   /** Keys while open: true when handled. */
@@ -154,7 +156,7 @@ export class ConversationScreen extends OverlayScreen {
     if (!conv || this.node < 0) return;
     this.host.sound("sound/feedback/ui_confirm.ogg");
     const next = nextNode(conv.nodes, this.node, n, this.came[this.came.length - 1] ?? -1);
-    if (next < 0) { this.end(); return; }
+    if (next < 0) { this.end(true); return; }
     // a return to a branch takes the branch off the way back
     if (this.came[this.came.length - 1] === next) this.came.pop(); else this.came.push(this.node);
     void this.show(next);

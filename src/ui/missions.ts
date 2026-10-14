@@ -4,8 +4,11 @@
 // (ui/mission/parts/interface_cards.dat) show at a time with the arrows paging; the chosen
 // card's briefing and mission panes give its summary, status, needs, rewards (the prestige
 // pill and item pills) and the action. A finished mission shows the game's mission complete
-// window (ui/mission/parts/part_missioncomplete.dat) with the rank up line; a conversation
-// mission shows its briefing in the game's confirmation prompt.
+// window (ui/mission/parts/part_missioncomplete.dat) with the rank up line. A conversation
+// mission's START (attempt_mission) closes the board and plays its conversation as the client
+// does, through the conversation dialog (src/ui/conversation.ts: Kora's comlink call, its
+// interface_comlink.dat, her model and the comlink music); talked through, the mission is
+// done; left with Escape, it is not.
 //
 // As MissionPanel lays it out: a gate mission (MissionConfig.Gate: the dungeon missions, the
 // prestige stratum missions, the gate conversations) gets the party configuration
@@ -31,18 +34,17 @@ import { gateEmblem } from "../game/gatemap";
 import type { GateChoice } from "../game/gatesource";
 import {
   canExchange, completedIcon, completeMission, daysUntilActive, exchangeNeeds, freshProgress, hubMissions, isGateMission, isGear, missionDifficulty, missionRun,
-  missionStatus, npcName, parseMissions, rankLabel, rankName, rewardItems, rewardTables, weeklyPrestige, withName, type Ingredient, type Mission,
+  missionStatus, parseMissions, rankLabel, rankName, rewardItems, rewardTables, weeklyPrestige, withName, type Ingredient, type Mission,
   type MissionProgress, type MissionStatus,
 } from "../game/missions";
 import { knightName, type SaveData } from "../game/save";
-import { loadConversation, type Conversation } from "../game/conversation";
 import { SpawnTables } from "../game/spawntable";
 import { logFeed } from "../game/feed";
 import { itemName } from "../game/text";
 import { message, text } from "../i18n";
 import { GateMapView, type GateRun } from "./gatemapview";
 import { gatePiece } from "./gates";
-import { buildComponentConfig, Component, pack, restyle, type GuiContext, type GuiImage } from "./gui";
+import { buildComponentConfig, Component, pack, restyle, type GuiContext } from "./gui";
 import { notice } from "./notice";
 import { buildUi, GuiScreen, uiRef } from "./screen";
 
@@ -77,6 +79,12 @@ export interface MissionHost {
   enterGate?(g: Gate, tier: number, difficulty: Difficulty): void;
   /** The Featured Items beside the board, when the game can sell them. */
   featured?: FeaturedHost;
+  /**
+   * Plays a conversation mission's conversation (its StartConversation) through the
+   * conversation interface; true when the knight talked it through, false when it was left
+   * (Escape) or could not be played.
+   */
+  converse?(m: Mission): Promise<boolean>;
   /** A mission was completed (sprite missions give the knight its battle sprite). */
   completed?(m: Mission): void;
 }
@@ -308,7 +316,11 @@ export class MissionBoard {
       }
       this.finish(m, difficulty);
     } else {
-      void this.screen.briefing(m, difficulty);
+      // a conversation (the client's attempt_mission: the knight goes to the comlink and the
+      // conversation dialog plays; its end action completes the mission)
+      if (!this.host.converse) { this.finish(m, difficulty); return; }
+      this.close();
+      void this.host.converse(m).then(done => { if (done) this.finish(m, difficulty); });
     }
   }
 
@@ -456,10 +468,6 @@ export class MissionBoard {
   /** @internal A mission's briefing with the knight's name in it. */
   briefingOf(m: Mission): string { return withName(m.summary, this.knight()); }
 
-  /** @internal A conversation mission's dialogue (config/conversation.dat), or null. */
-  conversationOf(m: Mission): Promise<Conversation | null> {
-    return m.conversation ? loadConversation(this.host.data, m.conversation, this.knight()) : Promise.resolve(null);
-  }
 }
 
 /** The mission window on its canvas. */
@@ -482,10 +490,7 @@ class MissionScreen extends GuiScreen {
   private shown: Mission[] = [];
   private cards = new Map<string, Promise<Component | null>>();
   private parts = new Map<string, Promise<Component | null>>();
-  private images = new Map<string, GuiImage | null>();
   private generation = 0;
-  /** The card picture the briefing prompt shows. */
-  private briefed: Mission | null = null;
   /** The party configuration (built once), and its tier chosen (0 to 2) on the ARCADE tab. */
   private party: Component | null = null;
   private tier = 0;
@@ -598,7 +603,6 @@ class MissionScreen extends GuiScreen {
     if (mini) this.bindFeatured(mini);
     this.hooks = {
       tagged: {
-        brief_image: (c, g, x, y, w, h) => this.drawImage(this.briefed?.cardImage ?? null, g, x, y, w, h, true),
         ...this.mapView.hooks(),
       },
     };
@@ -946,22 +950,6 @@ class MissionScreen extends GuiScreen {
     this.chosen = this.introHint ? null : this.shown[page * PER_PAGE] ?? null;
     this.host.sound("sound/feedback/ui_dropdown_select.ogg");
     void this.refresh();
-  }
-
-  private image(file: string | null): GuiImage | null {
-    if (!file) return null;
-    if (!this.images.has(file)) {
-      this.images.set(file, null);
-      void this.ctx.image(file).then(im => this.images.set(file, im));
-    }
-    return this.images.get(file) ?? null;
-  }
-
-  private drawImage(file: string | null, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, fit: boolean) {
-    const im = this.image(file);
-    if (!im) return;
-    const s = fit ? Math.min(w / im.width, h / im.height) : 1, iw = im.width * s, ih = im.height * s;
-    g.drawImage(im.source, Math.round(x + (w - iw) / 2), Math.round(y + (h - ih) / 2), Math.round(iw), Math.round(ih));
   }
 
   /** Builds (once per arguments) a nested interface. */
@@ -1333,45 +1321,6 @@ class MissionScreen extends GuiScreen {
     // the window's effects are drawn by the game's particle renderer; not here
     this.overlays.push(win);
     await this.refresh();
-  }
-
-  /**
-   * A conversation mission's briefing in the game's confirmation prompt. With the game's
-   * dialogue (config/conversation.dat and the mission bundle), each line in turn, the knight's
-   * reply on the button; without it, the briefing text. The last button completes it.
-   */
-  async briefing(m: Mission, difficulty: Difficulty = difficultyPref()) {
-    const [o, talk] = await Promise.all([buildUi(this.ctx, uiRef(PROMPT)), this.board.conversationOf(m).catch(() => null)]);
-    if (!o) return;
-    this.briefed = m;
-    const set = (tag: string, text: string) => { const c = o.find(tag); if (c) c.text = text; };
-    set("title", m.title);
-    const npc = talk?.speaker ?? npcName(m);
-    const steps = talk?.steps ?? [];
-    let at = 0;
-    const show = () => {
-      set("prompt", (npc ? `${npc}:\n` : "") + (steps[at]?.message ?? this.board.briefingOf(m)));
-      const ok = o.find("accept");
-      if (ok) ok.text = steps[at]?.responses[0] ?? text("uplink", "m.done", "Done");
-    };
-    show();
-    const check = o.find("confirm");
-    if (check) check.visible = false;
-    const walk = (c: Component) => {
-      if (c.kind === "spacer" && c.preferredSize?.width === 80 && c.preferredSize?.height === 140) { c.tag = "brief_image"; c.styles = c.styles.map(() => null); }
-      c.children.forEach(walk);
-    };
-    walk(o);
-    const shut = () => { this.overlays = this.overlays.filter(x => x !== o); };
-    this.on(o, "dismiss", shut);
-    const cancel = this.on(o, "cancel", shut);
-    if (cancel) cancel.text = text("global", "m.cancel", "Cancel");
-    this.on(o, "accept", () => {
-      if (at < steps.length - 1) { at++; show(); this.host.sound("sound/feedback/button_press.ogg"); return; }
-      shut(); this.board.finish(m, difficulty);
-    });
-    show();
-    this.overlays.push(o);
   }
 }
 
