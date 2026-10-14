@@ -460,3 +460,34 @@ From a 16-second recording; frames are in `.scratch/vid8` (git-ignored).
 - **Controls tab:** hovering a tile darkens it and turns its icon and label yellow. The
   selected scheme looks the same, and in the last frame "Custom (Click to Change)" is
   selected that way. The HUD stays visible but dimmed behind the options.
+
+## The mission board's four tabs
+
+From a 20-second recording; frames are in `.scratch/vid9` (one every 2 seconds, git-ignored).
+
+- **ARCADE tab: the Arcade's gates are chosen here.** It is the same board as the Arcade's gate
+  machines.
+  - **Cards:** one per gate, with its emblem art and name: Diamond Bishop Gate, Dark Serpent
+    Gate, Sapphire Queen Gate, Coral King Gate. The selected card is outlined gold with a
+    pointer under it.
+  - **Two sub-tabs:**
+    - "Gate Map" shows the gate's map, rows of stratum and level icons with arrows, as on the
+      gate map site.
+    - "Gate Materials" lists the materials each tier drops: "TIER 2 / Depths 08-12", then a
+      two-column list with icon, name, star rank and count (Ironwood ★4, Rocky Core ★4, Brute
+      Core ★3, Redwood ★3, Driftwood ★2, Gel Core ★2, ...).
+  - **Right side:** CONFIGURE YOUR PARTY (Join Party, Create Public Party, Create Private Party,
+    Play Solo) and the difficulty bar.
+  - **Tier buttons:** "TIER 1 (Depth 0)", "TIER 2 (Depth 8)", "TIER 3 (Depth 18)", then START.
+- **PRESTIGE tab:**
+  - **Cards:** labelled REPLAYABLE, TODAY or TOMORROW (March of the Tortodrones, Heart of Ice,
+    Nature of the Beast, Monstrous Research, ...). Arrows scroll the row.
+  - **Exchange missions** (e.g. Monstrous Research):
+    - the description and a gold instruction line, with REWARDS Prestige 60;
+    - a MATERIALS list at the right with have/need and a magnifier ("Phial of Phear 111 / 1",
+      "Redwood 199 / 1", "Torchstone 326 / 1");
+    - TOGGLE ARSENAL, then a ticked "Confirm these items to be exchanged for the Mission
+      Rewards.", then START with a coin icon.
+- **EXPANSION tab:** Operation Crimson Hammer cards (red), with long briefing text.
+- **RANK tab:** as described earlier.
+- **Featured Items timer:** it counts down ("1 more hour").
