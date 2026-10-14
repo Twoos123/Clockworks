@@ -8,6 +8,7 @@ import { normalizeAppearance, type Appearance } from "./accessories";
 import { normalizeAchievements, type AchievementSave } from "./achievements";
 import { normalizeSpriteSave, type SpriteSave } from "./sprites";
 import { normalizeEnergy, type EnergyState } from "./energy";
+import { normalizeFeed, type FeedRecord } from "./feed";
 
 export interface Loadout {
   /** Item config names, e.g. "Weapon/Sword/Proto Sword"; up to three weapons. */
@@ -64,6 +65,8 @@ export interface SaveData {
   loadouts?: SavedLoadout[];
   /** Achievements earned, the statistics behind them and the run under way (achievements.ts). */
   achievements?: AchievementSave;
+  /** Deeds the Event Hub lists besides the achievements: bosses defeated, ranks earned (feed.ts). */
+  feed?: FeedRecord[];
 }
 
 /** A named loadout: the gear, the costumes and accessories, and the battle sprite. */
@@ -177,6 +180,7 @@ export function loadSave(): SaveData {
         loadouts: normalizeLoadouts(d.loadouts),
         achievements: normalizeAchievements(d.achievements),
         energy: normalizeEnergy(d.energy),
+        feed: normalizeFeed(d.feed),
         owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? []), d.loadout?.vitapod]
           .filter((x): x is string => !!x))],
       };

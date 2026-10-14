@@ -17,6 +17,8 @@ const BAR = "ui/window/tooltip_parts/stat_bar.dat";
 const COMPARE = "ui/window/tooltip_compare.dat";
 /** Pixels between a docked window and the screen's edge. */
 const DOCK_MARGIN = 8;
+/** The HUD's height under a left-docked list (as.i: the display height less 145). */
+const DOCK_BOTTOM = 145;
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 
 export interface ScreenHost {
@@ -164,6 +166,9 @@ export abstract class GuiScreen {
     const ev = (type: "down" | "up" | "move" | "wheel") => (e: PointerEvent | WheelEvent) => {
       const r = this.canvas.getBoundingClientRect();
       const x = e.clientX - r.left, y = e.clientY - r.top;
+      // the docked windows open beside each other (the Event Hub beside the uplink): a pointer
+      // off this one's windows goes on to the window canvas beneath it
+      if (this.forward(e, type, x, y)) { this.pointer = null; if (this.root && type === "move") dispatch(this.root, { type: "move", x: -1, y: -1 }); return; }
       this.pointer = { x, y };
       // a press keeps its window until the release (the side window or the main one)
       const target = type === "down" || !this.captured ? this.targetAt(x, y) : this.captured;
@@ -193,6 +198,31 @@ export abstract class GuiScreen {
   }
 
   get isOpen() { return !this.canvas.hidden; }
+
+  /** The window canvas a press was passed on to, which keeps the pointer until the release. */
+  private forwardTo: HTMLCanvasElement | null = null;
+
+  /**
+   * Passes a pointer event that lands off this window's interfaces (with nothing modal up)
+   * to the open window canvas beneath, if there is one. True when it was passed on.
+   */
+  private forward(e: PointerEvent | WheelEvent, type: string, x: number, y: number): boolean {
+    let to = this.forwardTo;
+    if (!to) {
+      if (type === "up" || this.captured || this.overlays.length || this.root?.overlay || this.side?.overlay) return false;
+      if ((this.root && hitTest(this.root, x, y)) || (this.side && hitTest(this.side, x, y))) return false;
+      to = (document.elementsFromPoint?.(e.clientX, e.clientY) ?? []).find((el): el is HTMLCanvasElement =>
+        el !== this.canvas && el instanceof HTMLCanvasElement && el.classList.contains("gui-screen") && !el.hidden) ?? null;
+      if (!to) return false;
+    }
+    if (type === "down") this.forwardTo = to;
+    if (type === "up") this.forwardTo = null;
+    const Ctor = (e instanceof WheelEvent ? WheelEvent : PointerEvent) as any;
+    const copy = new Ctor(e.type, e);
+    to.dispatchEvent(copy);
+    if (copy.defaultPrevented) e.preventDefault();
+    return true;
+  }
 
   /** Builds the interface tree (once). */
   protected abstract build(): Promise<Component | null>;
@@ -262,6 +292,15 @@ export abstract class GuiScreen {
   protected side: Component | null = null;
   /** Docks the main window at the screen's right edge instead of centring it (item/client/i). */
   protected dockRight = false;
+  /**
+   * Docks the main window at the screen's left edge, full height above the HUD (client/g with
+   * its left side), at the x this returns: past the windows docked there before it.
+   */
+  protected dockLeft: (() => number) | null = null;
+  /** The left-docked window's width as last drawn (for the windows docked beside it). */
+  dockedWidth = 0;
+  /** Darkens the game behind the window (a docked list leaves it be). */
+  protected dim = true;
   private captured: Component | null = null;
 
   /** The window under a point: the top overlay, else the side window, else the main one. */
@@ -372,15 +411,25 @@ export abstract class GuiScreen {
     g.clearRect(0, 0, w, h);
     g.scale(dpr, dpr);
     const cw = w / dpr, ch = h / dpr;
-    g.fillStyle = "rgba(4,10,18,0.6)";
-    g.fillRect(0, 0, cw, ch);
+    if (this.dim) {
+      g.fillStyle = "rgba(4,10,18,0.6)";
+      g.fillRect(0, 0, cw, ch);
+    }
     const now = performance.now(), dt = this.last ? Math.min(0.5, (now - this.last) / 1000) : 0;
     this.last = now;
     for (const r of this.runners.values()) r.tick(dt);
     this.tick();
     if (this.root) {
-      const s = pack(this.root);
-      render(this.root, g, this.dockRight ? Math.max(0, cw - s.width - DOCK_MARGIN) : Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+      if (this.dockLeft) {
+        // client/g.Ah: the screen's height less the HUD's 145 pixels, from the top edge
+        this.root.preferredSize = { width: -1, height: Math.max(200, Math.round(ch - DOCK_BOTTOM)) };
+        const s = pack(this.root);
+        this.dockedWidth = s.width;
+        render(this.root, g, Math.min(Math.max(0, cw - s.width), this.dockLeft()), s.height, this.hooks);
+      } else {
+        const s = pack(this.root);
+        render(this.root, g, this.dockRight ? Math.max(0, cw - s.width - DOCK_MARGIN) : Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+      }
     }
     if (this.side) {
       const s = pack(this.side);
