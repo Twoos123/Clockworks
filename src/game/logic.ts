@@ -51,6 +51,11 @@ export interface LogicHost {
   fireEffect(ref: any, x: number, y: number, rotation: number): void;
   /** Game-specific actions; return undefined for unknown ones. */
   gameAction(cfg: any, source: Entity, activator: Entity | null, logic: Logic): boolean | undefined;
+  /**
+   * Whether an action would put the actor running it out of action (freeze, sleep or stun it,
+   * as an ApplyStatus with no target does to its activator).
+   */
+  disablesSelf?(action: any): boolean;
   log?(msg: string): void;
 }
 
@@ -236,6 +241,12 @@ export class Logic {
     return this.execute(action, source, activator);
   }
 
+  /** A condition-less (stripped) Conditional on an actor whose action would disable that actor. */
+  private strippedSelfHold(action: any, source: Entity): boolean {
+    return source.isActor && !!action && kind(action) === "Conditional" && action.condition == null
+      && !!this.host.disablesSelf?.(action.action);
+  }
+
   private schedule(owner: Entity, delayMs: number, run: () => void): Timer {
     const t: Timer = { at: this.ts + Math.max(0, delayMs), run, cancelled: false, owner };
     this.timers.push(t);
@@ -251,9 +262,13 @@ export class Logic {
       case "Timer": case "WarnTimer": {
         const interval = cfg.interval ?? 1, offset = cfg.offset ?? 0;
         h.limit = (cfg.limit ?? 0) === 0 ? Infinity : cfg.limit;
+        // an actor's timer that would disable the actor itself behind a condition the export
+        // stripped (the ice cube's "freeze myself" each second, gated on the server by its
+        // state) never fires: run unconditionally it would hold the actor frozen for good
+        const gated = this.strippedSelfHold(cfg.action, src);
         const fire = () => {
           if (src.removed) return;
-          this.run(cfg.action, src, src);
+          if (!gated) this.run(cfg.action, src, src);
           if (--h.limit! > 0) h.timer = this.schedule(src, interval * 1000, fire);
         };
         h.timer = this.schedule(src, Math.max(0, interval + offset) * 1000, fire);

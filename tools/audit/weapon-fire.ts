@@ -36,7 +36,7 @@ for (const name of [...items.keys()].sort()) {
       if (!seen.includes(k)) seen.push(k);
       if (p.kind === "Agent") {
         for (const c of p.children) if (!(await data.projectile(c).catch(() => null))) problems.push(`${label}: satellite ${c.name} does not load`);
-      } else if (p.harmless && !p.actions.length) problems.push(`${label}: ${p.name} deals no damage`);
+      } else if (p.harmless && !p.actions.length && !p.trail) problems.push(`${label}: ${p.name} deals no damage`);
     }
     if (!does) problems.push(`${label}: fires nothing`);
   };

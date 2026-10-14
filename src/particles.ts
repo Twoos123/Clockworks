@@ -349,6 +349,9 @@ export class Emitter {
   readonly states: LayerState[];
   /** Layer indices in drawing order: GroupPriority layers by rising priority (see layerOrder). */
   readonly order: number[];
+  /** The instance age and renderer time it was last advanced to (clockEmitter). */
+  lastAge?: number;
+  lastTime?: number;
   constructor(layers: ParticleLayer[]) {
     this.states = layers.map(l => new LayerState(l));
     this.order = layerOrder(layers);
@@ -478,6 +481,25 @@ export class Emitter {
       corner(-1, -1, u0, v1); corner(1, -1, u1, v1); corner(1, 1, u1, v0);
       corner(-1, -1, u0, v1); corner(1, 1, u1, v0); corner(-1, 1, u0, v0);
     }
+  }
+}
+
+/**
+ * Advances a placed system for one draw of its instance: by the instance's own clock when its
+ * owner advances it (age > 0: an effect, an actor, a projectile), caught up in short steps
+ * from where it was last drawn, else by the renderer's clock (scenery, offscreen views).
+ */
+export function clockEmitter(e: Emitter, age: number, time: number, dt: number, placement: Mat4) {
+  if (age > 0) {
+    // an instance its owner advances (an effect, an actor, a projectile): the world's clock
+    const last = e.lastAge;
+    e.lastAge = age;
+    for (const s of catchUpSteps(last, age)) e.update(s, placement);
+  } else {
+    // scenery nobody advances: the renderer's clock
+    const last = e.lastTime;
+    e.lastTime = time;
+    e.update(last === undefined ? dt : Math.min(0.1, Math.max(0, time - last)), placement);
   }
 }
 

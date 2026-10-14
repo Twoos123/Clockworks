@@ -9,7 +9,7 @@ import { compose, multiply, readTransform, type Mat4, type Vec3 } from "../math"
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
-import { separationShares, type CollisionMap } from "./collision";
+import { contactPoint, separationShares, type CollisionMap } from "./collision";
 import { dealt, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
@@ -315,11 +315,14 @@ class Projectile {
   shooter: Actor | null = null;
   /** A disk swaps to its returning model once it turns home. */
   returnInstance: ModelInstance | null = null;
+  /** Bursts a trail bullet has left. */
+  bursts = 0;
   constructor(readonly def: ProjectileDef, public instance: ModelInstance | null, readonly team: Team,
     public x: number, public y: number, public z: number, public heading: number, readonly ctx: DepthContext) {}
-  matrix(): Mat4 {
-    const a = this.heading;
-    return compose([this.x, this.y, this.z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], 1);
+  /** The sprite's transform: turned a quarter past its heading, as Tudey's actor sprites are. */
+  matrix(z = this.z): Mat4 {
+    const a = this.heading + Math.PI / 2;
+    return compose([this.x, this.y, z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], 1);
   }
 }
 
@@ -565,6 +568,8 @@ export class World implements LogicHost {
 
   /** Arena state: the current wave, the pause before the next, and its monster family. */
   arena: { wave: number; timer: number; family: string } | null = null;
+  /** A safe place (a town, the Rescue Camp): the knight carries no weapons and raises no shield. */
+  safe = false;
   /** Called every fifth arena wave cleared (a checkpoint to bank or carry on). */
   onArenaCheckpoint: ((wave: number) => void) | null = null;
 
@@ -714,6 +719,7 @@ export class World implements LogicHost {
    * Camp): the knight carries no weapons, as in the game, and the attack button only acts.
    */
   async start(at: [number, number], gear: GearLoadout = DEFAULT_LOADOUT, unarmed = false) {
+    this.safe = unarmed;
     await this.data.depth.ready();
     const shield = await this.data.shield(gear.shield || STARTER_SHIELD);
     const weapons = unarmed ? [] : (await Promise.all((gear.weapons.length ? gear.weapons : STARTER_WEAPONS).map(n => this.data.weapon(n))))
@@ -919,6 +925,16 @@ export class World implements LogicHost {
       at.fixedShape = typeof r === "number" ? { k: "circle", x, y, r } : { k: "point", x, y };
       this.logic.execute(cfg.action, at, at);
     }
+  }
+
+  /** Whether an action freezes, puts to sleep or stuns its activator (an ApplyStatus with no target). */
+  disablesSelf(action: any, depth = 0): boolean {
+    if (!action || depth > 6) return false;
+    const k = String(action.$class ?? "").split("$").pop();
+    if (k === "Compound") return ((action.actions ?? []) as any[]).some(a => this.disablesSelf(a, depth + 1));
+    if (k !== "ApplyStatus" || action.target || !this.conditions) return false;
+    const kind = this.conditions.get(action.condition ?? action.statusCondition, this.ctx(0))?.def.kind;
+    return kind === "Freeze" || kind === "Sleep" || kind === "Stun";
   }
 
   /** Spiral Knights' own actions (DungeonActionConfig and friends). */
@@ -1969,7 +1985,8 @@ export class World implements LogicHost {
     const held = input.attackHeld || input.attackDown;
     if (held !== k.attackFlag) { k.attackFlag = held; k.attackChanged = now; }
     else if (input.attackDown) k.attackChanged = now;
-    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield, bash: !!input.bash, dodge: !!input.dash };
+    // safe places (towns, the Rescue Camp): no shield and no shield bash, as there are no weapons
+    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield && !this.safe, bash: !!input.bash && !this.safe, dodge: !!input.dash };
     const status: ControlStatus = {
       move: true, rotate: true, attack: true,
       defend: !!k.shield && k.shieldBroken <= 0,
@@ -2628,14 +2645,14 @@ export class World implements LogicHost {
     }
     // bombs drop at the knight's feet; a bullet starting inside a wall fizzles at once
     if (p.kind === "Bomb") { x = a.x + c * 0.4; y = a.y + s * 0.4; }
-    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
     const z = this.collision.groundZ(x, y) + p.height;
-    const proj = new Projectile(p, instance, a.team, x, y, z, heading, this.attackerCtx(a));
+    const proj = new Projectile(p, null, a.team, x, y, z, heading, this.attackerCtx(a));
     if (a instanceof Monster) proj.owner = a;
     this.projectiles.push(proj);
+    this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), p.fuse / 1000);
     // point blank: a target between the attacker and the muzzle is hit at once
-    if (p.kind === "Bullet") {
+    if (p.kind === "Bullet" && !p.trail) {
       for (let i = 1; i <= 4 && !proj.done; i++) {
         proj.x = a.x + (x - a.x) * i / 4; proj.y = a.y + (y - a.y) * i / 4;
         if (this.projectileTarget(proj)) this.detonate(proj, true);
@@ -2644,14 +2661,30 @@ export class World implements LogicHost {
     }
   }
 
+  /**
+   * A projectile's model, made in the background: the projectile flies and strikes from the
+   * moment it is fired, and shows once its model (and its particle layers' textures) are
+   * ready, its clock caught up with the time it has flown so its particles run with it. (It
+   * used to wait for the model before it existed at all, so a slow texture held the shot back
+   * and a model that never finished loading fired nothing.)
+   */
+  private dressProjectile(proj: Projectile, model: LoadedModel | null) {
+    if (!model) return;
+    void this.instantiate(model).then(inst => {
+      if (proj.done || proj.instance) return;
+      inst.advance(proj.age);
+      proj.instance = inst;
+    }).catch(() => {});
+  }
+
   /** A bullet or bomb a logic action spawns at a point (monster bullets, traps). */
   private async spawnProjectileAt(ref: any, x: number, y: number, heading: number, team: Team, ctx: DepthContext) {
     const loaded = await this.projectileDef(ref);
     if (!loaded) return;
-    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
     const z = this.collision.groundZ(x, y) + loaded.def.height;
-    const proj = new Projectile(loaded.def, instance, team, x, y, z, heading, ctx);
+    const proj = new Projectile(loaded.def, null, team, x, y, z, heading, ctx);
     this.projectiles.push(proj);
+    this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), loaded.def.fuse / 1000);
   }
 
@@ -2664,9 +2697,8 @@ export class World implements LogicHost {
   private async launchOrbital(loaded: { def: ProjectileDef; model: LoadedModel | null }, x: number, y: number, heading: number,
     team: Team, ctx: DepthContext, source: Projectile | null, shooter: Actor | null, index: number) {
     const p = loaded.def;
-    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
     if (source?.done) return;
-    const proj = new Projectile(p, instance, team, x, y, 0, heading, ctx);
+    const proj = new Projectile(p, null, team, x, y, 0, heading, ctx);
     proj.source = source;
     proj.shooter = shooter;
     if (shooter instanceof Monster) proj.owner = shooter;
@@ -2676,6 +2708,7 @@ export class World implements LogicHost {
     }
     proj.z = (source ? source.z - source.def.height : this.collision.groundZ(x, y)) + p.height;
     this.projectiles.push(proj);
+    this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), 3);
     if (p.creationFx) this.spawnEffect(p.creationFx, proj.matrix(), 2);
     if (p.returnModel) {
@@ -2707,7 +2740,14 @@ export class World implements LogicHost {
       if (d.kind === "Agent") {
         p.x += Math.cos(p.heading) * d.speed * h;
         p.y += Math.sin(p.heading) * d.speed * h;
-        if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false) || p.age * 1000 >= d.fuse) p.done = true;
+        // a core that meets a wall or flies its time is removed (with its destruction transient,
+        // where it has one; the mixers' cores carry only a sound as they appear)
+        const wall = this.hitsWall(p);
+        if (wall || p.age * 1000 >= d.fuse) {
+          if (wall) this.toWallFace(p, px, py);
+          p.done = true;
+          if (d.hitFx) this.spawnEffect(d.hitFx, p.matrix(), 2);
+        }
         continue;
       }
       const o = p.orbit!;
@@ -2723,15 +2763,25 @@ export class World implements LogicHost {
       if (end === "lost") { this.detonate(p, true); break; }
       if (end === "fizzle") {
         p.done = true;
-        if (d.fizzleFx) this.spawnEffect(d.fizzleFx, compose([p.x, p.y, p.z], [0, 0, 0, 1], 1), 1);
+        if (d.fizzleFx) this.spawnEffect(d.fizzleFx, p.matrix(), 2);
         break;
       }
       // a satellite with no collision mask (a charged mixer's middle ring) touches nothing
       if (!d.collisionMask) continue;
       if (this.projectileTarget(p)) this.detonate(p, true);
       else if (p.team === "monster" && this.boss?.bullet?.(p.x, p.y, p.heading, p.owner)) this.detonate(p, true);
-      else if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false)) this.detonate(p, true);
+      else if (this.hitsWall(p)) { this.toWallFace(p, px, py); this.detonate(p, true); }
     }
+  }
+
+  /** A projectile touches a wall (tile flags 1 and 128 in its mask; pits, flag 2, are flown over). */
+  private hitsWall(p: Projectile, x = p.x, y = p.y): boolean {
+    return this.collision.collides(x, y, p.def.radius * 0.5, (p.def.collisionMask & 0x81) || 1, false);
+  }
+
+  /** Puts a projectile that stepped from (px, py) into a wall back at the wall's face. */
+  private toWallFace(p: Projectile, px: number, py: number) {
+    [p.x, p.y] = contactPoint(px, py, p.x, p.y, (x, y) => this.hitsWall(p, x, y));
   }
 
   private updateProjectiles(dt: number) {
@@ -2744,21 +2794,39 @@ export class World implements LogicHost {
       else if (d.kind === "Bullet") {
         const steps = Math.max(1, Math.ceil((d.speed * dt) / Math.max(0.1, d.radius)));
         for (let i = 0; i < steps && !p.done; i++) {
+          const px = p.x, py = p.y;
           p.x += (Math.cos(p.heading) * d.speed * dt) / steps;
           p.y += (Math.sin(p.heading) * d.speed * dt) / steps;
-          const hit = this.projectileTarget(p);
+          // a trail bullet passes through what it meets; its bursts do the striking
+          const hit = !d.trail && this.projectileTarget(p);
           if (hit) this.detonate(p, true);
           else if (p.team === "monster" && this.boss?.bullet?.(p.x, p.y, p.heading, p.owner)) this.detonate(p, true);
-          // walls only (tile flag 1 and 128 in the bullet's mask); pits (flag 2) are flown over
-          else if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false)) this.detonate(p, true);
+          // a wall: the bullet goes off at its face (its destruction transient, as on a hit)
+          else if (this.hitsWall(p)) { this.toWallFace(p, px, py); this.detonate(p, true); }
         }
+        if (d.trail && !p.done) this.leaveBursts(p, d.trail);
         if (!p.done && p.age * 1000 >= d.fuse) {
           p.done = true;
-          if (d.fizzleFx) this.spawnEffect(d.fizzleFx, compose([p.x, p.y, p.z], [0, 0, 0, 1], 1), 1);
+          // run out: the fizzle transient where the sprite is (the client's bullet sprite
+          // plays it for a fizzled bullet, its destruction transient otherwise)
+          if (d.fizzleFx) this.spawnEffect(d.fizzleFx, p.matrix(), 2);
         }
       } else if (p.age * 1000 >= d.fuse) this.detonate(p, false);
     }
     for (let i = this.projectiles.length - 1; i >= 0; i--) if (this.projectiles[i].done) this.projectiles.splice(i, 1);
+  }
+
+  /**
+   * A trail bullet's bursts (the brandishes' charge): one each interval where the bullet is,
+   * each a bomb with the bullet's damage, on the bullet's side and with its shooter's
+   * damage context; the bullet ends with its last burst.
+   */
+  private leaveBursts(p: Projectile, trail: NonNullable<ProjectileDef["trail"]>) {
+    while (!p.done && p.bursts < trail.count && p.age * 1000 >= (p.bursts + 1) * trail.interval) {
+      p.bursts++;
+      void this.spawnProjectileAt(trail.actor, p.x, p.y, p.heading, p.team, p.ctx);
+      if (p.bursts >= trail.count) p.done = true;
+    }
   }
 
   /** Whether a bullet touches something it can hit. */
@@ -2790,14 +2858,15 @@ export class World implements LogicHost {
       }
     }
     if (d.harmless) {
-      if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, this.collision.groundZ(p.x, p.y)], [0, 0, 0, 1], 1), 2);
+      if (d.hitFx) this.spawnEffect(d.hitFx, p.matrix(this.collision.groundZ(p.x, p.y)), 2);
       return;
     }
     // a disk on its way home strikes with its return damage
     const back = !!p.orbit?.returning && !!d.returnDamage;
     const amounts = this.amounts(back ? d.returnDamage : d.damage, p.ctx);
     const knockback = back ? d.returnKnockback ?? 0 : d.knockback;
-    if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, bullet ? p.z : this.collision.groundZ(p.x, p.y)], [0, 0, Math.sin(p.heading / 2), Math.cos(p.heading / 2)], 1), 2);
+    // the destruction transient at the sprite's transform (a bullet where it flies, a bomb on the ground)
+    if (d.hitFx) this.spawnEffect(d.hitFx, p.matrix(bullet ? p.z : this.collision.groundZ(p.x, p.y)), 2);
     if (p.team === "knight" || p.team === "hazard") {
       for (const m of this.monsters) {
         if (m.state === "dying" || m.state === "spawning" || Math.hypot(m.x - p.x, m.y - p.y) > r + m.radius) continue;
@@ -3365,7 +3434,7 @@ export class World implements LogicHost {
     const info: MonsterInfo = {
       name, attacks: def.slots.map(a => a?.name ?? ""), speed: def.speed, targetedSpeed: def.targetedSpeed,
       melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a ? Math.max(0, this.reach(a) - m.radius) : 0)),
-      script, args: behaviorArgs(m.ref ?? { name }, lookup),
+      script, args: behaviorArgs(m.ref ?? { name }, lookup), radius: m.radius,
     };
     let cfg: Behavior = monsterBehavior(info);
     // allies (freed companions, energy turrets) fight monsters near the knight, else follow it
