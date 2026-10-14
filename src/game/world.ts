@@ -388,6 +388,8 @@ export class World implements LogicHost {
    */
   readonly musicActors: MusicActor[] = [];
   onMusic: ((ev: "spawn" | "destroy", m: MusicActor) => void) | null = null;
+  /** The knight stood on a moving floor last tick (the start platform arriving). */
+  private onLift = false;
   /** True once the level's exit elevator has been used. */
   finished = false;
   /** The elevator the level was left by (a terminal's Shadow Lair elevator, or its exit). */
@@ -2009,6 +2011,12 @@ export class World implements LogicHost {
       this.move(k, (mx / len) * sp * dt, (my / len) * sp * dt, KNIGHT_MASK);
       if (!whole) this.playMovement(k, Math.atan2(my, mx), sp);
     } else if (!whole && k.hurtTime <= 0 && act.kind !== "attack") this.playIdle(k);
+    // on a moving floor (the start platform's grate coming down as the level begins) the
+    // knight stands on it wherever it is, as the client's actors stand at getFloorZ
+    // (and once more as it comes to rest)
+    const lifted = !!this.collision.liftAt(k.x, k.y);
+    if (lifted || this.onLift) k.z = this.collision.groundZ(k.x, k.y);
+    this.onLift = lifted;
 
     // upper body: the shield pose while defending
     if (!k.attack && k.charge === null) {

@@ -6,13 +6,27 @@ import { applyArguments } from "./config/params";
 import { importBinary } from "./export/BinaryImport";
 import { compose, toMatrix, readTransform, type Mat4 } from "./math";
 import { editorOnly, floorTriangles, inflate, type LoadedModel, type ModelLoader } from "./model";
-import { CollisionMap, forTileCells } from "./game/collision";
+import { CollisionMap, forTileCells, type FloorLift } from "./game/collision";
 import { LevelMap } from "./game/levelmap";
 import { shapeFromConfig, type Shape } from "./game/shapes";
+
+/**
+ * A moving floor for a model whose whole floor mesh is one articulated node's collision mesh
+ * and which plays an animation automatically (ArticulatedConfig startAutomatically): the
+ * start platform's Arrive lowers its "collision" node with the grate.
+ */
+export function floorLift(model: LoadedModel): FloorLift | undefined {
+  const nodes = model.collisionNodes;
+  if (nodes?.length !== 1 || !model.autoAnimations.length || !model.root) return undefined;
+  if (floorTriangles(model).length !== (model.collision?.length ?? 0)) return undefined;
+  return { node: nodes[0], dz: 0 };
+}
 
 export interface SceneObject {
   model: LoadedModel;
   matrix: Mat4;
+  /** A floor that rides the model's automatic animation (the start platform arriving). */
+  lift?: FloorLift;
 }
 
 /** A monster spawn point (a marker whose action activates a spawn table). */
@@ -233,6 +247,8 @@ export class SceneLoader {
         if (impl.defaultEntrance) levelMap.entrance(t.t[0], t.t[1]);
         const shape = impl.shape ? shapeFromConfig(impl.shape, t.t[0], t.t[1], 2 * Math.atan2(t.r[2], t.r[3]), t.s) : null;
         levelMap.entry(shape, HIDDEN.test(impl.$class) ? 0 : impl.collisionFlags ?? 1, !!impl.floorTile);
+        // a floor tile placeable (the start platform, over its shaft) is floor where no tile is
+        if (impl.floorTile && shape && !HIDDEN.test(impl.$class)) collision.addFloorPlaceable(shape, t.t[2]);
       }
       if (/Elevator\/Start Platform/.test(e.placeable?.name ?? "") && !start) {
         const t0 = readTransform(e.transform);
@@ -286,9 +302,11 @@ export class SceneLoader {
       if (editorOnly(job.ref?.name ?? "")) { stats.markers++; continue; }
       const model = await this.loader.loadRef(job.ref);
       if (model) {
-        objects.push({ model, matrix: job.matrix }); unique.add(model);
-        // TudeySceneView.getFloorZ rays hit these sprites' collision meshes
-        if (job.floor) collision.addFloor(floorTriangles(model), job.matrix, job.floor);
+        // TudeySceneView.getFloorZ rays hit these sprites' collision meshes, where their nodes
+        // stand: one whose automatic animation moves its collision node carries the floor along
+        const lift = job.floor ? floorLift(model) : undefined;
+        objects.push(lift ? { model, matrix: job.matrix, lift } : { model, matrix: job.matrix }); unique.add(model);
+        if (job.floor) collision.addFloor(floorTriangles(model), job.matrix, job.floor, lift);
       } else stats.unresolved++;
       if (++done % 200 === 0) onProgress?.(done, jobs.length);
     }

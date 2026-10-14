@@ -12,7 +12,7 @@
 // two-unit square the knight has visited (solid to 20 units, fading out at 32); elsewhere the same
 // disc around every reached cell.
 
-import { intersects, type Shape } from "./shapes";
+import { intersects, shapeBounds, type Shape } from "./shapes";
 
 /** wall | edge | player | player_barrier (the collision mask names' bits). */
 export const MAP_MASK = 1 | 2 | 4 | 32;
@@ -27,21 +27,6 @@ const keyY = (k: number) => (k % 65536) - 32768;
 /** The disc's alpha at squared distance d2 from its centre. */
 export function discAlpha(d2: number): number {
   return d2 > OUTER ? 0 : d2 > INNER ? 1 - (d2 - INNER) / (OUTER - INNER) : 1;
-}
-
-function shapeBounds(s: Shape): [number, number, number, number] {
-  switch (s.k) {
-    case "point": return [s.x, s.y, s.x, s.y];
-    case "circle": return [s.x - s.r, s.y - s.r, s.x + s.r, s.y + s.r];
-    case "poly": {
-      const xs = s.pts.map(p => p[0]), ys = s.pts.map(p => p[1]);
-      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-    }
-    case "multi": {
-      const b = s.shapes.map(shapeBounds);
-      return [Math.min(...b.map(v => v[0])), Math.min(...b.map(v => v[1])), Math.max(...b.map(v => v[2])), Math.max(...b.map(v => v[3]))];
-    }
-  }
 }
 
 /** Whether a shape covers a cell: more than four of its nine thirds touch it. */
