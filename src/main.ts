@@ -210,6 +210,16 @@ async function open(make: () => Promise<Vfs>) {
 const LIKELY_MODEL = /(^|\/)model[^/]*\.dat$/;
 const NOT_ANIMATION = /(^|\/)(model|fx_|particle|ambient_|bullet_|bomb_|aoe_|meta_|compound_|conditional_|modelset)[^/]*\.dat$/;
 
+/** The scene globals with every "Variant" TierN choice set to the given tier. */
+export function retierGlobals(globals: any[], tier: number): any[] {
+  const retier = (ref: any): any => {
+    const entries = ref?.arguments?.entries as [string, unknown][] | undefined;
+    if (!entries?.some(([k, v]) => k === "Variant" && typeof v === "string" && /^Tier[123]$/.test(v))) return ref;
+    return { ...ref, arguments: { ...ref.arguments, entries: entries.map(([k, v]) => [k, k === "Variant" && typeof v === "string" && /^Tier[123]$/.test(v) ? `Tier${tier}` : v]) } };
+  };
+  return globals.map(g => (g?.sceneGlobal ? { ...g, sceneGlobal: retier(g.sceneGlobal) } : retier(g)));
+}
+
 class Viewer {
   private readonly loader: ModelLoader;
   private readonly renderer: Renderer;
@@ -660,7 +670,10 @@ class Viewer {
       loading?.progress(0.8);
       const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
       loading?.progress(0.9);
-      const env = await loadEnvironment(this.loader, scene.globals);
+      // a level's tiered globals (lights, fog, skies: "Variant" Tier1-3) follow the depth it is
+      // played at, as the game's server sets them; an archived floor keeps the tier it was captured in
+      const tier = this.gate ? this.floors[this.run.depth]?.tier ?? null : null;
+      const env = await loadEnvironment(this.loader, tier ? retierGlobals(scene.globals, tier) : scene.globals);
       for (const m of env.models) items.push({ instance: await this.instanceOf(m.model), matrix: m.matrix });
       const skyboxes = await Promise.all(env.skyboxes.map(async s => ({ instance: await this.instanceOf(s.model), scale: s.scale, origin: s.origin })));
       if (token !== this.loadToken) return;

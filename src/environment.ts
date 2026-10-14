@@ -29,6 +29,11 @@ export interface Environment {
    * the camera, their "Skybox" queues before the level with the depth buffer cleared after.
    */
   skyboxes: SkyboxDef[];
+  /**
+   * The skybox render effect "Uniform Blur (Skybox)" is on (a ViewerAffecter inside the skybox
+   * models): the skybox queues are drawn into a texture and box-blurred before the level.
+   */
+  skyBlur?: boolean;
   /** Environment models' other content, placed by the global's transform. */
   models: { model: LoadedModel; matrix: Mat4 }[];
   /**
@@ -156,6 +161,7 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
       const fx = viewerEffects(m);
       env.skyboxes.push(...fx.skyboxes);
       if (fx.background) env.background = fx.background;
+      if (fx.effects.includes("Uniform Blur (Skybox)")) env.skyBlur = true;
       if (!m.skybox && (m.parts.length || m.attachments.length || m.particles?.length)) env.models.push({ model: m, matrix });
     }
   };
