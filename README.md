@@ -8,7 +8,7 @@ browser tab.
 
 > **Unofficial fan project, not endorsed by Grey Havens.** Spiral Knights, its client and its
 > assets belong to Grey Havens and Three Rings. This project ships none of them: everything the
-> game shows is read at runtime from the player's own install.
+> game shows is read at runtime from the player's own install. It is non-commercial.
 
 ## What you can play
 
