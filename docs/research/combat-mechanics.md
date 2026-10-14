@@ -95,7 +95,36 @@ General rules:
 | **Autogun** | 2 bursts | 6-bullet spread in a 30–40° cone | 15-bullet zig-zag | **Rooted, cannot turn** while firing | (https://wiki.spiralknights.com/Gunslinger_Guide) |
 | **Tortofist** | 2 | Each shot propels the knight **forward** | 6 crystals that form a wall | — | (https://wiki.spiralknights.com/Gunslinger_Guide) |
 
-Other styles listed but not researched: Mixmaster, Shard Cannon, Slicer (https://wiki.spiralknights.com/Gun). A typical gun range is **9 squares** (Blaster, Pulsar, Catalyzer).
+Other styles listed but not researched: Shard Cannon (https://wiki.spiralknights.com/Gun). A typical gun range is **9 squares** (Blaster, Pulsar, Catalyzer).
+
+### Disk guns and mixers (src/game/orbitals.ts)
+
+The Slicer line (Slicer, Twicer, Thricer, Mandolin), the Overcharged Mixmaster and the
+Celestial Orbitgun fire disks (DungeonActorConfig `OrbitalBullet`, charged ones
+`CompoundOrbitalBullet`); the older Static and Fiery Diskguns and the "(OLD)" Mixmaster and
+Orbitgun fire a mixer core (a plain `ActorConfig$Agent`) that carries two satellites
+(`Orbital`, following it). Their fire actions are `MultiSpawnPrespawned` lists of
+`SpawnPrespawned` / `SpawnTransformedPrespawned`, one actor each, so a twin shot is two disks.
+How they move comes from the client's own prediction of these actors:
+
+- A disk's centre flies straight out at `flightSpeed` (8 by default, 6 charged) for
+  `outDuration` ms (870 diskgun, 990 mixer), then turns home and flies back to the shooter at
+  the same speed, sitting on the shooter once there; it fizzles at `lifespan` (1700 by
+  default; 2000 to 2260 charged). The disk orbits that centre at `orbitRadius`, `speed`
+  revolutions a second, from `startingRotation` plus its aim; `alternateSpin` disks (MKI)
+  alternate direction through a multi-spawn. A compound disk adds a second orbit.
+- A disk hitting a monster or wall goes off (its Shutdown handler): outgoing damage, or the
+  higher "Return Damage" once it has turned home. The wiki agrees: missed shots come back to
+  the wielder, cannot hurt the shooter, and explode on impact
+  (https://wiki.spiralknights.com/Mixmaster).
+- A mixer core flies straight at its `speed` (8; the charged core uses ActorConfig Mobile's
+  default 6), passing through monsters, and stops at walls. Its satellites circle it
+  (`orbitRadius` 0.667, 1.5 revolutions a second, starting east and west) and go off on
+  contact; when the core ends, they go off where they are. The core's timer is server data
+  the export strips, so it flies for 990 ms (`AGENT_BULLET_FUSE`, the mixer disk's out time).
+
+`npx tsx tools/audit/weapon-fire.ts` checks every weapon's attacks fire something the game
+can fly (381 of 382; the exception is the PvP-only Blast Network, an arena `BlastBomb`).
 
 ## 5. Bombs
 

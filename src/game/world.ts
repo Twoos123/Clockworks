@@ -29,8 +29,9 @@ import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSl
 import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "./behavior";
-import { behaviorScript, monsterBehavior, type MonsterInfo } from "./monsterai";
+import { behaviorArgs, behaviorScript, monsterBehavior, type MonsterInfo } from "./monsterai";
 import { actionHint } from "./action";
+import { OrbitMotion } from "./orbitals";
 import { message } from "../i18n";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
@@ -227,8 +228,14 @@ class Projectile {
   done = false;
   /** The monster that fired it, if any. */
   owner: Monster | null = null;
-  constructor(readonly def: ProjectileDef, readonly instance: ModelInstance | null, readonly team: Team,
-    public x: number, public y: number, public z: number, readonly heading: number, readonly ctx: DepthContext) {}
+  /** Orbitals: their motion, the projectile they follow (a mixer core) and their shooter. */
+  orbit: OrbitMotion | null = null;
+  source: Projectile | null = null;
+  shooter: Actor | null = null;
+  /** A disk swaps to its returning model once it turns home. */
+  returnInstance: ModelInstance | null = null;
+  constructor(readonly def: ProjectileDef, public instance: ModelInstance | null, readonly team: Team,
+    public x: number, public y: number, public z: number, public heading: number, readonly ctx: DepthContext) {}
   matrix(): Mat4 {
     const a = this.heading;
     return compose([this.x, this.y, this.z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], 1);
@@ -2301,9 +2308,16 @@ export class World implements LogicHost {
     const loaded = await this.projectileDef(spawn.actor);
     if (!loaded) return;
     const p = loaded.def;
-    const heading = a.heading + spawn.rotation + (Math.random() * 2 - 1) * spawn.variance;
+    // SpawnPrespawned: the spawn turns by up to half its rotation variance either way
+    const heading = a.heading + spawn.rotation + (Math.random() - 0.5) * spawn.variance;
     const c = Math.cos(a.heading), s = Math.sin(a.heading);
-    let x = a.x + p.offset[0] * c - p.offset[1] * s, y = a.y + p.offset[0] * s + p.offset[1] * c;
+    // the bullet's own offset plus a transformed spawn's translation, both in the attacker's frame
+    const fx = p.offset[0] + (spawn.translation?.[0] ?? 0), fy = p.offset[1] + (spawn.translation?.[1] ?? 0);
+    let x = a.x + fx * c - fy * s, y = a.y + fx * s + fy * c;
+    if (p.kind === "Orbital" || p.kind === "Agent") {
+      await this.launchOrbital(loaded, x, y, heading, a.team, this.attackerCtx(a), null, a, spawn.index ?? 0);
+      return;
+    }
     // bombs drop at the knight's feet; a bullet starting inside a wall fizzles at once
     if (p.kind === "Bomb") { x = a.x + c * 0.4; y = a.y + s * 0.4; }
     const instance = loaded.model ? await this.instantiate(loaded.model) : null;
@@ -2333,13 +2347,93 @@ export class World implements LogicHost {
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), loaded.def.fuse / 1000);
   }
 
+  /**
+   * Launches an orbiting projectile (src/game/orbitals.ts): a disk flying out from the shooter
+   * and back, a mixer core flying straight, or a satellite circling the projectile that
+   * spawned it (`source`). `index` is its place in a multi-spawn (alternating disks' spin).
+   * Its startup runs here: its sounds, and the satellites it carries.
+   */
+  private async launchOrbital(loaded: { def: ProjectileDef; model: LoadedModel | null }, x: number, y: number, heading: number,
+    team: Team, ctx: DepthContext, source: Projectile | null, shooter: Actor | null, index: number) {
+    const p = loaded.def;
+    const instance = loaded.model ? await this.instantiate(loaded.model) : null;
+    if (source?.done) return;
+    const proj = new Projectile(p, instance, team, x, y, 0, heading, ctx);
+    proj.source = source;
+    proj.shooter = shooter;
+    if (shooter instanceof Monster) proj.owner = shooter;
+    if (p.orbit) {
+      proj.orbit = new OrbitMotion(p.orbit, x, y, heading, (index & 1) === 1, source?.def.radius ?? shooter?.radius ?? 0);
+      proj.x = proj.orbit.x; proj.y = proj.orbit.y;
+    }
+    proj.z = (source ? source.z - source.def.height : this.collision.groundZ(x, y)) + p.height;
+    this.projectiles.push(proj);
+    if (loaded.model) this.startScripts(loaded.model, proj.matrix(), 3);
+    if (p.creationFx) this.spawnEffect(p.creationFx, proj.matrix(), 2);
+    if (p.returnModel) {
+      void this.loader.loadRef(p.returnModel).then(m => (m && !proj.done ? this.instantiate(m) : null))
+        .then(i => { proj.returnInstance = i; }).catch(() => {});
+    }
+    if (p.startActions.length) {
+      const at = new Entity(false, p.name);
+      at.x = proj.x; at.y = proj.y; at.rotation = heading;
+      for (const act of p.startActions) this.logic.execute(act, at, at);
+    }
+    for (let i = 0; i < p.children.length; i++) {
+      const child = await this.projectileDef(p.children[i]);
+      if (child && !proj.done) await this.launchOrbital(child, proj.x, proj.y, heading, team, ctx, proj, shooter, i);
+    }
+  }
+
+  /**
+   * Moves an orbiting projectile in steps of at most 1/60 s (as the client's predictor does),
+   * striking the first monster or wall it touches. A mixer core flies straight and passes
+   * through monsters; a satellite whose core is gone goes off where it is; a disk that has
+   * flown its lifespan fizzles.
+   */
+  private stepOrbital(p: Projectile, dt: number) {
+    const d = p.def;
+    const n = Math.max(1, Math.ceil(dt * 60 - 1e-6));
+    for (let i = 0; i < n && !p.done; i++) {
+      const h = dt / n, px = p.x, py = p.y;
+      if (d.kind === "Agent") {
+        p.x += Math.cos(p.heading) * d.speed * h;
+        p.y += Math.sin(p.heading) * d.speed * h;
+        if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false) || p.age * 1000 >= d.fuse) p.done = true;
+        continue;
+      }
+      const o = p.orbit!;
+      // a satellite circles the projectile that spawned it (or its shooter); a disk heads
+      // home to its shooter
+      const lead: { x: number; y: number } | null = o.o.bullet
+        ? (p.shooter && !(p.shooter === this.knight && this.knight.dead) ? p.shooter : null)
+        : p.source ? (p.source.done ? null : p.source) : p.shooter;
+      const end = o.step(h, lead);
+      p.x = o.x; p.y = o.y;
+      if (p.x !== px || p.y !== py) p.heading = Math.atan2(p.y - py, p.x - px);
+      if (o.returning && p.returnInstance && p.instance !== p.returnInstance) p.instance = p.returnInstance;
+      if (end === "lost") { this.detonate(p, true); break; }
+      if (end === "fizzle") {
+        p.done = true;
+        if (d.fizzleFx) this.spawnEffect(d.fizzleFx, compose([p.x, p.y, p.z], [0, 0, 0, 1], 1), 1);
+        break;
+      }
+      // a satellite with no collision mask (a charged mixer's middle ring) touches nothing
+      if (!d.collisionMask) continue;
+      if (this.projectileTarget(p)) this.detonate(p, true);
+      else if (p.team === "monster" && this.boss?.bullet?.(p.x, p.y, p.heading, p.owner)) this.detonate(p, true);
+      else if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false)) this.detonate(p, true);
+    }
+  }
+
   private updateProjectiles(dt: number) {
     for (const p of this.projectiles) {
       if (p.done) continue;
       p.age += dt;
       p.instance?.advance(dt);
       const d = p.def;
-      if (d.kind === "Bullet") {
+      if (d.kind === "Orbital" || d.kind === "Agent") this.stepOrbital(p, dt);
+      else if (d.kind === "Bullet") {
         const steps = Math.max(1, Math.ceil((d.speed * dt) / Math.max(0.1, d.radius)));
         for (let i = 0; i < steps && !p.done; i++) {
           p.x += (Math.cos(p.heading) * d.speed * dt) / steps;
@@ -2391,22 +2485,25 @@ export class World implements LogicHost {
       if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, this.collision.groundZ(p.x, p.y)], [0, 0, 0, 1], 1), 2);
       return;
     }
-    const amounts = this.amounts(d.damage, p.ctx);
+    // a disk on its way home strikes with its return damage
+    const back = !!p.orbit?.returning && !!d.returnDamage;
+    const amounts = this.amounts(back ? d.returnDamage : d.damage, p.ctx);
+    const knockback = back ? d.returnKnockback ?? 0 : d.knockback;
     if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, bullet ? p.z : this.collision.groundZ(p.x, p.y)], [0, 0, Math.sin(p.heading / 2), Math.cos(p.heading / 2)], 1), 2);
     if (p.team === "knight" || p.team === "hazard") {
       for (const m of this.monsters) {
         if (m.state === "dying" || m.state === "spawning" || Math.hypot(m.x - p.x, m.y - p.y) > r + m.radius) continue;
-        this.damageMonster(m, amounts, d.knockback, p.x - Math.cos(p.heading) * 0.01, p.y - Math.sin(p.heading) * 0.01);
+        this.damageMonster(m, amounts, knockback, p.x - Math.cos(p.heading) * 0.01, p.y - Math.sin(p.heading) * 0.01);
       }
       for (const b of [...this.props]) {
         if (b.struck && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.5) this.damageProp(b, dealt(amounts, null), p.team === "hazard" ? 1 : 2);
         else if (b.strikable && Math.hypot(b.x - p.x, b.y - p.y) <= r + 0.6) this.strikeProp(b);
       }
       const k = this.knight;
-      if (p.team === "hazard" && !k.dead && Math.hypot(k.x - p.x, k.y - p.y) <= r + k.radius) this.damageKnight(amounts, d.knockback, p.x, p.y);
+      if (p.team === "hazard" && !k.dead && Math.hypot(k.x - p.x, k.y - p.y) <= r + k.radius) this.damageKnight(amounts, knockback, p.x, p.y);
     } else {
       const k = this.knight;
-      if (!k.dead && Math.hypot(k.x - p.x, k.y - p.y) <= r + k.radius) this.damageKnight(amounts, d.knockback, p.x, p.y);
+      if (!k.dead && Math.hypot(k.x - p.x, k.y - p.y) <= r + k.radius) this.damageKnight(amounts, knockback, p.x, p.y);
     }
   }
 
@@ -2819,7 +2916,11 @@ export class World implements LogicHost {
     if (known !== undefined) return known;
     this.ranges.set(a, 6);
     if (a.spawn) void this.projectileDef(a.spawn.actor).then(l => {
-      if (l) this.ranges.set(a, l.def.kind === "Bomb" ? Math.max(1.5, l.def.regionRadius) : Math.max(2, (l.def.speed * l.def.fuse) / 1000 * 0.85));
+      if (!l) return;
+      const b = l.def.orbit?.bullet;
+      this.ranges.set(a, l.def.kind === "Bomb" ? Math.max(1.5, l.def.regionRadius)
+        : b ? Math.max(2, (b.flightSpeed * b.outDuration) / 1000 * 0.85)
+        : l.def.kind === "Orbital" ? 2 : Math.max(2, (l.def.speed * l.def.fuse) / 1000 * 0.85));
     });
     return 6;
   }
@@ -2897,11 +2998,12 @@ export class World implements LogicHost {
   private brainOf(m: Monster): Agent {
     if (m.brain) return m.brain;
     const def = m.def, name = m.entity?.name ?? def.name;
-    const script = behaviorScript(m.ref ?? { name }, n => this.data.config("config/actor.dat", n));
+    const lookup = (n: string) => this.data.config("config/actor.dat", n);
+    const script = behaviorScript(m.ref ?? { name }, lookup);
     const info: MonsterInfo = {
       name, attacks: def.slots.map(a => a?.name ?? ""), speed: def.speed, targetedSpeed: def.targetedSpeed,
       melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a ? Math.max(0, this.reach(a) - m.radius) : 0)),
-      script,
+      script, args: behaviorArgs(m.ref ?? { name }, lookup),
     };
     let cfg: Behavior = monsterBehavior(info);
     // allies (freed companions, energy turrets) fight monsters near the knight, else follow it

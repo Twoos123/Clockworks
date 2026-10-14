@@ -27,6 +27,10 @@ What remains (mostly data the install lacks, or closed-code behaviour):
 - Animations and models missing from the install: lizardman and dust bunny animations, the Ironscale Hunter and Beast Master models, razor drone jitter.
 - Parts and markers (boss bullets, Vanaduke debris and flame markers, swarm parts) have no idle animation by design and are not standalone monsters; 19 configs are props or orbitals, not monsters.
 - Agent-class bullets (diskgun and mixer cores spawning orbital bullets) are not simulated: the 11 weapons that fire them do nothing.
+  *Since fixed:* disks, mixer cores and their satellites fly (src/game/orbitals.ts; see
+  combat-mechanics.md, "Disk guns and mixers"); `tools/audit/weapon-fire.ts` checks every
+  weapon fires. The Pulsar's "no sound" on its charge is the install's data: its charged
+  shot's muzzle flare names no sound (other pulsars use `fx_muzzleflare_sound.dat`).
 - About 40 monsters do not flinch at a big hit (bosses and armoured monsters whose react threshold the hit did not reach after defence).
 
 ### Before: Monsters
