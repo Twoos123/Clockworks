@@ -35,12 +35,14 @@ import {
 import { validName } from "./createknight";
 import { loadoutPill, loadoutTip, wearLoadout } from "./loadouts";
 import { messageText, type Component, type Style } from "./gui";
-import { itemPreview, itemTip, ItemList, levelBonuses, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
+import { itemPreview, itemTip, ItemList, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
 import { applyItemAction, COMPARE, compareTarget, itemMenu, rankAllows, rankLimitText, SLOT_ICON } from "./itemmenu";
 import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
 import { styledLabel } from "./floating";
 import { freshProgress, rankName } from "../game/missions";
-import { text as bundleText } from "../i18n";
+import { message, text as bundleText } from "../i18n";
+import { levelLines, statusLines } from "../game/itemlines";
+import { itemFlavor } from "../game/text";
 import { buildStats, GuiScreen, row, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
 
 export interface ArsenalHost extends ScreenHost {
@@ -181,16 +183,24 @@ export function ownedTip(save: SaveData, data: GameData, eco: Economy, e: ItemEn
 function ownTip(save: SaveData, data: GameData, eco: Economy, e: ItemEntry, worn: boolean): TipSpec {
   const heatable = !!eco.info(e.name)?.heatable;
   const g = save.gear[e.name], lv = eco.level(save, e.name);
-  const bonuses: TipBonus[] = (g?.variants ?? []).map(v => ({ text: eco.variantLabel(v), bonus: true, color: "Variant" }));
-  if (heatable) bonuses.push(...levelBonuses(eco.levelStats(e.name, lv, 30)));
-  const flavor = heatable
+  // ItemConfig.Level's pills: the weapon's status rows, the unique variants, the level's rows
+  const bonuses: TipBonus[] = heatable ? statusLines(data, e.name) : [];
+  bonuses.push(...(g?.variants ?? []).map(v => ({ text: eco.variantLabel(v), bonus: true, color: "Variant" })));
+  if (heatable) bonuses.push(...levelLines(data, eco, e.name, lv));
+  const description = itemFlavor(e.name) || (heatable
     ? `${Math.floor(g?.heat ?? 0)} heat absorbed.${lv >= MAX_LEVEL ? " Fully heated." : eco.forgeReady(save, e.name)
       ? " Ready to level up at the Forge with fire crystals." : " Its heat bar fills in the Clockworks; a full bar levels up at the Forge."}`
-    : `${e.category.label.replace(/s$/, "")}.`;
-  return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
+    : `${e.category.label.replace(/s$/, "")}.`);
+  // ItemConfig.Level.a: gear that binds on equip (lockOnEquip) and is owned says it is bound
+  // (m.item_locked), joined to the description by m.compound
+  let impl: any = null;
+  try { impl = data.resolveSync("config/item.dat", { name: e.name }, "item"); } catch { impl = null; }
+  const bound = heatable && impl?.lockOnEquip !== false ? bundleText("item", "m.item_locked", "This item is bound to you.\n") : "";
+  const flavor = bound ? (message("item", "m.compound", bound, description) || `${bound}\n${description}`) : description;
+  return { ...itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: undefined, kind: e.category.eco,
     flavor, level: heatable ? lv : undefined, noLevel: e.category.slot === "trinket",
     progress: eco.heatProgress(save, e.name), equipped: worn, bonuses, stats: itemStats(data, eco, e.name, Math.max(1, lv), g?.variants),
-    model: itemPreview(data, e.name, save.color), wearable: worn || rankAllows(save, e.rarity), rankText: rankLimitText(e.rarity) });
+    model: itemPreview(data, e.name, save.color), wearable: worn || rankAllows(save, e.rarity), rankText: rankLimitText(e.rarity) }), anchored: 15 };
 }
 
 /**
@@ -298,16 +308,14 @@ export class ArsenalScreen extends GuiScreen {
     this.list.onPick = e => this.pick(e);
     this.list.clicks = this.clicks;
     this.list.menu = (e, t, c) => void this.popupMenu(e, t, c);
-    this.on(left, "dismiss", () => this.close());
+    // the arsenal docks at the screen's right edge beside the character window; its close
+    // button takes only it away
+    this.arsenalList = left;
+    this.on(left, "dismiss", () => { this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.dock(ARSENAL_DOCK, false, 0, async () => null); });
     this.on(right, "handle", () => this.close());
     this.on(right, "button_saveloadout", () => this.openSaveLoadout());
-    const opts = this.on(right, "characteroptions", c => {
-      this.options = !this.options;
-      c.selected = this.options;
-      this.host.sound("sound/feedback/ui_dropdown_select.ogg");
-      void this.refresh();
-    });
-    if (opts) opts.states = 8;
+    // LoadoutPanel (bh): Character Options pops up a menu under the button, titled with the knight's name
+    const opts = this.on(right, "characteroptions", () => void this.characterMenu());
     // the tabs: equipment, costume, battle sprite and achievements
     const pane = right.find("tabbed");
     if (pane) {
@@ -323,18 +331,17 @@ export class ArsenalScreen extends GuiScreen {
       };
     }
     for (const [i, page] of this.pages.entries()) await this.preparePage(page, i);
-    // the ninth socket holds the vitapod: its backing shows the capsule category icon
-    const backing = this.pages[0] && this.socketBacking(this.pages[0], "slot9");
-    if (backing?.styleRef) {
-      const st = await this.restyle(backing, { File: CAT + "icon_capsule.png" });
-      if (st) backing.styles = backing.styles.map(() => st);
-    }
     for (const s of SOCKETS) { const c = right.find(s.tag); if (c) this.clicks.set(c, () => this.emptySocket(s)); }
     for (const s of COSTUME_SOCKETS) { const c = right.find(s.tag); if (c) this.clicks.set(c, () => void this.takeOffCostume(s.slot)); }
-    for (const [i, tag] of SPRITE_SOCKETS.entries()) {
+    for (const [tag, f] of SPRITE_SOCKETS) {
       const c = right.find(tag);
-      if (c) this.clicks.set(c, () => this.focusOn(i === 0 ? "sprite" : (i - 1) as 0 | 1 | 2));
+      if (c) this.clicks.set(c, () => this.focusOn(f));
     }
+    // the sprite page's notice: "Ready to level up!" opens the feeding, "Skill points
+    // available!" the first skill with room (LoadoutPanel.n.Fa)
+    const notice = this.pages[2]?.find("notice");
+    if (notice) this.clicks.set(notice, () => { if (this.noticeAction) this.focusOn(this.noticeAction); });
+    this.harnessCfg = await this.arsenal.data().library("config/harness.dat").then(l => l.get(DEFAULT_HARNESS) ?? null).catch(() => null);
     this.prepareSpritePanels();
     const draw = (im: { source: unknown; width: number; height: number } | null, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) => {
       if (im) g.drawImage(im.source as CanvasImageSource, Math.round(x + (w - im.width) / 2), Math.round(y + (h - im.height) / 2), im.width, im.height);

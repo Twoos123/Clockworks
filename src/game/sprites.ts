@@ -5,13 +5,16 @@
 // actions spawn pet bullets, orbitals, lasers and bombs ("Bullet/Pet/..." in actor.dat),
 // apply buffs and battle-sprite conditions, or raise a sprite shield.
 //
-// Progress (levels, skill points, ultimates) follows the game's guide, since the rules live
-// in server code: heat levels 0 to 100 from feeding sprite food (favoured food fills more),
-// the second skill at level 15 and the third at 50 (each with a new appearance, the model's
-// tiers), ultimates at 90, 95 and 100. Each skill has three augments (its powers: "focus"
-// shortens the recharge along rechargeSeconds, the other two are the skill's Power1 and Power2
-// arguments), three ranks each; points come with levels. Heat per level and per food are
-// tuning numbers.
+// Progress follows the client's tables (SpriteCodes, sprites/b/a, BattleSprite) and the wiki:
+// levels 0 to 99, shown 1 to 100. Feeding sprite food fills the heat bar (a fifth at most per
+// feeding, the favoured food counting five times) and takes a fifth of the appetite, which
+// refills over an hour; a full bar waits for the required item (the favoured food of the
+// sprite's tier, or an evo catalyst before levels 15, 50, 90, 95 and 100) to level up. The
+// second skill unlocks at 15 and the third at 50 (each with a new form, the model's tiers);
+// skill points come at the levels in SpriteCodes.bGL, 27 in all; each skill has three augments
+// (its powers: "focus" shortens the recharge along rechargeSeconds, the other two are the
+// skill's Power1 and Power2 arguments) of three ranks at a point each, and with all nine spent
+// and level 90, 95 or 100 reached it may take an ultimate form. Food values are tuning.
 //
 // The runtime (SpriteCompanion) talks to the world through SpriteWorld, which World builds
 // from its own internals, so the world needs only a few hooks: update, items, shadows, the
@@ -35,6 +38,8 @@ export interface SpriteSkillDef {
   ultimateB: any;
   /** Recharge seconds by focus rank (0 to 3). */
   recharge: number[];
+  /** The least recharge seconds by focus rank (0: none). */
+  minRecharge: number[];
   /** The sprite stays with the knight while the skill runs (barriers, cloaks, auras). */
   followKnight: boolean;
   label: NamedIcon;
@@ -68,6 +73,7 @@ export function readSpriteDef(cfg: any): SpriteDef {
     skills: ((cfg.skills ?? []) as any[]).map(s => ({
       skill: s.skill ?? null, ultimateA: s.uSkillA ?? null, ultimateB: s.uSkillB ?? null,
       recharge: Array.from((s.rechargeSeconds ?? [20, 18, 16, 14]) as ArrayLike<number>),
+      minRecharge: Array.from((s.minRechargeSeconds ?? []) as ArrayLike<number>),
       followKnight: !!s.followKnight,
       label: named(s.name) ?? { name: "", icon: null, desc: "" },
       ultimateLabels: [named(s.ultimateNameA), named(s.ultimateNameB)],
@@ -79,33 +85,66 @@ export function readSpriteDef(cfg: any): SpriteDef {
 
 // ------------------------------------------------------------------ progress (pure)
 
-export const MAX_LEVEL = 100;
-/** Levels at which the skills unlock (and the sprite changes form), and the ultimates. */
-export const SKILL_LEVELS = [0, 15, 50];
-export const ULTIMATE_LEVELS = [90, 95, 100];
+/**
+ * The top level (BattleSprite's _level runs 0 to 99 and shows one more: "01" to "100"). The
+ * five perk levels past it are not modelled.
+ */
+export const MAX_LEVEL = 99;
+/** SpriteCodes.bGM: the levels at which the skills unlock and the sprite changes form ("15" and "50" shown). */
+export const SKILL_LEVELS = [0, 14, 49];
+/** SpriteCodes.bGN: the levels whose skill can take an ultimate form ("90", "95", "100" shown). */
+export const ULTIMATE_LEVELS = [89, 94, 99];
 export const MAX_RANK = 3;
 export type Ultimate = "" | "A" | "B";
+/** SpriteCodes.bGL: the levels that bring a skill point (27, enough for every augment). */
+const POINT_LEVELS = [1, 3, 5, 7, 9, 11, 16, 19, 22, 25, 28, 31, 34, 37, 40, 43, 46, 51, 54, 57, 61, 65, 69, 73, 77, 81, 85];
+/** SpriteCodes.bGK: the levels where the sprite's food tier (and the knight rank it needs) goes up. */
+const FOOD_TIERS = [0, 4, 14, 29, 49, 74];
+/** SpriteCodes.bGP: the evo catalysts that take a sprite to these levels instead of its food. */
+const CATALYSTS: Record<number, string> = {
+  14: "Rarity/Evo Catalyst/Evo Catalyst", 49: "Rarity/Evo Catalyst/Advanced Evo Catalyst",
+  89: "Rarity/Evo Catalyst/Ultimate Evo Catalyst", 94: "Rarity/Evo Catalyst/Ultimate Evo Catalyst", 99: "Rarity/Evo Catalyst/Ultimate Evo Catalyst",
+};
+/** sprites/b/a.bGX: the heat value a level holds (SpriteCodes.bGR's steps, interpolated across each food tier). */
+const LEVEL_HEAT = (() => {
+  const steps = [300, 500, 700, 900, 1100, 1300, 1500], out: number[] = [];
+  let tier = 0, from = 0, to = 0, start = 0, next = 0;
+  for (let l = 0; l <= 99; l++) {
+    if (l === next && l !== 99) { start = l; tier++; next = tier >= FOOD_TIERS.length ? 99 : FOOD_TIERS[tier]; from = steps[tier - 1]; to = steps[tier]; }
+    out.push(10 * Math.round(from + (to - from) * (l - start) / (next - start)));
+  }
+  return out;
+})();
+/** An hour of appetite (BattleSprite.ao), and what one feeding takes (sprites/b/a.aC: twelve minutes, a fifth). */
+export const APPETITE_MS = 3_600_000;
+export const BITE_MS = 720_000;
 
 export interface SpriteProgress {
   /** The battle sprite config name ("Drakon", "Seraphynx, Black"). */
   name: string;
+  /** 0 to 99 (shown one more). */
   level: number;
-  /** Heat toward the next level. */
+  /** The heat bar, 0 to 1 (BattleSprite._heatProgress); full, the sprite waits for its required item. */
   heat: number;
+  /** When the sprite was last full (BattleSprite._lastFull, ms), or 0: appetite refills over an hour from it. */
+  fullAt: number;
   /** Augment ranks per skill: [focus, power 1, power 2], 0 to 3. */
   ranks: number[][];
   ultimates: Ultimate[];
 }
 
 export const newProgress = (name: string): SpriteProgress =>
-  ({ name, level: 0, heat: 0, ranks: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], ultimates: ["", "", ""] });
+  ({ name, level: 0, heat: 0, fullAt: 0, ranks: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], ultimates: ["", "", ""] });
 
 /** A saved progress record, repaired. */
 export function normalizeProgress(p: Partial<SpriteProgress> | undefined, name: string): SpriteProgress {
   const out = newProgress(name);
   if (!p) return out;
   out.level = clampInt(p.level, 0, MAX_LEVEL);
-  out.heat = Math.max(0, Number(p.heat) || 0);
+  const heat = Math.max(0, Number(p.heat) || 0);
+  // older saves kept heat in units of 20 + 4 per level
+  out.heat = heat <= 1 ? heat : Math.min(0.99, heat / (20 + out.level * 4));
+  out.fullAt = Math.max(0, Number(p.fullAt) || 0);
   for (let i = 0; i < 3; i++) {
     for (let j = 0; j < 3; j++) out.ranks[i][j] = clampInt(p.ranks?.[i]?.[j], 0, MAX_RANK);
     const u = p.ultimates?.[i];
@@ -120,29 +159,67 @@ const clampInt = (v: unknown, lo: number, hi: number) => Math.max(lo, Math.min(h
 export const spriteTier = (level: number) => level >= SKILL_LEVELS[2] ? 3 : level >= SKILL_LEVELS[1] ? 2 : 1;
 /** Skills usable at a level (1 to 3). */
 export const unlockedSkills = (level: number) => SKILL_LEVELS.filter(l => level >= l).length;
-/** Augment points earned by a level: all 27 by level 100 (the guide: enough to max every augment). */
-export const skillPoints = (level: number) => Math.floor((Math.min(MAX_LEVEL, level) * 27) / MAX_LEVEL);
+/** Skill points a level has brought (sprites/b/a.fL). */
+export const skillPoints = (level: number) => POINT_LEVELS.filter(l => l <= clampInt(level, 0, MAX_LEVEL)).length;
 export const spentPoints = (p: SpriteProgress) => p.ranks.reduce((s, r) => s + r.reduce((a, b) => a + b, 0), 0);
+/** BattleSprite.YY: points to spend. */
 export const freePoints = (p: SpriteProgress) => Math.max(0, skillPoints(p.level) - spentPoints(p));
-/** Heat from one level to the next (tuning). */
-export const heatToNext = (level: number) => 20 + level * 4;
-/** Heat from one food by star rating (1 Mote to 5 Star); favoured food fills five times as much (tuning, after the guide's ratio). */
-const FOOD_HEAT = [2, 5, 12, 30, 75, 180];
-export const foodHeat = (stars: number, favoured: boolean) => FOOD_HEAT[clampInt(stars, 0, 5)] * (favoured ? 5 : 1);
+/** The food tier at a level (BattleSprite.fK, 0 to 5): which favoured food it wants, and the star rank whose knight rank it needs. */
+export function foodTier(level: number): number {
+  for (let i = FOOD_TIERS.length - 1; i >= 0; i--) if (level >= FOOD_TIERS[i]) return i;
+  return 0;
+}
+/** The heat value a level holds (a feeding fills a fifth of the bar at most). */
+export const heatToNext = (level: number) => LEVEL_HEAT[clampInt(level, 0, 99)];
+/**
+ * A food's heat value by star rating (1 Mote to 5 Star); the favoured food counts five times
+ * (SpriteCodes.FoodType PREFERRED). The values are tuning: the server's are not in the client.
+ */
+const FOOD_VALUE = [0, 600, 1500, 3000, 6000, 12000];
+export const foodHeat = (stars: number, favoured: boolean) => FOOD_VALUE[clampInt(stars, 0, 5)] * (favoured ? 5 : 1);
+/** Whether the heat bar is full and the sprite waits for its required item (BattleSprite.YW). */
+export const readyToLevel = (p: SpriteProgress) => p.heat >= 1 && p.level < MAX_LEVEL;
 
-/** Adds heat; returns the levels gained. */
-export function addHeat(p: SpriteProgress, heat: number): number {
-  const before = p.level;
-  p.heat += heat;
-  while (p.level < MAX_LEVEL && p.heat >= heatToNext(p.level)) { p.heat -= heatToNext(p.level); p.level++; }
-  if (p.level >= MAX_LEVEL) p.heat = 0;
-  return p.level - before;
+/**
+ * Adds a feeding's heat (sprites/b/a.a): a fifth of the bar at most, in proportion to the
+ * food's value against the level's. Returns the bar's new fill.
+ */
+export function addHeat(p: SpriteProgress, value: number): number {
+  if (p.level >= MAX_LEVEL) { p.heat = 1; return 1; }
+  p.heat = Math.min(1, Math.max(0, p.heat + 0.2 * Math.min(1, value / heatToNext(p.level))));
+  if (p.heat > 0.9999) p.heat = 1;
+  return p.heat;
+}
+
+/** BattleSprite.ac: the item a full sprite needs (an evo catalyst at its breakpoints), else its favoured food for the tier. */
+export function requiredItem(def: SpriteDef, p: SpriteProgress): string | null {
+  if (readyToLevel(p) && CATALYSTS[p.level + 1]) return CATALYSTS[p.level + 1];
+  if (!def.food.length) return null;
+  return def.food[Math.min(Math.max(0, foodTier(p.level) - 1), def.food.length - 1)];
+}
+
+/** The star rating whose knight rank the next level needs (BattleSprite.r). */
+export const nextLevelRarity = (p: SpriteProgress) => foodTier(p.level + 1);
+
+/** Appetite left (BattleSprite.ao), 0 to 1: a fifth is one feeding. */
+export const appetite = (p: SpriteProgress, now: number) => !p.fullAt ? 1 : Math.min(APPETITE_MS, Math.max(0, now - p.fullAt)) / APPETITE_MS;
+/** Whether the sprite has room for a feeding (BattleSprite.a: twelve minutes since full). */
+export const canEat = (p: SpriteProgress, now: number) => !p.fullAt || now - p.fullAt > BITE_MS;
+/** A feeding takes a fifth of the appetite. */
+export function eat(p: SpriteProgress, now: number) { p.fullAt = Math.max(p.fullAt, now - APPETITE_MS) + BITE_MS; }
+
+/** Takes a full sprite to its next level with its required item. */
+export function levelUp(def: SpriteDef, p: SpriteProgress, item: string): boolean {
+  if (!readyToLevel(p) || item !== requiredItem(def, p)) return false;
+  p.level++;
+  p.heat = p.level >= MAX_LEVEL ? 1 : 0;
+  return true;
 }
 
 /** Raises an augment (skill 0 to 2, power 0 focus, 1 or 2 a perk) by one rank. */
 export function spendPoint(p: SpriteProgress, skill: number, power: number): boolean {
   if (skill < 0 || skill > 2 || power < 0 || power > 2) return false;
-  if (skill >= unlockedSkills(p.level) || freePoints(p) <= 0 || p.ranks[skill][power] >= MAX_RANK) return false;
+  if (skill >= unlockedSkills(p.level) || freePoints(p) <= 0 || p.ranks[skill][power] >= MAX_RANK || p.ultimates[skill]) return false;
   p.ranks[skill][power]++;
   return true;
 }
@@ -161,6 +238,10 @@ export function autoSpend(p: SpriteProgress) {
 /** Gives back every point and ultimate (the Reset Star). */
 export function resetPoints(p: SpriteProgress) { p.ranks = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]; p.ultimates = ["", "", ""]; }
 
+/** Whether a skill may take its ultimate form now (BattleSprite.fI: its level reached, all nine points in it, none chosen). */
+export const ultimateReady = (p: SpriteProgress, skill: number) =>
+  skill >= 0 && skill < 3 && p.level >= ULTIMATE_LEVELS[skill] && !p.ultimates[skill] && p.ranks[skill].reduce((a, b) => a + b, 0) >= 3 * MAX_RANK;
+
 /** Picks a skill's ultimate form (or "" for the normal one), once its level is reached. */
 export function chooseUltimate(p: SpriteProgress, skill: number, u: Ultimate): boolean {
   if (skill < 0 || skill > 2 || p.level < ULTIMATE_LEVELS[skill]) return false;
@@ -168,10 +249,14 @@ export function chooseUltimate(p: SpriteProgress, skill: number, u: Ultimate): b
   return true;
 }
 
-/** Recharge seconds of a skill at its focus rank. */
-export function rechargeOf(def: SpriteDef, p: SpriteProgress, skill: number): number {
-  const r = def.skills[skill]?.recharge ?? [20];
-  return r[Math.min(r.length - 1, p.ranks[skill]?.[0] ?? 0)] ?? 20;
+/** Recharge seconds of a skill at its focus rank (BattleSprite.g: times the harness's modifier, at least the skill's minimum). */
+export function rechargeOf(def: SpriteDef, p: SpriteProgress, skill: number, harness = 1): number {
+  const s = def.skills[skill], rank = p.ranks[skill]?.[0] ?? 0;
+  const r = s?.recharge ?? [20];
+  const base = Math.trunc((r[Math.min(r.length - 1, rank)] ?? 20) * 1000 * harness);
+  const mins = s?.minRecharge ?? [];
+  const min = (mins[Math.min(Math.max(0, mins.length - 1), rank)] ?? 0) * 1000;
+  return Math.trunc(Math.max(min || base, base) / 1000);
 }
 
 /** The attack reference a skill uses: an ultimate form, or the skill with its perk ranks. */
@@ -209,6 +294,8 @@ export function normalizeSpriteSave(s: Partial<SpriteSave> | undefined | null): 
   if (out.active && !out.sprites[out.active]) out.sprites[out.active] = newProgress(out.active);
   return out;
 }
+
+const take = (m: Record<string, number>, item: string) => { m[item]--; if (m[item] <= 0) delete m[item]; };
 
 /** Food item star ratings (Mote 1 to Star 5), by the item's name. */
 export function foodStars(item: string): number {
@@ -254,18 +341,32 @@ export class SpriteRoster {
 
   private changed() { this.persist(); this.onChange?.(); }
 
-  /** Feeds the active sprite one food item from the materials; returns the levels gained, or -1. */
-  feed(item: string): number {
+  /**
+   * Feeds the active sprite one food item from the materials (LoadoutPanel's FEED SPRITE):
+   * "" when it ate, else the projectx bundle's error key (no appetite, a full bar).
+   */
+  feed(item: string, now = Date.now()): string {
     const p = this.active(), def = p ? this.defs().get(p.name) : null;
     const s = this.save();
-    if (!p || !def || (s.materials[item] ?? 0) <= 0) return -1;
     const stars = foodStars(item);
-    if (!stars) return -1;
-    s.materials[item]--;
-    if (s.materials[item] <= 0) delete s.materials[item];
-    const gained = addHeat(p, foodHeat(stars, def.food.includes(item)));
+    if (!p || !def || (s.materials[item] ?? 0) <= 0 || !stars) return "e.wrong_level_item";
+    if (readyToLevel(p) || p.level >= MAX_LEVEL) return "e.wrong_level_item";
+    if (!canEat(p, now)) return "e.not_enough_appetite";
+    take(s.materials, item);
+    eat(p, now);
+    addHeat(p, foodHeat(stars, def.food.includes(item)));
     this.changed();
-    return gained;
+    return "";
+  }
+
+  /** LEVEL UP!: a full sprite eats its required item and goes up a level; false when it cannot. */
+  levelUp(item: string): boolean {
+    const p = this.active(), def = p ? this.defs().get(p.name) : null;
+    const s = this.save();
+    if (!p || !def || (s.materials[item] ?? 0) <= 0 || !levelUp(def, p, item)) return false;
+    take(s.materials, item);
+    this.changed();
+    return true;
   }
 
   spend(skill: number, power: number): boolean {

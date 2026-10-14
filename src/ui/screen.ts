@@ -82,6 +82,13 @@ export interface TipSpec {
    * both tooltips side by side in ui/window/tooltip_compare.dat, the compared one first.
    */
   compare?: TipSpec;
+  /**
+   * item/client/M.a's placement (client/ui/f): the tooltip sits beside its anchor (an item
+   * pill's tip_anchor, else the component the tooltip belongs to) rather than by the mouse,
+   * its right edge this many pixels into the anchor, above it, or below it when there is no
+   * room above (item/client/N).
+   */
+  anchored?: number;
 }
 
 /**
@@ -436,9 +443,13 @@ export abstract class GuiScreen {
     const win = this.targetAt(this.pointer.x, this.pointer.y) ?? this.root;
     const hit = hitTest(win, this.pointer.x, this.pointer.y);
     if (!hit) return null;
-    let spec: TipSpec | null = null;
-    for (const c of this.ancestors(win, hit) ?? []) spec = this.tips.get(c) ?? spec;
-    if (!spec) return null;
+    let spec: TipSpec | null = null, owner: Component | null = null;
+    for (const c of this.ancestors(win, hit) ?? []) { const t = this.tips.get(c); if (t) { spec = t; owner = c; } }
+    if (!spec || !owner) return null;
+    // an item pill's tooltip anchors at its icon (interface_itempill.dat's tip_anchor)
+    const pillAnchor = owner.find("tip_anchor");
+    this.tipAnchor = spec.text === undefined && (pillAnchor || spec.anchored !== undefined)
+      ? { c: pillAnchor ?? owner, overlap: spec.anchored ?? 15 } : null;
     const key = JSON.stringify(spec, (k, v) => (k === "$outer" ? undefined : v));
     const t = this.tipCache.get(key);
     if (t === undefined) {
@@ -455,6 +466,8 @@ export abstract class GuiScreen {
   /** The tooltip on screen and how long it has been up (its 3D preview turns). */
   private shownTip: Component | null = null;
   private tipAge = 0;
+  /** Where the hovered tooltip anchors (item/client/N), or null to follow the mouse. */
+  private tipAnchor: { c: Component; overlap: number } | null = null;
 
   private clickable(root: Component, x: number, y: number): Component | null {
     if (!this.clicks.size) return null;
@@ -527,8 +540,20 @@ export abstract class GuiScreen {
     if (tip && this.pointer) {
       this.tipAge += dt;
       const s = pack(tip);
-      const x = Math.min(cw - s.width - 4, this.pointer.x + 18), y = Math.min(ch - 4, this.pointer.y + 18 + s.height);
-      render(tip, g, Math.max(4, x), Math.max(s.height + 4, y), { ...this.hooks, view: (v, gg, vx, vy, vw, vh) => {
+      let x = Math.max(4, Math.min(cw - s.width - 4, this.pointer.x + 18)), y = Math.max(s.height + 4, Math.min(ch - 4, this.pointer.y + 18 + s.height));
+      const a = this.tipAnchor, r = a?.c.screen;
+      if (a && r) {
+        // item/client/N: the right edge `overlap` into the anchor; the bottom `overlap` below
+        // its top, else the top `overlap` above its bottom, else against the screen's top
+        const o = a.overlap;
+        let top = r.y + o - s.height;
+        if (top <= 0) { top = r.y + r.height - o; if (top + s.height > ch) top = 1; }
+        let left = r.x - s.width + o;
+        if (left < 0) left = r.x + r.width - o;
+        x = Math.round(left);
+        y = Math.round(top + s.height);
+      }
+      render(tip, g, x, y, { ...this.hooks, view: (v, gg, vx, vy, vw, vh) => {
         if (v.viewOwner !== "tooltip") { this.hooks.view?.(v, gg, vx, vy, vw, vh); return; }
         // client/ui/Q: after 0.2 s the camera orbits, speeding up to 3pi/8 radians a second over a second
         const base = (v.view.baseAzimuth ??= v.view.azimuth ?? 0), a = this.tipAge;

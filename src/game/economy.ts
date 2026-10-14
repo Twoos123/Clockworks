@@ -576,7 +576,7 @@ export class Economy {
   }
 
   /** The level table entries for an item at a level (1-10), with arguments applied. */
-  private levelConfigs(name: string, level: number): any[] {
+  levelConfigs(name: string, level: number): any[] {
     const ref = this.info(name)?.props?.levelTable;
     const out: any[] = [];
     const walk = (r: any, depth: number) => {
