@@ -9,11 +9,12 @@
 // fill it.
 
 import { message, text as bundleText } from "../i18n";
-import { messageText, type Component, type GuiContext } from "./gui";
+import { messageText, type Component, type GuiContext, type GuiImage, type MenuEntry } from "./gui";
 import { styledLabel } from "./floating";
 import { buildUi, uiRef, type TipSpec } from "./screen";
 import { itemFlavor, itemType } from "../game/text";
 import type { ItemStats } from "../game/itemstats";
+import type { GameData } from "../game/data";
 
 export interface ListEntry {
   /** Unique within the list (an item config name). */
@@ -39,6 +40,8 @@ export interface ListEntry {
   count?: string;
   /** The tooltip shown while the pill is hovered. */
   tip?: TipSpec;
+  /** False when the knight's rank cannot wear it yet (the pill's Equippable). */
+  equippable?: boolean;
   /** Another pill interface in place of the item pill (a saved loadout's), with an entryselect button. */
   ui?: any;
 }
@@ -58,10 +61,21 @@ const PILL = "ui/hud_v2/parts/interface_itempill.dat";
 const HEADER = "ui/recipes/parts/pill_recipe/interface_header.dat";
 const BLANK = "ui/recipes/parts/pill_recipe/interface_blank.dat";
 const SORT = "ui/social/parts/interface_header.dat";
+/** The sort menu's arrows: the current sort ascending, descending, and the others. */
+const ARROWS = ["ui/combobox/arrow_up.png", "ui/combobox/arrow_down.png", "ui/combobox/arrow_empty.png"];
 
-/** The client's orders: natural is stars, then level, highest first; then the name; then more variants first. */
-function compare(sort: SortKey, a: ListEntry, b: ListEntry): number {
+/**
+ * The client's orders: natural is stars, then level, highest first; then the name; then more
+ * variants first. Descending (the sort menu's second press) reverses the sort's own key, and
+ * the names too for the natural and name orders.
+ */
+function compare(sort: SortKey, a: ListEntry, b: ListEntry, ascending = true): number {
   const natural = sort === "natural";
+  if (!ascending) {
+    if (natural || sort === "name") return compare(sort, b, a);
+    // the stars, level and price orders keep their names in order among equals
+    return primary(sort, b, a) || a.label.localeCompare(b.label) || (b.variants ?? 0) - (a.variants ?? 0);
+  }
   let r = 0;
   if (sort === "price") r = (a.price ?? 0) - (b.price ?? 0);
   if (natural || sort === "stars") r = (b.rarity ?? 0) - (a.rarity ?? 0);
@@ -69,6 +83,12 @@ function compare(sort: SortKey, a: ListEntry, b: ListEntry): number {
   if (!r) r = a.label.localeCompare(b.label);
   if (!r) r = (b.variants ?? 0) - (a.variants ?? 0);
   return r;
+}
+
+/** The stars, level or price comparison alone. */
+function primary(sort: SortKey, a: ListEntry, b: ListEntry): number {
+  return sort === "price" ? (a.price ?? 0) - (b.price ?? 0) : sort === "stars" ? (b.rarity ?? 0) - (a.rarity ?? 0)
+    : sort === "level" ? (b.level ?? 0) - (a.level ?? 0) : 0;
 }
 
 export class ItemList {
@@ -82,12 +102,22 @@ export class ItemList {
   /** The sort choices offered by the sort header (none: no header, entries in the given order). */
   sorts: SortKey[] = [];
   sort: SortKey = "natural";
+  /** The sort's direction (client/ui/K: choosing the current sort again reverses it). */
+  ascending = true;
+  /**
+   * Pops up a menu under the pointer (the owning window's popupMenu): the sort header's menu.
+   * Without one, a press on the header steps to the next sort.
+   */
+  menu: ((entries: MenuEntry[], title: string | undefined, choose: (action: string) => void) => void) | null = null;
   /** The message bundle of the sort names and the empty list's text (the client's list bundle). */
   bundle = "item";
   onPick: ((e: ListEntry) => void) | null = null;
   /** Called with each pill as it is shown (a window drawing icons of its own). */
   onRow: ((e: ListEntry, c: Component) => void) | null = null;
   private list: Component | null;
+  /** The collapse-all toggle beside the search field. */
+  private collapseAll: Component | null = null;
+  private arrows = new Map<string, GuiImage | null>();
   private groups: ListGroup[] = [];
   private cache = new Map<string, Promise<Component | null>>();
   private generation = 0;
@@ -104,11 +134,12 @@ export class ItemList {
     const clear = root.find("clearbutton");
     if (clear) clear.onAction = () => { this.filter = ""; if (field) field.text = ""; this.sound("sound/feedback/ui_dropdown_select.ogg"); void this.fill(); };
     // the collapse toggle beside the search field folds or opens every category
-    const all = root.find("searchbutton");
+    const all = this.collapseAll = root.find("searchbutton");
     if (all) all.onAction = c => {
       if (c.selected) for (const g of this.groups) this.collapsed.add(g.id); else this.collapsed.clear();
       void this.fill();
     };
+    for (const f of ARROWS) void ctx.image(f).then(im => this.arrows.set(f, im));
     for (const tag of ["energywidget", "preview", "pvp_tier"]) { const c = root.find(tag); if (c) c.visible = false; }
     // the notice is hidden until a list has something to say (the recipe list's new recipes)
     this.setNotice("");
@@ -171,7 +202,7 @@ export class ItemList {
       Name: e.label, Damage: damage[0], "Damage (Secondary)": damage[1],
       "Rank Visible": e.rarity >= 0, "Rank Mode": "Star", Rank: String(Math.max(0, e.rarity)),
       Variants: String(Math.min(3, e.variants ?? -1)), Accessory: false,
-      Locked: e.levelled ? "False" : "Hidden", Equipped: look === "True" ? "True" : "False", Equippable: "True", Hoverable: true,
+      Locked: e.levelled ? "False" : "Hidden", Equipped: look === "True" ? "True" : "False", Equippable: e.equippable === false ? "False" : "True", Hoverable: true,
       Icon: e.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: e.icon?.colorizations ?? [],
     };
     return this.build(e.key + "|" + JSON.stringify(args, (k, v) => (k === "$outer" ? undefined : v)), uiRef(PILL, args));
@@ -200,8 +231,8 @@ export class ItemList {
       const s = await this.sortHeader();
       if (gen !== this.generation) return;
       if (s) {
-        // the client opens a menu of the sorts; a press here steps to the next one
-        this.clicks.set(s, () => this.nextSort());
+        // client/d.g: a click on the header pops up the sort menu
+        this.clicks.set(s, () => this.sortMenu());
         rows.push(s);
       }
     }
@@ -209,7 +240,7 @@ export class ItemList {
     for (const g of this.groups) {
       let entries = q ? g.entries.filter(e => e.label.toLowerCase().includes(q)) : g.entries;
       if (!entries.length && !g.showEmpty) continue;
-      if (this.sorts.length) entries = [...entries].sort((a, b) => compare(this.sort, a, b));
+      if (this.sorts.length) entries = [...entries].sort((a, b) => compare(this.sort, a, b, this.ascending));
       shownGroups++;
       const open = (!this.collapsed.has(g.id) || !!q) && entries.length > 0;
       const h = await this.header(g, entries.length, open);
@@ -249,6 +280,20 @@ export class ItemList {
     }
     for (const r of rows) r.constraints = null;
     this.list.children = rows;
+    this.updateCollapseAll(q);
+  }
+
+  /**
+   * client/d.BN, BO: the collapse-all toggle is pressed while no group with entries is open,
+   * and its tooltip says what a press would do (the list bundle's m.expand_all or m.collapse_all).
+   */
+  private updateCollapseAll(q: string) {
+    const c = this.collapseAll;
+    if (!c) return;
+    const has = (g: ListGroup) => q ? g.entries.some(e => e.label.toLowerCase().includes(q)) : g.entries.length > 0;
+    c.selected = !this.groups.some(g => (!this.collapsed.has(g.id) || !!q) && has(g));
+    const key = c.selected ? "m.expand_all" : "m.collapse_all";
+    this.tips.set(c, { ref: null, text: bundleText(this.bundle, key, "") || bundleText("item", key, c.selected ? "Expand All" : "Collapse All") });
   }
 
   /** Clicks on rows Clyde's dispatch does not press (the sort header), set by the window. */
@@ -259,6 +304,23 @@ export class ItemList {
     let p = this.cache.get(key);
     if (!p) { p = styledLabel(this.ctx, bundleText(this.bundle, "m.empty", "- Empty -"), "Default/Label"); this.cache.set(key, p); }
     return p;
+  }
+
+  /**
+   * client/ui/K: the sort menu, titled m.sort, an item per sort (the list bundle's m.<sort>)
+   * with an arrow on the current one, up while ascending, down while descending. Choosing the
+   * current sort reverses it; another starts ascending.
+   */
+  private sortMenu() {
+    if (!this.menu) { this.nextSort(); return; }
+    const arrow = (k: SortKey) => this.arrows.get(k !== this.sort ? ARROWS[2] : this.ascending ? ARROWS[0] : ARROWS[1]) ?? null;
+    const entries: MenuEntry[] = this.sorts.map(k => ({ action: k, text: messageText("m." + k, this.bundle), icon: arrow(k) }));
+    this.menu(entries, bundleText("projectx", "m.sort", "Sort"), a => {
+      const k = a as SortKey;
+      if (k === this.sort) this.ascending = !this.ascending;
+      else { this.sort = k; this.ascending = true; }
+      void this.fill();
+    });
   }
 
   private nextSort() {
@@ -278,6 +340,33 @@ export class ItemList {
     this.selected = e.key;
     this.onPick?.(e);
   }
+}
+
+/** ItemConfig's x(): the item/preview model each kind of item is shown in. */
+const PREVIEW: Record<string, string> = {
+  Armor: "gear-armor", ArmorCostume: "gear-armor", Helm: "gear-helm", HelmCostume: "gear-helm", Shield: "gear-shield", ShieldCostume: "gear-shield",
+  Sword: "weapon-sword", SwingingHandgun: "weapon-sword", Handgun: "weapon-handgun", Bomb: "weapon-bomb", BlastNetworkBomb: "weapon-bomb",
+};
+
+/**
+ * ItemConfig.Original.a(..., renderview): the tooltip's 3D preview of an item config, its
+ * model with the knight's colour in its kind's item/preview/model_*.dat (null hides the view:
+ * items without a model, and dungeon gear such as vitapods).
+ */
+export function previewModel(cfg: any, color: number): any {
+  const k = String(cfg?.$class ?? "").replace(/^.*\$/, "");
+  if (!cfg?.model?.name || k === "Dungeon") return null;
+  const entries: [string, unknown][] = [...(cfg.model.arguments?.entries ?? []).filter(([n]: [string]) => n !== "Colorization"), ["Colorization", color]];
+  const model = { ...cfg.model, arguments: { $map: "com.threerings.config.ArgumentMap", entries } };
+  const wrap = PREVIEW[k];
+  return wrap ? uiRef(`item/preview/model_${wrap}.dat`, { Model: model }) : model;
+}
+
+/** previewModel for an item by its config name. */
+export function itemPreview(data: GameData, name: string, color: number): any {
+  let cfg: any = null;
+  try { cfg = data.resolveSync("config/item.dat", { name }, "item"); } catch { /* not an item */ }
+  return previewModel(cfg, color);
 }
 
 const TIP = "ui/window/tooltip_level.dat";
@@ -318,18 +407,21 @@ export function levelBonuses(st: { damage: number; uncapped: number; charge: num
  * level (materials, food, costumes without heat) use the plain ui/window/tooltip.dat.
  */
 export function itemTip(o: { label: string; type: string; rarity: number; flavor: string; level?: number; progress?: number; equipped?: boolean;
-  lines?: string[]; item?: string; kind?: string; stats?: ItemStats | null; bonuses?: TipBonus[]; noLevel?: boolean; plain?: boolean }): TipSpec {
+  lines?: string[]; item?: string; kind?: string; stats?: ItemStats | null; bonuses?: TipBonus[]; noLevel?: boolean; plain?: boolean;
+  /** The 3D preview's model (previewModel). */ model?: any;
+  /** False when the knight's rank cannot wear it (Equipped "Unequippable" with the rank limit text). */ wearable?: boolean; rankText?: string }): TipSpec {
   const levelled = o.level !== undefined;
   const flavor = (o.item && itemFlavor(o.item)) || o.flavor;
   let type = o.kind ? itemType(o.kind, o.type) : o.type;
   if (o.equipped) type = message("item", "m.equipped", type) || `Equipped ${type}`;
-  const extra = { stats: o.stats ?? undefined, bonuses: o.bonuses };
+  const extra = { stats: o.stats ?? undefined, bonuses: o.bonuses, model: o.model ?? undefined };
   if (o.plain) return { lines: o.lines, ...extra, ref: uiRef(TIP_PLAIN, {
     Name: o.label.toUpperCase(), Type: type.toUpperCase(), Body: "", Flavor: flavor, Rarity: String(Math.max(0, Math.min(5, o.rarity))) }) };
-  const look = (o.equipped ? "True" : "False") + (levelled && !o.noLevel ? "" : " No Level");
+  // ItemConfig.Level: Equipped True, False, or Unequippable (with the rank limit) when the rank is too low
+  const look = (o.equipped ? "True" : o.wearable === false ? "Unequippable" : "False") + (levelled && !o.noLevel ? "" : " No Level");
   return { lines: o.lines, ...extra, ref: uiRef(TIP, {
     Name: o.label.toUpperCase(), Type: o.noLevel ? type : type.toUpperCase(), Flavor: flavor, Rarity: String(Math.max(0, Math.min(5, o.rarity))),
     Equipped: look, Level: String(o.level ?? 0).padStart(2, "0"), Heat: 16 + Math.trunc(104 * (o.progress ?? 0)),
-    "Max Level": (o.level ?? 0) >= 10 ? "True" : "False",
+    "Max Level": (o.level ?? 0) >= 10 ? "True" : "False", ...(o.rankText ? { "Unequippable Text": o.rankText } : {}),
   }) };
 }

@@ -7,10 +7,9 @@
 // the Ready Room's bar) and over the game canvas and HUD.
 
 import { buildComponentConfig, dispatch, hitTest, layout, pack, render, resetInput, type Component, type GuiContext, type GuiImage, type RenderHooks } from "./gui";
-import { buildUi, uiRef, type TipSpec } from "./screen";
+import { buildTooltip, buildUi, uiRef, type TipSpec } from "./screen";
 import { CONFIG_REF } from "../config/params";
 
-const BONUS = "ui/window/tooltip_parts/bonus.dat";
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 
 /** Elements under the floating windows: presses on these may be the window's. */
@@ -232,27 +231,14 @@ export abstract class FloatScreen {
     const t = this.tipCache.get(key);
     if (t === undefined) {
       if (this.tipCache.size > 200) this.tipCache.clear();
-      const p = this.buildTip(spec).then(c => { this.tipCache.set(key, c); return c; });
+      const p = this.buildTip(spec).catch(e => { console.error("tooltip failed", e); return null; }).then(c => { this.tipCache.set(key, c); return c; });
       this.tipCache.set(key, p);
       return null;
     }
     return t instanceof Promise ? null : t;
   }
 
-  private async buildTip(spec: TipSpec): Promise<Component | null> {
-    const [c, ...lines] = await Promise.all([buildUi(this.ctx, spec.ref),
-      ...(spec.lines ?? []).map(l => buildUi(this.ctx, uiRef(BONUS, { Description: l, "Toggle Icon": false })))]);
-    if (!c) return null;
-    const view = c.find("renderview");
-    if (view) view.visible = false;
-    const pills = c.find("tooltip_pills");
-    if (pills) {
-      pills.children = lines.filter((l): l is Component => !!l);
-      for (const l of pills.children) { l.constraints = null; const arrow = l.children[0]?.children.at(-1); if (arrow && !arrow.tag) arrow.visible = false; }
-      pills.visible = pills.children.length > 0;
-    }
-    return c;
-  }
+  private buildTip(spec: TipSpec): Promise<Component | null> { return buildTooltip(this.ctx, spec); }
 
   // ------------------------------------------------------------ drawing
 

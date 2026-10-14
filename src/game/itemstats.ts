@@ -15,6 +15,7 @@ import { modifyDamage, cappedBonus } from "./combat";
 import { DAMAGE_TYPES, type Amounts, type DamageType } from "./depth";
 import type { GameData } from "./data";
 import { MAX_LEVEL, type Economy } from "./economy";
+import { addItemBonuses, emptyBonuses } from "./bonus";
 
 /** The depth the client evaluates item stats at. */
 const STAT_DEPTH = 30;
@@ -33,6 +34,53 @@ export interface ItemStats {
   /** "t.attack_power" or "t.defense_power". */
   title: string;
   bars: StatBar[];
+  /**
+   * Gear's status resistances (ItemConfig.Gear, client/l): a "t.status_resist" box after the
+   * defence bars, a centred bar per enabled condition the item resists or is weak to.
+   */
+  resists?: ResistBar[];
+}
+
+/** A status resist bar (client/l.a): bonus widths for resistance, penalty widths for weakness. */
+export interface ResistBar {
+  /** The condition's name ("stun"): its icon is ui/icon/debuff/<name>.png, its label the item bundle's m.<name>. */
+  status: string;
+  bonus: number; bonusPotential: number;
+  penalty: number; penaltyPotential: number;
+}
+
+/** StatusCondition's enabled conditions in order, with their mask bits. */
+export const STATUS_CONDITIONS: [string, number][] = [["stun", 1], ["poison", 2], ["fire", 4], ["freeze", 8], ["shock", 16], ["curse", 32],
+  ["muddle", 128], ["sleep", 256], ["doom", 2048]];
+
+/** client/l.a: a resistance and its potential as bar widths (value + 8, at most 82). */
+export function resistBar(status: string, now: number, potential: number): ResistBar {
+  const w = (v: number) => v > 0 ? Math.min(v + 8, 82) : 0;
+  return { status, bonus: w(now), bonusPotential: w(potential), penalty: w(-now), penaltyPotential: w(-potential) };
+}
+
+/**
+ * An item's status resistance per condition mask bit: its defence's StatusResist entries
+ * (dungeon/util/g: the defence's amount for the mask), then its unique variants'.
+ */
+export function itemResist(data: GameData, eco: Economy, name: string, variants: readonly string[] = []): Record<number, number> {
+  const b = emptyBonuses();
+  addItemBonuses(b, config(data, name));
+  const out = { ...b.resist };
+  for (const v of variants) {
+    const r = eco.variant(v)?.resist;
+    if (!r) continue;
+    for (const [, bit] of STATUS_CONDITIONS) if (r.mask & bit) {
+      const held = out[bit] ?? 0;
+      out[bit] = held + (r.scaled ? Math.round(Math.min(1, 1 - held / 100) * r.points) : r.points);
+    }
+  }
+  return out;
+}
+
+/** The resist bars of summed resistances (the levels in this port do not change them, so the potential is the same). */
+export function resistBars(resist: Record<number, number>): ResistBar[] {
+  return STATUS_CONDITIONS.filter(([, bit]) => resist[bit]).map(([s, bit]) => resistBar(s, resist[bit], resist[bit]));
 }
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
@@ -87,8 +135,12 @@ export function pillDamage(data: GameData, eco: Economy, name: string, level = 1
  * The status window's gear stats (client/l): the defence of the worn armour and helmet per
  * type, summed and shown at 0.375, the potential with both at their top level.
  */
-export function wornDefense(data: GameData, eco: Economy, worn: { name: string; level: number }[]): ItemStats | null {
+export function wornDefense(data: GameData, eco: Economy, worn: { name: string; level: number; variants?: readonly string[] }[]): ItemStats | null {
   const now: Amounts = { NORMAL: 0, PIERCING: 0, ELEMENTAL: 0, SHADOW: 0 }, pot: Amounts = { ...now };
+  // dungeon/util/g: the worn gear's resistances summed (helmet, armour, trinkets; not the shield)
+  const resist: Record<number, number> = {};
+  for (const w of worn) for (const [bit, v] of Object.entries(itemResist(data, eco, w.name, w.variants))) resist[Number(bit)] = (resist[Number(bit)] ?? 0) + v;
+  const resists = resistBars(resist);
   for (const w of worn) {
     const cfg = config(data, w.name);
     const a = defense(data, eco, w.name, cfg, w.level), b = defense(data, eco, w.name, cfg, eco.info(w.name)?.heatable ? MAX_LEVEL : w.level);
@@ -100,11 +152,11 @@ export function wornDefense(data: GameData, eco: Economy, worn: { name: string; 
     const a = now[t] * 0.375, b = pot[t] * 0.375;
     if (a > 0 || b > 0) bars.push({ icon: `defense_${t.toLowerCase()}`, label: `t.${t.toLowerCase()}`, now: barWidth(a), potential: barWidth(b) });
   }
-  return bars.length ? { title: "t.defense_power", bars } : null;
+  return bars.length || resists.length ? { title: "t.defense_power", bars, resists } : null;
 }
 
-/** The tooltip's stat bars for a weapon or a piece of gear at its level; null for other items. */
-export function itemStats(data: GameData, eco: Economy, name: string, level: number): ItemStats | null {
+/** The tooltip's stat bars for a weapon or a piece of gear at its level (with its variants' resistances); null for other items. */
+export function itemStats(data: GameData, eco: Economy, name: string, level: number, variants: readonly string[] = []): ItemStats | null {
   const cfg = config(data, name);
   if (!cfg) return null;
   const top = eco.info(name)?.heatable ? MAX_LEVEL : level;
@@ -135,5 +187,6 @@ export function itemStats(data: GameData, eco: Economy, name: string, level: num
     const h = Math.trunc(data.depth.evaluate(cfg.healthScale, { depth: STAT_DEPTH, rarity: Number(cfg.rarity ?? 0), difficulty: "medium" }));
     bars.push({ icon: "shield_health", label: "t.health", now: Math.min(Math.trunc(h / 40) * 6 + 14, WIDTH_CAP), potential: 0 });
   }
-  return bars.length ? { title: "t.defense_power", bars } : null;
+  const resists = resistBars(itemResist(data, eco, name, variants));
+  return bars.length || resists.length ? { title: "t.defense_power", bars, resists } : null;
 }
