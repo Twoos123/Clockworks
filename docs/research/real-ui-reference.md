@@ -407,3 +407,42 @@ Frames: `.scratch/vid6/f035–f036`.
     each.
   - Equippable (1): Vitapod +12, 3,000.
   - More groups above these, scrolled out of view.
+
+## Knight creation, every page, and the crash site
+
+From a 52-second recording; frames are in `.scratch/vid7` (one every 2 seconds, git-ignored).
+This corrects the earlier note that the client skips the Details window: it does not.
+
+- **The pages:** ARMOR, then DETAILS, then PERSONALIZE, then the name, opened in that order with
+  "Next ▼".
+  - Each page shows big round icons, a label, a slider with ◀ ▶ arrows and the chosen value in
+    italic.
+  - A RANDOMIZE box with a dice button sits beside the open page.
+  - A finished page collapses to a header bar showing small icons of its choices and a ✓.
+    Clicking a header reopens that page.
+  - **ARMOR:** HELM (Spiral Sallet), ARMOR (Spiral Draped Armor), DESIGN (Heavy).
+  - **DETAILS:** ACCESSORY 1 (e.g. Headband) and ACCESSORY 2 (e.g. Mecha Wings).
+  - **PERSONALIZE:**
+    - HEIGHT (e.g. Tall).
+    - EYES (e.g. Happy Eyes).
+    - PERSONAL COLOR, a rainbow hue slider with ◀ ▶ that recolours the knight's trim and visor
+      live.
+  - **The name:** all three headers collapse. An "ENTER YOUR NAME:" box sits at the bottom
+    centre, with a text field and a dark bar under it, and a big "START" button (green knight
+    icon and arrow) at the bottom right.
+  - BACK (with the emblem) stays at the bottom left throughout.
+- **After START:**
+  1. The loading screen: "The Crash Site" with "Waking up to a New World" under it, and a tip
+     card.
+  2. The game opens in letterbox, with black bars at the top and bottom, for a radio call.
+     - A "Rhendon" speech panel on the left: "...come in, <Name>, are you there? This is Recon
+       Knight Rhendon!"
+     - Rhendon's portrait on a green screen with a signal meter, lower left.
+     - The player's knight portrait, lower right.
+     - The reply row: "● I'm here, what happened?" with a "◀ SPACE" hint.
+     - "Use the arrow keys and spacebar to navigate the conversation."
+  3. Play in the crash site, at rank 1-1, with the full HUD.
+     - Tutorial hint boxes are pinned in the world: "Clear the Path / Attack with <Left Mouse>",
+       and "Monsters Ahead! / Aim at enemies with your mouse and attack with <Left Mouse>".
+     - Tutorial items lie on the ground, and the path leads up the stairs, past a pool, to the
+       Rescue Camp.
