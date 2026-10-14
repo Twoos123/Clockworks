@@ -128,6 +128,11 @@ export function loadingInfo(name: string, floor: Floor | null, gateName?: string
     const t = levelText(key, bundle);
     return t ? { title: t.title, zone: t.zone || zone } : { title, zone };
   };
+  // the places past Haven's doors, with their scenes' own backgrounds (placeConfig.background)
+  const behind: [RegExp, string, string][] = [[/^hall of heroes/, "hoh.jpg", "Hall of Heroes"], [/^haven laboratory$/, "readyroom.jpg", "The Lab"],
+    [/^advanced training$/, "traininghall.jpg", "Advanced Training Hall"], [/^guild training/, "traininghall_guild.jpg", "Guild Training Hall"]];
+  for (const [re, image, title] of behind) if (re.test(n.trim()))
+    return { ...real(`m.${n.trim().replace(/ /g, "_")}`, "dungeon", title, "Haven"), depth: "", image: IMAGES + image };
   if (/haven|bazaar/.test(n)) return { ...real("m.haven_bazaar", "dungeon", "Haven", "Home sweet Home"), depth: "", image: IMAGES + "haven.jpg" };
   if (/^hall\b|guild/.test(n)) return { ...real("m.border_guildhall", "town", "Guild Hall", "Haven"), depth: "", image: IMAGES + "guildhall.jpg" };
   if (/emberlight/.test(n)) return { ...real("m.emberlight", "dungeon", "Emberlight", "The Clockworks"), depth: "", image: IMAGES + "emberlight.jpg" };

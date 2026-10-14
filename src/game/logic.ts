@@ -417,7 +417,9 @@ export class Logic {
     // ...and one with a portal and a scene id is the game's scene change (a town's exits);
     // the game handles it, so it goes to the host under a name of our own
     // (a town move names a town and scene instead, a training floor a floor: src/game/portals.ts)
-    else if (cfg && !cfg.$class && cfg.portal && (cfg.sceneId !== undefined || cfg.townName !== undefined || cfg.sceneInternalId !== undefined || cfg.floor !== undefined))
+    // (a guild hall's training gate names only its floor)
+    else if (cfg && !cfg.$class && ((cfg.portal && (cfg.sceneId !== undefined || cfg.townName !== undefined || cfg.sceneInternalId !== undefined || cfg.floor !== undefined))
+      || (typeof cfg.floor === "number" && /^Portals\//.test(source?.name ?? ""))))
       return this.host.gameAction({ ...cfg, $class: "ScenePortal" }, source, activator, this) ?? true;
     if (!cfg?.$class) return true;
     const k = kind(cfg);
