@@ -218,3 +218,41 @@ dropdown. The arsenal docks at the right with it.
   - A column of skill icons.
   - The sprite turning in a view, with "Ready to level up!" above it and "Level 59 / Corona"
     below.
+
+## The new-knight intro (Create a Knight)
+
+From a recording of the real client, about 100 seconds; frames are in `.scratch/intro-frames`,
+which is git-ignored and never committed. The whole intro has a rounded dark vignette at the
+edges, like old film, and a small SKIP button at the bottom right.
+
+1. **Opening:** bright cyan clouds, with captions in yellow text with a dark outline: "The Moral
+   Wars have brought us to the brink of extinction." and then "We, the crew of the Skylark, fled
+   to the stars seeking a source of incredible power, our last hope to save our homeworld."
+2. **Fade to white:** a second caption fades through.
+3. **Deep space:** a cyan nebula with a bright star and a lens flare. Caption: "What we
+   discovered was beyond imagination. We discovered Cradle." The camera drifts toward a small
+   planet.
+4. **Cradle:** the planet with its golden ring and a moon.
+5. **The Skyship Arcadia** (white, red and blue) flies past the planet.
+6. **Comic panels:** the cockpit and its monitors, then panels set at angles. A speech bubble:
+   "Captain! Energy signatures are shifting! I've never seen anything like-". The hooded
+   captain is lit red.
+7. **The attack:** pink lasers from the planet hit the ship, and it explodes. Bubble: "All hands:
+   Evacuate the ship immediately!"
+8. **The fall:** a white flash, then a tilted panel of an escape pod falling toward the planet,
+   trailing fire.
+9. **Title:** the planet again, then the SPIRAL KNIGHTS logo over it for a few seconds; the camera
+   then zooms down into the planet.
+10. **Black, then knight creation** at the crash site.
+
+## Knight creation (at the crash site)
+
+- **Scene:** the crash site in daylight, with the pod half-buried and smoking. Grassy cliffs sit
+  behind, and out-of-focus grass blades are in the foreground. The knight stands at the right
+  of centre, facing the camera, holding a proto sword and shield.
+- **Panel (top left):** titled ARMOR. Three rows, each with a big round icon, a label, a slider
+  with ◀ ▶ arrows, and the chosen value in italic under it: HELM "Spiral Sallet", ARMOR "Spiral
+  Draped Armor", DESIGN "Heavy". A "RANDOMIZE" box with a dice button sits to its right.
+- **Next:** a "Next ▼" bar under the panel moves to the next page (colours, name, and so on).
+- **Back:** a "BACK" button with the knight emblem at the bottom left.
+- **Spinning:** the user says the knight can be spun around.
