@@ -167,6 +167,7 @@ export class LoadingScreen extends OverlayScreen {
     this.progressValue = 0;
     this.shownValue = 0;
     this.shown = performance.now();
+    this.isUp = true;
     const all = loadingTips();
     this.tipIndex = this.tipIndex < 0 ? Math.floor(Math.random() * all.length) : (this.tipIndex + 1) % all.length;
     this.open();
@@ -227,6 +228,27 @@ export class LoadingScreen extends OverlayScreen {
   }
 
   hide() { this.close(true); }
+
+  /** Whether the screen is up (shown and not yet taken down). */
+  get up() { return this.isUp; }
+  private isUp = false;
+  private goneWaiters: (() => void)[] = [];
+
+  /**
+   * Resolves once the screen is taken down (at once when it is not up). The scene's music
+   * waits for it: TudeySceneView leaves out the viewer effects that omit themselves while
+   * loading (ViewerEffectConfig.Sound, which the scene's music global is) until its loading
+   * window goes.
+   */
+  gone(): Promise<void> {
+    return this.isUp ? new Promise(r => this.goneWaiters.push(r)) : Promise.resolve();
+  }
+
+  protected close(immediate = false) {
+    super.close(immediate);
+    this.isUp = false;
+    for (const r of this.goneWaiters.splice(0)) r();
+  }
 
   protected update(dt: number) {
     this.shownValue += (this.progressValue - this.shownValue) * Math.min(1, dt * 8);

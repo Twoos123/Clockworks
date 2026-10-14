@@ -576,6 +576,15 @@ class Viewer {
       info.zone = this.gate.lobby ? text("dungeon", `m.${this.gate.lobby}`, info.zone) : text("dungeon", "m.mission_lobby", "Mission Lobby");
       info.depth = "";
     }
+    // no music while loading: the scene being left is taken down as the next place is
+    // entered (its music global, a ViewerEffectConfig.Sound, stops with it), and the next
+    // scene's is left out until the loading window goes (TudeySceneView: omitWhileLoading).
+    // (Knight creation keeps the title theme playing on from the prologue, dK.)
+    if (id !== CREATE_KNIGHT) {
+      this.music.leave();
+      this.audio?.stopMusic(1);
+      this.audio?.stopAmbience();
+    }
     void loading.show(info);
     loading.progress(0.05);
     return loading;
@@ -1083,10 +1092,18 @@ class Viewer {
     this.screens();
     // (an archived level's own music global wins over the table; its own scripted music, a
     // boss lair's fight among it, over our fight track)
-    this.music.enter({ scene: this.scene.name, sceneMusic: this.environment.music, world, arena: !!world.arena, boss: this.bossFloor,
+    // (both wait for the loading screen to go: TudeySceneView leaves the scene's sound effects
+    // out while its loading window is up)
+    const musicCtx = { scene: this.scene.name, sceneMusic: this.environment.music, world, arena: !!world.arena, boss: this.bossFloor,
       archived: !GEN.test(this.scene.id), scriptsMusic: spawnsMusic(this.scene.logic),
-      floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null });
-    for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
+      floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null };
+    const ambience = this.environment.ambience ?? [], audio = this.audio;
+    const sound = () => {
+      this.music.enter(musicCtx);
+      for (const a of ambience) audio.ambient(a);
+    };
+    if (this.loadingScreen?.up) void this.loadingScreen.gone().then(() => { if (this.world === world) sound(); });
+    else sound();
     // one-shot scene animations play from the top as the knight appears: the client's sprites
     // start their automatic animations on their first tick (ArticulatedModel.tick), and the
     // scene ticks with no time while the loading window is up (TudeySceneView.tick), so the
