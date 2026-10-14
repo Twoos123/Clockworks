@@ -103,7 +103,9 @@ export interface SkyboxDef {
 export function viewerEffects(m: LoadedModel, out: { skyboxes: SkyboxDef[]; background: [number, number, number] | null } =
   { skyboxes: [], background: null }, depth = 0) {
   if (depth > 12) return out;
-  if (m.skybox) out.skyboxes.push(m.skybox);
+  // a skybox model may hold viewer affecters of its own ("Environment/Skybox" around the
+  // clockwork tunnels' model): they act on the view just the same
+  if (m.skybox) { out.skyboxes.push(m.skybox); viewerEffects(m.skybox.model, out, depth + 1); }
   if (m.background) out.background = m.background;
   for (const a of m.attachments) viewerEffects(a.model, out, depth + 1);
   return out;

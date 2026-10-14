@@ -123,3 +123,13 @@ test("theme presets replace the level's globals of the same kind", () => {
     ["Environment/Custom/Graveyard/Default/Fog", "Environment/Custom/Graveyard/Default/Light Set"]);
   assert.deepEqual(merged.map(e => e.sceneGlobal.name), ["Camera", "Environment/Custom/Graveyard/Default/Fog", "Environment/Custom/Graveyard/Default/Light Set"]);
 });
+
+test("a sky preset replaces the level's skyboxes and sky models", () => {
+  const ref = (name: string, model?: string) => ({ $class: "x$GlobalEntry", sceneGlobal: { name,
+    ...(model ? { arguments: { entries: [["Model", { name: model }]] } } : {}) } });
+  const merged = mergeGlobals([ref("Camera"), ref("Environment/Skybox", "world/skybox/visionfog/skybox.dat"),
+    ref("Environment/Model", "world/skybox/clockwork_tunnels/model.dat"), ref("Environment/Model", "particle/world_floatingembers.dat")],
+    [{ name: "Environment/Model", arguments: { entries: [["Model", { name: "world/skybox/castle_firestorm/model.dat" }]] } }]);
+  assert.deepEqual(merged.map(e => JSON.stringify(e.sceneGlobal.arguments?.entries?.[0]?.[1]?.name ?? e.sceneGlobal.name)),
+    ['"Camera"', '"particle/world_floatingembers.dat"', '"world/skybox/castle_firestorm/model.dat"']);
+});

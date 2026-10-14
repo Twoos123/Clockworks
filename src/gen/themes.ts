@@ -39,8 +39,18 @@ export type Preset = string | { name: string; arguments?: any };
 const bg = (r: number, g: number, b: number): Preset => ({ name: "Environment/Background Color", arguments: { $map: "com.threerings.config.ArgumentMap",
   entries: [["Color", { $class: "com.threerings.opengl.renderer.Color4f", r, g, b, a: 1 }]] } });
 
+/** An "Environment/Model" or "Environment/Skybox" global showing a model file. */
+const envModel = (global: "Model" | "Skybox", model: string, args: [string, any][] = []): Preset => ({
+  name: "Environment/" + global, arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Model",
+    { $class: "com.threerings.config.ConfigReference", name: model, ...(args.length ? { arguments: { $map: "com.threerings.config.ArgumentMap", entries: args } } : {}) }]] } });
+/** A preset with its "Variant" choice (the tiered skies and fogs). */
+const tier = (name: string, variant = "Tier1"): Preset => ({ name, arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Variant", variant]] } });
+
 const CT = "Environment/Custom/Clockwork Tunnels/";
-const tunnels = (v: string) => [`${CT}${v}/Background Color`, `${CT}${v}/Fog`, `${CT}${v}/Light Set`, `${CT}${v}/Music Mix`, `${CT}${v}/Skybox - Clockworks, Tier1`];
+// the tunnels' backdrop (the clockwork pillars and gears below the level) and ground fog, as
+// the captured tunnel floors of each status have them (Shock has no ground fog of its own)
+const tunnels = (v: string) => [`${CT}${v}/Background Color`, `${CT}${v}/Fog`, `${CT}${v}/Light Set`, `${CT}${v}/Music Mix`,
+  `${CT}${v}/Skybox - Clockworks, Tier2`, ...(v === "Shock" ? [] : [tier(`${CT}${v}/Skybox - Ground Fog`)])];
 const UNIVERSAL: Record<string, string[]> = {
   Fire: ["Environment/Custom/Universal/Fire/Embers"],
   Freeze: ["Environment/Custom/Universal/Freeze/Vision Snow"],
@@ -68,11 +78,13 @@ export const THEMES: ThemeDef[] = [
   { key: "sky-autumn", label: "Autumn Islands", tileset: "Sky Islands, Autumn",
     source: { kind: "mirror", of: "valley", rules: same("Sky Islands, Day", "Sky Islands, Autumn") }, globalsFrom: /^jigsaw valley/i,
     globals: ["Environment/Custom/Wolver's Den/Default/Fog", "Environment/Custom/Wolver's Den/Default/Light Set",
-      "Environment/Custom/Wolver's Den/Default/Background Color", "Environment/Custom/Wolver's Den/Music Mix"] },
+      "Environment/Custom/Wolver's Den/Default/Background Color", "Environment/Custom/Wolver's Den/Music Mix",
+      tier("Environment/Custom/Wolver's Den/Default/Skybox - Skydome")] },
   { key: "sky-winter", label: "Winter Islands", tileset: "Sky Islands, Winter",
     source: { kind: "mirror", of: "valley", rules: same("Sky Islands, Day", "Sky Islands, Winter") }, globalsFrom: /^jigsaw valley/i,
     globals: ["Environment/Custom/Wolver's Den/Freeze/Fog", "Environment/Custom/Wolver's Den/Freeze/Light Set",
-      "Environment/Custom/Wolver's Den/Freeze/Background Color", "Environment/Custom/Universal/Freeze/Music (Freeze)", ...UNIVERSAL.Freeze] },
+      "Environment/Custom/Wolver's Den/Freeze/Background Color", "Environment/Custom/Universal/Freeze/Music (Freeze)", ...UNIVERSAL.Freeze,
+      tier("Environment/Custom/Wolver's Den/Freeze/Skybox - Skydome")] },
 
   // --- Clockworks: learned from the tunnels, the status variants mirror them
   { key: "clockworks", label: "Clockwork Tunnels", tileset: "Clockworks", source: { kind: "learned", scenes: /^(terminal 1|emberlight|terminal core)/i },
@@ -97,11 +109,16 @@ export const THEMES: ThemeDef[] = [
     globalsFrom: /^dark halls/i, globals: ["Environment/Custom/Castle/Skybox - Skydome"] },
   { key: "castle-fire", label: "Castle, Fire", tileset: "Castle, Fire",
     source: { kind: "mirror", of: "castle-light", rules: castleRules("Castle, Fire", "Floor/Cobblestone 0$1") },
-    globalsFrom: /^dark halls/i, globals: ["Environment/Custom/Universal/Fire/Music (Fire)", ...UNIVERSAL.Fire] },
+    globalsFrom: /^dark halls/i, globals: ["Environment/Custom/Universal/Fire/Music (Fire)", ...UNIVERSAL.Fire,
+      // the Firestorm Citadel's sky: the burning skywall and the magma sea below
+      envModel("Model", "world/skybox/castle_firestorm/model.dat"), envModel("Model", "world/skybox/visionfog/skybox.dat")] },
   { key: "graveyard", label: "Graveyard", tileset: "Graveyard",
     source: { kind: "mirror", of: "castle-light", rules: castleRules("Graveyard", "Floor/Grass 0$1") }, globalsFrom: /^dark halls/i,
     globals: ["Environment/Custom/Graveyard/Camera", "Environment/Custom/Graveyard/Default/Fog", "Environment/Custom/Graveyard/Default/Light Set",
-      "Environment/Custom/Graveyard/Music Mix", bg(0.075, 0.086, 0.149)] },
+      "Environment/Custom/Graveyard/Music Mix", bg(0.075, 0.086, 0.149),
+      // the graveyards' ground and tunnel fog over their night gradient
+      tier("Environment/Custom/Graveyard/Default/Skybox - Fog"),
+      envModel("Skybox", "world/skybox/low_detail/gradient/model_diffuse.dat", [["Texture", "world/skybox/graveyard/low_detail_gradient.png"]])] },
 
   // --- Haven's own tiles (world/tileset/outershell), learned from the town
   { key: "haven", label: "Outer Shell", tileset: "Haven", source: { kind: "learned", scenes: /haven/i,
@@ -113,12 +130,14 @@ export const THEMES: ThemeDef[] = [
     cornerIn: /^Floor, Sidewalk\/Edge break IN/, cornerOut: /^Floor, Sidewalk\/Edge break OUT/ } },
     globalsFrom: /^(terminal 1|emberlight|terminal core)/i,
     globals: ["Environment/Custom/Battle Arena/Default/Background Color", "Environment/Custom/Battle Arena/Default/Fog",
-      "Environment/Custom/Battle Arena/Default/Light Set", "Environment/Custom/Battle Arena/Default/Music Mix"] },
+      "Environment/Custom/Battle Arena/Default/Light Set", "Environment/Custom/Battle Arena/Default/Music Mix",
+      tier("Environment/Custom/Battle Arena/Default/Skybox - Skywall"), tier("Environment/Custom/Battle Arena/Default/Skybox - Ground Fog")] },
   { key: "whitespace", label: "Whitespace", tileset: "Whitespace", source: { kind: "rules", spec: {
     prefix: "Whitespace", floor: /^Floor\/(Base 1 unit - 01|Tile - 1 unit, (dark|light|small tiles 0\d))$/, wall: /^Rail\/Featureless/,
     cornerIn: /^Rail\/Corner - In, base/, cornerOut: /^Rail\/Corner - Out, base/ } },
     globalsFrom: /^(terminal 1|emberlight|terminal core)/i,
-    globals: ["Environment/Custom/Town/Guild Hall/White/Fog", "Environment/Custom/Town/Guild Hall/White/Light Set", bg(0.85, 0.87, 0.9)] },
+    globals: ["Environment/Custom/Town/Guild Hall/White/Fog", "Environment/Custom/Town/Guild Hall/White/Light Set", bg(0.85, 0.87, 0.9),
+      "Environment/Custom/Town/Guild Hall/White/Skybox - Clockworks, Tier1"] },
   { key: "ice", label: "Frozen Pools", tileset: "Water", source: { kind: "rules", spec: {
     prefix: "Water", floor: /^Ice\/Walkable\/0\d$/, wall: /^Ice\/edge [NSEW]$/, sided: { edge: "Ice/edge $", out: "Ice/out $", in: "Ice/in $" } } },
     globalsFrom: /^dark halls/i,
@@ -173,10 +192,11 @@ export function globalKind(name: string): string {
 /** A level's globals with presets swapped in: each preset replaces the globals of its kind. */
 export function mergeGlobals(base: any[], presets: Preset[]): any[] {
   const refs = presets.map(p => typeof p === "string" ? { name: p } : p);
-  const kinds = new Set(refs.map(r => globalKind(r.name)));
-  // a skybox preset also replaces the level's sky models ("Environment/Model" with a skybox)
-  const sky = (e: any) => e.sceneGlobal?.name === "Environment/Model" && /skybox/.test(refKey(e.sceneGlobal));
-  const kept = base.filter(e => !kinds.has(globalKind(e.sceneGlobal?.name ?? "")) && !(kinds.has("sky") && sky(e)));
+  // "Environment/Model" and "Environment/Skybox" showing a world/skybox model are skies too
+  const kindOf = (r: any) => /^Environment\/(Model|Skybox)$/.test(r?.name ?? "") && /world\/skybox\//.test(refKey(r))
+    ? "sky" : globalKind(r?.name ?? "");
+  const kinds = new Set(refs.map(kindOf));
+  const kept = base.filter(e => !kinds.has(kindOf(e.sceneGlobal)));
   const added = refs.map(r => ({ $class: CLS, sceneGlobal: { $class: "com.threerings.config.ConfigReference", ...r } }));
   return [...kept, ...added].map((e, i) => ({ ...e, id: i + 1 }));
 }
