@@ -14,7 +14,7 @@
 import { identity, invert, multiply, slerp, lerp3, toMatrix, type Mat4, type Transform, type Vec3 } from "../math";
 import type { PassState, TextureUnitState } from "../config/materials";
 import { VIEWER_ENVIRONMENT, type Environment, type Rgb } from "../environment";
-import { Emitter, catchUpSteps } from "../particles";
+import { Emitter, clockEmitter } from "../particles";
 import { recolorPixels, type ColorPository } from "../colors";
 import type { AnimationClip, ClientArray, LightDef, LoadedModel, MeshPart, NodeDef } from "../model";
 import type { Vfs } from "../vfs";
@@ -580,6 +580,9 @@ function sampleClip(clip: AnimationClip, time: number): Map<string, Transform> {
   return out;
 }
 
+/** How long instantiate() waits for a model's particle textures before returning anyway. */
+export const PARTICLE_PRELOAD_MS = 1500;
+
 export class Renderer {
   readonly gl: WebGL2RenderingContext;
   private readonly program: WebGLProgram;
@@ -636,12 +639,11 @@ export class Renderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
   }
 
-  /** Uploads a model's geometry and starts loading its textures. */
   /**
-   * GPU state for a model. `textured` false loads its geometry alone: a Meshes particle layer
-   * draws the mesh with the layer's material, so the mesh's own textures (often missing from
-   * the install: particle/mesh/freeze's skinhalf.png, particle/mesh/shockwave's testsmoke.png)
-   * are never requested.
+   * Uploads a model's geometry and starts loading its textures. `textured` false loads its
+   * geometry alone: a Meshes particle layer draws the mesh with the layer's material, so the
+   * mesh's own textures (often missing from the install: particle/mesh/freeze's skinhalf.png,
+   * particle/mesh/shockwave's testsmoke.png) are never requested.
    */
   async instantiate(model: LoadedModel, textured = true): Promise<ModelInstance> {
     const inst = new ModelInstance(model);
@@ -679,7 +681,9 @@ export class Renderer {
     for (const a of model.attachments) {
       inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model, textured) });
     }
-    if (textured && model.particles?.length) await this.preloadParticles(model);
+    // (waited for at most PARTICLE_PRELOAD_MS: a texture that never arrives must not hold
+    // back the instance, and with it a bullet or an effect, for good)
+    if (textured && model.particles?.length) await Promise.race([this.preloadParticles(model), new Promise(r => setTimeout(r, PARTICLE_PRELOAD_MS))]);
     return inst;
   }
 
@@ -707,9 +711,40 @@ export class Renderer {
   /** Colour definitions used to recolor textures; set once loaded. */
   colors: Promise<ColorPository | null> = Promise.resolve(null);
 
+  /** Pictures drawn at run time (billboarded interface components), by the texture path they take. */
+  private readonly images = new Map<string, TexImageSource>();
+
+  /** Makes a picture drawn at run time a texture that materials can name by `path`. */
+  registerImage(path: string, source: TexImageSource) {
+    this.images.set(path, source);
+  }
+
   private texture(unit: TextureUnitState): Promise<WebGLTexture | null> {
     const path = unit.texture!;
     const sm = unit.sampler;
+    const image = this.images.get(path);
+    if (image) {
+      let p = this.textures.get("img:" + path);
+      if (!p) {
+        const gl = this.gl;
+        const t = gl.createTexture()!;
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        // bottom row first, as Clyde's textures; premultiplied, as its blend states assume
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        this.loadedTextures.set("img:" + path, t);
+        this.textures.set("img:" + path, p = Promise.resolve(t));
+      }
+      return p;
+    }
     const key = (unit.premultiply ? "p:" : "s:") + `${sm.wrapS},${sm.wrapT},${sm.minFilter},${sm.magFilter}:` + (unit.colorizations.length
       ? path + "|" + JSON.stringify(unit.colorizations, (k, v) => (k === "$outer" ? undefined : v)) : path);
     let p = this.textures.get(key);
@@ -1322,16 +1357,7 @@ export class Renderer {
         const emitter = list[n] ??= new Emitter(inst.model.particles);
         // each emitter keeps its own clock, so views drawn offscreen in the same frame (HUD
         // portraits, the heat flame) still advance
-        if (inst.age > 0) {
-          // an instance its owner advances (an effect, an actor): the world's clock
-          const lastAge = (emitter as any).lastAge as number | undefined;
-          (emitter as any).lastAge = inst.age;
-          for (const s of catchUpSteps(lastAge, inst.age)) emitter.update(s, placement);
-        } else {
-          const last = (emitter as any).lastTime as number | undefined;
-          (emitter as any).lastTime = this.time;
-          emitter.update(last === undefined ? dt : Math.min(0.1, Math.max(0, this.time - last)), placement);
-        }
+        clockEmitter(emitter, inst.age, this.time, dt, placement);
         particles.push({ emitter, matrix: placement, filter });
         // model-emitting layers place their model at each particle
         emitter.states.forEach((state, li) => {

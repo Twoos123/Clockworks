@@ -57,6 +57,14 @@ export interface LoadedModel {
   /** Imported animations that start automatically, by path. */
   autoAnimations: string[];
   /**
+   * The same automatic animations as references, with their arguments (a comic panel's word
+   * balloon is animation/sequential/simple.dat given its "Animations" list: a delay, then the
+   * pop).
+   */
+  autoRefs?: any[];
+  /** A ComponentBillboardConfig model's component (drawn once paintBillboards gives it a quad). */
+  component?: ComponentBillboardDef;
+  /**
    * The model's named animations (ArticulatedConfig animation mappings), as references with
    * their arguments: a monster's "reacting" and "dying", a weapon's "ks_attack". Compound
    * models list their components' too.
@@ -307,6 +315,92 @@ const EDITOR_LIGHTS = /^editor\/marker\/(point|directional)light\/(model|parts\/
 /** Editor-only helpers (spawn markers, gizmos) the game never draws; light markers are real lights. */
 export const editorOnly = (name: string) => name.startsWith("editor/") && !EDITOR_LIGHTS.test(name);
 
+/** What a ComponentBillboardConfig shows: an interface component, its styles and bundle. */
+export interface ComponentBillboardDef {
+  root: any;
+  /** The message bundle its text is translated in ("global" for the config's blank one). */
+  bundle: string;
+  /** The model file's own interface styles. */
+  styles: Map<string, any>;
+  /** World units an interface pixel. */
+  scale: number;
+  priority: number;
+  queue: string;
+  /** Whether it turns to face the viewer (else it keeps its node's orientation). */
+  rotate: boolean;
+}
+
+/**
+ * Draws a billboard's component and registers the picture as a texture: its texture path and
+ * its size in interface pixels (the GUI lives outside the model loader, so the screens that
+ * show such models supply this).
+ */
+export type ComponentPainter = (def: ComponentBillboardDef) => Promise<{ texture: string; width: number; height: number } | null>;
+
+/** The node a rotating ComponentBillboard's quad hangs from (it turns to face the camera). */
+const BILLBOARD_NODE = "%component%";
+
+const paints = new WeakMap<ComponentBillboardDef, Promise<MeshPart | null>>();
+
+/**
+ * Gives the ComponentBillboardConfig models in a model's attachment tree their quads, drawn by
+ * `painter` (once per loaded model). The interface screens do this for the models in their
+ * views (the prologue's word balloons); elsewhere such models stay undrawn, as the game's
+ * name labels and damage numbers are drawn over the scene by the HUD instead.
+ */
+export async function paintBillboards(model: LoadedModel, painter: ComponentPainter, depth = 0): Promise<void> {
+  if (depth > 12) return;
+  const c = model.component;
+  if (c) {
+    // (derived models share their base's component and parts)
+    let p = paints.get(c);
+    if (!p) {
+      p = painter(c).then(img => img && billboardPart(img.texture, img.width, img.height, c.scale, c.priority, c.queue,
+        c.rotate ? BILLBOARD_NODE : undefined), () => null);
+      paints.set(c, p);
+    }
+    const part = await p;
+    if (part && !model.parts.includes(part)) model.parts.push(part);
+    if (part && c.rotate && !model.root) {
+      model.root = { name: "%ROOT%", transform: IDENTITY_TRANSFORM, children: [{ name: BILLBOARD_NODE, transform: IDENTITY_TRANSFORM, children: [] }] };
+      model.billboards.set(BILLBOARD_NODE, "Billboard");
+    }
+  }
+  for (const a of model.attachments) await paintBillboards(a.model, painter, depth + 1);
+}
+
+/**
+ * ComponentBillboard's batch as a mesh: the component laid out centred on the origin at its
+ * preferred size, `scale` world units an interface pixel, drawn from a texture of it into the
+ * config's queue at its priority, premultiplied-alpha blended (ONE, ONE_MINUS_SRC_ALPHA) with
+ * no depth writes, unlit and unfogged.
+ */
+export function billboardPart(texture: string, width: number, height: number, scale: number, priority = 0, queue = "Transparent",
+  node?: string): MeshPart {
+  const x = (width / 2) * scale, y = (height / 2) * scale;
+  const arr = (size: number, v: number[]): ClientArray => ({ size, stride: 0, offset: 0, data: new Float32Array(v) });
+  return {
+    material: {
+      name: "ComponentBillboard", queue, priority, resolved: true,
+      passes: [{
+        srcBlend: "ONE", destBlend: "ONE_MINUS_SRC_ALPHA", alphaFunc: "ALWAYS", alphaRef: 0, depthFunc: "LEQUAL", depthMask: false,
+        cullFace: "DISABLED", color: null, lit: false, ambient: null, overrideLights: 0, ignoreVertexColors: false, fog: false,
+        units: [{ texture, colorizations: [], premultiply: true,
+          sampler: { wrapS: "CLAMP", wrapT: "CLAMP", minFilter: "LINEAR_MIPMAP_LINEAR", magFilter: "LINEAR" },
+          env: "Modulate", rgbScale: 1, sphereMap: false, coordSet: 0, transform: null }],
+        shaders: [],
+      }],
+    },
+    mode: "TRIANGLES",
+    vertex: arr(3, [-x, -y, 0, x, -y, 0, x, y, 0, -x, y, 0]),
+    normal: arr(3, [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]),
+    // the picture is uploaded bottom row first (as Clyde's textures are), so v runs upward
+    texCoord: arr(2, [0, 0, 1, 0, 1, 1, 0, 1]),
+    indices: new Int16Array([0, 1, 2, 0, 2, 3]),
+    node,
+  };
+}
+
 export class ModelLoader {
   private readonly cache = new Map<string, Promise<JObject>>();
   private readonly models = new Map<string, Promise<LoadedModel>>();
@@ -421,6 +515,21 @@ export class ModelLoader {
         if (cm) { model.attachments.push({ node: "", transform: readTransform(c.transform), model: cm }); model.animations = { ...cm.animations }; return model; }
       }
       model.skipped.push("Conditional (no file-backed case)");
+      return model;
+    }
+
+    // ComponentBillboardConfig: an interface component drawn in the scene (a comic panel's word
+    // balloon, ui/conversation/parts/part_interface_balloon.dat), laid out at its preferred
+    // size and centred on the model, `scale` world units a pixel; with rotation enabled it
+    // turns to face the viewer, else it keeps the orientation of the node it hangs from. Its
+    // quad comes from paintBillboards, for the screens that draw them
+    if (impl.$class.endsWith("ComponentBillboardConfig")) {
+      if (impl.root) {
+        model.component = {
+          root: impl.root, bundle: impl.bundle || "global", styles: local.styles ?? new Map(), scale: impl.scale ?? 0.01,
+          priority: Number(impl.priority ?? 0) || 0, queue: impl.queue ?? "Transparent", rotate: impl.rotationEnabled ?? true,
+        };
+      }
       return model;
     }
 
@@ -539,6 +648,7 @@ export class ModelLoader {
         }
       } else {
         model.autoAnimations.push(ref.name);
+        (model.autoRefs ??= []).push(ref);
       }
     }
     if (model.parts.length === 0 && model.attachments.length === 0) model.skipped.push(model.kind);
@@ -580,7 +690,9 @@ export async function loadAnimation(loader: ModelLoader, pathOrRef: string | any
   if (!impl.transforms || !impl.targets) return null;
   return {
     path: hasArguments(ref) ? path + "|" + argKey(ref) : path,
-    rate: impl.rate ?? 30,
+    // Imported.getScaledRate: the rate as scaled by the animation's speed (a word balloon's pop
+    // plays at 20 fps times 1.5)
+    rate: (impl.rate ?? 30) * (impl.speed ?? 1),
     loop: !!impl.loop,
     targets: impl.targets,
     frames: (impl.transforms as any[]).map(f => (f as any[]).map(readTransform)),
@@ -590,7 +702,7 @@ export async function loadAnimation(loader: ModelLoader, pathOrRef: string | any
 
 /**
  * AnimationConfig$Sequential: component animations played one after another (a gun's fire
- * then cool-down, a charged shot's release). Joined into one clip at the first component's
+ * then cool-down, a charged shot's release). Joined into one clip at the fastest component's
  * rate; a node a component does not animate holds its pose from the components around it,
  * and each component's frame actions move to where it starts.
  */
@@ -602,7 +714,9 @@ async function sequential(loader: ModelLoader, impl: any, path: string, depth: n
     if (clip && clip.frames.length) parts.push({ clip, speed: Math.max(0.01, c.speed ?? 1) });
   }
   if (!parts.length) return null;
-  const rate = parts[0].clip.rate;
+  // sampled at the fastest component's rate, so a slow one (animation/common/delay.dat, two
+  // frames at 1 fps) leaves the quick ones after it (a word balloon's pop) their frames
+  const rate = Math.max(...parts.map(p => p.clip.rate * p.speed));
   const targets = [...new Set(parts.flatMap(p => p.clip.targets))];
   const index = new Map(targets.map((t, i) => [t, i]));
   const frames: (Transform | undefined)[][] = [];

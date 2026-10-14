@@ -9,6 +9,8 @@ import { multiply as multiplyMat, toMatrix, type Mat4 } from "./math";
 import { World } from "./game/world";
 import { Hud } from "./game/hud";
 import { GuiContext, messageText, type MenuEntry } from "./ui/gui";
+import { choosePlace, TabIcon, type PlaceState } from "./ui/favicon";
+import { guildOf } from "./game/guild";
 import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
@@ -288,6 +290,8 @@ class Viewer {
   private save: SaveData = loadSave();
   /** The guild hall and furniture, the Ready Room and knight creation (src/ui/places.ts). */
   private readonly places: Places;
+  /** The browser tab's icon and title, following where the knight is (src/ui/favicon.ts). */
+  private readonly tab = new TabIcon(() => this.gui);
   /** The battle sprite, accessories and costumes (game/outfit.ts); missions call outfit.setSprite. */
   private outfit_: Outfit | null = null;
   get outfit() { return this.outfit_ ??= new Outfit(this.loader, () => this.save, () => writeSave(this.save)); }
@@ -614,6 +618,30 @@ class Viewer {
     this.title.setStatus(n ? `${n} knight${n === 1 ? "" : "s"} saved in this browser` : "");
     await this.title.show();
     bootStatus(null);
+    this.showTab("title");
+  }
+
+  /**
+   * The browser tab's title and icon for where the knight is (src/ui/favicon.ts): a full-screen
+   * interface's, else the scene's (a town, a gate's floor or lobby, a mission, a Shadow Lair).
+   * The asset viewer keeps its own title. Cosmetic: nothing here can break the game.
+   */
+  private showTab(screen?: PlaceState["screen"]) {
+    if (!GAME) return;
+    try {
+      const sc = this.scene;
+      // (the Mission Lobby is no floor: its mission's first floor waits below it)
+      const f = this.inLobby && !this.gateLobby ? null
+        : this.gate && (this.run.depth > 0 || this.gateLobby) ? this.floors[this.run.depth] ?? null : null;
+      const mission = /^mission:(.+)$/.exec(this.gate?.id ?? "")?.[1];
+      const guild = this.save.guild ? guildOf(this.save) : null;
+      this.tab.show(choosePlace({
+        screen: screen ?? (sc?.id === TEST_RANGE ? "range" : null), sceneId: sc?.id ?? null, sceneName: sc?.name ?? null,
+        town: !!sc && TOWN.test(sc.name), gate: this.gate, floor: f, depth: this.scaleDepth(),
+        missionCard: mission ? this.missionBoard?.byId(mission)?.cardImage ?? null : null,
+        guild: guild ? { name: guild.name, symbol: guild.emblem.symbol, color: guild.emblem.color } : null, arena: this.arenaMode,
+      }));
+    } catch { /* the tab keeps what it showed */ }
   }
 
   /**
@@ -652,6 +680,7 @@ class Viewer {
     })));
     this.title?.hide();
     this.prologue?.hide();
+    this.showTab("pick");
     await this.pick.setKnights(cards);
   }
 
@@ -732,6 +761,7 @@ class Viewer {
     this.title?.hide();
     this.pick?.hide();
     this.music.prologue();
+    this.showTab("prologue");
     void this.prologue.play();
   }
 
@@ -937,6 +967,7 @@ class Viewer {
       const ms = Math.round(performance.now() - t0);
       this.status(scene.name + " · " + scene.objects.length.toLocaleString() + " objects · loaded in " + ms + " ms");
       this.showSceneInfo(scene);
+      this.showTab();
       loading?.done();
     } catch (e) {
       if (token !== this.loadToken) return;
