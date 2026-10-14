@@ -439,6 +439,9 @@ export class GameHud {
   private hovered: Component | null = null;
   /** Display options: the minimap, and the damage effects (the red flash when hit and the low-health frame). */
   options = { minimap: true, screenFlash: true };
+  /** No minimap in this place (the Ready Room). */
+  private noMap = false;
+  private get showMap() { return this.options.minimap && !this.noMap; }
   /** Whether the HUD is drawn in dungeon mode (set from the last update). */
   private dungeon = false;
 
@@ -553,7 +556,7 @@ export class GameHud {
 
   /** The panels taking the pointer, top first: the status panel (its rim button), the minimap, the menus, the quickbar. */
   private panels() {
-    return [this.status, this.options.minimap ? this.minimapUi : null, this.menuLeft, this.menuRight, this.activities,
+    return [this.status, this.showMap ? this.minimapUi : null, this.menuLeft, this.menuRight, this.activities,
       this.objective?.visible ? this.objective : null, this.dungeon ? this.quickbar : null].filter((x): x is Component => !!x);
   }
 
@@ -680,6 +683,8 @@ export class GameHud {
 
   update(state: HudState, dt: number) {
     this.dungeon = state.dungeon;
+    // the Ready Room's view has no minimap (client dR.IW)
+    this.noMap = !!state.place?.readyRoom;
     this.updateSlides(dt);
     this.updateAcquire(dt);
     this.bindSprite(state.sprite);
@@ -827,8 +832,9 @@ export class GameHud {
     const p = s.place ?? { guildHall: false, readyRoom: false, hall: false };
     const haven = a.find("button_haven");
     if (haven) haven.text = message("projectx", "b.to_town", "Haven");
-    // "Go to Haven" outside the home town; the Ready Room outside it; the guild's hall outside it
-    const go = [show("button_haven", !s.town), show("button_readyroom", !p.readyRoom), show("button_guildhall", p.hall && !p.guildHall)];
+    // "Go to Haven" outside the home town (and in the Ready Room, where it leaves the room: hud/b);
+    // the Ready Room outside it; the guild's hall outside it
+    const go = [show("button_haven", !s.town || p.readyRoom), show("button_readyroom", !p.readyRoom), show("button_guildhall", p.hall && !p.guildHall)];
     show("go_div", go.some(Boolean));
     // furnishings only where the hall's design mode runs; missions always (MissionPanel.isEnabled)
     const furni = show("button_furni", p.guildHall);
@@ -1012,7 +1018,7 @@ export class GameHud {
       render(ui, g, 0, ch, this.hooks);
     };
     // the map overlay (ProjectXPrefs map_overlay) under the HUD
-    if (this.mapOverlay) this.minimap.drawOverlay(g, cw, ch);
+    if (this.mapOverlay && !this.noMap) this.minimap.drawOverlay(g, cw, ch);
     if (this.low !== "off") fullScreen(this.lowHealth, ["frame_red", "frame_border"]);
     if (this.hitFlash && this.runners.get(this.hitFlash)?.busy) fullScreen(this.hitFlash, ["frame_red"]);
     if (this.status) {
@@ -1020,7 +1026,7 @@ export class GameHud {
       const size = pack(this.status);
       render(this.status, g, 0, size.height, this.hooks);
     }
-    if (this.minimapUi && this.options.minimap) {
+    if (this.minimapUi && this.showMap) {
       // the minimap sits in the upper-right corner
       const size = pack(this.minimapUi);
       render(this.minimapUi, g, cw - size.width, size.height, this.hooks);

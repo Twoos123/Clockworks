@@ -369,6 +369,13 @@ class Viewer {
       }
       if (this.options?.isOpen) return;
       const key = e.key.toLowerCase(), b = (a: Action) => key === this.bound(a);
+      // on a stage (the Ready Room) only the HUD's commands answer: there is no knight to steer
+      if (this.staged) {
+        if (!e.repeat) for (const [a, run] of Object.entries(this.commands()) as [Action, () => void][]) {
+          if (b(a)) { if (/^f\d+$/.test(key)) e.preventDefault(); run(); }
+        }
+        return;
+      }
       (["weapon1", "weapon2", "weapon3"] as const).forEach((a, i) => { if (b(a)) this.weaponSlot = i; });
       if (b("cycle") && !e.repeat) { e.preventDefault(); const n = Math.max(1, this.world.knight.weapons.length); this.weaponSlot = (this.world.knight.slot + 1) % n; }
       // pocket items
@@ -740,9 +747,12 @@ class Viewer {
     const { min, max } = this.scene.bounds;
     // knights arrive on the level's start platform, else near the middle
     // (towns: at the portal the knight walked in through, else the scene's default entrance)
-    const arrival = this.scene.start ? null : arrivalPoint(this.scene.logic, this.arrivalTag ?? "");
+    // (back from the Ready Room: where the knight stood before it)
+    const resume = this.resumeAt;
+    this.resumeAt = null;
+    const arrival = this.scene.start || resume ? null : arrivalPoint(this.scene.logic, this.arrivalTag ?? "");
     this.arrivalTag = null;
-    const [sx, sy] = this.scene.start ?? (arrival ? [arrival.x, arrival.y] : [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2]);
+    const [sx, sy] = resume ? [resume.x, resume.y] : this.scene.start ?? (arrival ? [arrival.x, arrival.y] : [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2]);
     const spawn = this.places.spawn(this.scene.id) ?? this.scene.collision.findSpawn(sx, sy, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
@@ -792,9 +802,11 @@ class Viewer {
     // towns and the Rescue Camp are safe places: the knight walks them unarmed
     await world.start(spawn, this.save.loadout, TOWN.test(this.scene.name));
     if (arrival && !this.places.spawn(this.scene.id)) world.knight.heading = arrival.heading;
+    if (resume && !this.places.spawn(this.scene.id)) world.knight.heading = resume.heading;
     this.eco ??= world.economy;
     this.outfit.hotkeys = (["sprite1", "sprite2", "sprite3"] as const).map(a => keyName(this.bound(a)));
-    void this.outfit.accompany(world);
+    // (a stage shows the knight alone: the client's ready room view builds only its sprite)
+    if (!this.places.staged(this.scene.id)) void this.outfit.accompany(world);
     if (this.run.health !== null) world.knight.health = Math.max(1, Math.min(world.knight.maxHealth, this.run.health));
     // the floor's music (src/game/music.ts: gate floors by kind, theme and style, else the scene's own) and ambient loops
     this.played = true;
@@ -863,6 +875,11 @@ class Viewer {
 
   /** The portal tag the knight arrives at in the next scene (a town exit walked through). */
   private arrivalTag: string | null = null;
+  /** Where the knight stands when play next starts (back from the Ready Room). */
+  private resumeAt: { x: number; y: number; heading: number } | null = null;
+
+  /** Play is a stage (the Ready Room): the knight is posed, not controlled, and the camera fixed. */
+  private get staged(): boolean { return !!this.world && this.places.staged(this.scene?.id); }
   private travelling = false;
 
   /**
@@ -1185,10 +1202,12 @@ class Viewer {
       knightZ: () => this.world?.knight.z ?? 0,
       sound: f => this.uiSound(f),
       sceneList: () => this.sceneList,
-      go: async id => { this.stopPlaying(); await this.selectScene(id); await this.startPlaying(); },
+      go: async (id, at) => { this.stopPlaying(); await this.selectScene(id); this.resumeAt = at ?? null; await this.startPlaying(); },
       restart: async () => { this.stopPlaying(); await this.startPlaying(); },
       world: () => this.world,
       camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; this.fov = 0.75; this.cam = null; },
+      // a stage's camera holds its CameraConfig exactly (its fog is set for that distance)
+      stageCamera: v => { this.applyCamView(v); this.dist = v.distance; this.cam = { views: [v], zoom: 0, from: v, to: v, t: 1 }; },
       openArsenal: async () => { if (!this.itemScreens?.arsenal.isOpen) await this.toggleArsenal(); },
       arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
       colors: () => this.renderer.colors,
@@ -2199,6 +2218,8 @@ class Viewer {
       }
       // furniture mode: clicks place, pick up and drop furniture instead of attacking
       if (this.world && this.places.pointerDown(e.button)) return;
+      // a stage's knight takes no orders and its camera does not turn
+      if (this.staged) return;
       if (this.world && (e.button === 0 || e.button === 2)) {
         // play mode: left attacks (hold to charge), right raises the shield
         // Shift + right click dashes (the game's default binding); right click alone shields
@@ -2254,7 +2275,7 @@ class Viewer {
         this.target = [this.target[0] - (-ry * dx) * s, this.target[1] - (rx * dx) * s, this.target[2] + dy * s];
       }
     });
-    c.addEventListener("wheel", e => { e.preventDefault(); this.dist *= Math.exp(e.deltaY * 0.0012); }, { passive: false });
+    c.addEventListener("wheel", e => { e.preventDefault(); if (!this.staged) this.dist *= Math.exp(e.deltaY * 0.0012); }, { passive: false });
   }
 
   private frame = (now: number) => {
@@ -2271,7 +2292,14 @@ class Viewer {
       }
       // the title screen's camera drifts slowly around the town
       if (!this.world && this.title?.visible) this.az += dt * 0.04;
-      if (this.world) {
+      if (this.world && this.staged) {
+        // a stage (the Ready Room): the knight holds its pose and the camera its place
+        if (!this.paused) this.world.update(dt, { move: [0, 0], attackDown: false, attackHeld: false, shield: false, aim: null, weaponSlot: null, interact: false, dash: false, bash: false });
+        this.attackPressed = this.dashPressed = this.bashPressed = this.interactPressed = false;
+        this.weaponSlot = null;
+        const k = this.world.knight, off = this.cam?.to.offset ?? [0, 0, 1];
+        this.target = [k.x + off[0], k.y + off[1], k.z + off[2]];
+      } else if (this.world) {
         const mv = this.moveInput();
         // a gamepad adds to the keyboard and mouse; sticks are camera-relative like WASD
         const pad = this.pads.poll();

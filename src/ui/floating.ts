@@ -1,10 +1,10 @@
 // A window drawn from the game's interface configs that floats over the play view without
-// covering it: the guild hall's furniture panel, the Ready Room's bar, knight creation. Unlike
-// the modal GuiScreen windows it does not dim the game or take every click: its canvas lets
-// the pointer through (pointer-events: none) and a press reaches the window only where the
-// window is drawn; elsewhere the press goes on to the game canvas below (furniture placement
-// clicks the hall's floor). The window sits under the modal windows (the arsenal can open over
-// the Ready Room's bar) and over the game canvas and HUD.
+// covering it: the guild hall's furniture panel, knight creation. Unlike the modal GuiScreen
+// windows it does not dim the game or take every click: its canvas lets the pointer through
+// (pointer-events: none) and a press reaches the window only where the window is drawn;
+// elsewhere the press goes on to the game canvas below (furniture placement clicks the hall's
+// floor). The window sits under the modal windows (the arsenal can open over it) and over the
+// game canvas and HUD.
 
 import { buildComponentConfig, dispatch, hitTest, layout, pack, render, resetInput, type Component, type GuiContext, type GuiImage, type RenderHooks } from "./gui";
 import { buildTooltip, buildUi, uiRef, type TipSpec } from "./screen";
