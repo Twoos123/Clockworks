@@ -202,8 +202,14 @@ export function sceneMusic(name: string): Track | null {
 }
 
 /** Every music file this table plays (for the docs and a test against the install's list). */
+/**
+ * Tracks the levels themselves play: their logic spawns "Environment/Music" actors with a File
+ * (e.g. the Royal Jelly court's arena plays main_theme.ogg under the tag "music 1g").
+ */
+export const SCRIPTED_MUSIC = [M("main_theme")];
+
 export function mappedFiles(): Set<string> {
-  const out = new Set<string>();
+  const out = new Set<string>(SCRIPTED_MUSIC);
   const add = (t: Track) => t.files.forEach(f => out.add(f.file));
   [...Object.values(PLACES), ...Object.values(MISSION_MUSIC), ...Object.values(FAMILY_MUSIC), ...Object.values(ELEMENT_MUSIC), ...Object.values(STYLE_MUSIC)].forEach(add);
   for (const b of Object.values(BOSS_MUSIC)) { add(b.level); add(b.fight); }
