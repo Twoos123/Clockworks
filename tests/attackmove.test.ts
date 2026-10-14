@@ -45,3 +45,25 @@ test("on the install: a sword combo steps the knight 0, 1.25 and 2 units, and it
   assert.ok(gun.attacks.every(a => !a.impulse));
   assert.ok((gun.chargedAttack?.impulse?.forward ?? 0) < 0);
 });
+
+test("on the install: a sword's swing trail is its fire animation's frame action, raised to the blade", { skip: !haveInstall }, async () => {
+  const { GameData } = await import("../src/game/data.ts");
+  const { nodeLoader } = await import("../tools/audit/nodevfs.ts");
+  const { loadAnimation } = await import("../src/model.ts");
+  const { swingModel } = await import("../src/game/world.ts");
+  const loader = nodeLoader();
+  const data = new GameData(loader);
+  await data.preload("config/item.dat", "config/actor.dat", "config/attack.dat", "config/fire_action.dat");
+  const sword = (await data.weapon("Weapon/Sword/Proto Sword"))!;
+  for (const a of sword.attacks) {
+    const clip = (await loadAnimation(loader, a.fire))!;
+    const spawns = clip.actions.filter(x => String(x.action.$class).endsWith("$SpawnTransient"));
+    assert.equal(spawns.length, 1, `${a.name}: the fire clip spawns the swing once`);
+    const act = spawns[0].action;
+    // the weapon's own Swing (the Proto Sword's green trail), not the animation's default
+    assert.equal(act.model.name, swingModel(a.swing).name);
+    const mid = (act.model.arguments.entries as [string, any][]).find(e => e[0] === "Swing Color Middle")![1];
+    assert.ok(mid.g > mid.r && mid.g > mid.b, "the trail is the Proto Sword's green");
+    assert.ok((act.transform?.translation?.z ?? 0) > 0.5, "spawned at the blade's height, not on the floor");
+  }
+});

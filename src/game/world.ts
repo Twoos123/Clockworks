@@ -584,6 +584,8 @@ export class World implements LogicHost {
 
   private async preloadAttacks(attacks: (AttackDef | null | undefined)[]) {
     const list = attacks.filter((a): a is AttackDef => !!a);
+    // the swing trails their fire animations spawn load with them, so the first swing shows one
+    for (const a of list) if (a.swing) this.warmEffect(swingModel(a.swing));
     await Promise.all([
       this.preload(...list.flatMap(a => [a.start, a.fire, a.end])),
       ...list.flatMap(a => a.fires).filter(f => f.spawn).map(f => this.projectileDef(f.spawn!.actor)),
@@ -2408,10 +2410,10 @@ export class World implements LogicHost {
       const charged = at.def === k.weapon?.chargedAttack;
       if (!(charged && this.weaponAnim(k, "ks_charge_attack"))) this.weaponAnim(k, "ks_attack");
     }
-    if (at.def.swing) {
-      const ref = at.def.swing.$class?.endsWith("SpawnTransient") ? at.def.swing.model : at.def.swing;
-      this.spawnEffect(ref, a.matrix(), 0.7, a);
-    }
+    // the swing trail is the fire animation's own frame action (its Swing argument: a
+    // SpawnTransient at the knight's root, raised to the blade's height and turned with the
+    // swing), spawned as the clip reaches it (runEvents); spawning the Swing again here put a
+    // second, untransformed copy on the floor at the knight's feet
   }
 
   /**
@@ -3818,6 +3820,11 @@ export function spawnedModels(m: LoadedModel, depth = 0): any[] {
   for (const t of m.script?.actions ?? []) walk(t.action, 0);
   for (const a of m.attachments) out.push(...spawnedModels(a.model, depth + 1));
   return out;
+}
+
+/** The model of an attack's Swing argument (a model reference, or a SpawnTransient action). */
+export function swingModel(swing: any): any {
+  return String(swing?.$class ?? "").endsWith("SpawnTransient") ? swing.model : swing;
 }
 
 /** Hits a block takes to break, by its config name (wiki: Exploration, Mineral). */
