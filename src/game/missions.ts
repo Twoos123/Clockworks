@@ -373,11 +373,15 @@ export function isComplete(m: Mission, p: MissionProgress, now = Date.now()): bo
 /**
  * A mission's status for the knight: complete; available (its rank reached, its prerequisites
  * done, and for prestige missions the rank in range and the schedule's day today); upcoming
- * (a prestige mission later this week); else locked. Event missions are always locked.
+ * (a prestige mission later this week); else locked.
+ *
+ * Event missions (an EventRestriction: Anniversary, Dark Harvest, Black Kat, Apocrea,
+ * Tortodrone, Winterfest) ran while the game's servers ran their event, on dates that moved
+ * from year to year. Here every event is always on: they open like any prestige mission, by
+ * their rank range and, where they have one, their day schedule (Moorcroft, Winterfest).
  */
 export function missionStatus(m: Mission, p: MissionProgress, now = Date.now()): MissionStatus {
   if (isComplete(m, p, now)) return "complete";
-  if (m.event) return "locked";
   if (!m.needs.every(id => p.completed.includes(id) || p.cycles[id] !== undefined)) return "locked";
   if (m.cls === "Prestige") {
     if (p.rank < m.rank || p.rank >= m.maxRank) return "locked";
@@ -388,9 +392,9 @@ export function missionStatus(m: Mission, p: MissionProgress, now = Date.now()):
   return cmpRank(m, p) <= 0 ? "available" : "locked";
 }
 
-/** Prestige missions to show this week: rank in range, no event, active within seven days. */
+/** Prestige missions to show this week (event missions among them): rank in range, active within seven days. */
 export function weeklyPrestige(missions: Mission[], p: MissionProgress, now = Date.now()): Mission[] {
-  return missions.filter(m => m.cls === "Prestige" && !m.event && p.rank >= m.rank && p.rank < m.maxRank
+  return missions.filter(m => m.cls === "Prestige" && p.rank >= m.rank && p.rank < m.maxRank
     && (!m.schedule || daysUntilActive(m.schedule, now) < 7));
 }
 

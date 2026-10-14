@@ -7,6 +7,7 @@ import type { GuildSave } from "./guild";
 import { normalizeAppearance, type Appearance } from "./accessories";
 import { normalizeAchievements, type AchievementSave } from "./achievements";
 import { normalizeSpriteSave, type SpriteSave } from "./sprites";
+import { normalizeEnergy, type EnergyState } from "./energy";
 
 export interface Loadout {
   /** Item config names, e.g. "Weapon/Sword/Proto Sword"; up to three weapons. */
@@ -51,6 +52,8 @@ export interface SaveData {
   missions?: MissionProgress;
   /** Sparks of Life: each revives a knocked-out knight (a fresh knight has three). */
   sparks?: number;
+  /** Energy: the mist tank and Crystal Energy (src/game/energy.ts). */
+  energy?: EnergyState;
   /** Letters in the knight's mailbox (welcome notes, mission rewards). */
   mail?: { from: string; subject: string; body: string; read: boolean; at: number }[];
   /** The knight made at character creation; absent until then (a fresh save). */
@@ -153,7 +156,7 @@ export const DEFAULT_LOADOUT: Loadout = {
 export function loadSave(): SaveData {
   const fresh: SaveData = { version: 2, loadout: { ...DEFAULT_LOADOUT, weapons: [...DEFAULT_LOADOUT.weapons], trinkets: [] }, crowns: 0, heat: 0,
     materials: {}, bestDepth: 0, runs: 0, owned: [...DEFAULT_LOADOUT.weapons, DEFAULT_LOADOUT.shield], gear: {}, recipes: [], color: 257,
-    pocket: [], heatAmplifier: 0 };
+    pocket: [], heatAmplifier: 0, energy: normalizeEnergy(null) };
   let out = fresh;
   try {
     const raw = localStorage.getItem(KEY);
@@ -173,6 +176,7 @@ export function loadSave(): SaveData {
         appearance: normalizeAppearance(d.appearance),
         loadouts: normalizeLoadouts(d.loadouts),
         achievements: normalizeAchievements(d.achievements),
+        energy: normalizeEnergy(d.energy),
         owned: [...new Set([...fresh.owned, ...(d.owned ?? []), ...(d.loadout?.weapons ?? []), d.loadout?.shield, d.loadout?.armor, d.loadout?.helmet, ...(d.loadout?.trinkets ?? []), d.loadout?.vitapod]
           .filter((x): x is string => !!x))],
       };
@@ -185,6 +189,11 @@ export function loadSave(): SaveData {
       variants: Array.isArray(g?.variants) ? g.variants.filter(v => typeof v === "string") : [] };
   }
   return out;
+}
+
+/** The knight's energy, made on first use (a full mist tank). */
+export function energyOf(d: SaveData): EnergyState {
+  return d.energy ??= normalizeEnergy(null);
 }
 
 export function writeSave(d: SaveData) {

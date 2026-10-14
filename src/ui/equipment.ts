@@ -26,7 +26,8 @@ import type { GameData } from "../game/data";
 import { MAX_LEVEL, type Economy } from "../game/economy";
 import { CATEGORIES, catalogue, isEquipped, itemLabel, unequip, type ItemEntry, type Slot } from "../game/items";
 import type { Outfit } from "../game/outfit";
-import { knightName, MAX_LOADOUTS, saveLoadout, wearableLoadout, type Loadout, type SaveData, type SavedLoadout } from "../game/save";
+import { energyNow } from "../game/energy";
+import { energyOf, knightName, MAX_LOADOUTS, saveLoadout, wearableLoadout, type Loadout, type SaveData, type SavedLoadout } from "../game/save";
 import {
   foodStars, freePoints, heatToNext, MAX_LEVEL as SPRITE_MAX, MAX_RANK, rechargeOf, SKILL_LEVELS, spriteTier, ULTIMATE_LEVELS,
   unlockedSkills, type SpriteDef, type SpriteProgress,
@@ -891,6 +892,8 @@ export class ArsenalScreen extends GuiScreen {
     };
     this.list.setNotice("");
     this.list.setInfo("ARSENAL", info[mode][0], info[mode][1], save.crowns);
+    // the energy module: the mist tank and Crystal Energy together (src/game/energy.ts)
+    this.list.setEnergy(energyNow(energyOf(save)));
     const groups = mode === "equipment" || mode === "achievements" ? this.gearGroups() : mode === "costume" ? await this.costumeGroups()
       : mode === "sprite" ? this.spriteGroups() : this.optionGroups();
     // LoadoutPanel takes the battle sprite tab away while the knight has no sprite

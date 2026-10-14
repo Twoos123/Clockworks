@@ -12,11 +12,15 @@ import type { LoadedModel } from "../model";
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene, SceneLoader } from "../scene";
 import type { GameData } from "../game/data";
-import type { SaveData } from "../game/save";
+import { energyOf, type SaveData } from "../game/save";
+import { energyNow } from "../game/energy";
 import {
-  buyFurniture, cellsOf, furniPrice, furnitureCatalogue, guildOf, nextRotation, place, snap, unplace,
+  buyFurniture, cellsOf, furniCost, furnitureCatalogue, guildOf, nextRotation, place, snap, unplace,
   type FurniEntry, type Placement,
 } from "../game/guild";
+
+const costText = (c: { crowns: number } | { energy: number }) =>
+  "energy" in c ? `${c.energy.toLocaleString("en-US")} energy` : `${c.crowns.toLocaleString("en-US")} crowns`;
 import type { Component, GuiContext } from "./gui";
 import { FloatScreen, type Placement as At } from "./floating";
 import { ItemList, itemTip, type ListGroup } from "./itemlist";
@@ -317,9 +321,12 @@ export class FurnitureWindow extends FloatScreen {
   protected place(cw: number, _ch: number, w: number): At { return { x: cw - w - 12, y: 160 }; } // under the minimap
 
   async open() {
-    await this.host.data().preload("config/item.dat");
+    await this.host.data().preload("config/item.dat", "config/item_property.dat");
     const d = this.host.data();
-    this.catalogue ??= furnitureCatalogue(d.library_("config/item.dat").keys(), n => d.resolveSync("config/item.dat", { name: n }, "item"));
+    // prices from item_property.dat (Furni/Furni Common, Uncommon, Rare... by star; the
+    // knight statues' depotCost in energy)
+    this.catalogue ??= furnitureCatalogue(d.library_("config/item.dat").keys(), n => d.resolveSync("config/item.dat", { name: n }, "item"),
+      p => d.resolveSync("config/item_property.dat", { name: p }, "itemProps")?.itemProps ?? null);
     if (!this.isOpen) this.host.sound("sound/feedback/ui_open.ogg");
     const game = document.getElementById("canvas");
     if (game) game.style.cursor = "crosshair";
@@ -360,8 +367,8 @@ export class FurnitureWindow extends FloatScreen {
     if (!e) return;
     const save = this.host.save();
     if (this.view === "shop") {
-      if (buyFurniture(save, e.name, e.rarity)) { this.host.write(); this.host.sound("sound/feedback/ui_merchant_trade_add.ogg"); this.status_ = `Bought ${e.label}. It is in storage.`; }
-      else { this.host.sound("sound/feedback/ui_dismiss.ogg"); this.status_ = `${e.label} costs ${furniPrice(e.rarity)} crowns.`; }
+      if (buyFurniture(save, e.name, e.rarity, furniCost(e))) { this.host.write(); this.host.sound("sound/feedback/ui_merchant_trade_add.ogg"); this.status_ = `Bought ${e.label}. It is in storage.`; }
+      else { this.host.sound("sound/feedback/ui_dismiss.ogg"); this.status_ = `${e.label} costs ${costText(furniCost(e))}.`; }
     } else {
       this.layer.hold(e.name);
       this.host.sound("sound/feedback/ui_confirm.ogg");
@@ -384,15 +391,16 @@ export class FurnitureWindow extends FloatScreen {
     for (const e of this.catalogue ?? []) {
       const have = g.furni[e.name] ?? 0;
       if (!shop && !have) continue;
-      const price = furniPrice(e.rarity);
+      const cost = furniCost(e);
+      const short = "energy" in cost ? energyNow(energyOf(save)) < cost.energy : save.crowns < cost.crowns;
       let grp = groups.get(e.category);
       if (!grp) groups.set(e.category, grp = { id: e.category, label: e.category, icon: FURNI_ICON, entries: [] });
       grp.entries.push({
         key: e.name, label: e.label, rarity: e.rarity < 0 ? -1 : e.rarity, icon: e.icon,
-        look: shop && save.crowns < price ? "False - Red" : "False",
+        look: shop && short ? "False - Red" : "False",
         count: have ? String(have) : "",
         tip: itemTip({ label: e.label, type: e.category, rarity: Math.max(0, e.rarity), flavor: `${e.width}x${e.height} tiles${e.rarity < 0 ? ", an event prize" : ""}.`,
-          lines: shop ? [`${price.toLocaleString("en-US")} crowns`, ...(have ? [`${have} in storage`] : [])] : [`${have} in storage`] }),
+          lines: shop ? [costText(cost), ...(have ? [`${have} in storage`] : [])] : [`${have} in storage`] }),
       });
     }
     // the shop lists every item: its categories start folded

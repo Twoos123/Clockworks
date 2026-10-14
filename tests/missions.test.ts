@@ -205,3 +205,17 @@ test("the install's missions parse (skipped without the install)", { skip: !exis
   assert.equal(p.rank, 10);
   assert.equal(rank.filter(m => !p.completed.includes(m.id)).length, 0);
 });
+
+test("event missions are always on: open by their rank range, listed with the week's prestige missions", () => {
+  const ev = { $class: M, name: "Prestige/Special/Halloween/Halloween Rank 4,5", implementation: { $class: `${M}$Prestige`, id: "p_halloween_r4",
+    deployment: PROD, restrictions: [{ $class: `${M}$EventRestriction`, event: "Dark Harvest" }, { $class: `${M}$RankRange`, rank: 4, maxRank: 6 }] } };
+  const [m] = parseMissions([ev], props);
+  assert.equal(m.event, "Dark Harvest");
+  const p = freshProgress();
+  assert.equal(missionStatus(m, p), "locked", "below its rank range");
+  p.rank = 5;
+  assert.equal(missionStatus(m, p), "available");
+  assert.deepEqual(weeklyPrestige([m], p).map(x => x.id), ["p_halloween_r4"]);
+  p.rank = 6;
+  assert.equal(missionStatus(m, p), "locked", "past its rank range");
+});

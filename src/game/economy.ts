@@ -27,13 +27,18 @@
 //   materials                           sell  1,    1,    5,    10,     25,     50
 //   crafting (recipe_property.dat Base/Equipment): 40, 200, 400, 1000, 2500, 5000
 // The game's shops priced from these same configs; which items a shop stocked on a day was
-// server data (config/catalog.dat ships empty), so the catalogues below are every item of a
-// keeper's kind within the star range its place allows.
+// server data (config/catalog.dat ships empty). Haven's Strangers stock the wiki's lists
+// (src/game/vendors.ts: always-stocked goods and a daily random few per knight); other keepers
+// sell every item of their kind within the star range their place allows. The Supply Depot
+// adds its energy goods (depotCost: the heat amplifier, sparks, orbs of alchemy), and crafts
+// take three orbs of their star or a pack's energy (src/game/energy.ts).
 
 import { resolveRef } from "./logic";
 import { itemName, variantText } from "./text";
 import type { DepthContext } from "./depth";
 import { itemValue } from "./bonus";
+import { energyNow, orbFor, ORBS_PER_CRAFT, spendEnergy, type EnergyState } from "./energy";
+import { vendorDay, vendorKey, vendorMatch, vendorNames, vendorSeed, VENDORS } from "./vendors";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 const enumName = (v: any, d = "") => String(v?.name ?? v ?? d).split(".").pop()!;
@@ -78,7 +83,14 @@ export interface Wallet {
   loadout: { weapons: string[]; shield: string; armor: string; helmet: string; trinkets: string[]; vitapod: string };
   /** Time (ms) until which the heat amplifier doubles heat (an Energy item in the game). */
   heatAmplifier?: number;
+  /** Energy (src/game/energy.ts): pays for orbs of alchemy and Supply Depot goods. */
+  energy?: EnergyState;
+  /** Sparks of Life (a fresh knight has three). */
+  sparks?: number;
 }
+
+/** A Supply Depot good sold for energy: its item, the energy it costs and how many come. */
+export interface DepotGood { name: string; energy: number; count: number; kind: "heat" | "spark" | "orb" }
 
 export interface Recipe {
   /** The recipe config name ("Sword/Calibur"). */
@@ -92,6 +104,8 @@ export interface Recipe {
   base: string | null;
   baseLevel: number;
   crowns: number;
+  /** The orbs of alchemy a craft takes (three of its star), or null for unrated recipes. */
+  orbs: [string, number] | null;
   variantTable: any;
 }
 
@@ -144,7 +158,16 @@ export const HEAT_AMPLIFIER = 2;
 const SKIP = /\/Parts\/|\/Dev\/|\(Dev\)|\bTEST\b|\/Test\/|PvP|\(Test\)|Tutorial|Promo|\/Base\//;
 
 /** Shop keepers: what each sells, by the shop actor's config name. */
-export interface Keeper { title: string; categories: Category[]; minRarity: number; maxRarity: number; rotate?: number }
+export interface Keeper {
+  title: string; categories: Category[]; minRarity: number; maxRarity: number; rotate?: number;
+  /** The Supply Depot: also sells the energy goods (depotGoods). */
+  depot?: boolean;
+  /** A Haven Stranger with the wiki's stock list (src/game/vendors.ts). */
+  vendor?: string;
+}
+
+/** One thing a keeper sells, and its price in crowns (or energy, for the Supply Depot's goods). */
+export interface StockEntry { name: string; price: number; rarity: number; category: Category; currency?: "energy"; /** How many come for the price (the depot's packs). */ pack?: number }
 
 export class Economy {
   private infos = new Map<string, ItemInfo | null>();
@@ -191,6 +214,48 @@ export class Economy {
     return Math.max(0, Math.round(this.info(name)?.props?.buyPrice ?? 0));
   }
 
+  /** The energy the Supply Depot asks for an item (ItemProps depotCost), or 0. */
+  depotCost(name: string): number {
+    return Math.max(0, Math.round(this.info(name)?.props?.depotCost ?? 0));
+  }
+
+  /**
+   * The Supply Depot's energy goods the install prices (item_property.dat depotCost): the heat
+   * amplifier for two, seven and thirty days, Sparks of Life by ten, and the orbs of alchemy
+   * by three (the wiki's pack sizes). The depot's other goods (slots, renames, keys, sprite
+   * eggs) have no use here.
+   */
+  depotGoods(): DepotGood[] {
+    const out: DepotGood[] = [];
+    const add = (name: string, count: number, kind: DepotGood["kind"]) => {
+      const energy = this.depotCost(name);
+      if (energy > 0 && this.info(name)) out.push({ name, energy, count, kind });
+    };
+    for (const n of ["Upgrade/Heat Bonus", "Upgrade/Heat Bonus (7 days)", "Upgrade/Heat Bonus (30 days)"]) add(n, 1, "heat");
+    add("Rarity/Spark of Life", 10, "spark");
+    for (let r = 1; r <= 5; r++) add(orbFor(r), ORBS_PER_CRAFT, "orb");
+    return out;
+  }
+
+  /** Days a heat amplifier item runs (ItemConfig$Upgrade days), 0 for other items. */
+  amplifierDays(name: string): number {
+    const impl = this.resolve("config/item.dat", name, "item");
+    return impl?.heatBonus ? Math.max(0, Number(impl.days ?? 0)) : 0;
+  }
+
+  /**
+   * Buys a depot good with energy: a heat amplifier adds its days (from now, or from the
+   * end of the one running), sparks and orbs join the knight's stock. False when the energy
+   * does not cover it.
+   */
+  buyDepot(w: Wallet, good: DepotGood, now = Date.now()): boolean {
+    if (!w.energy || !spendEnergy(w.energy, good.energy, now)) return false;
+    if (good.kind === "heat") w.heatAmplifier = Math.max(now, w.heatAmplifier ?? 0) + this.amplifierDays(good.name) * 86400_000;
+    else if (good.kind === "spark") w.sparks = (w.sparks ?? 3) + good.count;
+    else w.materials[good.name] = (w.materials[good.name] ?? 0) + good.count;
+    return true;
+  }
+
   /** The crowns an item sells back for (ItemProps sellPrice). */
   sellPrice(name: string): number {
     return Math.max(0, Math.round(this.info(name)?.props?.sellPrice ?? 0));
@@ -205,7 +270,15 @@ export class Economy {
     const tierMin = tier === 3 ? 4 : tier === 2 ? 3 : 1;
     // Basil, the traveller in Clockwork Terminals, sells recipes for the tier's gear
     if (/traveler|basil/.test(k)) return { title: "Basil", categories: ["recipe"], minRarity: tierMin, maxRarity: Math.min(5, tierMax), rotate: 12 };
-    if (/supply depot|general goods|quartermaster/.test(k)) return { title: /supply/.test(k) ? "Supply Depot" : last(keeper), categories: ["pickup"], minRarity: 0, maxRarity: tier ? tierMax : 5 };
+    if (/supply depot|general goods|quartermaster/.test(k)) return { title: /supply/.test(k) ? "Supply Depot" : last(keeper), categories: ["pickup"], minRarity: 0, maxRarity: tier ? tierMax : 5,
+      depot: /supply depot|quartermaster/.test(k) };
+    // Haven's Strangers: the wiki's stock lists (src/game/vendors.ts)
+    const vendor = vendorKey(keeper) ?? undefined;
+    if (vendor === "recipes") return { title: "Recipes", categories: ["recipe"], minRarity: 1, maxRarity: 5, vendor };
+    if (vendor === "swords") return { title: "Swords", categories: ["sword"], minRarity: 0, maxRarity: 5, vendor };
+    if (vendor === "guns") return { title: "Guns and Bombs", categories: ["handgun", "bomb"], minRarity: 0, maxRarity: 5, vendor };
+    if (vendor === "armor") return { title: "Armour and Helmets", categories: ["armor", "helm"], minRarity: 0, maxRarity: 5, vendor };
+    if (vendor === "shields") return { title: "Shields and Trinkets", categories: ["shield", "trinket", "vitapod"], minRarity: 0, maxRarity: max, vendor };
     if (/recipe/.test(k)) return { title: "Recipes", categories: ["recipe"], minRarity: 1, maxRarity: max };
     if (/sword/.test(k)) return { title: "Swords", categories: ["sword"], minRarity: 1, maxRarity: max };
     if (/gun|bomb/.test(k)) return { title: "Guns and Bombs", categories: ["handgun", "bomb"], minRarity: 1, maxRarity: max };
@@ -218,20 +291,29 @@ export class Economy {
    * A keeper's stock with prices. Rotating keepers (Basil) pick `rotate` items with a seed
    * (one per terminal visit in the game: its catalogCycle INSTANCE).
    */
-  catalogue(keeper: string | Keeper, opts: { tier?: number; maxRarity?: number; seed?: number } = {}): { name: string; price: number; rarity: number; category: Category }[] {
+  catalogue(keeper: string | Keeper, opts: { tier?: number; maxRarity?: number; seed?: number; player?: string; now?: number } = {}): StockEntry[] {
     const kp = typeof keeper === "string" ? this.keeper(keeper, opts) : keeper;
-    const out: { name: string; price: number; rarity: number; category: Category }[] = [];
+    const out: StockEntry[] = [];
+    // a Haven Stranger's day: its wiki list, the random part drawn for this player and day
+    const listed = kp.vendor && VENDORS[kp.vendor]
+      ? new Set(vendorNames(VENDORS[kp.vendor], seeded(vendorSeed(vendorDay(opts.now), opts.player ?? ""))).map(n => n.toLowerCase())) : null;
+    const listedCats = new Set<Category>(kp.vendor === "shields" ? ["shield"] : kp.categories);
     for (const name of this.libs("config/item.dat").keys()) {
       if (SKIP.test(name) || !/^(Weapon|Gear|Recipe|Pickup)\//.test(name)) continue;
       const it = this.info(name);
       if (!it || !kp.categories.includes(it.category) || it.rarity < kp.minRarity || it.rarity > kp.maxRarity) continue;
       const price = this.price(name);
       if (price <= 0 || !it.icon) continue;
-      if (it.category === "recipe" && !this.recipeOfItem(name)) continue;
+      const recipe = it.category === "recipe" ? this.recipeOfItem(name) : null;
+      if (it.category === "recipe" && !recipe) continue;
       if (it.category === "pickup" && !this.supplies().has(name)) continue;
+      if (listed && listedCats.has(it.category)) {
+        if (!listed.has(vendorMatch(recipe ? recipe.output : name))) continue;
+      } else if (listed && it.rarity < 1) continue;
       out.push({ name, price, rarity: it.rarity, category: it.category });
     }
     out.sort((a, b) => a.category.localeCompare(b.category) || a.rarity - b.rarity || a.name.localeCompare(b.name));
+    if (kp.depot) for (const g of this.depotGoods()) out.push({ name: g.name, price: g.energy, rarity: Math.max(0, this.info(g.name)?.rarity ?? 0), category: "other", currency: "energy", pack: g.count });
     if (kp.rotate && out.length > kp.rotate) {
       const rand = seeded(opts.seed ?? Math.floor(Date.now() / 86400000));
       const pool = [...out];
@@ -574,7 +656,8 @@ export class Economy {
       const prop = r.recipeProp?.name ? this.resolve("config/recipe_property.dat", r.recipeProp.name, "recipeProps") : null;
       const props: any[] = prop?.recipeProps ?? [];
       const crowns = props.length ? props[Math.max(0, Math.min(props.length - 1, rarity))]?.crowns ?? 0 : 0;
-      list.push({ name, item: itemOf.get(name) ?? null, output, rarity, materials, base, baseLevel, crowns, variantTable: r.variantTable ?? null });
+      const orbs: [string, number] | null = rarity >= 1 ? [orbFor(rarity), ORBS_PER_CRAFT] : null;
+      list.push({ name, item: itemOf.get(name) ?? null, output, rarity, materials, base, baseLevel, crowns, orbs, variantTable: r.variantTable ?? null });
     }
     list.sort((a, b) => a.rarity - b.rarity || a.output.localeCompare(b.output));
     for (const r of list) if (!this.byOutput.has(r.output)) this.byOutput.set(r.output, r);
@@ -604,7 +687,19 @@ export class Economy {
     else if (r.base && this.level(w, r.base) < r.baseLevel) need.push(`${last(r.base)} at level ${r.baseLevel}`);
     for (const [m, n] of r.materials) if ((w.materials[m] ?? 0) < n) need.push(`${last(m)} ${w.materials[m] ?? 0}/${n}`);
     if (w.crowns < r.crowns) need.push(`${r.crowns} crowns`);
+    const orbEnergy = this.orbEnergy(w, r);
+    if (orbEnergy > 0 && (!w.energy || energyNow(w.energy) < orbEnergy)) need.push(`${r.orbs![1]} ${itemName(r.orbs![0])} or ${orbEnergy} energy`);
     return need;
+  }
+
+  /**
+   * The energy a craft spends on orbs of alchemy: none when the knight holds the three it
+   * takes, else the Supply Depot's price for a pack of three (the game sold them so; before
+   * 2013-07-30 crafting asked for energy outright).
+   */
+  orbEnergy(w: Wallet, r: Recipe): number {
+    if (!r.orbs || (w.materials[r.orbs[0]] ?? 0) >= r.orbs[1]) return 0;
+    return this.depotCost(r.orbs[0]);
   }
 
   canCraft(w: Wallet, r: Recipe): boolean { return this.missing(w, r).length === 0; }
@@ -615,6 +710,10 @@ export class Economy {
    */
   craft(w: Wallet, r: Recipe, rand: () => number = Math.random): GearState | null {
     if (!this.canCraft(w, r)) return null;
+    // three orbs of the recipe's star: the knight's own, else a pack bought for energy
+    const orbEnergy = this.orbEnergy(w, r);
+    if (orbEnergy > 0 && !spendEnergy(w.energy!, orbEnergy)) return null;
+    if (r.orbs && orbEnergy === 0) { w.materials[r.orbs[0]] -= r.orbs[1]; if (w.materials[r.orbs[0]] <= 0) delete w.materials[r.orbs[0]]; }
     w.crowns -= r.crowns;
     for (const [m, n] of r.materials) { w.materials[m] -= n; if (w.materials[m] <= 0) delete w.materials[m]; }
     if (r.base) {

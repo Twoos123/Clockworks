@@ -1,6 +1,8 @@
 // The knockout window: the game's own rsrc/ui/continue/interface_revive.dat. A knocked-out
 // knight uses a Spark of Life to get up; with none left the window switches to its "Buy" mode
-// (the game sold sparks for energy, a server currency; here they cost crowns). Under it sits the
+// (a spark for energy: the client's dungeonSparkOfLifeCost default, 50, src/game/energy.ts; a
+// shortfall is bought with crowns at the exchange, as the client's Get Energy panel offered
+// beside the button). Under it sits the
 // game's leave-party panel (ui/continue/interface_leaveparty.dat), whose red button gives up and
 // rides back to Haven without the floor's loot.
 
@@ -10,12 +12,14 @@ import { text } from "../i18n";
 
 export interface ReviveActions {
   sparks(): number;
-  /** Crowns a spark costs here, and the crowns the knight has. */
+  /** Energy a spark costs here, and the energy the knight has. */
   price(): number;
-  crowns(): number;
+  energy(): number;
+  /** Whether the knight can pay, its crowns buying the shortfall at the exchange. */
+  canBuy(): boolean;
   /** Uses a spark (returns false when there is none). */
   use(): boolean;
-  /** Buys a spark with crowns (returns false when the knight cannot afford it). */
+  /** Buys a spark with energy (returns false when the knight cannot afford it). */
   buy(): boolean;
   sound(file: string): void;
   /** Gives up: back to Haven, the floor's loot lost. */
@@ -101,12 +105,14 @@ export class ReviveScreen {
     const set = (tag: string, text: string) => { const c = ui.find(tag); if (c) c.text = text; };
     set("spark_count", String(this.actions.sparks()));
     set("spark_cost", String(this.actions.price()));
-    set("description", this.mode === "Use" ? text("dungeon", "m.revive_desc", "Use a Spark of Life to regain full health and perform an ENERGY BLAST!") : `No sparks left. Buy one for ${this.actions.price()} crowns (you have ${this.actions.crowns()}).`);
+    const short = Math.max(0, this.actions.price() - this.actions.energy());
+    set("description", this.mode === "Use" ? text("dungeon", "m.revive_desc", "Use a Spark of Life to regain full health and perform an ENERGY BLAST!")
+      : `No sparks left. Buy one for ${this.actions.price()} energy (you have ${this.actions.energy()}${short ? "; the exchange trades crowns for the rest" : ""}).`);
     const ready = performance.now() - this.openedAt >= 1200;
     const use = ui.find("use_spark");
     if (use) use.enabled = ready && this.actions.sparks() > 0;
     const buy = ui.find("buy_spark");
-    if (buy) buy.enabled = ready && this.actions.crowns() >= this.actions.price();
+    if (buy) buy.enabled = ready && this.actions.canBuy();
   }
 
   private frame = () => {

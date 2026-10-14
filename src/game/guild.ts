@@ -7,7 +7,8 @@
 // servers; only the one cached hall exists here, so every guild gets that layout.
 
 import type { GearState } from "./economy";
-import type { SaveData } from "./save";
+import { energyOf, type SaveData } from "./save";
+import { spendEnergy } from "./energy";
 import { itemName } from "./text";
 
 /** One furniture item standing in the hall. */
@@ -137,6 +138,12 @@ export interface FurniEntry {
   /** Footprint in tiles at rotation 0. */
   width: number;
   height: number;
+  /**
+   * What it costs: its ItemPropertyConfig's buyPrice for its star rating in crowns
+   * (Furni/Furni Common, Uncommon, Rare...), or the knight statues' depotCost in energy;
+   * absent when the item has no price (event prizes), then furniPrice stands in.
+   */
+  price?: { crowns: number } | { energy: number };
 }
 
 /** Item names that are furniture the player can own: "Furni/..." but not the parts they derive from. */
@@ -146,34 +153,49 @@ export const isFurniture = (name: string) => /^Furni\//.test(name) && !/\/Parts\
  * Builds the catalogue from the item library: every furniture item whose implementation (after
  * following Derived items) is a FurniConfig (Prop, Actor, Placeable, KnightStatue...).
  */
-export function furnitureCatalogue(names: Iterable<string>, resolve: (name: string) => any): FurniEntry[] {
+export function furnitureCatalogue(names: Iterable<string>, resolve: (name: string) => any, props?: (itemProp: string) => any[] | null): FurniEntry[] {
   const out: FurniEntry[] = [];
   for (const name of names) {
     if (!isFurniture(name)) continue;
     const impl = resolve(name);
     if (!impl || !/FurniConfig\$/.test(impl.$class ?? "") || !(impl.model || impl.placeable || impl.actor)) continue;
-    out.push({ name, label: itemName(name), category: name.split("/")[1] ?? "Other", rarity: impl.rarity ?? 0, icon: impl.icon ?? null,
-      width: Math.max(1, impl.footprintWidth ?? 1), height: Math.max(1, impl.footprintHeight ?? 1) });
+    const rarity = impl.rarity ?? 0;
+    const e: FurniEntry = { name, label: itemName(name), category: name.split("/")[1] ?? "Other", rarity, icon: impl.icon ?? null,
+      width: Math.max(1, impl.footprintWidth ?? 1), height: Math.max(1, impl.footprintHeight ?? 1) };
+    const list = impl.itemProp?.name && props ? props(impl.itemProp.name) : null;
+    const p = list?.length ? list[Math.max(0, Math.min(list.length - 1, rarity))] : null;
+    if (p?.buyPrice > 0) e.price = { crowns: Math.round(p.buyPrice) };
+    else if (p?.depotCost > 0) e.price = { energy: Math.round(p.depotCost) };
+    out.push(e);
   }
   out.sort((a, b) => a.category.localeCompare(b.category) || a.rarity - b.rarity || a.label.localeCompare(b.label));
   return out;
 }
 
 /**
- * Crowns for a furniture item, by its star rating (the shop tuning prices, scaled down: the
- * game sold furniture for energy and crowns on its servers). Items without a rating (-1:
- * event prizes and promotions) cost as much as a three star item.
+ * Crowns for a furniture item the install leaves unpriced (event prizes and promotions), by
+ * its star rating (ours). Priced items cost their item_property.dat buyPrice (FurniEntry price).
+ * Items without a rating (-1) cost as much as a three star item.
  */
 export const FURNI_PRICES = [150, 400, 900, 2000, 4500, 9000];
 export function furniPrice(rarity: number): number {
   return FURNI_PRICES[rarity < 0 ? 3 : Math.min(5, rarity)];
 }
 
-/** Buys one furniture item with banked crowns; false if the knight cannot afford it. */
-export function buyFurniture(save: SaveData, item: string, rarity: number): boolean {
-  const cost = furniPrice(rarity);
-  if (save.crowns < cost) return false;
-  save.crowns -= cost;
+/** A catalogue entry's price: its own, else furniPrice by its stars. */
+export const furniCost = (e: Pick<FurniEntry, "rarity" | "price">): { crowns: number } | { energy: number } => e.price ?? { crowns: furniPrice(e.rarity) };
+
+/**
+ * Buys one furniture item with banked crowns (or energy, for the knight statues); false if the
+ * knight cannot afford it. `cost` defaults to furniPrice by its stars.
+ */
+export function buyFurniture(save: SaveData, item: string, rarity: number, cost: { crowns: number } | { energy: number } = { crowns: furniPrice(rarity) }): boolean {
+  if ("energy" in cost) {
+    if (!spendEnergy(energyOf(save), cost.energy)) return false;
+  } else {
+    if (save.crowns < cost.crowns) return false;
+    save.crowns -= cost.crowns;
+  }
   const g = guildOf(save);
   g.furni[item] = (g.furni[item] ?? 0) + 1;
   return true;
