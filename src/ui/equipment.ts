@@ -34,8 +34,11 @@ import {
 import { validName } from "./createknight";
 import { messageText, type Component, type Style } from "./gui";
 import { itemTip, ItemList, levelBonuses, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
-import { itemStats, pillDamage } from "../game/itemstats";
-import { GuiScreen, row, uiRef, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
+import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
+import { styledLabel } from "./floating";
+import { freshProgress, rankName } from "../game/missions";
+import { text as bundleText } from "../i18n";
+import { buildStats, GuiScreen, row, uiRef, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
 
 export interface ArsenalHost extends ScreenHost {
   save(): SaveData;
@@ -836,6 +839,9 @@ export class ArsenalScreen extends GuiScreen {
     this.list.setInfo("ARSENAL", info[mode][0], info[mode][1], save.crowns);
     const groups = mode === "equipment" || mode === "achievements" ? this.gearGroups() : mode === "costume" ? await this.costumeGroups()
       : mode === "sprite" ? this.spriteGroups() : this.optionGroups();
+    // LoadoutPanel takes the battle sprite tab away while the knight has no sprite
+    const spriteTab = this.status.find("tabbed")?.parts.buttons?.children[2];
+    if (spriteTab) spriteTab.visible = this.arsenal.outfit().ownedSprites().length > 0;
     // the gear list sorts as the client's arsenal does; the other pages keep their own order
     this.list.sorts = mode === "equipment" || mode === "achievements" ? ["natural", "name", "stars", "level"] : [];
     await this.list.setGroups(groups);
@@ -843,8 +849,10 @@ export class ArsenalScreen extends GuiScreen {
     for (const page of this.pages) {
       const set = (tag: string, text: string) => { const c = page.find(tag); if (c) c.text = text; };
       set("label_playername", knightName(save));
-      set("label_playerrank", save.bestDepth ? `Deepest Depth ${save.bestDepth}` : "Recruit");
-      set("label_prestige", `${save.runs} runs`);
+      // LoadoutPanel: the mission rank's title with the rank, and the prestige
+      const m = save.missions ?? freshProgress();
+      set("label_playerrank", `${rankName(m.rank)}(${m.rank}-${m.subrank})`);
+      set("label_prestige", m.prestige.toLocaleString("en-US"));
     }
     const st = this.status;
     for (const s of SOCKETS) {
@@ -880,6 +888,42 @@ export class ArsenalScreen extends GuiScreen {
     }
     await this.fillSprite();
     await this.fillAchievements();
+    await this.fillGearStats();
+  }
+
+  /** Whether the equipment page's gear stats column is folded away (the client starts it folded). */
+  private statsFolded = true;
+  private statsBuilt = "";
+
+  /**
+   * The equipment page's gear stats column (LoadoutPanel's equipment tab, client/l): "GEAR
+   * STATS" with the worn armour's defence power, then each weapon's name, attack power and
+   * level bonuses; the toggle beside the sockets folds it.
+   */
+  private async fillGearStats() {
+    const page = this.pages[0];
+    const toggle = page?.find("toggle_collapseleft"), left = page?.find("left_cont"), cont = page?.find("scroll_cont");
+    if (!page || !toggle || !left || !cont || !this.eco) return;
+    toggle.visible = true;
+    toggle.selected = this.statsFolded;
+    toggle.onAction = c => { this.statsFolded = !!c.selected; left.visible = !this.statsFolded; this.host.sound("sound/feedback/ui_dropdown_select.ogg"); };
+    left.visible = !this.statsFolded;
+    const save = this.arsenal.save(), eco = this.eco, data = this.arsenal.data(), l = save.loadout;
+    const lv = (n: string) => Math.max(1, eco.level(save, n));
+    const key = JSON.stringify([l, save.gear]);
+    if (key === this.statsBuilt) return;
+    this.statsBuilt = key;
+    const title = (t: string) => styledLabel(this.ctx, t.toUpperCase(), "Status/Gear Stats/Title", page.local);
+    const parts: (Component | null)[] = [await title(bundleText("projectx", "t.gear_stats", "Gear Stats"))];
+    const def = wornDefense(data, eco, [l.helmet, l.armor].filter(Boolean).map(n => ({ name: n, level: lv(n) })));
+    if (def) parts.push(await buildStats(this.ctx, def));
+    for (const w of l.weapons.filter(Boolean)) {
+      parts.push(await title(eco.displayName(w, save.gear[w])));
+      const st = itemStats(data, eco, w, lv(w));
+      if (st) parts.push(await buildStats(this.ctx, st));
+    }
+    cont.children = parts.filter((c): c is Component => !!c);
+    for (const c of cont.children) { c.constraints = null; if (c.kind === "label") c.preferredSize = { width: 180, height: -1 }; }
   }
 
   /** The achievements page: earned icons, locks, and the tooltips. */

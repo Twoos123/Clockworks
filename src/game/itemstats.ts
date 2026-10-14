@@ -83,6 +83,26 @@ export function pillDamage(data: GameData, eco: Economy, name: string, level = 1
   return out as [string, string];
 }
 
+/**
+ * The status window's gear stats (client/l): the defence of the worn armour and helmet per
+ * type, summed and shown at 0.375, the potential with both at their top level.
+ */
+export function wornDefense(data: GameData, eco: Economy, worn: { name: string; level: number }[]): ItemStats | null {
+  const now: Amounts = { NORMAL: 0, PIERCING: 0, ELEMENTAL: 0, SHADOW: 0 }, pot: Amounts = { ...now };
+  for (const w of worn) {
+    const cfg = config(data, w.name);
+    const a = defense(data, eco, w.name, cfg, w.level), b = defense(data, eco, w.name, cfg, eco.info(w.name)?.heatable ? MAX_LEVEL : w.level);
+    if (!a || !b) continue;
+    for (const t of DAMAGE_TYPES) { now[t] += a[t]; pot[t] += b[t]; }
+  }
+  const bars: StatBar[] = [];
+  for (const t of DAMAGE_TYPES) {
+    const a = now[t] * 0.375, b = pot[t] * 0.375;
+    if (a > 0 || b > 0) bars.push({ icon: `defense_${t.toLowerCase()}`, label: `t.${t.toLowerCase()}`, now: barWidth(a), potential: barWidth(b) });
+  }
+  return bars.length ? { title: "t.defense_power", bars } : null;
+}
+
 /** The tooltip's stat bars for a weapon or a piece of gear at its level; null for other items. */
 export function itemStats(data: GameData, eco: Economy, name: string, level: number): ItemStats | null {
   const cfg = config(data, name);
