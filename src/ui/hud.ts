@@ -125,6 +125,8 @@ export interface HudState {
   place?: { guildHall: boolean; readyRoom: boolean; hall: boolean };
   /** What the knight can act on now: the action hint (helptips key) and its description for the target panel. */
   action?: { hint: string | null; desc: HudDescription | null } | null;
+  /** A battle sprite is out (the status panel's pet portrait). */
+  pet?: boolean;
   /** The pocket and vitapod items' tooltips (the quickbar slots' item tooltips). */
   pocketTips?: (TipSpec | null)[];
 }
@@ -602,7 +604,7 @@ export class GameHud {
       if (owner === this.objective) setPref(OBJECTIVES_PREF, open);
       return "handle";
     }
-    if (hit.tag === "rim_button") return "personal_menu";
+    if (hit.tag === "rim_button") return this.status?.find("portrait_pet")?.find("rim_button") === hit ? "pet_portrait" : "personal_menu";
     // a menu item's tag sits on its interface host; the clickable part is the inner button
     if (hit.tag === "button") return findHost(owner, hit)?.tag ?? null;
     return hit.tag || null;
@@ -921,6 +923,9 @@ export class GameHud {
       const icon = ui.find("shield");
       if (icon) icon.enabled = this.sh.trail > 0;
     }
+    // the pet portrait shows the battle sprite while one is out (hud/F.Ko)
+    const pet = ui.find("portrait_pet");
+    if (pet) { pet.visible = !!s.pet; const v = pet.find("model"); if (v) v.viewOwner = "pet"; }
     const rank = s.rank ? ui.find("rank_label") : null;
     if (rank) rank.text = s.rank!;
     // the heat meter: the floor's heat, in the dungeon HUD; it pulses as heat comes in

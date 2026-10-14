@@ -798,6 +798,7 @@ class Viewer {
     const heatView = new PortraitView(this.renderer, this.loader, undefined, null);
     const ringView = new PortraitView(this.renderer, this.loader, undefined, null);
     let targetView: { key: string; view: PortraitView } | null = null;
+    let petView: { key: string; view: PortraitView } | null = null;
     const acquireViews = new Map<string, PortraitView>();
     this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => {
       if (c.viewOwner?.startsWith("acquire:")) {
@@ -808,6 +809,12 @@ class Viewer {
           if (acquireViews.size > 12) acquireViews.delete(acquireViews.keys().next().value!);
         }
         v.draw(c, g, x, y, w, h);
+      } else if (c.viewOwner === "pet") {
+        const p = world.companion?.portrait();
+        if (!p) return;
+        const key = JSON.stringify(p.ref, (k, v) => (k === "$outer" ? undefined : v));
+        if (petView?.key !== key) petView = { key, view: new PortraitView(this.renderer, this.loader, p.ref, p.idle) };
+        petView.view.draw(c, g, x, y, w, h);
       } else if (c.viewOwner === "target") {
         const t = world.hudTarget();
         if (!t) return;
@@ -1076,6 +1083,7 @@ class Viewer {
       mailNews: mailbox(this.save).some(m => !m.read),
       zoomable: (this.cam?.views.length ?? 0) > 1, zoomed: (this.cam?.zoom ?? 0) > 0,
       prestige: progressOf(this.save).prestige,
+      pet: !!w?.companion,
       place: { guildHall: id === GUILD_HALL, readyRoom: id === READY_ROOM, hall: !!cachedHallId(this.sceneList) },
       // the help notice: m.elevator while waiting on a dungeon's elevator, else the knight's action
       // hint (none while a window is open over the game); the action's description for the target panel
@@ -1124,6 +1132,8 @@ class Viewer {
       case "button_map": this.gameHud?.toggleMap(); break;
       case "button_zoom": this.toggleZoom(); break;
       case "button_lockhud": this.gameHud?.toggleLock(); break;
+      // the pet portrait opens the battle sprite's window (as.DJ); here the arsenal, where the sprite page is
+      case "pet_portrait": void this.toggleArsenal(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       default: break;
     }
