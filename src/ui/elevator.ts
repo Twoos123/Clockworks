@@ -100,6 +100,7 @@ export class ElevatorScreen extends OverlayScreen {
   /** Shows the screen with a choice. */
   async show(c: ElevatorChoice) {
     this.choice = c;
+    this.chosen = null;
     await this.build();
     if (this.choice !== c || !this.stripe || !this.main) return;
     await this.buildHeat(c.heat ?? null);
@@ -228,9 +229,30 @@ export class ElevatorScreen extends OverlayScreen {
 
   protected clicked(c: Component) {
     const ch = this.choice;
-    if (!ch) return;
-    if (c.tag === "buttonAdvance") { this.hide(); ch.advance.run(); }
-    else if (c.tag === "buttonQuit" && ch.quit) { this.hide(); ch.quit.run(); }
+    if (!ch || this.chosen) return;
+    if (c.tag === "buttonAdvance") this.choose(true);
+    else if (c.tag === "buttonQuit" && ch.quit) this.choose(false);
+  }
+
+  /**
+   * The choice made (EndOfLevelWindow.bX, then its BOTTOM state): the countdown goes, the
+   * window runs Clicked-Advance with HideQuit-Solo, or Clicked-Quit; the stripe runs FadeOut;
+   * a second later (END) the run goes on.
+   */
+  private chosen: { advance: boolean; at: number; main: ScriptRunner; stripe: ScriptRunner } | null = null;
+
+  private choose(advance: boolean) {
+    const ch = this.choice;
+    if (!ch || !this.main || !this.stripe || this.chosen) return;
+    const ref = (name: string) => ({ $class: CONFIG_REF, name });
+    const main = new ScriptRunner(this.main), stripe = new ScriptRunner(this.stripe);
+    const timer = this.main.find("labelAutoAdvance");
+    if (timer) timer.setAlpha(0);
+    for (const t of ["buttonAdvance", "buttonQuit"]) { const b = this.main.find(t); if (b) b.enabled = false; }
+    if (advance) { main.runScript(ref("Clicked-Advance")); main.runScript(ref("HideQuit-Solo")); }
+    else main.runScript(ref("Clicked-Quit"));
+    stripe.runScript(ref("FadeOut"));
+    this.chosen = { advance, at: this.time, main, stripe };
   }
 
   protected hooks(): RenderHooks {
@@ -244,11 +266,23 @@ export class ElevatorScreen extends OverlayScreen {
     const dt = Math.max(0, Math.min(0.1, t - this.lastTick));
     this.lastTick = t;
     this.updateHeat(t, dt);
-    // the countdown, and the advance when it runs out
     const ch = this.choice;
+    // after the choice: its scripts play, and a second later the run goes on
+    if (this.chosen) {
+      const c = this.chosen;
+      c.main.tick(dt);
+      c.stripe.tick(dt);
+      if (ch && t - c.at >= 1) {
+        this.chosen = null;
+        this.hide();
+        if (c.advance) ch.advance.run(); else ch.quit?.run();
+      }
+      return;
+    }
+    // the countdown, and the advance when it runs out
     if (ch && this.main) {
       const left = AUTO_ADVANCE - Math.max(0, t - this.delay - WINDOW_IN);
-      if (left <= 0) { this.hide(); ch.advance.run(); return; }
+      if (left <= 0) { this.choose(true); return; }
       const whole = Math.round(left);
       if (whole !== this.shown) {
         this.shown = whole;

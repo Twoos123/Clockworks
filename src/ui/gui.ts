@@ -346,6 +346,12 @@ export class Component {
   screen: { x: number; y: number; width: number; height: number } | null = null;
   /** Which game view draws into this RenderableView (set by the HUD). */
   viewOwner = "";
+  /** Tooltip text (Component.setTooltipText), shown in a Default/TooltipWindow by whoever draws tooltips. */
+  tooltip = "";
+  /** The tooltip sits by the mouse rather than above the component (Tooltip.setRelativeToMouse). */
+  tooltipMouse = false;
+  /** The tooltip label's style reference (ComponentConfig.tooltipStyle), or null for the default. */
+  tooltipStyle: any = null;
 
   /** A button pressed with the pointer still over it (AbstractButton._armed). */
   armed = false;
@@ -567,6 +573,10 @@ async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>
   c.enabled = cfg.enabled ?? true;
   c.hoverable = cfg.hoverable ?? true;
   c.alpha = cfg.alpha ?? 1;
+  // ComponentConfig's tooltip text, its placement and its label style (Clyde's Tooltip)
+  if (cfg.tooltipText) c.tooltip = message(cfg.tooltipText, ck === "ui" ? c.bundle : opts.bundle ?? "global");
+  c.tooltipMouse = !!cfg.tooltipRelativeToMouse;
+  c.tooltipStyle = cfg.tooltipStyle ?? null;
   if (ck === "button") c.states = k === "Button" ? 4 : 8;
   const horizontal = enumName(cfg.orientation, "HORIZONTAL") === "HORIZONTAL";
   // each widget's getDefaultStyleConfig
