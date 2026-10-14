@@ -746,7 +746,9 @@ export class World implements LogicHost {
       void this.loader.loadRef(argRef("particle/fx_gethit_monster-scaled.dat", [["variant", `${kind} (${size})`]])).catch(() => null);
     }
     void this.loader.loadRef(argRef("particle/fx_gethit_player.dat", [["Color", "Red"]])).catch(() => null);
-    for (const name of ["particle/charging.dat", "particle/charging_ready.dat"]) void this.loader.loadRef({ name }).catch(() => null);
+    // the charge and the shield's effects load ahead, so the first charge or block of a level shows them at once
+    for (const name of ["particle/charging.dat", "particle/charging_ready.dat", "particle/shield/omni_w_sound.dat", "particle/shield/omni.dat"])
+      void this.loader.loadRef({ name }).catch(() => null);
     await this.startLogic();
   }
 
