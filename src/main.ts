@@ -12,6 +12,7 @@ import { GameHud, hudState } from "./ui/hud";
 import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
+import { catalogue } from "./game/items";
 import { knightName, loadSave, shopTier, writeSave, type SaveData } from "./game/save";
 import { ECONOMY_FILES, Economy } from "./game/economy";
 import { Places } from "./ui/places";
@@ -1040,6 +1041,17 @@ class Viewer {
     return this.options ??= new OptionsScreen(this.gui, $<HTMLCanvasElement>("optionsCanvas"), this.options_, {
       changed: () => { saveSettings(this.options_); this.applyOptions(); },
       saveReplaced: d => { this.save = d; },
+      // a cheat for trying everything: every equippable item owned, and a million crowns
+      unlockAll: async () => {
+        const data = this.world?.data;
+        if (!data) return false;
+        await data.preload("config/item.dat");
+        const names = catalogue(data).map(e => e.name);
+        this.save.owned = [...new Set([...this.save.owned, ...names])];
+        this.save.crowns += 1_000_000;
+        writeSave(this.save);
+        return true;
+      },
       returnToHaven: () => { this.paused = false; void this.returnToHaven(); },
       quit: () => { this.paused = false; this.stopPlaying(); if (GAME) void this.enterTitle(); },
       closed: () => { this.paused = false; this.canvas.focus(); },

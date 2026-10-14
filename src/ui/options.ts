@@ -28,6 +28,8 @@ export interface OptionsActions {
   sound(file: string): void;
   /** The save was replaced (imported or reset). */
   saveReplaced?(d: SaveData): void;
+  /** Cheat: own every equippable item and add crowns; false when no game is running. */
+  unlockAll?(): Promise<boolean>;
   /** Display names of the cached scenes (for the Levels tab). */
   sceneNames(): string[];
 }
@@ -452,7 +454,8 @@ export class OptionsScreen {
     };
     const buttons = await Promise.all([button(blue.config, blue.local, "save_export", "Export Save", () => this.exportSave()),
       button(blue.config, blue.local, "save_import", "Import Save", () => this.importSave()),
-      button(orange.config, orange.local, "save_reset", "Reset Save", () => this.confirmReset())]);
+      button(orange.config, orange.local, "save_reset", "Reset Save", () => this.confirmReset()),
+      button(orange.config, orange.local, "save_unlock", "Unlock All Gear", () => this.confirmUnlock())]);
     const row = await buildComponentConfig(this.ctx, { ...table.config, tag: "save_buttons",
       layout: { $class: "LayoutConfig$HorizontalGroup", policy: { name: "NONE" }, justification: { name: "LEFT" }, offAxisPolicy: { name: "NONE" }, gap: 10, children: [] } },
     table.local);
@@ -500,6 +503,14 @@ export class OptionsScreen {
       }
     };
     input.click();
+  }
+
+  private confirmUnlock() {
+    void this.prompt("Unlock All Gear", "Cheat: own every weapon, shield, armour and trinket in the game, and add 1,000,000 crowns?", async () => {
+      const ok = await this.actions.unlockAll?.();
+      this.refreshSummary();
+      void this.prompt("Unlock All Gear", ok ? "Everything is in your arsenal (I)." : "Start playing first, then try again.", null);
+    });
   }
 
   private confirmReset() {
