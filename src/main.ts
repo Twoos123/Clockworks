@@ -36,7 +36,7 @@ import { ChatLog, shouldReportLoot } from "./game/lootlog";
 import { buildReel, floorHasWheel, type Prize } from "./game/prizewheel";
 import { GateBoard } from "./ui/gates";
 import { GateSource } from "./game/gatesource";
-import { lockNext } from "./game/gatemap";
+import { elevatorScreen, lockNext, withScreen } from "./game/gatemap";
 import { RunSummaryScreen } from "./ui/runsummary";
 import { ReportScreen } from "./ui/report";
 import { MusicPlayer } from "./game/musicplayer";
@@ -59,7 +59,7 @@ import { bossName, BOSSES, gateFloors, realFloor, stratumTables, tierStars, type
 import { rng } from "./gen/layout";
 import { LevelArchive } from "./game/archive";
 import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
-import { lairRun, missionRun, rankLabel, tierLock } from "./game/missions";
+import { lairRun, missionRun, rankLabel, tierLock, type Mission } from "./game/missions";
 import { LAIR_GATES } from "./game/missionfloors";
 import type { Prop } from "./game/props";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
@@ -77,9 +77,10 @@ import { cachedHallId, crashSiteScene, CREATE_KNIGHT, GUILD_HALL, READY_ROOM, re
 import { HelpScreen, type HelpTab } from "./ui/help";
 import { SocialScreen } from "./ui/social";
 import { arrivalPoint, exitTarget, type PortalInfo } from "./game/portals";
-import { readConversation } from "./game/conversation";
+import { missionConversation, readConversation, speakerActor, type NpcConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
 import { Balloons } from "./ui/balloons";
+import { canEquipAt, setEquipGate } from "./game/equippolicy";
 import { rangeRoot, rangeSpawn, TEST_RANGE } from "./dev/rangescene";
 import type { TestRange } from "./dev/testrange";
 
@@ -349,6 +350,12 @@ class Viewer {
   private readonly sceneLoader: SceneLoader;
   private readonly instances = new Map<LoadedModel, Promise<ModelInstance>>();
   private shares = new Map<ModelInstance, number>();
+  /**
+   * The scene's exit elevators: their scene items, model references and what their screens show
+   * now (the level they lead to, src/game/gatemap.ts elevatorScreen).
+   */
+  private elevatorScreens: { item: { instance: ModelInstance }; ref: any; dissolve: boolean; shown: string; busy: boolean }[] = [];
+  private screensAt = 0;
   private model: LoadedModel | null = null;
   private readonly datFiles: string[];
   private az = -0.6; private el = 0.35; private dist = 3;
@@ -373,6 +380,8 @@ class Viewer {
   private rangeDepth = 1;
 
   constructor(private readonly vfs: Vfs, files: string[]) {
+    // the item windows ask whether gear can change here (src/game/equippolicy.ts)
+    setEquipGate(() => this.canChangeEquipment());
     this.loader = new ModelLoader(vfs);
     this.renderer = new Renderer(this.canvas, vfs);
     messages.controls = command => commandKeys(this.options_, command);
@@ -576,6 +585,15 @@ class Viewer {
       info.title = this.gate.name;
       info.zone = this.gate.lobby ? text("dungeon", `m.${this.gate.lobby}`, info.zone) : text("dungeon", "m.mission_lobby", "Mission Lobby");
       info.depth = "";
+    }
+    // no music while loading: the scene being left is taken down as the next place is
+    // entered (its music global, a ViewerEffectConfig.Sound, stops with it), and the next
+    // scene's is left out until the loading window goes (TudeySceneView: omitWhileLoading).
+    // (Knight creation keeps the title theme playing on from the prologue, dK.)
+    if (id !== CREATE_KNIGHT) {
+      this.music.leave();
+      this.audio?.stopMusic(1);
+      this.audio?.stopAmbience();
     }
     void loading.show(info);
     loading.progress(0.05);
@@ -959,6 +977,10 @@ class Viewer {
       this.sceneItems = items;
       this.shares = new Map();
       for (const it of items) this.shares.set(it.instance, (this.shares.get(it.instance) ?? 0) + 1);
+      // the exit elevators' screens (items begin with the scene's objects, in order)
+      this.elevatorScreens = scene.objects.flatMap((o, i) => o.elevator ? [{ item: items[i], ref: o.elevator.ref, dissolve: o.elevator.dissolve, shown: "", busy: false }] : []);
+      await this.updateElevatorScreens();
+      if (token !== this.loadToken) return;
       this.instance = null;
       this.model = null;
       this.frameScene(scene, env);
@@ -1047,6 +1069,18 @@ class Viewer {
       }
       return best;
     };
+    // an Arsenal Station animates the scene's station model where it stands, and its use brings
+    // up the arsenal windows (the gear can change while the knight stands on its pad)
+    world.stationModel = (x, y) => {
+      let best: ModelInstance | null = null, bestD = 2;
+      for (const it of this.sceneItems ?? []) {
+        if (!/world\/dynamic\/arsenal\/arsenal_(zone|box)/.test(it.instance.model.path)) continue;
+        const d = Math.hypot(it.matrix[12] - x, it.matrix[13] - y);
+        if (d < bestD) { best = it.instance; bestD = d; }
+      }
+      return best;
+    };
+    world.onArsenalStation = () => void this.arsenalStation();
     // town exits lead to their scenes (src/game/portals.ts); the Arcade, which the scenes cache
     // lacks, brings up its gate board
     world.onPortal = (tags, sceneId, portal, more) => this.walkOut({ tags, sceneId, portal, ...more });
@@ -1084,10 +1118,18 @@ class Viewer {
     this.screens();
     // (an archived level's own music global wins over the table; its own scripted music, a
     // boss lair's fight among it, over our fight track)
-    this.music.enter({ scene: this.scene.name, sceneMusic: this.environment.music, world, arena: !!world.arena, boss: this.bossFloor,
+    // (both wait for the loading screen to go: TudeySceneView leaves the scene's sound effects
+    // out while its loading window is up)
+    const musicCtx = { scene: this.scene.name, sceneMusic: this.environment.music, world, arena: !!world.arena, boss: this.bossFloor,
       archived: !GEN.test(this.scene.id), scriptsMusic: spawnsMusic(this.scene.logic),
-      floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null });
-    for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
+      floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null };
+    const ambience = this.environment.ambience ?? [], audio = this.audio;
+    const sound = () => {
+      this.music.enter(musicCtx);
+      for (const a of ambience) audio.ambient(a);
+    };
+    if (this.loadingScreen?.up) void this.loadingScreen.gone().then(() => { if (this.world === world) sound(); });
+    else sound();
     // one-shot scene animations play from the top as the knight appears: the client's sprites
     // start their automatic animations on their first tick (ArticulatedModel.tick), and the
     // scene ticks with no time while the loading window is up (TudeySceneView.tick), so the
@@ -1207,17 +1249,21 @@ class Viewer {
   private travelling = false;
 
   /**
-   * The knight walked into a town exit: on to the scene it leads to, arriving at its portal
-   * there, after the loading screen; the Arcade's gate board for the Arcade; and for a place
-   * the scenes cache lacks, the game's notice that it is not available.
+   * The knight walked into a town exit: on to the scene it leads to (src/game/portals.ts),
+   * arriving at its portal there, after the loading screen; the guild hall for the Garrison's
+   * guild list and the training hall's way back; the gate board only when the archive has no
+   * Arcade; and for a place the archive lacks, the game's notice that it is not available.
    */
   private walkOut(info: PortalInfo) {
     if (this.travelling) return;
-    const t = exitTarget(info, this.sceneList, this.sceneIds);
+    const t = exitTarget(info, this.sceneList, this.sceneIds, this.scene?.name ?? "");
     if (t.kind === "arcade") { if (!this.gate) this.openGates(); return; }
-    if (t.kind === "missing") {
+    const id = t.kind === "guildhall" ? (cachedHallId(this.sceneList) ? GUILD_HALL : null) : t.kind === "scene" ? t.id : null;
+    const portal = t.kind === "guildhall" || t.kind === "scene" ? t.portal : "";
+    if (t.kind === "missing" || !id) {
+      const place = t.kind === "missing" ? t.place : "%town:m.border_guildhall";
       const msg = messageText("%helptips:m.sl_elevator_closed");
-      notice(t.place ? `${messageText(t.place)}: ${msg}` : msg, 4);
+      notice(place ? `${messageText(place)}: ${msg}` : msg, 4);
       return;
     }
     this.travelling = true;
@@ -1225,8 +1271,8 @@ class Viewer {
     setTimeout(async () => {
       try {
         this.stopPlaying();
-        await this.selectScene(t.id);
-        this.arrivalTag = t.portal;
+        await this.selectScene(id);
+        this.arrivalTag = portal;
         await this.startPlaying();
       } finally { this.travelling = false; }
     }, 0);
@@ -1419,6 +1465,25 @@ class Viewer {
   /** Opens or closes the character window (equipment); the game goes on behind it. */
   private async toggleArsenal() {
     await this.ensureScreens().toggleArsenal();
+  }
+
+  /** An Arsenal Station used: the arsenal with the forge (when gear is ready) or the character window. */
+  private async arsenalStation() {
+    if (this.controlLocked || this.paused) return;
+    const eco = this.eco ?? this.world?.economy;
+    await this.ensureScreens().showArsenalStation(!!eco?.forgeable(this.save).length);
+  }
+
+  /**
+   * M.K: whether the knight can change gear now. Towns, lobbies, terminals, subtowns and the
+   * Core let it anywhere (LevelType.canEquip); Clockworks levels only on an Arsenal Station's
+   * pad (EquipPolicy ANY). The test range is a workshop: anything goes there.
+   */
+  private canChangeEquipment(): boolean {
+    const sc = this.scene, w = this.world;
+    if (!sc || !w || sc.id === TEST_RANGE) return true;
+    const floor = this.gate && (this.run.depth > 0 || this.gateLobby) ? this.floors[this.run.depth] : null;
+    return canEquipAt({ town: TOWN.test(sc.name), lobby: LOBBY.test(sc.name), floorKind: floor?.kind ?? null, sceneName: sc.name }, w.equipPolicy);
   }
 
   /** Applies the options menu's settings to audio, rendering, the HUD and input. */
@@ -1708,6 +1773,7 @@ class Viewer {
         },
         openDepot: () => void this.openShop("Supply Depot"),
       },
+      converse: m => this.missionConversation(m),
       // the sprite missions (Drakon, Maskeraith, Seraphynx) give the knight that battle sprite
       completed: m => {
         const sprite = /(Drakon|Maskeraith|Seraphynx)/.exec(m.title)?.[1];
@@ -1920,8 +1986,44 @@ class Viewer {
     if (cfg) source.rotation = Math.atan2(k.y - source.y, k.x - source.x);
     const npcRef = action.model ?? cfg?.sprite?.model ?? null;
     const idle = cfg?.sprite?.idles?.[0]?.animation ?? null;
+    await this.talk(conv, { ref: npcRef, idle }, action.music ?? null);
+  }
+
+  /**
+   * A conversation mission (MissionConfig.Conversation): its StartConversation played as the
+   * client plays it after attempt_mission, through the same conversation dialog: the
+   * speaker's model from the action (Kora's comlink portrait), the nodes' interface (the
+   * comlink's), the action's music. Resolves true when the knight talked it through (its end
+   * action completes the mission), false when it was left with Escape or cannot be played.
+   */
+  private async missionConversation(m: Mission): Promise<boolean> {
+    const w = this.world;
+    const action = m.talk;
+    if (!w || this.conversation?.isOpen || !action) return false;
+    await w.data.preload("config/conversation.dat", "config/actor.dat");
+    const conv = missionConversation(w.data, action);
+    if (!conv || this.world !== w) return false;
+    // (a gate conversation names no model: the speaker's own actor, Morlin in the Laboratory)
+    const look = action.model?.name ? { ref: action.model, idle: null }
+      : speakerActor(w.data, messageText(/^%/.test(conv.speaker) ? conv.speaker : `%${conv.bundle}:${conv.speaker}`)) ?? { ref: null, idle: null };
+    return this.talk(conv, look, action.music ?? null);
+  }
+
+  /** The portraits of the conversation in progress, by model and animation. */
+  private readonly talkViews = new Map<string, PortraitView>();
+  /** Settles the conversation in progress (true when talked through). */
+  private talkDone: ((completed: boolean) => void) | null = null;
+  /** Stops the conversation's music. */
+  private talkMusic: (() => void) | null = null;
+
+  /**
+   * Plays a conversation in the conversation dialog (src/ui/conversation.ts) with the speaker's
+   * look and the conversation's music (ConversationDialogInfo.music, a stream over the level's
+   * while the dialog is up); the knight takes no orders while they talk (the world goes on).
+   */
+  private talk(conv: NpcConversation, look: { ref: any; idle: any }, music: any): Promise<boolean> {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
-    const views = new Map<string, PortraitView>();
+    const views = this.talkViews;
     this.conversation ??= new ConversationScreen(this.gui, this.canvas.parentElement!, {
       sound: f => this.uiSound(f),
       view: (who, anim) => {
@@ -1930,17 +2032,31 @@ class Viewer {
         const a = who === "knight" ? "character/pc/idle.dat" : anim ?? this.talking?.idle ?? null;
         const key = who + JSON.stringify([ref, a], (kk, v) => (kk === "$outer" ? undefined : v));
         let v = views.get(key);
-        if (!v) views.set(key, v = new PortraitView(this.renderer, this.loader, ref, a));
+        // (a speaker whose node names no animation idles with its model's own)
+        if (!v) views.set(key, v = new PortraitView(this.renderer, this.loader, ref, a, undefined, who === "npc"));
         return (c, g, x, y, ww, h) => v!.draw(c, g, x, y, ww, h);
       },
-      closed: () => {
+      closed: completed => {
         this.talking = null; views.clear(); this.canvas.focus();
+        this.talkMusic?.(); this.talkMusic = null;
         // the conversation controls hint shows until the knight has talked once
         if (this.save.knight && !this.save.knight.conversed) { this.save.knight.conversed = true; writeSave(this.save); }
+        const done = this.talkDone;
+        this.talkDone = null;
+        done?.(completed);
       },
     });
-    this.talking = { ref: npcRef, idle };
-    await this.conversation.start(conv, knightName(this.save), !this.save.knight?.conversed);
+    this.talking = look;
+    this.talkMusic = music?.name ? this.ensureAudio().holdStream(music) : null;
+    const hint = !this.save.knight?.conversed;
+    return new Promise<boolean>(resolve => {
+      this.talkDone = resolve;
+      this.conversation!.start(conv, knightName(this.save), hint).catch(() => {
+        this.talking = null; views.clear();
+        this.talkMusic?.(); this.talkMusic = null; this.talkDone = null;
+        resolve(false);
+      });
+    });
   }
   /** The NPC in the conversation: its model and idle animation. */
   private talking: { ref: any; idle: any } | null = null;
@@ -2601,6 +2717,42 @@ class Viewer {
   }
 
   /**
+   * The exit elevators' screens show the level they lead to, as the client's ElevatorProp sprite
+   * keeps setting its model's "Icon" and "Colorizations" (dungeon/client/a/t): on a real gate the
+   * next depth's level under this one as the wheels turn (checked again every second); in a
+   * gate's or a mission's lobby the first floor; Haven after the last. Outside a gate run they
+   * keep their arrow (the client has no party level there).
+   */
+  private async updateElevatorScreens() {
+    const g = this.gate;
+    // (the ride holds the elevator's instance; the level is locked in by then)
+    if (!g || !this.elevatorScreens.length || this.world?.finished) return;
+    const d = this.run.depth, here = this.floors[d];
+    for (const e of this.elevatorScreens) {
+      if (e.busy) continue;
+      const screen = elevatorScreen({ real: g.real ?? null, depth: d, wedge: here?.wedge ?? 0, next: this.floors[d + 1] ?? null, dissolve: e.dissolve, t: Date.now() });
+      const key = JSON.stringify(screen, (k, v) => (k === "$outer" ? undefined : v));
+      if (key === e.shown) continue;
+      e.busy = true;
+      try {
+        const model = await this.loader.loadRef(withScreen(e.ref, screen));
+        if (!model) continue;
+        const inst = await this.instanceOf(model);
+        if (this.world?.finished || !this.elevatorScreens.includes(e)) continue;
+        const old = e.item.instance;
+        if (inst !== old) {
+          inst.time = old.time;
+          const n = (this.shares.get(old) ?? 1) - 1;
+          if (n > 0) this.shares.set(old, n); else this.shares.delete(old);
+          this.shares.set(inst, (this.shares.get(inst) ?? 0) + 1);
+          e.item.instance = inst;
+        }
+        e.shown = key;
+      } catch (err) { console.warn("elevator screen", err); } finally { e.busy = false; }
+    }
+  }
+
+  /**
    * Whether an elevator the knight stands on runs: a terminal's Shadow Lair elevators (one per
    * boss, by their "Push Gate") only from the depth-23 terminal of a gate with that boss. (The
    * game also wants a Shadow Key; there are none here.)
@@ -3073,6 +3225,8 @@ class Viewer {
       return;
     }
     if (this.instance || this.sceneItems) {
+      // the next depth's level turns into place under the elevators while the floor is played
+      if (this.world && now - this.screensAt > 1000) { this.screensAt = now; void this.updateElevatorScreens(); }
       if (!this.paused) {
         if (this.instance) this.instance.time += dt;
         // shared instances appear in several placements; advance each clock once per frame
@@ -3140,9 +3294,6 @@ class Viewer {
           this.interactPressed = false;
         }
         this.attackPressed = false;
-        // Q and E turn the camera (ours: the game's camera does not turn)
-        if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options_.cameraSpeed;
-        if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options_.cameraSpeed;
         // the camera is locked on the knight plus the camera offset, no smoothing (TudeySceneView)
         const k = this.world.knight, cam = this.cam;
         if (cam && cam.t < 1) {
@@ -3170,7 +3321,11 @@ class Viewer {
         this.target[1] + this.dist * Math.cos(this.el) * Math.sin(this.az),
         this.target[2] + this.dist * Math.sin(this.el),
       ];
-      const proj = perspective(this.fov, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
+      // in play the near plane sits as the client's camera has it (CameraConfig: near 1), not right at
+      // the lens: depth precision then separates near-flat details (a machine's screen icon) from
+      // their faces instead of striping; the viewer keeps a close near plane for inspecting models
+      const near = this.world ? Math.max(0.5, Math.min(1, this.dist * 0.1)) : this.dist * 0.01;
+      const proj = perspective(this.fov, w / Math.max(1, h), near, this.dist * 50);
       // camera shakes (ShakeCamera actions: hits, explosions) move the camera, not its aim
       const shake: [number, number, number] = this.world && !this.options_.noShake ? this.world.cameraShake() : [0, 0, 0];
       const aimAt: Vec3 = [this.target[0] + shake[0], this.target[1] + shake[1], this.target[2] + shake[2]];

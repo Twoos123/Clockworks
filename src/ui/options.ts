@@ -293,7 +293,7 @@ export class OptionsScreen {
     // the advanced game window takes this port's sliders: master volume, the camera and the gamepad
     const table = game && findParent(game, c => c.children.some(k => k.tag === "auto_advance"));
     if (table) {
-      const rows = await Promise.all([this.sliderRow(ui, "masterVolume", "Master Volume"), this.sliderRow(ui, "cameraSpeed", "Camera Turn Speed"),
+      const rows = await Promise.all([this.sliderRow(ui, "masterVolume", "Master Volume"), 
         this.sliderRow(ui, "zoom", "Camera Distance"), this.sliderRow(ui, "deadZone", "Stick Dead Zone")]);
       table.children.push(...rows.flat());
     }

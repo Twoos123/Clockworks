@@ -134,7 +134,7 @@ from where the attacker stands; before they struck with nothing.
 | Family | Behaviour | Source |
 |---|---|---|
 | Blastcores (all presets) | their own surviving scripts | actor.dat "Behavior Script" arguments |
-| Jellies (cubes, minis, rock, ice, blast, companion, sloom, toxilargo, creep cakes, void gel) | close in and tackle (Roundhouse/Punch); Impale (thorns under the knight) from a little way off; Spin close up | wiki Jelly: "track your Knight's movements before lunging", thorns from tier 2 |
+| Jellies (cubes, minis, rock, ice, blast, companion, sloom, toxilargo, creep cakes, void gel) | close in and tackle (Roundhouse/Punch); Impale (thorns under the knight) from a little way off; Spin close up. A big jelly (radius over 0.6: the Jelly Green Giant, radius 1, ShapeConfig.Circle's default) tackles and spins from 0.85 x radius / 0.4 (2.1), within its own reach, instead of a cube's 0.85 (ours) | wiki Jelly: "track your Knight's movements before lunging", thorns from tier 2 |
 | Lichen colonies | tackle (reach: the colony size's "Max Attack Distance", 0.8 to 2); spin/impale close up; merging as before | actor.dat Size options; wiki Lichen |
 | Oilers | dash across the floor (Oiler Dash, lunge 6) from 2 to 6 units, punch close up, place slicks | attack data |
 | Quicksilver | punch; charge from 2+ | wiki Quicksilver |
@@ -227,5 +227,8 @@ Royal Jelly "Hvy Minion Interval" was already the jelly director's.
 - Reading `maxAttackDistance` as an edge-to-edge gap, `attackSpeed` 0 as the untargeted speed,
   and the ScriptConfig Attack step lasting to the attack's end.
 - What counts as a threat for Dodging, and the share of threats each family dodges.
+- Actor Timer handlers whose Conditional lost its (server) condition run their action, except
+  one that would freeze, sleep or stun the actor itself (Logic.strippedSelfHold): the ice
+  cube's "freeze myself" each second would otherwise hold it frozen for good.
 - RailRider (drones on rails), Patrol (needs patrol paths), camouflage, the Butt Stomp (party
   of two or more), chromalisks' camouflage activation and raise-dead targets are not modelled.

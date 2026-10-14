@@ -195,6 +195,19 @@ export class GameScreens {
     if (!this.arsenal.isOpen) await this.toggleArsenal();
     await this.arsenal.showPage(page);
   }
+  /**
+   * An Arsenal Station used (as.En, the client's show_arsenal_station): the arsenal comes up,
+   * beside the forge when some gear is ready to forge (as.EG) or else the character window,
+   * and the loadouts beside it when the knight has more than one loadout (as.Eo).
+   */
+  async showArsenalStation(forgeReady: boolean) {
+    const host = forgeReady ? this.forge : this.arsenal;
+    if (!host.isOpen) await this.open(host);
+    if (!host.isOpen) return;
+    if (!host.docked(INVENTORY)) await host.dock(INVENTORY, true, 0, this.inventoryDock);
+    if ((this.host.save().loadouts?.length ?? 0) > 1 && !host.docked(LOADOUTS)) await host.dock(LOADOUTS, true, 1, this.loadoutsDock);
+  }
+
   /** U: the forge. */
   toggleForge() { return this.toggleHost(this.forge); }
   /** F5: crafting (the arsenal opens beside it whatever). */

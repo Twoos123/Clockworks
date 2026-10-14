@@ -147,7 +147,9 @@
       for (const p of w.projectiles) {
         if (seenProj.has(p)) continue;
         seenProj.add(p);
-        log.projectiles.push({ name: p.def.name, kind: p.def.kind, team: p.team, model: refName(p.def.model), instance: !!p.instance || !p.def.model, t: log.t });
+        // its model is made in the background (World.dressProjectile): read whether it ever showed when the log is read
+        let shown = !!p.instance || !p.def.model;
+        log.projectiles.push({ name: p.def.name, kind: p.def.kind, team: p.team, model: refName(p.def.model), get instance() { return shown ||= !!p.instance; }, t: log.t });
       }
       if (each && each(i) === false) break;
       if (i % 2 === 0) await sleep(0);

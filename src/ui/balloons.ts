@@ -3,7 +3,7 @@
 // ui/wordballoon/help_interface.dat with its "Width", over the bubble's spot each frame
 // (client ui/d: centred on the spot's screen point, its bottom edge there). The title and
 // message are helptips keys, so "[[ACTION]]" reads as the bound key ("<Left Mouse>"); the title
-// takes the bubble's colour. A balloon fades in over half a second to 75% opacity as the knight
+// keeps the interface's own pink, drawn over the box's top edge (see build). A balloon fades in over half a second to 75% opacity as the knight
 // comes within its visible distance, and out again as the knight leaves or the level's "next"
 // signal clears it.
 
@@ -18,6 +18,13 @@ const OPACITY = 0.75;
 export interface BalloonSpot { key: object; balloon: Balloon; x: number; y: number; z: number; shown: boolean }
 
 interface Shown { ui: Component | null; building: boolean; alpha: number; from: number; to: number; start: number }
+
+/** The component holding a child (null for the root or one not under it). */
+function findParent(root: Component, child: Component): Component | null {
+  if (root.children.includes(child)) return root;
+  for (const k of root.children) { const p = findParent(k, child); if (p) return p; }
+  return null;
+}
 
 export class Balloons {
   private shown = new Map<object, Shown>();
@@ -36,8 +43,13 @@ export class Balloons {
     if (name) {
       name.visible = !!title;
       name.text = title;
-      const c = b.titleColor;
-      if (c) name.styles = name.styles.map(st => (st ? { ...st, color: c } : st));
+      // client ui/d restyles the title with setStyleConfig("name", "Color", titleColor), but the
+      // interface's "name" style names its parameter "color" and Clyde's argument names are
+      // case-sensitive, so the bubble's colour binds nothing: the title keeps the style's pink
+      // (0.824, 0.431, 0.671) with its dark outline. Its container (client ui/e) draws the
+      // title after the rest, over the top of the text box it overlaps by the -10 spacer.
+      const parent = findParent(ui, name);
+      if (parent) parent.topChild = parent.children.indexOf(name);
     }
     const msg = ui.find("message");
     if (msg) msg.text = b.message ? messageText(b.message, "helptips") : "";

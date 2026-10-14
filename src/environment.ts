@@ -48,6 +48,13 @@ export interface Environment {
   ambience?: any[];
   /** Colour and opacity of the round shadows under actors ("Environment/Shadow Color"). */
   shadow?: [number, number, number, number];
+  /**
+   * A scene's lighting: its ambient and lights reach models as influences, which a model's
+   * InfluenceFlagConfig may turn off (renderer modelPass: such a model draws unlit unless it
+   * hangs from one that is lit). Otherwise (the model viewer, interface views) every lit pass is
+   * lit by this environment.
+   */
+  influences?: boolean;
 }
 
 /** A CameraConfig: vertical field of view, orbit coordinates and the offset above its target. */
@@ -103,7 +110,7 @@ export async function loadEnvironment(loader: ModelLoader, globals: any[]): Prom
   } catch { /* no globals library */ }
 
   const env: Environment = {
-    ambient: [0, 0, 0], lights: [], eyeSpace: false, fog: null, background: null, skyboxes: [], models: [], camera: null,
+    ambient: [0, 0, 0], lights: [], eyeSpace: false, fog: null, background: null, skyboxes: [], models: [], camera: null, influences: true,
   };
   let sawAmbient = false;
 

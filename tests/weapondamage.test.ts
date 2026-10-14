@@ -87,3 +87,71 @@ test("on the install: a 5-star elemental sword out-damages a proto sword on a je
   assert.ok(Math.abs(ch.NORMAL - p.NORMAL * 1.5) < 1e-6, `charged ${ch.NORMAL} vs swing ${p.NORMAL}`);
   assert.ok(dealt(ch, def) > dealt(p, def));
 });
+
+test("a burst bullet passes its Damage, Color and Burst Scale to the bursts it leaves, Burst Count of them", async () => {
+  const { burstTrail, BURST_INTERVAL } = await import("../src/game/data.ts");
+  const spawn = { $class: "x.ActionConfig$SpawnActor", actor: { name: "Burst Trail", arguments: args(["Damage", "default"], ["Scale", "Medium"]) } };
+  const bullet = { handlers: [{ $class: "x.HandlerConfig$Startup" },
+    { $class: "x.HandlerConfig$Timer", action: { $class: "x.ActionConfig$Conditional", action: { $class: "x.ActionConfig$Compound", actions: [spawn] } } }] };
+  // the stripped export: the parameter paths name a second action that is no longer there
+  const base = { parameters: [
+    direct("Damage", 'implementation.handlers[1].action.action.actions[1].actor["Damage"]'),
+    direct("Burst Scale", 'implementation.handlers[1].action.action.actions[1].actor["Scale"]'),
+    direct("Burst Count", "implementation.handlers[2].action.value.value")] };
+  const dmg = { $class: "x.DamageConfig$DepthScale", depthScale: { name: "Sword Base" } };
+  const t = burstTrail(bullet, { name: "Burst Bullet", arguments: args(["Damage", dmg], ["Burst Scale", "Large"], ["Burst Count", "5"]) }, base)!;
+  assert.equal(t.count, 5);
+  assert.equal(t.interval, BURST_INTERVAL);
+  assert.equal(t.actor.name, "Burst Trail");
+  assert.deepEqual(new Map(t.actor.arguments.entries), new Map<unknown, unknown>([["Damage", dmg], ["Scale", "Large"]]));
+  // the spawn in the config is left as it was
+  assert.equal(spawn.actor.arguments.entries[0][1], "default");
+});
+
+test("on the install: bullets, bombs and brandish bursts deal their configs' scaled damage", { skip: !haveInstall }, async () => {
+  const { GameData } = await import("../src/game/data.ts");
+  const { nodeLoader } = await import("../tools/audit/nodevfs.ts");
+  const data = new GameData(nodeLoader());
+  await data.preload("config/item.dat", "config/actor.dat", "config/attack.dat", "config/fire_action.dat");
+  await data.depth.ready();
+  const at = (w: { rarity: number }) => ctx(w.rarity);
+  const shot = async (weapon: string, charged = false) => {
+    const w = (await data.weapon(weapon))!;
+    const a = charged ? w.chargedAttack! : w.attacks[0];
+    const f = a.fires.find(x => x.spawn)!;
+    return { w, f, p: (await data.projectile(f.spawn!.actor))! };
+  };
+
+  // a gun's bullet: its Damage argument, PC/Damage/Handgun/Handgun Base
+  const gun = await shot("Weapon/Handgun/Blaster");
+  assert.equal(gun.p.damage?.depthScale?.name, "PC/Damage/Handgun/Handgun Base");
+  const g = data.depth.damage(gun.p.damage, at(gun.w));
+  assert.equal(g.NORMAL, data.depth.evaluate({ name: "PC/Damage/Handgun/Handgun Base" }, at(gun.w)));
+  assert.ok(g.NORMAL > 10);
+
+  // a bomb's blast: its detonation region's damage
+  const bomb = await shot("Weapon/Bomb/Blast Bomb", true);
+  assert.equal(bomb.p.damage?.depthScale?.name, "PC/Damage/Bomb/Bomb Base");
+  assert.ok(data.depth.damage(bomb.p.damage, at(bomb.w)).NORMAL > 10);
+
+  // a shard bomb goes off through its Timer handler: that blast's damage
+  const shard = await shot("Weapon/Bomb/Crystal Bomb", true);
+  assert.equal(shard.p.harmless, false);
+  const s = data.depth.damage(shard.p.damage, at(shard.w));
+  assert.ok(s.ELEMENTAL + s.PIERCING > 0, JSON.stringify(s));
+  assert.ok(!shard.p.actions.some(a => /\$(Delayed|Spawn)/.test(String(a.$class))), "its shard spawns are left out");
+
+  // Acheron's charge: the Burst Bullet strikes nothing itself and leaves 5 large bursts, each
+  // a bomb dealing the Damage the charge gave the bullet
+  const burst = await shot("Weapon/Sword/Acheron", true);
+  assert.equal(burst.p.name, "Bullet/Sword/Burst Bullet");
+  assert.equal(burst.p.harmless, true);
+  assert.equal(burst.p.trail?.count, 5);
+  const given = (burst.f.spawn!.actor.arguments.entries as [string, any][]).find(([k]) => k === "Damage")![1];
+  const trail = (await data.projectile(burst.p.trail!.actor))!;
+  assert.equal(trail.kind, "Bomb");
+  assert.deepEqual(trail.damage, given);
+  assert.ok(Math.abs(trail.regionRadius - 1.2) < 1e-6, "a Large burst");
+  const b = data.depth.damage(trail.damage, at(burst.w));
+  assert.ok(b.SHADOW > 0 && b.NORMAL > 0, JSON.stringify(b));
+});

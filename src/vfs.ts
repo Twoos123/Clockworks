@@ -50,6 +50,21 @@ const SCENE_NAME = /^[0-9]+$/;
 
 export class VfsError extends Error {}
 
+const reportedMissing = new Set<string>();
+
+/**
+ * A file the game asked for that the install lacks: reported in the console once per path
+ * (the browser's own 404 line names no file; a sweep collects these), as a VfsError to throw.
+ */
+export function missingFile(path: string): VfsError {
+  const p = norm(path);
+  if (!reportedMissing.has(p)) {
+    reportedMissing.add(p);
+    console.error(`Missing file in the install: ${p}`);
+  }
+  return new VfsError(`Missing file: ${path}`);
+}
+
 
 const norm = (p: string) => p.replace(/\\/g, "/").replace(/^\/+/, "");
 
@@ -110,7 +125,7 @@ export class FileListVfs implements Vfs {
 
   private get(path: string) {
     const f = this.files.get(norm(path));
-    if (!f) throw new VfsError(`Missing file: ${path}`);
+    if (!f) throw missingFile(path);
     return f;
   }
 
@@ -172,7 +187,7 @@ export class HandleVfs implements Vfs {
       const d = await this.dir(i < 0 ? "" : path.substring(0, i));
       return await (await d.getFileHandle(path.substring(i + 1))).getFile();
     } catch {
-      throw new VfsError(`Missing file: ${path}`);
+      throw missingFile(path);
     }
   }
 
@@ -239,7 +254,7 @@ export class DevServerVfs implements Vfs {
   async read(path: string) { return new Uint8Array(await (await this.blob(path)).arrayBuffer()); }
   async blob(path: string) {
     const r = await fetch("/__sk/rsrc/" + norm(path).split("/").map(encodeURIComponent).join("/"));
-    if (!r.ok) throw new VfsError(`Missing file: ${path}`);
+    if (!r.ok) throw missingFile(path);
     return r.blob();
   }
   async scenes(): Promise<string[]> {

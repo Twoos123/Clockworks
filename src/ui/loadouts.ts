@@ -19,6 +19,7 @@
 import type { GameData } from "../game/data";
 import type { Economy } from "../game/economy";
 import { ACCESSORY_SLOTS } from "../game/accessories";
+import { canChangeEquipment } from "../game/equippolicy";
 import { itemLabel } from "../game/items";
 import type { Outfit } from "../game/outfit";
 import { MAX_LOADOUTS, saveLoadout, wearableLoadout, type Loadout, type SaveData, type SavedLoadout } from "../game/save";
@@ -183,12 +184,15 @@ export class LoadoutsPanel implements DockPanel {
     const saved = i >= 0 ? save.loadouts?.[i] ?? null : null;
     if (i >= 0 && !saved) return;
     const worn = saved ? wearing(save, saved) : true;
+    // bH: where gear cannot change (the Clockworks away from an Arsenal Station), "Not in lobby"
     const entries = [
-      worn ? { text: t("l.equipped", "Equipped"), enabled: false } : { action: "equip", text: t("m.equip", "Equip Loadout") },
+      worn ? { text: t("l.equipped", "Equipped"), enabled: false }
+        : !canChangeEquipment() ? { text: t("l.cant_loadout", "Not in lobby"), enabled: false }
+        : { action: "equip", text: t("m.equip", "Equip Loadout") },
       saved ? { action: "remove", text: t("m.remove", "Remove Loadout") } : { action: "save_as", text: t("m.save_as", "Save As...") },
     ];
     await this.screen.popupMenu(entries, saved?.name ?? t("m.current_loadout", "<Current Equipment>"), a => {
-      if (a === "equip" && saved) void wearLoadout(save, this.host.outfit(), saved, l => this.host.equipped(l)).then(() => this.changed("sound/feedback/ui_equip.ogg"));
+      if (a === "equip" && saved && canChangeEquipment()) void wearLoadout(save, this.host.outfit(), saved, l => this.host.equipped(l)).then(() => this.changed("sound/feedback/ui_equip.ogg"));
       else if (a === "save_as") this.saveAs();
       else if (a === "remove" && saved) void confirmPrompt(this.screen, t("m.remove_loadout", "Removing a loadout"),
         message("projectx", "m.remove_loadout_prompt", saved.name) || `Are you sure you want to remove ${saved.name}?`, () => {
