@@ -70,7 +70,7 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
   const n = m.name, tier = tierOf(n);
   const idx = (re: RegExp) => m.attacks.flatMap((a, i) => (re.test(a) ? [i] : []));
   const first = (re: RegExp) => idx(re)[0];
-  const offensive = m.attacks.flatMap((a, i) => (!DODGE.test(a) && !SUPPORT.test(a) ? [i] : []));
+  const offensive = m.attacks.flatMap((a, i) => (a && !DODGE.test(a) && !SUPPORT.test(a) ? [i] : []));
   const dodges = (re: RegExp, chance: number, direction = 0, minDodgeInterval = 1000) => {
     const list = idx(re);
     return list.length ? { dodges: list.map(attack => ({ attack, direction })), chance, minDodgeInterval } : null;
@@ -108,7 +108,7 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
   if (/Glop Drop|\/Drop\//.test(n))
     // drops roll at the knight and become a puddle under it (wiki: Drop)
     return target(path(offensive.length ? offensive : [0], 0.3), { acquireRadius: 8 });
-  if (/\/Slime\//.test(n) || /Creep Cake|Void Gel/.test(n)) {
+  if (/\/Slime\//.test(n) || /Creep Cake|Void Gel|Royal Mini|Jelly Cube/.test(n)) {
     // jellies close in and tackle; higher tiers raise thorns under the knight (wiki: Jelly)
     const melee = idx(/Roundhouse|Punch|Lichen$/);
     return target(random([3, path(melee.length ? melee : offensive)],
@@ -125,7 +125,7 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
     return target(random([3, path(idx(/Swipe/))], [when(far(1.5), 1.5, 0), path(idx(/Eye Beam/), 6)]));
   if (/Mecha Knight|Mega Knight/.test(n)) {
     // advance and slash; the shield goes up against shots at tiers 2 and 3 (wiki: Mecha Knight)
-    const inner = target(random([3, path(idx(/Charge \(/), 0.85)], [1, path(idx(/Swing/), 1.2)], [0.15, path(idx(/Spaz/), 99)]));
+    const inner = target(random([3, path(idx(/\(Charge\)|Charge \(/), 0.85)], [1, path(idx(/Swing/), 1.2)], [0.15, path(idx(/Spaz/), 99)]));
     return tier >= 2 || /Mk II|Mega/.test(n) ? dodging(inner, dodges(/Defend/, 0.6)) : inner;
   }
   if (/Lumber|Ironwood|Sentinel|Electreant|Redward|Silversap|Vilewood/.test(n))
@@ -151,6 +151,8 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
     // close in and bite; bark now and then; sidestep or hop back from shots, burrowing away
     // at tier 3 (wiki: Wolver)
     const bite = idx(/Bite/);
+    // vog cubs have no bite: their attack is the burrow that leaves flames behind
+    if (!bite.length) return target(random([3, path(idx(/Warp/), 2)], [when(far(3), 0.4, 0.1), path(idx(/Bark/), 99)]), { acquireRadius: 12 });
     const inner = target(random([4, path(bite, 1.2)], [when(far(3), 0.4, 0.1), path(idx(/Bark/), 99)]), { acquireRadius: 12 });
     return dodging(inner, dodges(/Dodge|Warp/, tier >= 2 || /Alpha/.test(n) ? 0.5 : 0.25));
   }
@@ -293,13 +295,13 @@ function generic(m: MonsterInfo, offensive: number[], wander: Behavior): Behavio
   const melee = attacks.filter(i => m.melee[i]), ranged = attacks.filter(i => !m.melee[i]);
   if (!melee.length && ranged.length) {
     const range = Math.min(...ranged.map(i => m.reach[i] || 6));
-    return { type: "Targeting", routine, targetAction: { type: "TrackAttack", attacks: ranged, minAttackDistance: range * 0.3, maxAttackDistance: range * 0.8 } };
+    return { type: "Targeting", routine, targetAction: { type: "TrackAttack", attacks: ranged, minAttackDistance: range * 0.3, maxAttackDistance: Math.max(range * 0.8, range * 0.3 + 1) } };
   }
   const reach = melee.length ? Math.max(0.6, Math.min(...melee.map(i => m.reach[i] || 0.85))) : 0.85;
   const action: TargetAction = ranged.length
     ? { type: "RandomAction", actions: [
       { weight: { condition: { type: "TargetDistance", max: reach + 0.5 }, success: 3, fail: 0.5 }, action: { type: "PathAttack", attacks: melee, maxAttackDistance: reach } },
-      { weight: { condition: { type: "TargetDistance", min: reach + 0.5 }, success: 1.5, fail: 0 }, action: { type: "TrackAttack", attacks: ranged, minAttackDistance: reach, maxAttackDistance: Math.min(...ranged.map(i => m.reach[i] || 6)) * 0.8 } }] }
+      { weight: { condition: { type: "TargetDistance", min: reach + 0.5 }, success: 1.5, fail: 0 }, action: { type: "TrackAttack", attacks: ranged, minAttackDistance: reach, maxAttackDistance: Math.max(reach + 1, Math.min(...ranged.map(i => m.reach[i] || 6)) * 0.8) } }] }
     : { type: "PathAttack", attacks: melee, maxAttackDistance: reach };
   return { type: "Targeting", routine, targetAction: action };
 }

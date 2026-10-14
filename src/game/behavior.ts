@@ -693,6 +693,7 @@ export class Targeting extends Pathing {
   target: Seen | null = null;
   routine: BehaviorLogic;
   routineRunning = false;
+  searched = -Infinity;
   action: ActionLogic;
   constructor(readonly cfg: Extract<Behavior, { type: "Targeting" }>, agent: Agent) {
     super(cfg.evaluationInterval ?? 0.5, cfg.moveFaceRange, agent);
@@ -765,6 +766,9 @@ export class Targeting extends Pathing {
   approach(x: number, y: number) {
     const a = this.agent;
     if (this.host.sees(a.x, a.y, x, y)) { this.setPath([[x, y]]); return; }
+    // a search around walls at most every 400 ms (ours: the server's own pace is unknown)
+    if (a.now - this.searched < 400) return;
+    this.searched = a.now;
     const p = this.host.path(a.x, a.y, x, y, 20);
     if (p) this.setPath(p); else { this.clearPath(); a.face(x, y); }
   }
