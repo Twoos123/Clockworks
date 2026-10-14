@@ -1075,6 +1075,14 @@ class Viewer {
       zoomable: (this.cam?.views.length ?? 0) > 1, zoomed: (this.cam?.zoom ?? 0) > 0,
       prestige: progressOf(this.save).prestige,
       place: { guildHall: id === GUILD_HALL, readyRoom: id === READY_ROOM, hall: !!cachedHallId(this.sceneList) },
+      // the help notice: m.elevator while waiting on a dungeon's elevator, else the knight's action
+      // hint (none while a window is open over the game); the action's description for the target panel
+      action: (() => {
+        if (!w || this.paused || this.anyWindowOpen() || this.talking) return null;
+        const dungeon = !!this.scene && !TOWN.test(this.scene.name);
+        if (dungeon && w.onElevator) return { hint: "m.elevator", desc: null };
+        return w.actionTarget();
+      })(),
       pocketTips: w ? w.pocket.map(([n]) => {
         const it = w.pocketItem(n);
         return it ? itemTip({ plain: true, label: this.eco?.displayName(n) ?? n.split("/").pop()!, type: "", rarity: it.rarity ?? 0, flavor: "", item: n }) : null;

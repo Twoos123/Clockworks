@@ -13,6 +13,7 @@ import { restyle, buildInterface, buildComponentConfig, hitTest, pack, render, t
 import { ScriptRunner } from "./script";
 import { Minimap } from "./minimap";
 import { buildUi, type TipSpec } from "./screen";
+import { prestigeIcon } from "../game/missions";
 
 const STATUS = "ui/hud_v2/interface_status.dat";
 const QUICKBAR = "ui/hud_v2/interface_quickbar.dat";
@@ -48,6 +49,8 @@ export interface HudTarget {
   key: string; name: string; health: number; maxHealth: number; family: string; model: any; idle: any;
   /** The description's family icon, and the damage types it is weak to and deals (DescriptionConfig.Monster). */
   icon?: string | null; weakness?: string; attack?: string;
+  /** A non-monster description (DescriptionConfig.Descriptive): its title and text instead of a health bar. */
+  desc?: { title: string; info: string };
 }
 
 /** The low-health frame shows while the trailing health is under this fraction of the maximum (client status panel). */
@@ -132,12 +135,6 @@ export interface HudDescription { key: string; name: string; title: string; info
 /** What the status panel is built for: its heat meter's level, the portrait's colour and the prestige icon. */
 const statusKey = (s: HudState) => `${heatLevel(s.heat)}|${s.color ?? ""}|${prestigeIcon(s.prestige ?? 0)}`;
 
-/** ProjectXCodes.PrestigeRank: the least prestige for each rank and its icon (none for rank 0). */
-const PRESTIGE_RANKS: [number, string][] = [[45000, "prank_005"], [25000, "prank_004"], [15000, "prank_003"], [10000, "prank_002"], [5000, "prank_001"]];
-export function prestigeIcon(prestige: number): string | null {
-  const r = PRESTIGE_RANKS.find(([min]) => prestige >= min);
-  return r ? `ui/icon/prestige/${r[1]}.png` : null;
-}
 
 /** An item gained, for its acquire icon: the icon image, colorizations, count and pocket slot. */
 export interface AcquireEntry { icon: string; colorizations: unknown[]; count: number; slot: number | null }
@@ -481,6 +478,13 @@ export class GameHud {
     for (const tag of ["health_difference", "model", "status_icon", "container_debuffs", "label_title", "label_information"]) {
       const c = ui.find(tag); if (c) c.visible = false;
     }
+    // a description that is not a monster's shows its title and text, and no health (hud/q.JV)
+    if (t.desc) {
+      const set = (tag: string, v: string) => { const c = ui.find(tag); if (c) { c.text = v; c.visible = true; } };
+      set("label_title", t.desc.title);
+      set("label_information", t.desc.info);
+      const hb = ui.find("health_ui"); if (hb) hb.visible = false;
+    }
     const backdrop = ui.find("backdrop");
     if (backdrop) backdrop.styles = [null, null, null];
     const size = (tag: string, w: number, h: number) => { const c = ui.find(tag); if (c) c.preferredSize = { width: w, height: h }; };
@@ -495,13 +499,14 @@ export class GameHud {
     if (fam && icon) jobs.push(restyle(this.ctx, fam, "Family_Icon", { File: icon }));
     const weak = (t.weakness ?? "NORMAL").toUpperCase();
     const wbox = ui.find("container_weakness"), wlabel = ui.find("label_weakness");
-    if (wbox) wbox.visible = weak !== "NORMAL" && weak !== "UNBLOCKABLE";
+    if (wbox) wbox.visible = !t.desc && weak !== "NORMAL" && weak !== "UNBLOCKABLE";
     if (wlabel && wbox?.visible) {
       wlabel.text = text("item", "m." + weak.toLowerCase(), weak.charAt(0) + weak.slice(1).toLowerCase());
       jobs.push(restyle(this.ctx, wlabel, "Hud/Status/Mini/Weakness Label", { Color: weak.toLowerCase() }));
     }
     const atk = ui.find("icon_attack");
-    if (atk) {
+    if (atk && t.desc) atk.visible = false;
+    else if (atk) {
       atk.visible = true;
       jobs.push(restyle(this.ctx, atk, "Hud/Status/Mini/Debuff_Icon", { File: `ui/icon/stats/attack_${(t.attack ?? "NORMAL").toLowerCase()}.png` }));
     }
@@ -714,8 +719,14 @@ export class GameHud {
       this.bindSwitch(state.weapons, sel);
       if ((this.switcherTime -= dt) <= 0) this.switcher.visible = false;
     }
-    // the target panel: the monster most recently struck, with its health
-    const t = state.target;
+    // the help notice's text (helptips)
+    const hint = state.action?.hint ?? null;
+    this.hintText = hint ? message("helptips", hint) || null : null;
+    // the target panel (dungeon/client/g): what the knight can act on (a townsperson, shop or
+    // item's description) before the knight's target monster with its health
+    const d = state.action?.desc ?? null;
+    const t: HudTarget | null = d ? { key: "desc:" + d.key, name: d.name, health: 0, maxHealth: 0, family: "", model: null, idle: null,
+      icon: d.icon, desc: { title: d.title, info: d.info } } : state.target;
     if (!t) {
       if (this.target && this.targetKey) { this.targetKey = ""; this.targetFade = 0.3; }
       if (this.target && this.targetFade > 0) {
@@ -726,7 +737,7 @@ export class GameHud {
     } else {
       if (t.key !== this.targetKey) { this.target = null; void this.rebuildTarget(t); }
       const frac = Math.max(0, t.health) / Math.max(1, t.maxHealth);
-      const hb = this.target?.find("health_ui") ?? null;
+      const hb = t.desc ? null : this.target?.find("health_ui") ?? null;
       if (hb) {
         hb.visible = frac > 0;
         const fill = hb.find("health");
