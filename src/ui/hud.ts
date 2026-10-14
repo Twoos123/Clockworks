@@ -565,7 +565,7 @@ export class GameHud {
     for (const ui of this.panels()) {
       // a locked HUD's menus take no pointer at all (hud/M.getHitComponent); the quickbar neither
       if (this.locked && ui !== this.minimapUi && ui !== this.status) continue;
-      const h = hitTest(ui, x, y, c => c.kind === "button" && c.visible && c.hoverable && (c.enabled || c.tag === "button_lockhud"));
+      const h = hitTest(ui, x, y, c => c.kind === "button" && (ui !== this.status || c.tag === "rim_button") && c.visible && c.hoverable && (c.enabled || c.tag === "button_lockhud"));
       if (!h) continue;
       // the portrait's rim is an ellipse (hud/K.contains)
       if (h.tag === "rim_button" && h.screen) {
