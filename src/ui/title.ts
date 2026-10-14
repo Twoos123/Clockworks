@@ -18,8 +18,6 @@ export interface TitleActions {
   play(): void;
   options(): void;
   quit(): void;
-  /** The asset viewer (development builds). */
-  viewer?: () => void;
 }
 
 /** Log-on panel parts that belong to accounts, servers and the web. */
@@ -46,10 +44,8 @@ export class TitleScreen extends GlScreen {
     on("logon", () => this.actions?.play(), "Play");
     on("options", () => this.actions?.options());
     on("quit", () => this.actions?.quit());
-    // the panel's hidden third button (the client's external log-on) opens the asset viewer in
-    // development builds
-    const ext = ui.find("ext_logon");
-    if (ext && this.actions?.viewer) { ext.visible = true; ext.text = "Asset Viewer"; ext.onAction = () => this.actions?.viewer?.(); }
+    // the panel's third button (the client's external log-on) stays hidden: the asset viewer is
+    // reached at #viewer, not from the game
     return ui;
   }
 

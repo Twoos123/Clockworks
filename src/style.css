@@ -226,3 +226,6 @@ html.game .welcome code { color: #bfe0ff; background: #0b1824; padding: 1px 4px;
 html.game .welcome button, html.game .welcome label.button { background: #1d3a54; color: #e8f1f8; border: 1px solid #3d6d93; border-radius: 6px; font-weight: 700; }
 html.game .welcome button.primary { background: linear-gradient(#f6d76b, #d39e22); color: #3a2400; border-color: #8a6400; font-style: italic; }
 html.game .welcome button:hover { filter: brightness(1.12); }
+
+/* the asset viewer's way back to the game (the viewer lives at #viewer) */
+.back-to-game { align-self: flex-start; font-weight: 600; margin-bottom: 4px; }

@@ -141,6 +141,8 @@ async function start() {
   };
   setupDrop();
   $("change").onclick = () => location.reload();
+  // the asset viewer (#viewer) goes back to the game: the log-on screen at the page's plain address
+  $("backToGame").onclick = () => { location.hash = ""; history.replaceState(null, "", location.pathname + location.search); location.reload(); };
   if (!canPickDirectory()) {
     $("pick").hidden = true;
     $("fallback").hidden = false;
@@ -575,7 +577,6 @@ class Viewer {
           window.close();
           this.title?.setStatus("Close this tab to quit.");
         },
-        viewer: import.meta.env.DEV ? () => { location.hash = "#viewer"; location.reload(); } : undefined,
       };
     } else this.title.replay();
     this.pick?.hide();
