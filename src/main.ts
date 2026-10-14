@@ -29,7 +29,7 @@ import { MusicPlayer } from "./game/musicplayer";
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
-import { loadMessages, messages, text } from "./i18n";
+import { hasMessage, loadMessages, message, messages, text } from "./i18n";
 import { itemName, levelText } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
@@ -887,7 +887,9 @@ class Viewer {
   /** The minimap's label: the depth in the Clockworks, or the town's name. */
   private floorLabel(): string {
     if (!this.scene) return "";
-    return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase()) : `Depth ${this.run.depth}`;
+    return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase())
+      // the dungeon minimap names the depth as the client does (the dungeon bundle's m.depth)
+      : hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", this.run.depth) : `Depth ${this.run.depth}`;
   }
 
   private itemScreens: GameScreens | null = null;
@@ -1962,7 +1964,9 @@ class Viewer {
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
+          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
+            dungeon: !!this.scene && !TOWN.test(this.scene.name),
+            pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))) }, dt);
           // (the HUD hides while the knight talks, as the game's conversation dialog hides it)
           this.hud.draw(this.world, proj, view, gh && !this.talking ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }

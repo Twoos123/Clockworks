@@ -86,6 +86,13 @@ export interface MonsterDef {
   name: string;
   /** The monster's name key in the monster bundle (its description config's dname, "n.blast_cube"). */
   nameKey: string | null;
+  /**
+   * The description's target-panel parts (DescriptionConfig.Monster): its family icon, the
+   * damage type it is weak to and the one it deals ("NORMAL" when the export drops them).
+   */
+  descIcon?: string | null;
+  weakness?: string;
+  attackType?: string;
   model: any;
   scale: number;
   radius: number;
@@ -251,7 +258,7 @@ export class GameData {
     return (ref ? await this.description(ref) : null) ?? (await this.description({ name }));
   }
 
-  async description(ref: any): Promise<{ dname: string; title: string; description: string } | null> {
+  async description(ref: any): Promise<{ dname: string; title: string; description: string; icon: string | null; weakness: string; damage: string } | null> {
     if (!ref?.name) return null;
     const lib = await this.library("config/description.dat");
     let cfg: any = null, r = ref;
@@ -262,7 +269,9 @@ export class GameData {
       if (!String(cfg.$class ?? "").endsWith("DerivedConfig")) break;
       r = cfg.base;
     }
-    return cfg ? { dname: cfg.dname ?? "", title: cfg.title ?? "", description: cfg.description ?? "" } : null;
+    const enumOf = (v: any): string => (typeof v === "string" ? v : v?.name) ?? "NORMAL";
+    return cfg ? { dname: cfg.dname ?? "", title: cfg.title ?? "", description: cfg.description ?? "",
+      icon: cfg.icon?.file ?? null, weakness: enumOf(cfg.weakness), damage: enumOf(cfg.damage) } : null;
   }
 
   /** resolve() for a preloaded library, synchronously (game logic spawns immediately). */
@@ -392,6 +401,9 @@ export class GameData {
     return {
       name: ref?.name ?? "",
       nameKey: desc?.dname || null,
+      descIcon: desc?.icon ?? null,
+      weakness: desc?.weakness ?? "NORMAL",
+      attackType: desc?.damage ?? "NORMAL",
       model: sprite.model,
       scale: sprite.scale ?? 1,
       radius: m.shape?.radius ?? 0.5,
