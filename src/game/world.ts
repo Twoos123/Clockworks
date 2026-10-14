@@ -557,6 +557,8 @@ export class World implements LogicHost {
 
   /** Arena state: the current wave, the pause before the next, and its monster family. */
   arena: { wave: number; timer: number; family: string } | null = null;
+  /** A safe place (a town, the Rescue Camp): the knight carries no weapons and raises no shield. */
+  safe = false;
   /** Called every fifth arena wave cleared (a checkpoint to bank or carry on). */
   onArenaCheckpoint: ((wave: number) => void) | null = null;
 
@@ -706,6 +708,7 @@ export class World implements LogicHost {
    * Camp): the knight carries no weapons, as in the game, and the attack button only acts.
    */
   async start(at: [number, number], gear: GearLoadout = DEFAULT_LOADOUT, unarmed = false) {
+    this.safe = unarmed;
     await this.data.depth.ready();
     const shield = await this.data.shield(gear.shield || STARTER_SHIELD);
     const weapons = unarmed ? [] : (await Promise.all((gear.weapons.length ? gear.weapons : STARTER_WEAPONS).map(n => this.data.weapon(n))))
@@ -1961,7 +1964,8 @@ export class World implements LogicHost {
     const held = input.attackHeld || input.attackDown;
     if (held !== k.attackFlag) { k.attackFlag = held; k.attackChanged = now; }
     else if (input.attackDown) k.attackChanged = now;
-    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield, bash: !!input.bash, dodge: !!input.dash };
+    // safe places (towns, the Rescue Camp): no shield and no shield bash, as there are no weapons
+    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield && !this.safe, bash: !!input.bash && !this.safe, dodge: !!input.dash };
     const status: ControlStatus = {
       move: true, rotate: true, attack: true,
       defend: !!k.shield && k.shieldBroken <= 0,
