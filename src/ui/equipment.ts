@@ -752,11 +752,17 @@ export class ArsenalScreen extends GuiScreen {
       if (fav) fav.visible = !!def;
       if (def) set(h, "favored_name", def.food.map(itemLabel).filter((n, i, a) => a.indexOf(n) === i).slice(0, 2).join(", ") + (def.food.length > 2 ? "..." : ""));
       const count = this.food ? save.materials[this.food] ?? 0 : 0;
+      // LoadoutPanel.f: the status is the projectx bundle's m.petfood_description (a feeding's
+      // outcome shows until the next change); the button says m.feed_sprite. This port's
+      // sprites need no level-up item, so the client's m.level_up and m.required_description
+      // (a named item to level up with) never apply, and the "required" row stays hidden.
       set(h, "status", this.spriteMessage || (!def ? "Battle sprites join you through the sprite missions."
-        : this.food ? `${itemLabel(this.food)} (${count} left)${def.food.includes(this.food) ? ": a favourite!" : ""}`
-        : p!.level >= SPRITE_MAX ? `${def.name} is fully grown.` : "Pick sprite food from the list to feed it."));
+        : bundleText("projectx", "m.petfood_description", "Select any material from your Arsenal to feed your Sprite.")));
       const feed = h.find("button_feed");
-      if (feed) feed.enabled = !!def && !!this.food && count > 0 && p!.level < SPRITE_MAX;
+      if (feed) {
+        feed.enabled = !!def && !!this.food && count > 0 && p!.level < SPRITE_MAX;
+        feed.text = bundleText("projectx", "m.feed_sprite", "FEED SPRITE");
+      }
       return;
     }
     const i = this.focus;
