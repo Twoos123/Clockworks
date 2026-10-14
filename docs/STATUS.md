@@ -74,7 +74,7 @@ A single-player loop runs in the browser, built from the install's own data:
 
 | Area | What is in |
 |---|---|
-| Rendering | Every model and cached scene; library materials (two texture units), colours, lights (scene directional plus point, spot and directional influences, nearest eight per object), fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
+| Rendering | Every model and cached scene; library materials (two texture units), colours, lights (scene directional plus point, spot and directional influences, nearest eight per object), fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees); skyboxes and backdrops (viewer-affecter skyboxes placed at camera + (origin - camera) x scale, the Skybox queues first with their field-of-view scale, overlays such as rain and fog with the level; the Uniform Blur render effect on them is not drawn) |
 | Knight | Gear from the arsenal, personal colour, idle, walk and run sets, hurt, death, dash; keyboard and mouse (WASD or the mouse-move scheme) or gamepad; controls and timing from the client's own prediction (src/game/knight.ts: combos, charging, reloads, shield, bash, dodge, flinches, facing, auto-target) |
 | Weapons | Swords (combos with lunges, charge), guns (clips, reload, charge shots, auto-aim), bombs (charge, fuse, blast), from item and attack data |
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
@@ -163,7 +163,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Model files loaded in the browser | 5,816 of 5,816, no failures |
 | Cached scenes loaded | 12 of 12, zero unresolved references |
 | A full run, Haven to Terminal Core and back | passes (automated) |
-| Unit tests | 150 of 150 |
+| Unit tests | 157 of 157 |
 
 ## Decisions for you
 
