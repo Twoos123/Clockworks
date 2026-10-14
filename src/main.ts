@@ -3258,7 +3258,11 @@ class Viewer {
         this.target[1] + this.dist * Math.cos(this.el) * Math.sin(this.az),
         this.target[2] + this.dist * Math.sin(this.el),
       ];
-      const proj = perspective(this.fov, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
+      // in play the near plane sits as the client's camera has it (CameraConfig: near 1), not right at
+      // the lens: depth precision then separates near-flat details (a machine's screen icon) from
+      // their faces instead of striping; the viewer keeps a close near plane for inspecting models
+      const near = this.world ? Math.max(0.5, Math.min(1, this.dist * 0.1)) : this.dist * 0.01;
+      const proj = perspective(this.fov, w / Math.max(1, h), near, this.dist * 50);
       // camera shakes (ShakeCamera actions: hits, explosions) move the camera, not its aim
       const shake: [number, number, number] = this.world && !this.options_.noShake ? this.world.cameraShake() : [0, 0, 0];
       const aimAt: Vec3 = [this.target[0] + shake[0], this.target[1] + shake[1], this.target[2] + shake[2]];
