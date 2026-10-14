@@ -290,7 +290,7 @@ export abstract class GuiScreen {
     const t = this.tipCache.get(key);
     if (t === undefined) {
       if (this.tipCache.size > 200) this.tipCache.clear();
-      const p = this.buildTip(spec).then(c => { this.tipCache.set(key, c); return c; });
+      const p = this.buildTip(spec).catch(e => { console.error("tooltip failed", e); return null; }).then(c => { this.tipCache.set(key, c); return c; });
       this.tipCache.set(key, p);
       return null;
     }
@@ -314,6 +314,12 @@ export abstract class GuiScreen {
 
   private frame = () => {
     if (!this.running) return;
+    // a failed draw is reported, not allowed to stop the window's loop
+    try { this.draw(); } catch (e) { console.error("window draw failed", e); }
+    requestAnimationFrame(this.frame);
+  };
+
+  private draw() {
     const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1);
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -344,8 +350,7 @@ export abstract class GuiScreen {
       const x = Math.min(cw - s.width - 4, this.pointer.x + 18), y = Math.min(ch - 4, this.pointer.y + 18 + s.height);
       render(tip, g, Math.max(4, x), Math.max(s.height + 4, y), this.hooks);
     }
-    requestAnimationFrame(this.frame);
-  };
+  }
 
   /** The script runner for an interface (its scripts play while the window is open). */
   protected runner(ui: Component): ScriptRunner {

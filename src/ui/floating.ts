@@ -231,7 +231,7 @@ export abstract class FloatScreen {
     const t = this.tipCache.get(key);
     if (t === undefined) {
       if (this.tipCache.size > 200) this.tipCache.clear();
-      const p = this.buildTip(spec).then(c => { this.tipCache.set(key, c); return c; });
+      const p = this.buildTip(spec).catch(e => { console.error("tooltip failed", e); return null; }).then(c => { this.tipCache.set(key, c); return c; });
       this.tipCache.set(key, p);
       return null;
     }
