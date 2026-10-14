@@ -297,7 +297,7 @@ function boundsOf(b: any): LoadedModel["bounds"] {
  * The model references a model file loads in any case: a derived model's base, a compound's
  * components, attachments, and a conditional's default (before its arguments are applied).
  */
-function componentRefs(root: any): any[] {
+export function componentRefs(root: any): any[] {
   const impl = root?.$class === "com.threerings.opengl.model.config.ModelConfig" ? root.implementation : null;
   if (!impl || typeof impl !== "object") return [];
   const c = String(impl.$class ?? "");

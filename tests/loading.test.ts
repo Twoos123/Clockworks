@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { applyArguments, cloneGraph } from "../src/config/params.ts";
-import { ModelLoader } from "../src/model.ts";
+import { componentRefs, ModelLoader } from "../src/model.ts";
 import { sceneIndex, syncArchive } from "../server/install.ts";
 import type { Vfs } from "../src/vfs.ts";
 
@@ -116,6 +116,19 @@ test("ModelLoader.prefetch reads each model file once, all at once", async () =>
   assert.deepEqual(reads.sort(), ["a/model.dat", "b/model.dat", "c/model.dat"]);
   assert.equal(most(), 3, "the reads overlap");
   assert.equal(await loader.loadRef({ name: "b/model.dat" }), null);
+});
+
+test("prefetching follows a model file to the components it always loads", () => {
+  const MODEL = "com.threerings.opengl.model.config.ModelConfig";
+  const r = (name: string) => ({ $class: REF, name });
+  const names = (root: any) => componentRefs(root).map(x => x?.name);
+  assert.deepEqual(names({ $class: MODEL, implementation: { $class: `${MODEL}$Derived`, model: r("base.dat") } }), ["base.dat"]);
+  assert.deepEqual(names({ $class: MODEL, implementation: { $class: "x.CompoundConfig", models: [{ model: r("a.dat") }, { model: r("b.dat") }] } }), ["a.dat", "b.dat"]);
+  assert.deepEqual(names({ $class: MODEL, implementation: { $class: "x.ConditionalConfig", defaultModel: r("d.dat"), cases: [{ model: r("c.dat") }] } }), ["d.dat"]);
+  // a schemed model: only the variant tried first (the one for no scheme)
+  assert.deepEqual(names({ $class: MODEL, implementation: { $class: `${MODEL}$Schemed`, models: [{ scheme: "low", model: r("low.dat") }, { model: r("hi.dat") }] } }), ["hi.dat"]);
+  assert.deepEqual(names({ $class: MODEL, implementation: { $class: "x.ArticulatedConfig", attachments: [{ node: "n", model: r("hat.dat") }] } }), ["hat.dat"]);
+  assert.deepEqual(names({ $class: "x.AnimationConfig", implementation: { attachments: [{ model: r("no.dat") }] } }), []);
 });
 
 test("the level index checks each archived file once per run, and again when replaced", async () => {
