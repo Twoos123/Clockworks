@@ -29,7 +29,7 @@ export interface FloorMusicContext {
 }
 
 /** What the player needs of the audio system. */
-export type MusicAudio = Pick<AudioSystem, "playMix" | "stinger" | "unlock" | "layer" | "transient" | "stopMusic">;
+export type MusicAudio = Pick<AudioSystem, "playMix" | "playMusic" | "stinger" | "unlock" | "layer" | "transient" | "stopMusic">;
 
 /** A stream on a music stack: the floor's own track, or a level-scripted one. */
 interface Voice { track: Track; scripted?: ScriptedMusic }
