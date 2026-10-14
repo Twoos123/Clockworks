@@ -37,6 +37,7 @@ import { OrbitMotion } from "./orbitals";
 import type { Prize, PrizeSource } from "./prizewheel";
 import { hasMessage, message } from "../i18n";
 import { scriptedMusic, type ScriptedMusic } from "./musicstack";
+import { ShieldBubble, shieldPowerLevel } from "./shieldfx";
 
 /** A live level-scripted music actor ("Environment/Music"). */
 export interface MusicActor { entity: Entity; music: ScriptedMusic }
@@ -2006,7 +2007,8 @@ export class World implements LogicHost {
       const o = k.instance.overlay;
       const hit = o?.clip.path === "character/pc/shield_hit.dat" && !k.instance.overlayFinished;
       if (k.shielding && !hit) this.overlay(k, "character/pc/blend_shield.dat", true);
-      else if (!k.shielding && k.instance.overlay && k.hurtTime <= 0) k.instance.overlay = null;
+      // (the shield's recoil keeps its block pose to the end: it sets no hurt time)
+      else if (!k.shielding && !hit && k.instance.overlay && k.hurtTime <= 0) k.instance.overlay = null;
     }
   }
 
@@ -2067,7 +2069,8 @@ export class World implements LogicHost {
   }
 
   /** Stops whatever the knight was playing for its activity (an attack, a charge, the shield). */
-  private endKnightActivity() {
+  /** Ends what the knight was doing; `keepBubble` leaves the shield bubble up (a hit on the raised shield). */
+  private endKnightActivity(keepBubble = false) {
     const k = this.knight;
     this.endChargeFx();
     if (k.attack) {
@@ -2077,7 +2080,7 @@ export class World implements LogicHost {
     k.attack = null;
     if (k.charge !== null) k.instance.overlay = null;
     k.charge = null;
-    if (k.shielding) { k.shielding = false; this.setShieldEffect(false); }
+    if (k.shielding) { k.shielding = false; if (!keepBubble) this.setShieldEffect(false); }
   }
 
   /** Plays what the controller started this frame, each from the moment it began. */
@@ -2203,35 +2206,26 @@ export class World implements LogicHost {
     if (k.sinceShieldHit * 1000 >= s.hitTime) k.shieldHealth = Math.min(k.shieldMax, k.shieldHealth + k.shieldMax * dt * 1000 / s.regenTime);
   }
 
-  private shieldFx: Effect | null = null;
-  /** The bubble's "Power" in quarters of the shield's health (the knight sprite's `bio`). */
-  private shieldPower = -1;
   /**
-   * The shield bubble while defending: the shield's effect with "Power" set to its health in
-   * quarters (25, 50, 75, 100), remade when the quarter changes, as the knight sprite does.
+   * The shield bubble while defending and through a hit's recoil: the shield's effect with
+   * "Power" set to its health in quarters, remade when the quarter changes (see shieldfx.ts).
+   * Public for debugging: `__viewer.world.shieldBubble.effect`.
    */
+  readonly shieldBubble = new ShieldBubble<Effect>({
+    load: async ref => {
+      const m = await this.loader.loadRef(ref).catch(() => null);
+      if (!m) return null;
+      const k = this.knight;
+      return { instance: await this.instantiate(m), matrix: k.matrix(), life: 1e9, follow: k };
+    },
+    attach: e => { this.effects.push(e); },
+    detach: e => { e.life = 0; },
+    holds: e => e.life > 0 && this.effects.includes(e),
+  });
   private setShieldEffect(on: boolean) {
     const k = this.knight;
-    const level = k.shield ? Math.round(4 * Math.max(0, k.shieldHealth) / Math.max(1, k.shieldMax)) : 4;
-    if (on && this.shieldFx && level !== this.shieldPower) { this.shieldFx.life = 0; this.shieldFx = null; }
-    if (on && !this.shieldFx && k.shield?.effect && !this.shieldLoading) {
-      this.shieldLoading = true;
-      this.shieldPower = level;
-      const base = k.shield.effect;
-      const entries = ((base.arguments?.entries ?? []) as [string, any][]).filter(([n]) => n !== "Power");
-      const ref = { ...base, arguments: { $map: "com.threerings.config.ArgumentMap", entries: [...entries, ["Power", String(level * 25)]] } };
-      this.loader.loadRef(ref).then(async m => {
-        if (m && this.knight.shielding) {
-          this.shieldFx = { instance: await this.instantiate(m), matrix: k.matrix(), life: 1e9, follow: k };
-          this.effects.push(this.shieldFx);
-        }
-      }).finally(() => { this.shieldLoading = false; });
-    } else if (!on && this.shieldFx) {
-      this.shieldFx.life = 0;
-      this.shieldFx = null;
-    }
+    this.shieldBubble.set(on, k, k.shield?.effect ?? null, shieldPowerLevel(k.shieldHealth, k.shieldMax, !!k.shield));
   }
-  private shieldLoading = false;
 
   private startAttack(a: Actor, def: AttackDef, overlay = false) {
     if (this.probe?.attack && (a instanceof Knight || a instanceof Monster)) this.probe.attack(a, def);
@@ -2972,7 +2966,8 @@ export class World implements LogicHost {
       this.knock(k, fx, fy, knockback, 0.3);
       k.invulnerable = 0.25;
       // the shield's recoil (activity 277: 411 ms, no walking), then back up if still held
-      this.endKnightActivity();
+      // (the bubble stays up through the recoil)
+      this.endKnightActivity(true);
       c.hurt("shieldHit", now);
       this.overlay(k, "character/pc/shield_hit.dat");
       if (k.shieldHealth > 0) return;
