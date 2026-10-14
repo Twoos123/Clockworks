@@ -27,6 +27,12 @@ export interface SceneObject {
   matrix: Mat4;
   /** A floor that rides the model's automatic animation (the start platform arriving). */
   lift?: FloorLift;
+  /**
+   * An exit elevator (DungeonPlaceableConfig$ElevatorProp with a DungeonActorConfig$Elevator
+   * actor): its model reference, whose "Icon" and "Colorizations" arguments the game sets to the
+   * level it leads to, and whether it ends the run (dissolveParty: the Haven elevators).
+   */
+  elevator?: { ref: any; dissolve: boolean };
 }
 
 /** A monster spawn point (a marker whose action activates a spawn table). */
@@ -211,7 +217,7 @@ export class SceneLoader {
     const tileImpls = await Promise.all(mappings.map(m => m ? this.resolveImpl("config/tile.dat", m.tile, "tile") : null));
     const granularity = s.tiles?.granularity ?? 3, mask = (1 << granularity) - 1, empty = s.tiles?.empty ?? -1;
     // floor: the sprite's floor flags (TileConfig/PlaceableConfig floorFlags, default 0x01)
-    const jobs: { ref: any; matrix: Mat4; floor: number }[] = [];
+    const jobs: { ref: any; matrix: Mat4; floor: number; elevator?: SceneObject["elevator"] }[] = [];
     for (const [coord, cell] of s.tiles?.cells?.entries ?? []) {
       const values: Int32Array = cell.values;
       for (let i = 0; i < values.length; i++) {
@@ -290,7 +296,13 @@ export class SceneLoader {
       if (!modelRef) { stats.unresolved++; continue; }
       const t = readTransform(e.transform);
       collision.addProp(impl, e.transform);
-      jobs.push({ ref: modelRef, matrix: toMatrix(t), floor: impl.floorFlags ?? 1 });
+      // the exit elevators' screens show where they lead (src/game/gatemap.ts elevatorScreen)
+      let elevator: SceneObject["elevator"];
+      if (impl.$class.endsWith("$ElevatorProp") && impl.actor) {
+        const actor = await this.resolveImpl("config/actor.dat", impl.actor, "actor");
+        if (actor?.$class?.endsWith("DungeonActorConfig$Elevator")) elevator = { ref: modelRef, dissolve: !!actor.dissolveParty };
+      }
+      jobs.push({ ref: modelRef, matrix: toMatrix(t), floor: impl.floorFlags ?? 1, ...(elevator ? { elevator } : {}) });
       stats.placeables++;
       grow(t.t[0], t.t[1]);
     }
@@ -305,7 +317,7 @@ export class SceneLoader {
         // TudeySceneView.getFloorZ rays hit these sprites' collision meshes, where their nodes
         // stand: one whose automatic animation moves its collision node carries the floor along
         const lift = job.floor ? floorLift(model) : undefined;
-        objects.push(lift ? { model, matrix: job.matrix, lift } : { model, matrix: job.matrix }); unique.add(model);
+        objects.push({ model, matrix: job.matrix, ...(lift ? { lift } : {}), ...(job.elevator ? { elevator: job.elevator } : {}) }); unique.add(model);
         if (job.floor) collision.addFloor(floorTriangles(model), job.matrix, job.floor, lift);
       } else stats.unresolved++;
       if (++done % 200 === 0) onProgress?.(done, jobs.length);
