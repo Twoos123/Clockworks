@@ -77,6 +77,8 @@ const CHARGE_ANIMS: Record<string, string> = {
   Sword: "character/pc/charge_sword_hold.dat", Handgun: "character/pc/charge_pistol_hold.dat",
   Bomb: "character/pc/charge_bomb_hold.dat", Other: "character/pc/charge_sword_hold.dat",
 };
+/** The charge's particles (model/scripted/charge_and_sound.dat, charge_complete_and_sound.dat). */
+const CHARGE_FX = { charging: "particle/charging.dat", ready: "particle/charging_ready.dat" } as const;
 
 export interface KnightInput {
   /** Desired movement direction in world space. */
@@ -764,6 +766,8 @@ export class World implements LogicHost {
     const loadouts: Loadout[] = await Promise.all(weapons.map(async def => ({ def, instance: await this.knightInstance(def, shield, armor) })));
     await Promise.all([...weapons.map(w => this.preloadAttacks([...w.attacks, w.chargedAttack, w.incompleteChargedAttack, w.cooldownAttack])),
       this.preloadAttacks([shield?.bash])]);
+    // the charge's effects, ready before the first charge
+    if (weapons.some(w => w.chargedAttack)) { this.prepareChargeFx("charging"); this.prepareChargeFx("ready"); }
     this.endKnightActivity();
     const inst = loadouts[0]?.instance ?? await this.knightInstance(null, shield, armor);
     inst.time = 0;
@@ -2036,11 +2040,31 @@ export class World implements LogicHost {
       if (this.audio) stops.push(this.audio.hold(clip("sound/effect/weapon/charging_idle_01.ogg", 1, true), pos));
     }
     this.chargeFx = { full, effect: null, stops, gen };
-    void this.attachEffect({ name: full ? "particle/charging_ready.dat" : "particle/charging.dat" }, k).then(e => {
+    // the client makes its charge models once and attaches them as the charge starts or fills;
+    // here an instance made ahead (prepareChargeFx) shows the same frame, where loading one
+    // now would arrive frames late (the ready flash after the release, or not at all)
+    const which = full ? "ready" : "charging";
+    const spare = this.chargeSpare[which];
+    this.chargeSpare[which] = null;
+    this.prepareChargeFx(which);
+    void this.attachEffect({ name: CHARGE_FX[which] }, k, spare).then(e => {
       if (!e) return;
       if (this.chargeFx?.gen === gen) this.chargeFx.effect = e;
       else e.life = 0;
     });
+  }
+
+  /** Instances of the charge's effects made ahead, one of each, replaced as they are used. */
+  private chargeSpare: Record<"charging" | "ready", ModelInstance | null> = { charging: null, ready: null };
+  private chargeSpareLoading = new Set<string>();
+  private prepareChargeFx(which: "charging" | "ready") {
+    if (this.chargeSpare[which] || this.chargeSpareLoading.has(which)) return;
+    this.chargeSpareLoading.add(which);
+    void this.loader.loadRef({ name: CHARGE_FX[which] }).catch(() => null)
+      .then(m => (m ? this.instantiate(m) : null))
+      .then(inst => { if (inst && !this.chargeSpare[which]) this.chargeSpare[which] = inst; })
+      .catch(() => {})
+      .finally(() => this.chargeSpareLoading.delete(which));
   }
   private endChargeFx() {
     const fx = this.chargeFx;
@@ -2050,13 +2074,21 @@ export class World implements LogicHost {
     for (const s of fx.stops) s();
   }
 
-  /** A transient model kept on an actor until its effect's life is set to 0. */
-  private async attachEffect(ref: any, follow: Actor): Promise<Effect | null> {
-    const model = await this.loader.loadRef(ref).catch(() => null);
-    if (!model) return null;
-    const e: Effect = { instance: await this.instantiate(model), matrix: follow.matrix(), life: 1e9, follow };
-    this.effects.push(e);
-    return e;
+  /**
+   * A transient model kept on an actor until its effect's life is set to 0. An instance made
+   * ahead (`ready`) is attached at once, before this returns; otherwise the model loads first.
+   */
+  private attachEffect(ref: any, follow: Actor, ready?: ModelInstance | null): Promise<Effect | null> {
+    const attach = (instance: ModelInstance) => {
+      const e: Effect = { instance, matrix: follow.matrix(), life: 1e9, follow };
+      this.effects.push(e);
+      return e;
+    };
+    if (ready) return Promise.resolve(attach(ready));
+    return (async () => {
+      const model = await this.loader.loadRef(ref).catch(() => null);
+      return model ? attach(await this.instantiate(model)) : null;
+    })();
   }
 
   /** How far the knight's charge is (0 to 1 at the charge time, more when held past it), or null when not charging. */

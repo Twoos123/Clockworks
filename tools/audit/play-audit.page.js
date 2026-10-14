@@ -71,6 +71,14 @@
       void w.loader.loadRef(args[0]).catch(() => null).then(m => { rec.loaded = !!m; });
       return orig.apply(this, args);
     });
+    // effects kept on an actor (the charge's glow and ready flash) come this way, not through spawnEffect
+    hook(w, "attachEffect", function (orig, args) {
+      const rec = { ref: refName(args[0]), t: log.t, loaded: null, attached: true };
+      log.effects.push(rec);
+      const p = orig.apply(this, args);
+      void p.then(e => { rec.loaded = !!e; });
+      return p;
+    });
     if (w.audio) hook(w.audio, "play", function (orig, args) {
       if (!args[0]) return orig.apply(this, args); // a "Sound" argument left empty: nothing to play
       const rec = { ref: refName(args[0]), t: log.t, resolved: null };
