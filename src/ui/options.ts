@@ -1,7 +1,7 @@
 // The options window: the game's own rsrc/ui/options/interface.dat (General, Video, Game,
 // Controls... tabs) drawn full screen over the game, its controls bound to our settings. The
-// parts the game drives from its servers or its desktop window (region, screen mode, chat,
-// Steam, bug reports) are hidden; the language box picks the locale of the game's text (the
+// parts the game drives from its servers or its desktop window (region, screen mode, chat sizes and filters,
+// Steam, bug reports) are hidden (the Chat page keeps Loot Messages); the language box picks the locale of the game's text (the
 // locales the install has bundles for; it applies on the next start). The Advanced buttons open
 // the game's advanced video and game windows (ui/options/advanced_*.dat) over it, Custom shows
 // its custom controls page (key bindings, src/ui/keybinds.ts), and the Steam tab's page holds the
@@ -36,7 +36,9 @@ export interface OptionsActions {
 
 /** Tags whose parts have nothing behind them in this port. */
 const HIDDEN = ["party_with_any", "region_label", "region", "bugreport", "resetprefs", "screen_mode", "disp_cancel", "disp_apply",
-  "full_inspect", "npc_names", "ld_hud_arrows", "discord", "edit_beta_game", "weapon_switcher"];
+  "full_inspect", "npc_names", "ld_hud_arrows", "discord", "edit_beta_game", "weapon_switcher",
+  // the Chat page keeps only Loot Messages: there is no chat to size, filter or label
+  "chat_size", "chat_font", "filter_mode", "label_mode", "rank_mode", "ignored"];
 /** The same in the advanced video and game windows. */
 const HIDDEN_ADVANCED = ["vsync_enabled", "compatibility_mode", "cull_transients", "antialiasing", "fps_box",
   "auto_advance", "ping_gfx", "hide_ui", "lovegroup"];
@@ -184,7 +186,7 @@ export class OptionsScreen {
     for (const t of ui.find("pane")?.tabs ?? []) hideParts(t, HIDDEN);
     // tabs with nothing behind them in single player; the Steam tab's page holds the save data
     // and the Prompts tab's the Levels checklist
-    this.hideTabs(ui, ["Chat"]);
+    this.hideTabs(ui, []);
     this.levelsTab(ui);
     const s = this.settings, act = this.actions;
     const on = (tag: string, fn: (c: Component, action: string) => void) => { const c = ui.find(tag); if (c) c.onAction = fn; };
@@ -209,6 +211,7 @@ export class OptionsScreen {
     check("auto_target", "autoAim");
     check("show_damage_effects", "screenFlash");
     await this.languages(ui);
+    await this.lootFilter(ui);
     on("keyboard_mouse", () => act.sound("sound/feedback/ui_confirm.ogg"));
     on("keyboard_only", () => act.sound("sound/feedback/ui_confirm.ogg"));
     on("dismiss", () => this.close());
@@ -276,6 +279,22 @@ export class OptionsScreen {
     c.onAction = () => {
       this.settings[key] = !!c.value;
       for (const o of this.flags.get(key) ?? []) o.value = this.settings[key];
+      this.actions.sound("sound/feedback/ui_confirm.ogg");
+      this.actions.changed();
+    };
+  }
+
+  /** OptionsDialog's Loot Messages box (LootReportLevel ALL, PRO, NONE: o.lf_all, o.lf_pro, o.lf_none). */
+  private async lootFilter(ui: Component) {
+    const combo = ui.find("loot_filter");
+    if (!combo) return;
+    const levels = ["all", "pro", "none"] as const;
+    const names = [text("projectx", "o.lf_all", "All"), text("projectx", "o.lf_pro", "Filtered"), text("projectx", "o.lf_none", "None")];
+    await setComboItems(this.ctx, combo, names, Math.max(0, levels.indexOf(this.settings.lootMessages)));
+    combo.onAction = c => {
+      const v = levels[c.selectedIndex] ?? "all";
+      if (v === this.settings.lootMessages) return;
+      this.settings.lootMessages = v;
       this.actions.sound("sound/feedback/ui_confirm.ogg");
       this.actions.changed();
     };

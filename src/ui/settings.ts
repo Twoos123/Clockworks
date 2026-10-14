@@ -3,6 +3,7 @@
 // and changes them; there is no HTML menu.
 
 import { hasMessage, message } from "../i18n";
+import type { LootLevel } from "../game/lootlog";
 
 /** Rebindable actions and their default keys (KeyboardEvent.key, lower-cased). */
 export const ACTIONS = {
@@ -86,6 +87,8 @@ export interface Settings {
   /** Gamepad stick dead zone. */
   deadZone: number;
   keys: Record<Action, string>;
+  /** Options > Chat > Loot Messages (LootReportLevel: All, Filtered, None). */
+  lootMessages: LootLevel;
   /** The game text's locale: "" for the base (English) bundles, or one the install has ("de"). */
   locale: string;
 }
@@ -119,7 +122,7 @@ export function defaultSettings(): Settings {
     masterVolume: 0.8, musicVolume: 0.45, effectsVolume: 1, uiVolume: 1, muted: false,
     renderScale: 1, fog: true, shadows: true, decals: true, particles: true, showFps: false,
     hudScale: 1, hudScaleMax: false, damageNumbers: true, healthBars: true, minimap: true, controlsHint: true,
-    autoAim: true, mouseMove: false, cameraSpeed: 1.8, zoom: 1, screenFlash: true, noShake: false, deadZone: 0.2, locale: "",
+    autoAim: true, mouseMove: false, cameraSpeed: 1.8, zoom: 1, screenFlash: true, noShake: false, deadZone: 0.2, locale: "", lootMessages: "all",
     keys: Object.fromEntries(Object.entries(ACTIONS).map(([k, v]) => [k, v.key])) as Record<Action, string>,
   };
 }
