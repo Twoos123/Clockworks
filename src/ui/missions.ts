@@ -6,14 +6,33 @@
 // pill and item pills) and the action. A finished mission shows the game's mission complete
 // window (ui/mission/parts/part_missioncomplete.dat) with the rank up line; a conversation
 // mission shows its briefing in the game's confirmation prompt.
+//
+// As MissionPanel lays it out: a gate mission (MissionConfig.Gate: the dungeon missions, the
+// prestige stratum missions, the gate conversations) gets the party configuration
+// (ui/party_configuration/interface_partyconfig.dat, board/a/b) in its mission pane: the
+// party mode buttons, the difficulty selector and the Gate START; other missions a Comlink
+// START, exchanges their materials. The ARCADE tab lists the Arcade's gates as cards (the
+// gate's emblem), the gate's map and its strata's materials in materials_display.dat's tabs,
+// and the party configuration with the tier buttons. The Featured Items (src/game/featured.ts)
+// dock at the board's left from rank 2.
+//
+// Single player has no parties: Create Public Party, Create Private Party and Play Solo all
+// start alone; Join Party finds none and asks, as the client does when the server finds no
+// party (m.auto_create_party), whether to start one (its "Don't ask again" box keeps
+// ConfirmPrompt.AUTO_CREATE).
 
 import { CONFIG_REF } from "../config/params";
 import type { GameData } from "../game/data";
 import type { Floor, Gate, StratumTheme } from "../game/clockworks";
+import type { Difficulty } from "../game/depth";
+import { autoCreatePrompt, DIFFICULTIES, difficultyPref, partyModePref, setAutoCreatePrompt, setDifficultyPref, setPartyModePref, type PartyMode } from "../game/difficulty";
+import { featuredGoods, promoCountdown, type FeaturedGood, type FeaturedSource } from "../game/featured";
+import { gateEmblem } from "../game/gatemap";
+import type { GateChoice } from "../game/gatesource";
 import {
-  canExchange, completeMission, crownReward, daysUntilActive, exchangeNeeds, freshProgress, hubMissions, isGear, missionRun, missionStatus,
-  npcName, parseMissions, rankLabel, rankName, rewardItems, weeklyPrestige, withName, type Ingredient, type Mission, type MissionProgress,
-  type MissionStatus,
+  canExchange, completedIcon, completeMission, daysUntilActive, exchangeNeeds, freshProgress, hubMissions, isGateMission, isGear, missionDifficulty, missionRun,
+  missionStatus, npcName, parseMissions, rankLabel, rankName, rewardItems, rewardTables, weeklyPrestige, withName, type Ingredient, type Mission,
+  type MissionProgress, type MissionStatus,
 } from "../game/missions";
 import { knightName, type SaveData } from "../game/save";
 import { loadConversation, type Conversation } from "../game/conversation";
@@ -21,7 +40,9 @@ import { SpawnTables } from "../game/spawntable";
 import { logFeed } from "../game/feed";
 import { itemName } from "../game/text";
 import { message, text } from "../i18n";
-import { buildComponentConfig, Component, restyle, type GuiContext, type GuiImage } from "./gui";
+import { GateMapView, type GateRun } from "./gatemapview";
+import { gatePiece } from "./gates";
+import { buildComponentConfig, Component, pack, restyle, type GuiContext, type GuiImage } from "./gui";
 import { notice } from "./notice";
 import { buildUi, GuiScreen, uiRef } from "./screen";
 
@@ -44,16 +65,35 @@ export interface MissionHost {
   openForge?(): void;
   /** Pauses the game while the board is open. */
   pause(on: boolean): void;
-  /** Starts a mission's floors through the gate descent. */
-  startRun(gate: Gate, floors: Floor[]): void;
-  /** Opens the Arcade's gate board (prestige gate missions are played there). */
+  /** Starts a mission's floors through the gate descent, at a difficulty. */
+  startRun(gate: Gate, floors: Floor[], difficulty: Difficulty): void;
+  /** Opens the Arcade's gate board (when the board cannot list the gates itself). */
   openGates(): void;
+  /** The Arcade's gates for the ARCADE tab (today's first). */
+  gates?(): Promise<GateChoice[]>;
+  /** The run in progress through a real gate, if any (the gate map marks it). */
+  gateRun?(): GateRun | null;
+  /** Enters an Arcade gate at a tier (1 to 3) and difficulty (the board has closed). */
+  enterGate?(g: Gate, tier: number, difficulty: Difficulty): void;
+  /** The Featured Items beside the board, when the game can sell them. */
+  featured?: FeaturedHost;
   /** A mission was completed (sprite missions give the knight its battle sprite). */
   completed?(m: Mission): void;
 }
 
+/** What the Featured Items panel needs: the depot's goods, the knight's energy, buying, the full depot. */
+export interface FeaturedHost {
+  /** Item stars and depot prices (the economy); the item names come from the board's data. */
+  source(): Omit<FeaturedSource, "names"> | null;
+  energy(): number;
+  /** Buys an item for energy; false when the energy does not cover it or it cannot be had. */
+  buy(name: string, price: number): boolean;
+  /** Opens the full Supply Depot (the board has closed). */
+  openDepot(): void;
+}
+
 const LIBS = ["config/mission.dat", "config/mission_property.dat", "config/recipe.dat", "config/spawn_table.dat", "config/item.dat"];
-type Tab = "rank" | "prestige" | "operations";
+type Tab = "rank" | "prestige" | "operations" | "arcade";
 
 const WINDOW = "ui/mission/interface.dat";
 const CARD = "ui/mission/parts/interface_cards.dat";
@@ -69,22 +109,35 @@ const MUSIC = "sound/music/mission_ui.ogg";
 /** ProjectXPrefs.ConfirmPrompt.MISSION_INTRO: show the intro page when the board opens (on by default). */
 const INTRO_PREF = "clyde-web-pref-mission_intro";
 /** MissionPanel.g: the categories other than rank, the mission that opens each, and its intro text's name. */
-const UNLOCKS: [Tab | "arcade", string, string][] = [["prestige", "prestigious_opportunity", "prestige"], ["arcade", "reporting_duty", "arcade"], ["operations", "pioneers", "expansion"]];
+const UNLOCKS: [Tab, string, string][] = [["prestige", "prestigious_opportunity", "prestige"], ["arcade", "reporting_duty", "arcade"], ["operations", "pioneers", "expansion"]];
 /** The crafting tutorial, whose exchange button helps get the items (MissionPanel.d). */
 const CRAFT_TUTORIAL = "time_to_crafty";
 const EMPTY_CARD = "ui/mission/images/cards/empty.png";
 const UNKNOWN_CARD = "ui/mission/images/cards/images/unknown.png";
-const CROWN = "ui/icon/crown_32.png";
 const BLANK = "ui/icon/inventory/blank.png";
 const PER_PAGE = 5;
-const TABS: [Tab, string][] = [["rank", "btn_rank"], ["prestige", "btn_prestige"], ["operations", "btn_expansion"]];
+const TABS: [Tab, string][] = [["rank", "btn_rank"], ["prestige", "btn_prestige"], ["operations", "btn_expansion"], ["arcade", "btn_arcade"]];
+/** The party configuration (board/a/b) and the Arcade tab's map and materials (MissionPanel.fx). */
+const PARTY = "ui/party_configuration/interface_partyconfig.dat";
+const MATERIALS = "ui/party_configuration/materials_display.dat";
+/** The Featured Items panel (exchange/client/p) and its cards (exchange/client/i). */
+const MINI_DEPOT = "ui/supplydepot/interface_mini.dat";
+const PREVIEW = "ui/supplydepot/parts/preview_maker.dat";
+const PROMO = "ui/supplydepot/parts/promo_frame.dat";
+const PURCHASE = "ui/mission/parts/interface_purchase_2.dat";
+/** The party configuration's mode buttons and the modes they choose (board/a/b). */
+const MODES: [string, PartyMode, string][] = [["button_joinparty", "join", "b.joinparty"], ["button_formparty", "create", "b.formparty"],
+  ["button_playprivate", "private", "b.playprivate"], ["button_playsolo", "solo", "b.playsolo"]];
+/** The tiers' first depths (GateSummary.eu) and the rank each needs (the board bundle's i.tier_2, i.tier_3). */
+const TIER_DEPTHS = [0, 8, 18];
+const TIER_RANKS: [number, number][] = [[1, 1], [4, 2], [7, 1]];
+/** DungeonCodes.bkB by stratum pair: the most stars of material each tier's strata drop. */
+const TIER_STARS = [2, 2, 4, 4, 5, 5];
+const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 const ref = (name: string) => ({ $class: CONFIG_REF, name });
 
 const label = (name: string) => itemName(name);
-const KIND_LABEL: Record<Mission["kind"], string> = {
-  dungeon: "Mission", conversation: "Briefing", exchange: "Exchange", gate: "Arcade gate", "gate-conversation": "Briefing",
-};
 
 /** The knight's mission progress in the save (created on first use). */
 export function progressOf(save: SaveData): MissionProgress {
@@ -107,8 +160,9 @@ export class MissionBoard {
   private stopMusic: ((fadeOut?: number) => void) | null = null;
   private missions: Mission[] = [];
   private loading: Promise<void> | null = null;
-  /** The dungeon mission being played, if any. */
+  /** The dungeon mission being played, if any, and the difficulty it is played at. */
   private active: Mission | null = null;
+  private activeDifficulty: Difficulty = "easy";
 
   constructor(private readonly host: MissionHost) {
     this.screen = new MissionScreen(host.gui, { sound: f => host.sound(f), closed: () => { host.pause(false); this.music(false); } }, this);
@@ -156,7 +210,7 @@ export class MissionBoard {
   }
 
   /** @internal Whether a category is open (MissionPanel.g): by the mission that unlocks it. */
-  unlocked(tab: Tab | "arcade"): boolean {
+  unlocked(tab: Tab): boolean {
     const u = UNLOCKS.find(x => x[0] === tab);
     return !u || this.progress.completed.includes(u[1]);
   }
@@ -200,25 +254,25 @@ export class MissionBoard {
     const m = this.active;
     this.active = null;
     if (!m || gateId !== `mission:${m.id}`) return;
-    this.finish(m);
+    this.finish(m, this.activeDifficulty);
   }
 
   /** @internal Development: a mission by its id. */
   missionById(id: string): Mission | null { return this.missions.find(m => m.id === id) ?? null; }
 
   /** A run started for this mission outside the board (development): its completion is reported by runFinished. */
-  track(m: Mission) { this.active = m; }
+  track(m: Mission, difficulty: Difficulty = difficultyPref()) { this.active = m; this.activeDifficulty = difficulty; }
 
   /** A run was abandoned (back to Haven before the last floor). */
   runAbandoned() { this.active = null; }
 
-  /** An Arcade stratum was cleared: prestige gate missions of its theme are done. */
-  stratumCleared(theme: StratumTheme) {
+  /** An Arcade stratum was cleared (at a difficulty): prestige gate missions of its theme are done. */
+  stratumCleared(theme: StratumTheme, difficulty: Difficulty = difficultyPref()) {
     if (!this.missions.length) return;
     const p = this.progress;
     for (const m of this.missions) {
       if (m.kind === "gate" && m.gateTheme === theme && missionStatus(m, p) === "available") {
-        this.finish(m);
+        this.finish(m, difficulty);
         return;
       }
     }
@@ -226,15 +280,18 @@ export class MissionBoard {
 
   // -------------------------------------------------------------------- actions
 
-  /** @internal The chosen card's action. */
-  start(m: Mission) {
+  /** @internal The chosen card's action (a gate mission's at the party configuration's difficulty). */
+  start(m: Mission, difficulty: Difficulty = difficultyPref()) {
     this.host.sound("sound/feedback/ui_confirm.ogg");
     if (m.kind === "dungeon") {
       const { gate, floors } = missionRun(m, this.host.save().runs);
       this.active = m;
+      this.activeDifficulty = difficulty;
       this.close();
-      this.host.startRun(gate, floors);
+      this.host.startRun(gate, floors, difficulty);
     } else if (m.kind === "gate") {
+      // a stratum of the mission's theme in any Arcade gate: the ARCADE tab's gates
+      if (this.host.gates && this.unlocked("arcade")) { this.screen.choose("arcade", false); void this.screen.update(); return; }
       this.close();
       this.host.openGates();
     } else if (m.kind === "exchange") {
@@ -249,21 +306,27 @@ export class MissionBoard {
         if (isGear(g.item)) { save.owned = save.owned.filter(o => o !== g.item); delete save.gear[g.item]; }
         else save.materials[g.item] = (save.materials[g.item] ?? 0) - g.count;
       }
-      this.finish(m);
+      this.finish(m, difficulty);
     } else {
-      void this.screen.briefing(m);
+      void this.screen.briefing(m, difficulty);
     }
   }
 
-  /** @internal Awards a mission's rewards and prestige, ranks up, and shows what it gave. */
-  finish(m: Mission) {
+  /**
+   * @internal Awards a mission's rewards and prestige, ranks up, and shows what it gave. The
+   * rewards are the reward tiers up to the difficulty it was played at (MissionConfig.Reward;
+   * HARD, every tier, for missions that are not played through a gate). The client's
+   * missions pay no crowns of their own.
+   */
+  finish(m: Mission, played: Difficulty = difficultyPref()) {
     const save = this.host.save(), p = progressOf(save);
     const before = rankLabel(p), beforeRank = p.rank;
     const got = new Map<string, number>();
     const tables = new SpawnTables(this.host.data.library_("config/spawn_table.dat"));
     const depth = m.setting?.depth ?? Math.max(1, m.rank * 3);
-    const ctx = { depth, tier: depth >= 18 ? 3 : depth >= 8 ? 2 : 1, difficulty: "medium" as const };
-    for (const t of m.rewards) {
+    const difficulty = missionDifficulty(m, played);
+    const ctx = { depth, tier: depth >= 18 ? 3 : depth >= 8 ? 2 : 1, difficulty };
+    for (const t of rewardTables(m, null, difficulty)) {
       for (const r of tables.evaluate({ name: t }, ctx)) {
         const name = r.item?.name;
         if (!name) continue;
@@ -272,9 +335,7 @@ export class MissionBoard {
         got.set(name, (got.get(name) ?? 0) + Math.max(1, r.count));
       }
     }
-    const crowns = crownReward(m);
-    save.crowns += crowns;
-    completeMission(this.missions, m, p);
+    completeMission(this.missions, m, p, Date.now(), difficulty);
     // the Event Hub's rank line (FeedEvent.RankEarned): a new rank title, not a subrank
     for (let r = beforeRank + 1; r <= p.rank; r++) logFeed(save, { kind: "rank", rank: r, at: Date.now() });
     this.host.completed?.(m);
@@ -283,7 +344,7 @@ export class MissionBoard {
     this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
     void (async () => {
       if (!this.screen.isOpen) await this.show();
-      await this.screen.completed(m, crowns, [...got].map(([item, count]) => ({ item, count })), after !== before ? `${p.rank}-${p.subrank} ${rankName(p.rank)}` : null);
+      await this.screen.completed(m, [...got].map(([item, count]) => ({ item, count })), after !== before ? `${p.rank}-${p.subrank} ${rankName(p.rank)}` : null);
     })();
   }
 
@@ -328,6 +389,7 @@ export class MissionBoard {
     const p = this.progress;
     if (tab === "rank") return this.missions.filter(m => m.cls === "Rank").sort((a, b) => a.rank - b.rank || a.subrank - b.subrank);
     if (tab === "operations") return this.missions.filter(m => m.cls === "Expansion");
+    if (tab === "arcade") return [];
     const now = Date.now();
     return weeklyPrestige(this.missions, p, now).sort((a, b) =>
       (a.schedule ? daysUntilActive(a.schedule, now) : 0) - (b.schedule ? daysUntilActive(b.schedule, now) : 0) || a.path.localeCompare(b.path));
@@ -343,8 +405,47 @@ export class MissionBoard {
       : `This week's prestige missions for rank ${p.rank}, from the game's schedules: each is open on its day. The game's event missions (Dark Harvest, Winterfest, the Anniversary and the rest) are always on here.`;
   }
 
-  /** @internal The reward items a mission's tables can give. */
-  rewardsOf(m: Mission) { return m.rewards.flatMap(t => rewardItems(t, this.host.data.library_("config/spawn_table.dat"))); }
+  /**
+   * @internal The reward items a mission's tables can give at a difficulty (MissionPanel.Wt:
+   * a gate mission's tiers up to the chosen difficulty, every tier for the rest).
+   */
+  rewardsOf(m: Mission, difficulty: Difficulty = difficultyPref()) {
+    const lib = this.host.data.library_("config/spawn_table.dat");
+    return rewardTables(m, null, missionDifficulty(m, difficulty)).flatMap(t => rewardItems(t, lib));
+  }
+
+  /** @internal An item's stars (0 when unknown). */
+  rarityOf(item: string): number { return Number(this.host.data.resolveSync("config/item.dat", { name: item }, "item")?.rarity ?? 0); }
+
+  /**
+   * @internal The materials each of a gate's six strata drops (MissionPanel.R and Wp): the
+   * creatable Material items tagged with the stratum's theme (fam_<family> or sc_<status>),
+   * up to the stratum's tier's stars, the most stars first, then by name.
+   */
+  stratumMaterials(themes: string[]): string[][] {
+    const lib = this.host.data.library_("config/item.dat");
+    const byTag = new Map<string, { name: string; rarity: number; label: string }[]>();
+    for (const [name, cfg] of lib) {
+      if (!name.startsWith("Material/") || cfg?.creatable === false) continue;
+      const impl = this.host.data.resolveSync("config/item.dat", { name }, "item");
+      const tags: string[] = ((impl?.tags?.tags ?? []) as any[]).filter(t => typeof t === "string");
+      for (const t of tags) {
+        const l = byTag.get(t) ?? [];
+        l.push({ name, rarity: Number(impl?.rarity ?? 0), label: label(name) });
+        byTag.set(t, l);
+      }
+    }
+    const tagOf = (theme: string) => {
+      const k = theme.toLowerCase();
+      return ["fire", "freeze", "shock", "poison"].includes(k) ? `sc_${k}` : `fam_${k}`;
+    };
+    return TIER_STARS.map((stars, i) => {
+      const theme = themes[i];
+      if (!theme) return [];
+      return (byTag.get(tagOf(theme)) ?? []).filter(x => x.rarity <= stars)
+        .sort((a, b) => b.rarity - a.rarity || a.label.localeCompare(b.label)).map(x => x.name);
+    });
+  }
 
   /** @internal An item's inventory IconConfig. */
   iconOf(item: string): any { return this.host.data.resolveSync("config/item.dat", { name: item }, "item")?.icon ?? null; }
@@ -385,10 +486,31 @@ class MissionScreen extends GuiScreen {
   private generation = 0;
   /** The card picture the briefing prompt shows. */
   private briefed: Mission | null = null;
+  /** The party configuration (built once), and its tier chosen (0 to 2) on the ARCADE tab. */
+  private party: Component | null = null;
+  private tier = 0;
+  /** A start is waiting on the "no party to join" prompt (START is disabled meanwhile). */
+  private starting = false;
+  /** The ARCADE tab: today's gates, the one chosen, the map and materials tabs, and the briefing pane they replace. */
+  private gates: GateChoice[] = [];
+  private gate = 0;
+  private materials: Component | null = null;
+  private briefingPane: Component | null = null;
+  private readonly mapView: GateMapView;
+  /** The Featured Items panel and its countdown labels. */
+  private featured: Component | null = null;
+  private countdowns: { label: Component; endsAt: number }[] = [];
+  private featuredKey = "";
+  private lastCountdown = 0;
 
   constructor(ctx: GuiContext, host: ConstructorParameters<typeof GuiScreen>[1], private readonly board: MissionBoard) {
     super(ctx, host, "missionsCanvas");
+    this.mapView = new GateMapView(ctx, { tips: this.tips, icon: (cfg, size) => this.icon(cfg, size), progress: () => board.progress,
+      run: () => board.game.gateRun?.() ?? null });
   }
+
+  /** Puts the save's data in again (after a change made from outside the window). */
+  update() { return this.refresh(); }
 
   /**
    * Picks a tab and pages to the knight's current missions, choosing the first one there
@@ -405,6 +527,8 @@ class MissionScreen extends GuiScreen {
       tab = "rank";
     }
     this.tab = tab;
+    // the Arcade's gates: the first one chosen (MissionPanel.Wo)
+    if (tab === "arcade") { this.gate = 0; this.page = 0; this.chosen = null; this.introHint = false; return; }
     const ms = this.board.tabMissions(tab), p = this.board.progress;
     const at = Math.max(0, ms.findIndex(m => missionStatus(m, p) === "available"));
     const cur = tab === "rank" ? ms.findIndex(m => m.rank === p.rank) : -1;
@@ -440,8 +564,8 @@ class MissionScreen extends GuiScreen {
     for (const [tab, tag] of TABS) {
       this.on(ui, tag, () => { this.choose(tab); this.host.sound("sound/feedback/ui_dropdown_select.ogg"); void this.refresh(); });
     }
-    // the Arcade's gates are a board of their own
-    this.on(ui, "btn_arcade", () => { this.close(); this.board.game.openGates(); });
+    // without the gate list here, the Arcade's gates are the gate board's
+    if (!this.board.game.gates) this.on(ui, "btn_arcade", () => { this.close(); this.board.game.openGates(); });
     this.on(ui, "btn_prev", () => this.turn(-1));
     this.on(ui, "btn_next", () => this.turn(1));
     // the intro's check box keeps ConfirmPrompt.MISSION_INTRO
@@ -454,12 +578,364 @@ class MissionScreen extends GuiScreen {
     }
     // the briefing and mission panes keep their height and scroll what does not fit
     for (const pane of ui.find("bottom_container")?.children ?? []) if (pane.kind === "scrollpane") pane.preferredSize = { width: -1, height: 236 };
+    this.briefingPane = ui.find("briefing_scroll");
+    const [party, mats, map, mini] = await Promise.all([this.ui(PARTY), this.board.game.gates ? this.ui(MATERIALS) : null,
+      this.board.game.gates ? this.mapView.build() : null, this.board.game.featured ? this.ui(MINI_DEPOT) : null]);
+    this.party = party;
+    if (party) this.bindParty(party);
+    if (mats) {
+      // the Gate Map tab: the gate map (MissionPanel.fx replaces the tab's page with dungeon/client/u)
+      const tabs = mats.find("tabs");
+      if (tabs && map && tabs.tabs.length) {
+        map.constraints = tabs.tabs[0].constraints;
+        map.preferredSize = { width: -1, height: 200 };
+        tabs.tabs[0] = map;
+        if (tabs.selectedIndex === 0) tabs.children = [tabs.children[0], map];
+      }
+      mats.preferredSize = { width: -1, height: 236 };
+      this.materials = mats;
+    }
+    if (mini) this.bindFeatured(mini);
     this.hooks = {
       tagged: {
         brief_image: (c, g, x, y, w, h) => this.drawImage(this.briefed?.cardImage ?? null, g, x, y, w, h, true),
+        ...this.mapView.hooks(),
       },
     };
     return ui;
+  }
+
+  // ------------------------------------------------------------------ the party configuration
+
+  /** board/a/b: the mode buttons (a radio group kept in ProjectXPrefs), the difficulty arrows, the tiers. */
+  private bindParty(ui: Component) {
+    const t = (k: string, f: string) => text("board", k, f);
+    const title = ui.children[0]?.children.find(c => c.kind === "label");
+    if (title) title.text = t("l.config_title", "CONFIGURE YOUR PARTY");
+    for (const [tag, mode, key] of MODES) {
+      const b = ui.find(tag);
+      if (!b) continue;
+      b.text = t(key, b.text);
+      this.tips.set(b, { ref: null, text: t(key.replace(/^b\./, "i."), "") });
+      b.onAction = () => {
+        setPartyModePref(mode);
+        this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+        this.bindPartyState();
+      };
+    }
+    const step = (d: number) => {
+      const i = DIFFICULTIES.indexOf(difficultyPref());
+      const next = DIFFICULTIES[Math.max(0, Math.min(DIFFICULTIES.length - 1, i + d))];
+      if (next === difficultyPref()) return;
+      setDifficultyPref(next);
+      this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+      // the rewards shown follow the difficulty (j.Bq: MissionPanel.Wt)
+      void this.refresh();
+    };
+    this.on(ui, "diff_less", () => step(-1));
+    this.on(ui, "diff_more", () => step(1));
+    for (let i = 0; i < 3; i++) {
+      this.on(ui, `button_tier${i + 1}`, () => { this.tier = i; this.host.sound("sound/feedback/ui_dropdown_select.ogg"); this.bindPartyState(); });
+    }
+    this.on(ui, "start", () => this.partyStart());
+  }
+
+  /** The party configuration's state: the mode chosen, the difficulty (board/a/b.Bq), the tiers. */
+  private bindPartyState() {
+    const ui = this.party;
+    if (!ui) return;
+    const mode = partyModePref();
+    for (const [tag, m] of MODES) { const b = ui.find(tag); if (b) b.selected = m === mode; }
+    const d = difficultyPref(), i = DIFFICULTIES.indexOf(d);
+    const less = ui.find("diff_less"), more = ui.find("diff_more"), label = ui.find("label_difficulty");
+    if (less) less.enabled = i > 0;
+    if (more) more.enabled = i < DIFFICULTIES.length - 1;
+    if (label) {
+      label.text = text("dungeon", `m.difficulty_${d}`, cap(d));
+      this.tips.set(label, { ref: null, text: text("dungeon", `i.difficulty_${d}`, "") });
+      const style = `Difficulty/${cap(d)}`;
+      if (label.styleRef?.name !== style) void restyle(this.ctx, label, style).catch(() => undefined);
+    }
+    // the tier buttons: the Arcade's gates (three tiers each); a tier the knight's rank has not
+    // opened is disabled with its i.tier_<n> tooltip
+    const depth = ui.find("buttonsDepth");
+    const arcade = this.tab === "arcade";
+    if (depth) depth.visible = arcade;
+    if (arcade) {
+      const p = this.board.progress;
+      if (!this.tierOpen(this.tier, p)) this.tier = 0;
+      for (let k = 0; k < 3; k++) {
+        const b = ui.find(`button_tier${k + 1}`);
+        if (!b) continue;
+        b.text = message("board", "m.tier", String(k + 1), String(TIER_DEPTHS[k])) || `TIER ${k + 1} (Depth ${TIER_DEPTHS[k]})`;
+        const open = this.tierOpen(k, p);
+        b.enabled = open;
+        b.selected = k === this.tier;
+        if (open) this.tips.delete(b); else this.tips.set(b, { ref: null, text: text("board", `i.tier_${k + 1}`, "") });
+      }
+    }
+  }
+
+  private tierOpen(k: number, p: MissionProgress): boolean {
+    const [r, s] = TIER_RANKS[k] ?? [1, 1];
+    return p.rank > r || (p.rank === r && p.subrank >= s);
+  }
+
+  /**
+   * The party configuration's START (MissionPanel.fC, board/a/b.a): Join Party looks for a
+   * party, finds none in single player and asks to start one (unless its "Don't ask again" was
+   * ticked); the other modes start at once, alone.
+   */
+  private partyStart() {
+    if (this.starting) return;
+    const go = () => {
+      this.starting = false;
+      if (this.tab === "arcade") {
+        const g = this.gates[this.gate]?.gate;
+        if (!g) return;
+        this.host.sound("sound/feedback/ui_confirm.ogg");
+        this.close();
+        this.board.game.enterGate?.(g, this.tier + 1, difficultyPref());
+      } else if (this.chosen) this.board.start(this.chosen, difficultyPref());
+    };
+    if (partyModePref() !== "join" || !autoCreatePrompt()) { go(); return; }
+    this.starting = true;
+    void this.noParty(go);
+  }
+
+  /** The client's m.auto_create_party prompt (mission/client/l): Cancel, or Create Public Party. */
+  private async noParty(go: () => void) {
+    const o = await buildUi(this.ctx, uiRef(PROMPT));
+    if (!o) { go(); return; }
+    const set = (tag: string, s: string) => { const c = o.find(tag); if (c) c.text = s; };
+    set("title", "");
+    set("prompt", text("board", "m.auto_create_party", "Sorry, we could not find you an available party. Do you want to start your own party?"));
+    const hide = (c: Component) => { if (c.kind === "spacer" && c.preferredSize?.width === 80 && c.preferredSize?.height === 140) c.visible = false; c.children.forEach(hide); };
+    hide(o);
+    const box = o.find("confirm");
+    if (box) box.selected = false;
+    const shut = () => { this.overlays = this.overlays.filter(x => x !== o); this.starting = false; };
+    this.on(o, "dismiss", shut);
+    const cancel = this.on(o, "cancel", shut);
+    if (cancel) cancel.text = text("global", "m.cancel", "Cancel");
+    const ok = this.on(o, "accept", () => {
+      if (box?.selected) setAutoCreatePrompt(false);
+      this.overlays = this.overlays.filter(x => x !== o);
+      go();
+    });
+    if (ok) ok.text = text("board", "b.formparty", "Create Public Party");
+    this.overlays.push(o);
+  }
+
+  // ------------------------------------------------------------------ the Featured Items
+
+  /** exchange/client/p: the energy widget, the full depot button; the cards come with refresh. */
+  private bindFeatured(ui: Component) {
+    const host = this.board.game.featured!;
+    this.on(ui, "button_showdepot", () => { this.close(); host.openDepot(); });
+    const get = ui.find("button_getenergy"); if (get) get.visible = false;
+    const level = ui.find("level"); if (level) level.visible = false;
+    this.featured = ui;
+  }
+
+  /** The Featured Items for the knight's rank, shown from rank 2 (mission/client/r.wasAdded). */
+  private async refreshFeatured() {
+    const ui = this.featured, host = this.board.game.featured;
+    const p = this.board.progress;
+    if (!ui || !host || p.rank <= 1) { this.beside = null; return; }
+    const energy = ui.find("crystalenergy");
+    if (energy) energy.text = String(Math.max(0, Math.floor(host.energy()))).padStart(5, "0");
+    const src = host.source();
+    const goods = src ? featuredGoods({ ...src, names: () => this.board.game.data.library_("config/item.dat").keys() }, p.rank) : [];
+    const key = goods.map(g => g.name).join("|") + this.canvas.clientHeight;
+    this.beside = ui;
+    if (key === this.featuredKey) return;
+    this.featuredKey = key;
+    const list = ui.find("featureditems_list");
+    if (!list) return;
+    const cards = (await Promise.all(goods.map(g => this.featuredCard(g)))).filter((c): c is { ui: Component; label: Component | null; good: FeaturedGood } => !!c);
+    // as many cards as the screen's height holds (at least one; exchange/client/p.a)
+    list.children = [];
+    this.countdowns = [];
+    for (const c of cards) {
+      c.ui.constraints = null;
+      list.children.push(c.ui);
+      if (list.children.length > 1 && pack(ui).height > this.canvas.clientHeight - 25) { list.children.pop(); break; }
+      if (c.label) this.countdowns.push({ label: c.label, endsAt: c.good.endsAt });
+    }
+    this.tickCountdowns(true);
+  }
+
+  /** A featured card (preview_maker.dat) in its promo frame, the countdown under it. */
+  private async featuredCard(g: FeaturedGood): Promise<{ ui: Component; label: Component | null; good: FeaturedGood } | null> {
+    const fmt = (n: number) => n.toLocaleString("en-US");
+    const [card, frame, icon] = await Promise.all([
+      this.part(PREVIEW, { "Item Name": label(g.name), Promo: "true", Price: fmt(g.price), "Original Price": fmt(g.original), "Item Count": "",
+        "Rank Visible": g.rarity >= 0, Rank: String(g.rarity), Locked: "Hidden", Equippable: "True" }, g.name),
+      this.part(PROMO, {}, g.name),
+      this.iconImage(this.board.iconOf(g.name), 128),
+    ]);
+    if (!card) return null;
+    // the item's icon at 128 pixels in the icon's place (exchange/client/i.AK)
+    const spot = card.find("icon");
+    if (spot && icon) { spot.icon = icon; spot.styles = spot.styles.map(s => s ? { ...s, background: null } : s); }
+    const view = card.children.find(c => c.kind === "view");
+    if (view) view.visible = false;
+    const btn = card.find("button");
+    if (btn) btn.onAction = () => void this.purchase(g);
+    if (!frame) return { ui: card, label: null, good: g };
+    const top = frame.find("top"), bottom = frame.find("bottom"), content = frame.find("content");
+    if (top) top.visible = false;
+    if (content) {
+      const at = frame.children.indexOf(content);
+      card.constraints = content.constraints;
+      if (at >= 0) frame.children[at] = card;
+    }
+    return { ui: frame, label: bottom, good: g };
+  }
+
+  /** The countdowns under the cards (RankGood.PromoType.formatCountdown), every half minute. */
+  private tickCountdowns(force = false) {
+    const now = Date.now();
+    if (!force && now - this.lastCountdown < 30_000) return;
+    this.lastCountdown = now;
+    for (const c of this.countdowns) {
+      const { key, n } = promoCountdown(c.endsAt - now);
+      c.label.text = message("mission", key, n) || `${n} hours left`;
+    }
+    if (this.countdowns.some(c => c.endsAt <= now)) { this.featuredKey = ""; void this.refreshFeatured(); }
+  }
+
+  /** exchange/client/j: the purchase window (interface_purchase_2.dat): the cost, the item, Confirm. */
+  private async purchase(g: FeaturedGood) {
+    const host = this.board.game.featured;
+    const [o, pill] = await Promise.all([buildUi(this.ctx, uiRef(PURCHASE)), this.itemPill(g.name, 1, "buy")]);
+    if (!o || !host) return;
+    this.host.sound("sound/feedback/ui_open.ogg");
+    const set = (tag: string, s: string) => { const c = o.find(tag); if (c) c.text = s; };
+    set("cost", g.price.toLocaleString("en-US"));
+    for (const tag of ["quantityContainer", "preview", "status", "ad_widget"]) { const c = o.find(tag); if (c) c.visible = false; }
+    const item = o.find("item");
+    if (item && pill) {
+      const holder = findHolder(o, item);
+      pill.constraints = item.constraints;
+      if (holder) holder.children[holder.children.indexOf(item)] = pill;
+    }
+    const shut = () => { this.overlays = this.overlays.filter(x => x !== o); };
+    this.on(o, "dismiss", shut);
+    const ok = this.on(o, "confirm", () => {
+      if (!host.buy(g.name, g.price)) { this.host.sound("sound/feedback/ui_error.ogg"); notice(host.energy() < g.price ? `Not enough energy for ${label(g.name)}.` : `You already have ${label(g.name)}.`); return; }
+      this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
+      notice(`You have obtained ${label(g.name)}.`);
+      shut();
+      this.featuredKey = "";
+      void this.refresh();
+    });
+    if (ok) ok.enabled = host.energy() >= g.price;
+    this.overlays.push(o);
+  }
+
+  // ------------------------------------------------------------------ the ARCADE tab
+
+  /** MissionPanel.Wo: a card per gate (its emblem and name), up to five, the chosen one's map, materials and party configuration. */
+  private async refreshArcade(ui: Component, gen: number) {
+    const host = this.board.game;
+    const all = host.gates ? await host.gates() : [];
+    if (gen !== this.generation) return;
+    this.gates = all.filter(c => c.active && c.gate).slice(0, PER_PAGE);
+    this.gate = Math.min(this.gate, Math.max(0, this.gates.length - 1));
+    const prev = ui.find("btn_prev"), next = ui.find("btn_next");
+    if (prev) prev.enabled = false;
+    if (next) next.enabled = false;
+    const row = ui.find("middle_container");
+    const built = await Promise.all(Array.from({ length: PER_PAGE }, (_, i) => this.gateCard(this.gates[i] ?? null, i)));
+    if (gen !== this.generation) return;
+    if (row) built.forEach((c, i) => {
+      const at = row.children.findIndex(k => k.tag === `ui_mission_${i}`);
+      if (!c || at < 0) return;
+      c.constraints = row.children[at].constraints;
+      c.tag = `ui_mission_${i}`;
+      row.children[at] = c;
+      const btn = c.find(`btn_mission_${i}`);
+      if (btn) {
+        btn.selected = i === this.gate && !!this.gates[i];
+        btn.onAction = () => {
+          if (!this.gates[i]) return;
+          this.gate = i;
+          this.host.sound("sound/feedback/ui_dropdown_select.ogg");
+          void this.refresh();
+        };
+      }
+    });
+    const bottom = ui.find("bottom_container"), empty = ui.find("bottom_empty");
+    const g = this.gates[this.gate]?.gate ?? null;
+    if (bottom) bottom.visible = !!g;
+    if (empty) empty.visible = !g;
+    if (!g) return;
+    // the briefing pane gives way to the map and materials tabs
+    this.swapBriefing(true);
+    await this.mapView.show(g);
+    const mats = this.materials;
+    if (mats) {
+      const lists = this.board.stratumMaterials(g.real?.themes?.length ? g.real.themes : g.strata.map(s => s.theme));
+      await Promise.all(lists.map(async (names, i) => {
+        const box = mats.find(`subtier${i + 1}`);
+        if (!box) return;
+        const pills = await Promise.all(names.map(n => this.itemPill(n, 1, "mat", this.board.rarityOf(n))));
+        box.children = pills.filter((c): c is Component => !!c);
+        for (const c of box.children) c.constraints = null;
+      }));
+    }
+    if (gen !== this.generation) return;
+    const mission = ui.find("mission_container");
+    if (mission && this.party) {
+      this.party.constraints = null;
+      mission.children = [this.party];
+      const start = this.party.find("start");
+      if (start) start.enabled = !this.starting;
+      this.bindPartyState();
+    }
+  }
+
+  /** A gate's card: the gate image (its emblem in its colours) and name, no rank (MissionPanel.Wo). */
+  private gateCard(c: GateChoice | null, i: number): Promise<Component | null> {
+    const g = c?.gate ?? null;
+    const key = `gate|${g?.id ?? ""}|${i}`;
+    let p = this.cards.get(key);
+    if (!p) {
+      const args = g ? { "Card Image": EMPTY_CARD, Empty: "False", Status: "Unlocked", "Button Tag": `btn_mission_${i}` }
+        : { "Card Image": EMPTY_CARD, Empty: "True", Status: "Unlocked", "Button Tag": `btn_mission_${i}` };
+      p = buildUi(this.ctx, uiRef(CARD, args)).then(async ui => {
+        if (!ui) return null;
+        for (const tag of ["icon", "rank_cont", "mission_completed"]) { const x = ui.find(tag); if (x) x.visible = false; }
+        const btn = ui.find(`btn_mission_${i}`);
+        if (btn) btn.enabled = !!g;
+        if (!g) return ui;
+        const name = ui.find("name");
+        if (name) name.text = g.name;
+        const image = ui.find("image"), gi = ui.find("gate_image");
+        if (image) image.visible = false;
+        if (gi) {
+          gi.visible = true;
+          const em = c?.entry ? gateEmblem(c.entry.colour, c.entry.symbol) : { file: gatePiece(g, i), colorizations: [] };
+          await restyle(this.ctx, gi, "Card Gate Image", { File: em.file, Colorizations: em.colorizations }).catch(() => undefined);
+        }
+        return ui;
+      });
+      this.cards.set(key, p);
+    }
+    return p;
+  }
+
+  /** Puts the map and materials tabs in the briefing pane's place, or the briefing pane back. */
+  private swapBriefing(materials: boolean) {
+    const bottom = this.root?.find("bottom_container"), brief = this.briefingPane, mats = this.materials;
+    if (!bottom || !brief || !mats) return;
+    const [from, to] = materials ? [brief, mats] : [mats, brief];
+    const at = bottom.children.indexOf(from);
+    if (at < 0) return;
+    to.constraints = from.constraints;
+    bottom.children[at] = to;
   }
 
   private turn(d: number) {
@@ -516,16 +992,11 @@ class MissionScreen extends GuiScreen {
     return b;
   }
 
-  /** An item pill: the item's icon and name (and count). */
-  private itemPill(item: string, count: number, key = "") {
+  /** An item pill (item/client/j.a): the item's icon, name (and count) and its stars when it has any. */
+  private itemPill(item: string, count: number, key = "", rarity = -1) {
     const icon = this.board.iconOf(item);
-    return this.part(PILL, { Name: `${count > 1 ? count + " " : ""}${label(item)}`, Rarity: "-1", Equipped: "False", Hoverable: true,
+    return this.part(PILL, { Name: `${count > 1 ? count + " " : ""}${label(item)}`, Rarity: String(rarity > 0 ? rarity : -1), Equipped: "False", Hoverable: true,
       Icon: icon?.file ?? BLANK, Colorization: icon?.colorizations ?? [], Variants: "0", Accessory: false }, key);
-  }
-
-  private crownPill(crowns: number, key = "") {
-    return this.part(PILL, { Name: `${crowns.toLocaleString("en-US")} Crowns`, Rarity: "-1", Equipped: "False", Hoverable: true,
-      Icon: CROWN, Colorization: [], Variants: "0", Accessory: false }, key);
   }
 
   private async prestigePill(prestige: number, key = "") {
@@ -534,14 +1005,6 @@ class MissionScreen extends GuiScreen {
     const n = c?.find("entryselect");
     if (n) n.text = "Prestige";
     return c;
-  }
-
-  private statusLine(m: Mission, st: MissionStatus): string {
-    if (st === "upcoming") {
-      const days = m.schedule ? daysUntilActive(m.schedule, Date.now()) : 0;
-      return `${KIND_LABEL[m.kind]} · opens in ${days} day${days === 1 ? "" : "s"}`;
-    }
-    return `${KIND_LABEL[m.kind]} · ${st[0].toUpperCase() + st.slice(1)}`;
   }
 
   protected async refresh() {
@@ -555,9 +1018,8 @@ class MissionScreen extends GuiScreen {
     set(ui, "rank", message("mission", "m.rank_header", p.rank, p.subrank) || `Rank: ${p.rank}-${p.subrank}`);
     const rankUi = ui.find("rank_ui");
     if (rankUi) this.fillBar(rankUi, p);
-    for (const [tab, tag] of TABS) { const c = ui.find(tag); if (c) c.selected = tab === this.tab; }
-    const arcade = ui.find("btn_arcade");
-    if (arcade) arcade.selected = false;
+    for (const [tab, tag] of TABS) { const c = ui.find(tag); if (c) c.selected = tab === this.tab && (tab !== "arcade" || !!b.game.gates); }
+    void this.refreshFeatured();
     // MissionPanel.g: a category opens with the mission that unlocks it (rank is always open);
     // a closed one is disabled with its lock shown, and its intro text is the _locked one
     const lockRank = ui.find("locked_rank");
@@ -595,6 +1057,8 @@ class MissionScreen extends GuiScreen {
       }
     }
     if (!this.tab || this.introTop) return;
+    if (this.tab === "arcade") { await this.refreshArcade(ui, gen); return; }
+    this.swapBriefing(false);
 
     // the cards of this page
     const ms = this.shown = b.tabMissions(this.tab);
@@ -642,15 +1106,21 @@ class MissionScreen extends GuiScreen {
       // reward pills
       set(brief, "briefing", m ? m.title.toUpperCase() : "BRIEFING");
       const body = brief.children.find(k => k.kind === "label" && k.tag !== "briefing");
-      if (body) body.text = m ? b.briefingOf(m) + (npcName(m) ? `\n\nWith ${npcName(m)}.` : "") : "";
+      if (body) body.text = m ? b.briefingOf(m) : "";
       const fixed = brief.children.filter(k => !k.tag?.startsWith("brief_extra"));
       brief.children = fixed;
       if (m) {
+        // (MissionPanel.Ws: REWARDS and its table only when there is something to give; the
+        // items those of the reward tiers up to the chosen difficulty, a pill an item with its count)
+        const items = new Map<string, number>();
+        for (const it of b.rewardsOf(m)) items.set(it.item, (items.get(it.item) ?? 0) + it.count);
+        const any = items.size > 0 || m.prestige > 0;
         const extra = (await Promise.all([
           m.objective ? this.text(withName(m.objective, b.knight()), "Briefing Styles/Summary") : null,
           m.cls === "Prestige" && m.onceOnly ? this.text(text("mission", "m.once_only", "This mission can only be played once per day."), "Briefing Styles/Summary") : null,
-          this.text(text("mission", "t.rewards", "REWARDS"), "Briefing Styles/Header"),
-          this.table([this.prestigePill(m.prestige), this.crownPill(crownReward(m)), ...b.rewardsOf(m).slice(0, 8).map(it => this.itemPill(it.item, it.count))]),
+          any ? this.text(text("mission", "t.rewards", "REWARDS"), "Briefing Styles/Header") : null,
+          any ? this.table([...(m.prestige > 0 ? [this.prestigePill(m.prestige)] : []),
+            ...[...items].slice(0, 8).map(([item, count]) => this.itemPill(item, count, "", this.board.rarityOf(item)))]) : null,
         ])).filter((c): c is Component => !!c);
         if (gen !== this.generation) return;
         extra.forEach((c, i) => { c.tag = `brief_extra${i}`; c.constraints = null; });
@@ -658,26 +1128,37 @@ class MissionScreen extends GuiScreen {
       }
     }
     if (mission) {
-      const head = mission.children[0];
-      // the old card's details (and its action) go at once; the new ones follow when built
-      mission.children = [head];
+      // (MissionPanel.Ww empties the pane, its MISSION placeholder with it); the old card's
+      // action goes at once, the new one follows when built
+      mission.children = [];
       const kids: Promise<Component | null>[] = [];
       if (m) {
         const st = missionStatus(m, p);
         if (m.kind === "exchange") kids.push(...this.exchangePane(m, st));
-        else {
-          // the START button (Comlink style), enabled while the mission can start
+        else if (isGateMission(m) && this.party) {
+          // a gate mission: the party configuration (MissionPanel.e), its START enabled while the mission can start
+          const start = this.party.find("start");
+          if (start) start.enabled = st === "available" && !this.starting;
+          this.bindPartyState();
+          kids.push(Promise.resolve(this.party));
+        } else {
+          // the Comlink START, enabled while the mission can start
           kids.push(this.button(text("mission", "m.start", "START"), () => b.start(m), st === "available", "Adventure Board/Start Button/Comlink/Start"));
-          kids.push(this.text(this.statusLine(m, st)));
-          if (m.cls === "Rank") kids.push(this.text(`Rank ${m.rank}-${m.subrank}: ${rankName(m.rank)}`));
-          if (m.needs.length && st === "locked") kids.push(this.text("After: " + m.needs.map(id => b.list.find(x => x.id === id)?.title ?? id).join(", ")));
         }
       }
       const done = (await Promise.all(kids)).filter((c): c is Component => !!c);
       if (gen !== this.generation) return;
       for (const c of done) c.constraints = null;
-      mission.children = [head, ...done];
+      mission.children = done;
     }
+  }
+
+  private lastMapTick = 0;
+  protected tick() {
+    this.tickBars();
+    const now = performance.now();
+    if (this.tab === "arcade" && now - this.lastMapTick > 500) { this.lastMapTick = now; this.mapView.update(); }
+    this.tickCountdowns();
   }
 
   /**
@@ -766,7 +1247,7 @@ class MissionScreen extends GuiScreen {
     const args = m
       ? { "Card Image": unknown ? UNKNOWN_CARD : m.cardImage ?? EMPTY_CARD, Empty: "False", Status: locked ? "Locked" : "Unlocked", "Button Tag": `btn_mission_${i}` }
       : { "Card Image": EMPTY_CARD, Empty: "True", Status: "Unlocked", "Button Tag": `btn_mission_${i}` };
-    const key = `${m?.id ?? ""}|${st}|${unknown}|` + JSON.stringify(args);
+    const key = `${m?.id ?? ""}|${st}|${unknown}|${m ? p.difficulty?.[m.id] ?? "" : ""}|` + JSON.stringify(args);
     let c = this.cards.get(key);
     if (!c) {
       c = buildUi(this.ctx, uiRef(CARD, args)).then(async ui => {
@@ -777,14 +1258,14 @@ class MissionScreen extends GuiScreen {
           // the card's label: RANK and the rank; prestige missions TODAY, TOMORROW or REPLAYABLE
           set("card_label", m.cls === "Rank" ? text("mission", "t.rank", "RANK")
             : m.cls === "Prestige" ? text("mission", st === "upcoming" ? "t.tomorrow" : m.daily ? "t.today" : "t.replayable", "")
-            : String(m.rank));
+            : text("mission", `t.tier_${m.rank >= 6 ? 3 : m.rank >= 4 ? 2 : 1}`, `TIER ${m.rank >= 6 ? 3 : m.rank >= 4 ? 2 : 1}`));
           set("rank", m.cls === "Rank" ? `${m.rank}-${m.subrank}` : "");
           const done = ui.find("mission_completed");
           if (done) done.visible = false;
           const icon = ui.find("icon");
           if (icon) {
             icon.visible = st === "complete" || locked;
-            const file = st === "complete" ? `ui/icon/difficulty/${m.kind === "gate" ? "medium" : "hard"}.png` : "ui/icon/inventory/icon_locked.png";
+            const file = st === "complete" ? completedIcon(m, p) : "ui/icon/inventory/icon_locked.png";
             if (icon.visible) await restyle(this.ctx, icon, "Icon", { File: file }).catch(() => undefined);
           }
           const btn = ui.find(`btn_mission_${i}`);
@@ -812,7 +1293,7 @@ class MissionScreen extends GuiScreen {
     (bar as any).__fraction = ofRank.length ? done / ofRank.length : 1;
   }
 
-  protected tick() {
+  private tickBars() {
     // the rank bars fill their backing by the share of the rank's missions done
     const bars = [this.root?.find("rank_ui"), ...this.overlays.map(o => o.find("prestigebar"))];
     for (const bar of bars) {
@@ -824,7 +1305,7 @@ class MissionScreen extends GuiScreen {
   }
 
   /** The mission complete window: the mission, its rewards, the rank bar and any rank up. */
-  async completed(m: Mission, crowns: number, items: { item: string; count: number }[], rankUp: string | null) {
+  async completed(m: Mission, items: { item: string; count: number }[], rankUp: string | null) {
     const [win, up] = await Promise.all([buildUi(this.ctx, uiRef(COMPLETE)), rankUp ? buildUi(this.ctx, uiRef(RANKUP)) : null]);
     if (!win) return;
     const set = (tag: string, text: string) => { const c = win.find(tag); if (c) c.text = text; };
@@ -833,7 +1314,8 @@ class MissionScreen extends GuiScreen {
     set("objective", withName(m.objective || m.summary, this.board.knight()));
     const rewards = win.find("rewards");
     if (rewards) {
-      const pills = await Promise.all([this.prestigePill(m.prestige, "done"), this.crownPill(crowns, "done"), ...items.slice(0, 8).map(it => this.itemPill(it.item, it.count, "done"))]);
+      const pills = await Promise.all([...(m.prestige > 0 ? [this.prestigePill(m.prestige, "done")] : []),
+        ...items.slice(0, 8).map(it => this.itemPill(it.item, it.count, "done", this.board.rarityOf(it.item)))]);
       rewards.children = pills.filter((c): c is Component => !!c);
       for (const c of rewards.children) c.constraints = null;
     }
@@ -858,7 +1340,7 @@ class MissionScreen extends GuiScreen {
    * dialogue (config/conversation.dat and the mission bundle), each line in turn, the knight's
    * reply on the button; without it, the briefing text. The last button completes it.
    */
-  async briefing(m: Mission) {
+  async briefing(m: Mission, difficulty: Difficulty = difficultyPref()) {
     const [o, talk] = await Promise.all([buildUi(this.ctx, uiRef(PROMPT)), this.board.conversationOf(m).catch(() => null)]);
     if (!o) return;
     this.briefed = m;
@@ -886,7 +1368,7 @@ class MissionScreen extends GuiScreen {
     if (cancel) cancel.text = text("global", "m.cancel", "Cancel");
     this.on(o, "accept", () => {
       if (at < steps.length - 1) { at++; show(); this.host.sound("sound/feedback/button_press.ogg"); return; }
-      shut(); this.board.finish(m);
+      shut(); this.board.finish(m, difficulty);
     });
     show();
     this.overlays.push(o);

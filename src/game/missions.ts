@@ -17,6 +17,8 @@ import { hasMessage, message, text, xlate } from "../i18n";
 import { bossName, BOSSES, FAMILIES, STYLES, type BossKey, type Family, type Floor, type Gate, type LevelStyle, type Stratum, type StratumTheme } from "./clockworks";
 import { floorStyle, LAIR_DEPTH, lairFloors, missionPlan, type MissionFloorDef } from "./missionfloors";
 import { levelText } from "./text";
+import type { Difficulty } from "./depth";
+import { difficultyIndex, difficultyOf } from "./difficulty";
 
 export type MissionClass = "Rank" | "Prestige" | "Hidden" | "Expansion";
 export type MissionKind = "dungeon" | "conversation" | "exchange" | "gate" | "gate-conversation";
@@ -52,6 +54,11 @@ export interface Mission {
   cardImage: string | null;
   /** Reward spawn table names. */
   rewards: string[];
+  /**
+   * The reward tables by the least difficulty that earns them (MissionConfig.Reward: EASY
+   * unless the config says otherwise).
+   */
+  rewardTiers: { difficulty: Difficulty; table: string }[];
   prestigeType: PrestigeType;
   prestige: number;
   /** Conversations: the NPC model reference and the conversation config name. */
@@ -83,6 +90,8 @@ export interface MissionProgress {
   prestige: number;
   /** Prestige missions done, by id: the schedule cycle they were done in. */
   cycles: Record<string, number>;
+  /** The difficulty each mission was last completed at (MissionCompletion.difficulty). */
+  difficulty?: Record<string, Difficulty>;
 }
 
 export const freshProgress = (): MissionProgress => ({ rank: 1, subrank: 1, completed: [], prestige: 0, cycles: {} });
@@ -184,6 +193,8 @@ export function parseMission(c: any, props: Map<string, any>): Mission | null {
     event: ev ? String(ev.event?.name ?? ev.event ?? ev.name ?? "event") : null,
     cardImage: typeof i.cardImage === "string" ? i.cardImage : null,
     rewards: list(i.rewards).map(r => r?.rewards?.name).filter((x): x is string => typeof x === "string"),
+    rewardTiers: list(i.rewards).filter(r => typeof r?.rewards?.name === "string")
+      .map(r => ({ difficulty: difficultyOf(r.difficulty) ?? "easy", table: String(r.rewards.name) })),
     prestigeType, prestige: typeof prestige === "number" ? prestige : 0,
     npcModel: conv?.model?.name ?? null,
     npcVariant: (argsOf(conv?.model).Variant as string | undefined) ?? null,
@@ -200,7 +211,8 @@ export function parseMission(c: any, props: Map<string, any>): Mission | null {
   m.summary = summarize(m);
   const brief = typeof i.briefing === "string" && i.briefing ? i.briefing : `b.${m.id}`;
   if (hasMessage("mission", brief)) m.summary = xlate("mission", brief);
-  m.objective = text("mission", `o.${m.id}`, "");
+  // (MissionConfig.e: o.<id>, else the bundle's m.no_objective)
+  m.objective = text("mission", `o.${m.id}`, "") || text("mission", "m.no_objective", "");
   return m;
 }
 
@@ -441,8 +453,40 @@ export function advanceRank(missions: Mission[], p: MissionProgress): boolean {
   }
 }
 
-/** Marks a mission done, adds its prestige and ranks up. */
-export function completeMission(missions: Mission[], m: Mission, p: MissionProgress, now = Date.now()) {
+/**
+ * Whether a mission is played through a gate (MissionConfig.Gate and GateConversation): its
+ * board shows the party configuration and its rewards and completion depend on the difficulty.
+ */
+export const isGateMission = (m: Pick<Mission, "kind">) => m.kind === "dungeon" || m.kind === "gate" || m.kind === "gate-conversation";
+
+/**
+ * The reward tables a completion at `now` gives (MissionConfig.a): those whose difficulty is
+ * above `before` (the difficulty it was done at before, or null) and at most `now`.
+ */
+export function rewardTables(m: Pick<Mission, "rewardTiers">, before: Difficulty | null, now: Difficulty): string[] {
+  const lo = before ? difficultyIndex(before) : -1, hi = difficultyIndex(now);
+  return m.rewardTiers.filter(r => difficultyIndex(r.difficulty) > lo && difficultyIndex(r.difficulty) <= hi).map(r => r.table);
+}
+
+/**
+ * The difficulty a mission counts as played at, for its rewards and record: the party
+ * configuration's for gate missions, HARD for the rest (MissionPanel.Wt, Requirement.c).
+ */
+export const missionDifficulty = (m: Pick<Mission, "kind">, chosen: Difficulty): Difficulty => isGateMission(m) ? chosen : "hard";
+
+/**
+ * A completed card's badge (Requirement.c): a gate mission's the difficulty it was done at
+ * (MEDIUM when unknown), the rest HARD's.
+ */
+export function completedIcon(m: Pick<Mission, "kind" | "id">, p: MissionProgress): string {
+  const d = m.kind === "dungeon" || m.kind === "gate" ? p.difficulty?.[m.id] ?? "medium" : "hard";
+  return `ui/icon/difficulty/${d}.png`;
+}
+
+/** Marks a mission done (at a difficulty), adds its prestige and ranks up. */
+export function completeMission(missions: Mission[], m: Mission, p: MissionProgress, now = Date.now(), difficulty: Difficulty = "hard") {
+  const was = p.difficulty?.[m.id];
+  (p.difficulty ??= {})[m.id] = was && difficultyIndex(was) > difficultyIndex(difficulty) ? was : difficulty;
   if (m.cls === "Prestige") p.cycles[m.id] = m.schedule ? scheduleCycle(m.schedule, now) : 0;
   else if (!p.completed.includes(m.id)) p.completed.push(m.id);
   p.prestige += m.prestige;
