@@ -3,6 +3,7 @@
 // anything whose flags intersect its collision mask. Floors give the ground height.
 
 import { readTransform, type Mat4 } from "../math";
+import { intersects, shapeBounds, type Shape } from "./shapes";
 
 export interface CellInfo {
   flags: number;
@@ -49,8 +50,16 @@ export function forTileCells(impl: any, x: number, y: number, rotation: number, 
   }
 }
 
+/**
+ * A floor whose collision mesh moves up and down with its sprite's animation: an articulated
+ * model's collision node animated by a clip (the start platform's Arrive brings its
+ * "collision" node down from 3.27 units up to rest). `dz` is the node's height over its rest
+ * pose, in world units, kept current by whoever plays the animation.
+ */
+export interface FloorLift { node: string; dz: number }
+
 /** A floor collision triangle in world space (v1 v2 v3) with its sprite's floor flags. */
-interface FloorTri { v: Float32Array; flags: number }
+interface FloorTri { v: Float32Array; flags: number; lift?: FloorLift }
 
 /**
  * Where a vertical line through (x, y) crosses triangle v (world space, 9 floats), or -Infinity
@@ -65,6 +74,21 @@ export function rayDownZ(v: ArrayLike<number>, x: number, y: number): number {
   const e = 1e-6;
   if (u < -e || w < -e || u + w > 1 + e) return -Infinity;
   return u * v[2] + w * v[5] + (1 - u - w) * v[8];
+}
+
+/**
+ * Where something moving in a straight line from (ax, ay), a free point, to (bx, by), a
+ * blocked one, first meets what blocks it: the last free point, bisected `steps` times. A
+ * bullet stepped into a wall goes off at the wall's face, so its impact is not drawn inside it.
+ */
+export function contactPoint(ax: number, ay: number, bx: number, by: number, blocked: (x: number, y: number) => boolean, steps = 10): [number, number] {
+  if (blocked(ax, ay)) return [ax, ay];
+  let lo = 0, hi = 1;
+  for (let i = 0; i < steps; i++) {
+    const t = (lo + hi) / 2;
+    if (blocked(ax + (bx - ax) * t, ay + (by - ay) * t)) hi = t; else lo = t;
+  }
+  return [ax + (bx - ax) * lo, ay + (by - ay) * lo];
 }
 
 export class CollisionMap {
@@ -284,7 +308,7 @@ export class CollisionMap {
    * a tile or placeable whose floorFlags are set (TileConfig/PlaceableConfig floorFlags,
    * default 0x01). TudeySceneView.getFloorZ casts a ray straight down onto these.
    */
-  addFloor(tris: ArrayLike<number>, matrix: Mat4, floorFlags = 1) {
+  addFloor(tris: ArrayLike<number>, matrix: Mat4, floorFlags = 1, lift?: FloorLift) {
     if (!floorFlags || tris.length < 9) return;
     const m = matrix;
     // a mirroring placement flips the winding the ray test culls by (it runs in model space)
@@ -301,7 +325,7 @@ export class CollisionMap {
       // Triangle.getIntersection only takes faces whose front looks along -ray (up, here)
       const nz = ((w[3] - w[0]) * (w[7] - w[1]) - (w[4] - w[1]) * (w[6] - w[0])) * sign;
       if (nz <= 1e-9) continue;
-      const tri: FloorTri = { v: w, flags: floorFlags };
+      const tri: FloorTri = { v: w, flags: floorFlags, lift };
       const x0 = Math.floor(Math.min(w[0], w[3], w[6])), x1 = Math.floor(Math.max(w[0], w[3], w[6]));
       const y0 = Math.floor(Math.min(w[1], w[4], w[7])), y1 = Math.floor(Math.max(w[1], w[4], w[7]));
       if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) continue;
@@ -322,18 +346,50 @@ export class CollisionMap {
    * (TudeySceneModel.getFloorZ), else `defvalue`.
    */
   floorZ(x: number, y: number, mask = 0xff, defvalue = 0): number {
+    const hit = this.floorHit(x, y, mask);
+    if (hit) return hit.z;
+    const c = this.cell(Math.floor(x), Math.floor(y));
+    return c && isFinite(c.z) ? c.z : defvalue;
+  }
+
+  /** The floor mesh face a downward ray through (x, y) meets first, and its height (null: none). */
+  private floorHit(x: number, y: number, mask = 0xff): { z: number; lift?: FloorLift } | null {
     const list = this.floors.get(CollisionMap.key(Math.floor(x), Math.floor(y)));
-    let best = -Infinity;
+    let best = -Infinity, lift: FloorLift | undefined;
     if (list) {
       for (const t of list) {
         if ((t.flags & mask) === 0) continue;
-        const z = rayDownZ(t.v, x, y);
-        if (z > best) best = z;
+        const z = rayDownZ(t.v, x, y) + (t.lift?.dz ?? 0);
+        if (z > best) { best = z; lift = t.lift; }
       }
     }
-    if (best > -Infinity) return best;
-    const c = this.cell(Math.floor(x), Math.floor(y));
-    return c && isFinite(c.z) ? c.z : defvalue;
+    return best > -Infinity ? { z: best, lift } : null;
+  }
+
+  /** The moving floor under (x, y) while it is off its rest pose (actors on it ride it). */
+  liftAt(x: number, y: number, mask = 0xff): FloorLift | null {
+    const lift = this.floorHit(x, y, mask)?.lift;
+    return lift && lift.dz !== 0 ? lift : null;
+  }
+
+  /**
+   * A floor-tile placeable (PlaceableConfig.Original.floorTile, the start platform): its shape
+   * is floor where no tile is, at the placeable's elevation, as TudeySceneModel.getFloorZ
+   * falls back to the floor placeables' elevations (FloorPlaceableFilter) where no tile lies.
+   * Cells whose centres the shape covers become walkable; it adds no collision flags.
+   */
+  addFloorPlaceable(shape: Shape, z: number) {
+    const [x0, y0, x1, y1] = shapeBounds(shape);
+    for (let y = Math.floor(y0); y <= Math.floor(y1); y++) {
+      for (let x = Math.floor(x0); x <= Math.floor(x1); x++) {
+        if (!intersects(shape, { k: "point", x: x + 0.5, y: y + 0.5 })) continue;
+        const k = CollisionMap.key(x, y);
+        const c = this.cells.get(k) ?? { flags: 0, floor: false, z: -Infinity };
+        // a tile's floor keeps its own elevation (the placeables only stand in where none is)
+        if (!c.floor) { c.floor = true; c.z = z; }
+        this.cells.set(k, c);
+      }
+    }
   }
 
   /** Ground height under (x, y): the floor the client stands actors and effects on. */
@@ -357,3 +413,27 @@ export class CollisionMap {
 }
 
 export type { Mat4 };
+
+/** An actor's collision bits: what it is (flags) and what blocks it (mask). */
+export interface ActorBits { collisionFlags: number; collisionMask: number }
+
+/**
+ * Whether actor a is blocked by actor b (Tudey's Actor.collidesWith: a's mask meets b's
+ * flags). It is one-way: a snipe (flags 4, mask 79) is blocked by the knight (flags 4) but the
+ * knight (mask 43) walks through it.
+ */
+export const collidesWith = (a: ActorBits, b: ActorBits) => (a.collisionMask & b.collisionFlags) !== 0;
+
+/**
+ * How much of an overlap between actors a and b each is pushed back (shares of it, a's then
+ * b's). Tudey never pushes an actor: a mover only stops where it would collide. Pushing apart
+ * stands in for that: both halfway when each would stop at the other (the knight and a
+ * monster); when only one would, it alone yields, and only if it is the kind that moves under
+ * its own power (`aMoves`, `bMoves`): the knight stops at a monster outside its own mask, but
+ * a townsperson's snipe it walks through (flags 4, outside the knight's mask 43) stays put.
+ */
+export function separationShares(a: ActorBits, b: ActorBits, aMoves = true, bMoves = true): [number, number] {
+  const ab = collidesWith(a, b), ba = collidesWith(b, a);
+  if (ab && ba) return [0.5, 0.5];
+  return [ab && aMoves ? 1 : 0, ba && bMoves ? 1 : 0];
+}

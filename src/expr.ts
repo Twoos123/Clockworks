@@ -3,11 +3,19 @@
 // clock/elapsed, arithmetic, sin/cos/noise, parsed text expressions, Cartesian vectors,
 // Euler-angle quaternions and uniform/non-uniform transforms.
 
-import { compose, type Mat4, type Quat, type Vec3 } from "./math";
+import { compose, readTransform, type Mat4, type Quat, type Vec3 } from "./math";
 
 export type F<T> = (t: number) => T;
 
-const kind = (e: any) => (e?.$class ?? "").substring((e?.$class ?? "").lastIndexOf("$") + 1);
+/**
+ * An expression's kind ("Constant", "Parsed", ...). An argument written through a field the
+ * export left at its default (TargetTransform.expression, an Angles quaternion's z, a Uniform
+ * transform's scale) arrives as a class-less object holding only `value`: Clyde's default
+ * there is a Constant expression, whose value the argument sets (a comic panel's "Panel
+ * Offset", "Tail Rotation" and "Tail Scale").
+ */
+const kind = (e: any) => e && typeof e === "object" && !e.$class && "value" in e ? "Constant"
+  : (e?.$class ?? "").substring((e?.$class ?? "").lastIndexOf("$") + 1);
 
 // ---- noise (gradient noise as Clyde's NoiseUtil, with a fixed permutation table)
 const PERM = (() => {
@@ -144,6 +152,12 @@ export function quatExpr(e: any): F<Quat> {
 /** Compiles a Transform3DExpression to a matrix function, or null if it is constant identity. */
 export function transformExpr(e: any): F<Mat4> | null {
   switch (kind(e)) {
+    case "Constant": {
+      if (!e.value) return null;
+      const t = readTransform(e.value);
+      const m = t.matrix ?? compose(t.t, t.r, t.s);
+      return () => m;
+    }
     case "Uniform": {
       const tr = vec3Expr(e.translation), rot = quatExpr(e.rotation), sc = floatExpr(e.scale, 1);
       return t => compose(tr(t), rot(t), sc(t));

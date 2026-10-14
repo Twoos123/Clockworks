@@ -6,13 +6,33 @@ import { applyArguments } from "./config/params";
 import { importBinary } from "./export/BinaryImport";
 import { compose, toMatrix, readTransform, type Mat4 } from "./math";
 import { editorOnly, floorTriangles, inflate, type LoadedModel, type ModelLoader } from "./model";
-import { CollisionMap, forTileCells } from "./game/collision";
+import { CollisionMap, forTileCells, type FloorLift } from "./game/collision";
 import { LevelMap } from "./game/levelmap";
 import { shapeFromConfig, type Shape } from "./game/shapes";
+
+/**
+ * A moving floor for a model whose whole floor mesh is one articulated node's collision mesh
+ * and which plays an animation automatically (ArticulatedConfig startAutomatically): the
+ * start platform's Arrive lowers its "collision" node with the grate.
+ */
+export function floorLift(model: LoadedModel): FloorLift | undefined {
+  const nodes = model.collisionNodes;
+  if (nodes?.length !== 1 || !model.autoAnimations.length || !model.root) return undefined;
+  if (floorTriangles(model).length !== (model.collision?.length ?? 0)) return undefined;
+  return { node: nodes[0], dz: 0 };
+}
 
 export interface SceneObject {
   model: LoadedModel;
   matrix: Mat4;
+  /** A floor that rides the model's automatic animation (the start platform arriving). */
+  lift?: FloorLift;
+  /**
+   * An exit elevator (DungeonPlaceableConfig$ElevatorProp with a DungeonActorConfig$Elevator
+   * actor): its model reference, whose "Icon" and "Colorizations" arguments the game sets to the
+   * level it leads to, and whether it ends the run (dissolveParty: the Haven elevators).
+   */
+  elevator?: { ref: any; dissolve: boolean };
 }
 
 /** A monster spawn point (a marker whose action activates a spawn table). */
@@ -197,7 +217,7 @@ export class SceneLoader {
     const tileImpls = await Promise.all(mappings.map(m => m ? this.resolveImpl("config/tile.dat", m.tile, "tile") : null));
     const granularity = s.tiles?.granularity ?? 3, mask = (1 << granularity) - 1, empty = s.tiles?.empty ?? -1;
     // floor: the sprite's floor flags (TileConfig/PlaceableConfig floorFlags, default 0x01)
-    const jobs: { ref: any; matrix: Mat4; floor: number }[] = [];
+    const jobs: { ref: any; matrix: Mat4; floor: number; elevator?: SceneObject["elevator"] }[] = [];
     for (const [coord, cell] of s.tiles?.cells?.entries ?? []) {
       const values: Int32Array = cell.values;
       for (let i = 0; i < values.length; i++) {
@@ -233,6 +253,8 @@ export class SceneLoader {
         if (impl.defaultEntrance) levelMap.entrance(t.t[0], t.t[1]);
         const shape = impl.shape ? shapeFromConfig(impl.shape, t.t[0], t.t[1], 2 * Math.atan2(t.r[2], t.r[3]), t.s) : null;
         levelMap.entry(shape, HIDDEN.test(impl.$class) ? 0 : impl.collisionFlags ?? 1, !!impl.floorTile);
+        // a floor tile placeable (the start platform, over its shaft) is floor where no tile is
+        if (impl.floorTile && shape && !HIDDEN.test(impl.$class)) collision.addFloorPlaceable(shape, t.t[2]);
       }
       if (/Elevator\/Start Platform/.test(e.placeable?.name ?? "") && !start) {
         const t0 = readTransform(e.transform);
@@ -243,7 +265,8 @@ export class SceneLoader {
         const actor = impl.actor?.name && /StatefulProp|ElevatorProp/.test(impl.$class) ? impl.actor : undefined;
         // (gate props too: the party lobby's consoles have no handlers of their own, the game
         // finds them by name)
-        if (impl.handlers?.length || ptags.length || actor || /\$GateProp$/.test(impl.$class)) {
+        // (and portal markers: a default entrance may carry no tag, the Advanced Training Hall's)
+        if (impl.handlers?.length || ptags.length || actor || /\$GateProp$/.test(impl.$class) || /^Dynamic\/Portal\//.test(e.placeable?.name ?? "")) {
           const t = readTransform(e.transform);
           const rotZ = 2 * Math.atan2(t.r[2], t.r[3]);
           const rotation = Math.atan2(Math.sin(rotZ - Math.PI / 2), Math.cos(rotZ - Math.PI / 2));
@@ -274,7 +297,13 @@ export class SceneLoader {
       if (!modelRef) { stats.unresolved++; continue; }
       const t = readTransform(e.transform);
       collision.addProp(impl, e.transform);
-      jobs.push({ ref: modelRef, matrix: toMatrix(t), floor: impl.floorFlags ?? 1 });
+      // the exit elevators' screens show where they lead (src/game/gatemap.ts elevatorScreen)
+      let elevator: SceneObject["elevator"];
+      if (impl.$class.endsWith("$ElevatorProp") && impl.actor) {
+        const actor = await this.resolveImpl("config/actor.dat", impl.actor, "actor");
+        if (actor?.$class?.endsWith("DungeonActorConfig$Elevator")) elevator = { ref: modelRef, dissolve: !!actor.dissolveParty };
+      }
+      jobs.push({ ref: modelRef, matrix: toMatrix(t), floor: impl.floorFlags ?? 1, ...(elevator ? { elevator } : {}) });
       stats.placeables++;
       grow(t.t[0], t.t[1]);
     }
@@ -286,9 +315,11 @@ export class SceneLoader {
       if (editorOnly(job.ref?.name ?? "")) { stats.markers++; continue; }
       const model = await this.loader.loadRef(job.ref);
       if (model) {
-        objects.push({ model, matrix: job.matrix }); unique.add(model);
-        // TudeySceneView.getFloorZ rays hit these sprites' collision meshes
-        if (job.floor) collision.addFloor(floorTriangles(model), job.matrix, job.floor);
+        // TudeySceneView.getFloorZ rays hit these sprites' collision meshes, where their nodes
+        // stand: one whose automatic animation moves its collision node carries the floor along
+        const lift = job.floor ? floorLift(model) : undefined;
+        objects.push({ model, matrix: job.matrix, ...(lift ? { lift } : {}), ...(job.elevator ? { elevator: job.elevator } : {}) }); unique.add(model);
+        if (job.floor) collision.addFloor(floorTriangles(model), job.matrix, job.floor, lift);
       } else stats.unresolved++;
       if (++done % 200 === 0) onProgress?.(done, jobs.length);
     }

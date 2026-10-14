@@ -14,7 +14,7 @@
 import { identity, invert, multiply, slerp, lerp3, toMatrix, type Mat4, type Transform, type Vec3 } from "../math";
 import type { PassState, TextureUnitState } from "../config/materials";
 import { VIEWER_ENVIRONMENT, type Environment, type Rgb } from "../environment";
-import { Emitter, catchUpSteps } from "../particles";
+import { Emitter, clockEmitter } from "../particles";
 import { recolorPixels, type ColorPository } from "../colors";
 import type { AnimationClip, ClientArray, LightDef, LoadedModel, MeshPart, NodeDef } from "../model";
 import type { Vfs } from "../vfs";
@@ -219,6 +219,21 @@ const SKY_QUEUES: { queue: string; fovScale: number }[] = [
  */
 const ambientOnly = (p: PassState) => p.lit && !!p.ambient && p.overrideLights === 0;
 const isSkyQueue = (q: string) => q === "Skybox" || q === "Skybox (Fov Standard)";
+const unlitPasses = new WeakMap<PassState, PassState>();
+/**
+ * A pass as a model draws it in a scene. A model whose InfluenceFlagConfig turns lights off
+ * (the snipes' character/npc/snipe/model.dat) takes no light state from the scene (Clyde's
+ * Model.setInfluences leaves it null); PassConfig looks up "lightState" through the scope chain
+ * (the model it is attached to, then the scene, which has none) and falls back to
+ * LightState.DISABLED, so a pass that would use the scene's draws at its texture colours. A pass
+ * with a light-state override of its own stays lit by it.
+ */
+export function modelPass(pass: PassState, receivesLights: boolean): PassState {
+  if (receivesLights || !pass.lit || pass.ambient) return pass;
+  let p = unlitPasses.get(pass);
+  if (!p) unlitPasses.set(pass, p = { ...pass, lit: false });
+  return p;
+}
 
 /**
  * A ViewerEffectConfig.Skybox model: placed each frame at camera + (origin - camera) * scale,
@@ -350,6 +365,12 @@ export class ModelInstance {
   tint: Tint = null;
   /** False leaves this instance and its attachments undrawn (a debugging aid). */
   visible = true;
+  /**
+   * Whether its passes take the scene's lights this frame (set as the frame collects it): see
+   * modelPass. Under a scene environment, a model whose InfluenceFlagConfig turns lights off
+   * takes its parent model's light state, and a root one none.
+   */
+  lightsOn = true;
   readonly parts: GpuPart[] = [];
   readonly children: { node: string; transform: Mat4; instance: ModelInstance }[] = [];
   /** Node name -> local transform (bind pose). */
@@ -580,6 +601,9 @@ function sampleClip(clip: AnimationClip, time: number): Map<string, Transform> {
   return out;
 }
 
+/** How long instantiate() waits for a model's particle textures before returning anyway. */
+export const PARTICLE_PRELOAD_MS = 1500;
+
 export class Renderer {
   readonly gl: WebGL2RenderingContext;
   private readonly program: WebGLProgram;
@@ -636,8 +660,13 @@ export class Renderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
   }
 
-  /** Uploads a model's geometry and starts loading its textures. */
-  async instantiate(model: LoadedModel): Promise<ModelInstance> {
+  /**
+   * Uploads a model's geometry and starts loading its textures. `textured` false loads its
+   * geometry alone: a Meshes particle layer draws the mesh with the layer's material, so the
+   * mesh's own textures (often missing from the install: particle/mesh/freeze's skinhalf.png,
+   * particle/mesh/shockwave's testsmoke.png) are never requested.
+   */
+  async instantiate(model: LoadedModel, textured = true): Promise<ModelInstance> {
     const inst = new ModelInstance(model);
     const gl = this.gl;
     for (const part of model.parts) {
@@ -662,18 +691,20 @@ export class Renderer {
       gl.bindVertexArray(null);
       const textures = await Promise.all(part.material.passes.map(p => {
         const u = p.units[0];
-        return u?.texture ? this.texture(u) : Promise.resolve(null);
+        return textured && u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
       const second = await Promise.all(part.material.passes.map(p => {
         const u = p.units[1];
-        return u?.texture ? this.texture(u) : Promise.resolve(null);
+        return textured && u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
       inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures, second });
     }
     for (const a of model.attachments) {
-      inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model) });
+      inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model, textured) });
     }
-    if (model.particles?.length) await this.preloadParticles(model);
+    // (waited for at most PARTICLE_PRELOAD_MS: a texture that never arrives must not hold
+    // back the instance, and with it a bullet or an effect, for good)
+    if (textured && model.particles?.length) await Promise.race([this.preloadParticles(model), new Promise(r => setTimeout(r, PARTICLE_PRELOAD_MS))]);
     return inst;
   }
 
@@ -701,9 +732,40 @@ export class Renderer {
   /** Colour definitions used to recolor textures; set once loaded. */
   colors: Promise<ColorPository | null> = Promise.resolve(null);
 
+  /** Pictures drawn at run time (billboarded interface components), by the texture path they take. */
+  private readonly images = new Map<string, TexImageSource>();
+
+  /** Makes a picture drawn at run time a texture that materials can name by `path`. */
+  registerImage(path: string, source: TexImageSource) {
+    this.images.set(path, source);
+  }
+
   private texture(unit: TextureUnitState): Promise<WebGLTexture | null> {
     const path = unit.texture!;
     const sm = unit.sampler;
+    const image = this.images.get(path);
+    if (image) {
+      let p = this.textures.get("img:" + path);
+      if (!p) {
+        const gl = this.gl;
+        const t = gl.createTexture()!;
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        // bottom row first, as Clyde's textures; premultiplied, as its blend states assume
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        this.loadedTextures.set("img:" + path, t);
+        this.textures.set("img:" + path, p = Promise.resolve(t));
+      }
+      return p;
+    }
     const key = (unit.premultiply ? "p:" : "s:") + `${sm.wrapS},${sm.wrapT},${sm.minFilter},${sm.magFilter}:` + (unit.colorizations.length
       ? path + "|" + JSON.stringify(unit.colorizations, (k, v) => (k === "$outer" ? undefined : v)) : path);
     let p = this.textures.get(key);
@@ -1297,10 +1359,14 @@ export class Renderer {
     const lights: WorldLight[] = [];
     // skel: the nearest articulated ancestor, whose skeleton drives skinned meshes in wrapper
     // models below it (armour inside compound/conditional wrappers on a knight)
+    // Clyde's Model.setInfluences: a model with light influences off keeps no light state of its
+    // own, and its passes find one up the scope chain (the model it is attached to) or none
+    const influences = !!this.env.influences;
     const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null, parentTint: Tint = null,
-      filter: QueueFilter = undefined) => {
+      filter: QueueFilter = undefined, parentLit = false) => {
       if (!inst.visible) return;
       inst.update(frame);
+      inst.lightsOn = inst.model.receivesLights !== false || (influences && parentLit);
       const tint = inst.tint ?? parentTint;
       if (inst.model.light && !this.skyboxPass) lights.push(placeLight(inst.model.light, placement));
       if (inst.model.root) skel = { inst, placement };
@@ -1316,16 +1382,7 @@ export class Renderer {
         const emitter = list[n] ??= new Emitter(inst.model.particles);
         // each emitter keeps its own clock, so views drawn offscreen in the same frame (HUD
         // portraits, the heat flame) still advance
-        if (inst.age > 0) {
-          // an instance its owner advances (an effect, an actor): the world's clock
-          const lastAge = (emitter as any).lastAge as number | undefined;
-          (emitter as any).lastAge = inst.age;
-          for (const s of catchUpSteps(lastAge, inst.age)) emitter.update(s, placement);
-        } else {
-          const last = (emitter as any).lastTime as number | undefined;
-          (emitter as any).lastTime = this.time;
-          emitter.update(last === undefined ? dt : Math.min(0.1, Math.max(0, this.time - last)), placement);
-        }
+        clockEmitter(emitter, inst.age, this.time, dt, placement);
         particles.push({ emitter, matrix: placement, filter });
         // model-emitting layers place their model at each particle
         emitter.states.forEach((state, li) => {
@@ -1358,7 +1415,7 @@ export class Renderer {
           : placement;
         const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
         if (bb) at = this.faceCamera(at, bb);
-        collect(c.instance, multiply(at, c.transform), skel, tint, filter);
+        collect(c.instance, multiply(at, c.transform), skel, tint, filter, inst.lightsOn);
       }
     };
     for (const it of items) collect(it.instance, it.matrix, null, null, it.filter);
@@ -1367,7 +1424,7 @@ export class Renderer {
     // each batch carries its own light set (most placements have none and stay together)
     const batches: { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[]; tint: Tint }[] = [];
     for (const [gp, g] of groups) {
-      const lit = lights.length > 0 && g.inst.model.receivesLights !== false
+      const lit = lights.length > 0 && g.inst.lightsOn
         && gp.part.material.passes.some(p => p.lit && !p.ambient);
       if (!lit) { batches.push({ gp, inst: g.inst, matrices: g.matrices, lights: [], tint: g.tint }); continue; }
       const byKey = new Map<string, { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[]; tint: Tint }>();
@@ -1432,14 +1489,21 @@ export class Renderer {
 
   private readonly meshInstances = new Map<LoadedModel, ModelInstance | null>();
   private readonly meshInstanceLoads = new Map<LoadedModel, Promise<unknown>>();
+  private readonly meshGeometries = new Map<LoadedModel, ModelInstance | null>();
+  private readonly meshGeometryLoads = new Map<LoadedModel, Promise<unknown>>();
 
-  /** Instance for a particle-emitted model; null until its textures have loaded. */
-  private meshInstance(model: LoadedModel): ModelInstance | null {
-    if (!this.meshInstances.has(model)) {
-      this.meshInstances.set(model, null);
-      this.meshInstanceLoads.set(model, this.instantiate(model).then(i => this.meshInstances.set(model, i)).catch(() => {}));
+  /**
+   * Instance for a particle-emitted model; null until it has loaded. A meta layer's model
+   * draws with its own materials; a Meshes layer's (`geometry`) only lends its geometry to the
+   * layer's material, so its own textures are never loaded.
+   */
+  private meshInstance(model: LoadedModel, geometry = false): ModelInstance | null {
+    const done = geometry ? this.meshGeometries : this.meshInstances, loads = geometry ? this.meshGeometryLoads : this.meshInstanceLoads;
+    if (!done.has(model)) {
+      done.set(model, null);
+      loads.set(model, this.instantiate(model, !geometry).then(i => done.set(model, i)).catch(() => {}));
     }
-    return this.meshInstances.get(model) ?? null;
+    return done.get(model) ?? null;
   }
 
   /**
@@ -1457,9 +1521,9 @@ export class Renderer {
         if (p) waits.push(p.catch(() => null));
       }
       if (l.model && l.geometry === "Meshes") {
-        this.meshInstance(l.model);
+        this.meshInstance(l.model, true);
         // (a mesh with particles of its own is not waited for: a cycle would never resolve)
-        const p = this.meshInstanceLoads.get(l.model);
+        const p = this.meshGeometryLoads.get(l.model);
         if (p && !l.model.particles?.length) waits.push(p);
       }
     }
@@ -1533,7 +1597,7 @@ export class Renderer {
    */
   private drawMeshParticles(emitter: Emitter, li: number, matrix: Mat4) {
     const gl = this.gl, layer = emitter.states[li].layer;
-    const inst = layer.model ? this.meshInstance(layer.model) : null;
+    const inst = layer.model ? this.meshInstance(layer.model, true) : null;
     if (!inst) return;
     const passes = layer.material.passes;
     const textures = passes.map(p => this.particleTexture(p.units[0]));
@@ -1574,12 +1638,8 @@ export class Renderer {
       gl.vertexAttribPointer(6 + k, 4, gl.FLOAT, false, 64, first * 64 + k * 16);
       gl.vertexAttribDivisor(6 + k, 1);
     }
-    // a model that takes no light influences (InfluenceFlagConfig lights false: dropped crowns,
-    // hearts and items) has Clyde's LightState.DISABLED: its passes draw at their texture and
-    // vertex colours, unlit, unless a pass carries a light override of its own
-    const unlit = inst.model.receivesLights === false;
     gp.part.material.passes.forEach((pass, i) => {
-      this.applyPass(unlit && pass.lit && !pass.ambient ? { ...pass, lit: false } : pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
+      this.applyPass(modelPass(pass, inst.lightsOn || !this.env.influences), gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
       if (gp.indexed) gl.drawElementsInstanced(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0, instances);
       else gl.drawArraysInstanced(gp.primitive, 0, gp.count, instances);
       this.stats.draws++;

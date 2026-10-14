@@ -87,6 +87,8 @@ export interface MonsterInfo {
   script?: any[] | null;
   /** Values passed to its behaviour's parameters (behaviorArgs). */
   args?: Record<string, unknown>;
+  /** Its collision radius (a jelly cube's 0.4, the Jelly Green Giant's 1). */
+  radius?: number;
 }
 
 /** Attacks that move or posture rather than strike (used by Dodging, never as attacks). */
@@ -163,11 +165,16 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
     // drops roll at the knight and become a puddle under it (wiki: Drop)
     return target(path(offensive.length ? offensive : [0], 0.3), { acquireRadius: 8 });
   if (/\/Slime\//.test(n) || /Creep Cake|Void Gel|Royal Mini|Jelly Cube/.test(n)) {
-    // jellies close in and tackle; higher tiers raise thorns under the knight (wiki: Jelly)
+    // jellies close in and tackle; higher tiers raise thorns under the knight (wiki: Jelly).
+    // A giant jelly (twice a cube's radius, its roundhouse and spin twice as wide) strikes
+    // from twice a cube's distance, within its own reach, rather than crawling (it chases at
+    // 1 unit a second) right up to the knight its swing reaches from well back (ours)
     const melee = idx(/Roundhouse|Punch|Lichen$/);
-    return target(random([3, path(melee.length ? melee : offensive)],
+    const r = m.radius ?? 0.4, reach = Math.min(...melee.map(i => m.reach[i] || 0.85));
+    const tackle = r > 0.6 && melee.length ? Math.max(0.85, Math.min(reach, 0.85 * r / 0.4)) : 0.85;
+    return target(random([3, path(melee.length ? melee : offensive, tackle)],
       [when(far(1), 1, 0.3), path(idx(/Impale/), 3)],
-      [when(near(1.5), 1, 0), path(idx(/Spin/), 0.85)]), { acquireRadius: 8 });
+      [when(near(Math.max(1.5, tackle)), 1, 0), path(idx(/Spin/), tackle)]), { acquireRadius: 8 });
   }
 
   // ---- Constructs

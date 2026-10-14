@@ -87,6 +87,8 @@ export interface ResolvedMaterial {
 export interface LocalConfigs {
   materials: Map<string, any>;
   textures: Map<string, any>;
+  /** Interface styles (a ComponentBillboardConfig's components are styled by them). */
+  styles?: Map<string, any>;
 }
 
 export function localConfigs(modelConfig: any): LocalConfigs {
@@ -95,6 +97,7 @@ export function localConfigs(modelConfig: any): LocalConfigs {
     for (const c of group.configs ?? []) {
       if (c.$class?.endsWith("MaterialConfig")) out.materials.set(c.name, c);
       else if (c.$class?.endsWith("TextureConfig")) out.textures.set(c.name, c);
+      else if (c.$class?.endsWith("gui.config.StyleConfig")) (out.styles ??= new Map()).set(c.name, c);
     }
   }
   return out;

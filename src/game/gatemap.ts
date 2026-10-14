@@ -22,7 +22,7 @@
 // emblem is its symbol (ui/icon/gate/<symbol>.png) in its colour. The colours of the fixed sets
 // and the gate colours are offsets read off icons the game drew.
 
-import { BOSSES, type BossKey, type Family } from "./clockworks";
+import { BOSSES, floorIcon, type BossKey, type Family, type Floor } from "./clockworks";
 import { levelText } from "./text";
 
 export type Element = "Fire" | "Freeze" | "Poison" | "Shock";
@@ -220,6 +220,34 @@ const STAGE: Record<string, [BossKey, Record<string, string>]> = {
 const BOSS_CODE: Record<string, BossKey> = { snarb: "snarbolax", jk: "jelly", rt: "twins", vana: "vanaduke" };
 const BOSS_COLOURS: Record<BossKey, string> = { snarbolax: "gww", jelly: "rjp", twins: "imf", vanaduke: "scarlet" };
 const STAGE_ICON: Record<string, string> = { gww: "woods", rjp: "castle", imf: "munitions", fsc: "castle" };
+
+/** A map icon (ui/icon/map/<icon>.png) in one of the fixed colour sets ("haven", "brown", "gww"...). */
+export const specialIcon = (icon: string, set: string): { file: string; colorizations: any[] } =>
+  ({ file: `ui/icon/map/${icon}.png`, colorizations: SPECIAL[set] ?? SPECIAL.brown });
+
+/** A boss's own level icon, as the gate map draws its lair. */
+export const bossIcon = (boss: BossKey) => specialIcon("boss", BOSS_COLOURS[boss] ?? "scarlet");
+
+/** A boss's stage icon (the woods, castle or munitions of the stages before its lair). */
+export function bossStageIcon(boss: BossKey): { file: string; colorizations: any[] } {
+  const k = Object.keys(STAGE).find(k => STAGE[k][0] === boss);
+  return k ? specialIcon(STAGE_ICON[k], k) : bossIcon(boss);
+}
+
+/**
+ * A floor as the gate map shows it: a real gate's level, else a generated floor's (its style's
+ * icon in its stratum's family and element colours; the fixed depths' terminals and towns).
+ */
+export function floorMapLevel(f: Floor): RealLevel {
+  if (f.level) return f.level;
+  const s = f.stratum;
+  const fam = s && ["Beast", "Construct", "Fiend", "Gremlin", "Slime", "Undead"].includes(s.theme) ? s.theme as Family : null;
+  const el = s && ["Fire", "Freeze", "Poison", "Shock"].includes(s.theme) ? s.theme as Element : null;
+  const kind = f.kind === "subtown" ? "town" : f.kind;
+  if (kind === "lobby" || kind === "terminal" || kind === "town" || kind === "core") return fixedLevel(f.depth);
+  return { code: "", key: f.levelKey ?? "", title: f.name, subtitle: f.zone ?? "", icon: floorIcon(f), colorizations: themeColours(el, fam),
+    kind: kind === "boss" ? "boss" : "level", style: s?.style.key ?? null, family: fam, element: el, ...(kind === "boss" && s?.boss ? { boss: s.boss } : {}) };
+}
 
 /** A level's names from the dungeon bundle ("Set|Level"), else ours. */
 function named(key: string, title: string, subtitle: string): { title: string; subtitle: string } {
@@ -511,4 +539,39 @@ export function displayOrder(w: Wheel, t: number): number[] {
   } else top = wedgeAt(w, 0, t);
   const shift = top + Math.floor(n / 2) + 1;
   return Array.from({ length: n }, (_, k) => (k + shift) % n);
+}
+
+// ---------------------------------------------------------------------------- elevator screens
+
+/** A randomised next depth on an elevator's screen: the "?" icon, greyed (the client's ElevatorProp sprite's own colours). */
+export const ELEVATOR_UNKNOWN = { file: "ui/icon/map/unknown.png", colorizations: [custom(GLYPH, 0, -1, -0.9), custom(FIELD, 0, -1, -0.35)] };
+
+const mapIcon = (l: RealLevel) => ({ file: `ui/icon/map/${l.icon}.png`, colorizations: l.colorizations });
+
+/**
+ * What an exit elevator's screen shows, as the client's ElevatorProp sprite sets its model's
+ * "Icon" and "Colorizations" every tick (dungeon/client/a/t): the level it leads to, the next
+ * depth's wedge under this depth's as the two wheels turn (so it changes while the floor is
+ * played); "?" for a randomised depth; the run's town (Haven) after the last floor, or from an
+ * elevator that ends the run (dissolveParty). `next` is the run's next floor, for gates without
+ * wheels (generated gates, missions); null when the run ends there.
+ */
+export function elevatorScreen(o: { real: RealGate | null; depth: number; wedge: number; next: Floor | null; dissolve: boolean; t: number }):
+  { file: string; colorizations: any[] } {
+  if (o.dissolve) return mapIcon(fixedLevel(-1));
+  const b = o.real && o.depth < 29 ? o.real.wheels[o.depth + 1] : undefined;
+  if (o.real && b) {
+    if (b.random) return ELEVATOR_UNKNOWN;
+    const n = nextLevel(o.real, o.depth, o.wedge, o.t);
+    return mapIcon(b.options[n?.wedge ?? 0] ?? b.options[0]);
+  }
+  return mapIcon(o.next ? floorMapLevel(o.next) : fixedLevel(-1));
+}
+
+/** An elevator model reference with its screen's "Icon" and "Colorizations" arguments set. */
+export function withScreen(ref: any, screen: { file: string; colorizations: any[] }): any {
+  const entries: [unknown, unknown][] = ((ref?.arguments?.entries ?? []) as [unknown, unknown][])
+    .filter(([k]) => k !== "Icon" && k !== "Colorizations");
+  entries.push(["Colorizations", screen.colorizations], ["Icon", screen.file]);
+  return { ...ref, arguments: { ...(ref?.arguments ?? { $map: "com.threerings.config.ArgumentMap" }), entries } };
 }
