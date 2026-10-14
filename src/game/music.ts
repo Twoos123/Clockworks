@@ -22,7 +22,7 @@ const mix = (files: [string, number][], gain: number, crossFade: number, source:
 const SG = "scene_global: ";
 /** Places, mostly straight from the data (scene globals and the cached scenes' own music). */
 export const PLACES = {
-  title: one("main_theme", 0.45, "ours: the game's main theme for the title screen"),
+  title: one("title", 0.45, "ProjectXApp and dK: sound/music/title.ogg (\"Cradle\") at 0.45 on the login and knight select screens"),
   haven: one("haven", 0.25, SG + "Environment/Custom/Town/Haven/Default/Music"),
   havenWinter: one("haven_winter", 0.35, SG + "Environment/Custom/Town/Haven/Winter/Music"),
   havenHaunted: one("haven_haunted", 0.25, "scenes cache: haven_town_square (Environment/Music)"),
