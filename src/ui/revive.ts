@@ -45,8 +45,12 @@ export class ReviveScreen {
 
   get isOpen() { return !this.canvas.hidden; }
 
+  /** When the window opened (the client holds the spark buttons off for 1.2 s, against a stray click). */
+  private openedAt = 0;
+
   async open() {
     this.canvas.hidden = false;
+    this.openedAt = performance.now();
     await this.refresh();
     if (!this.running) { this.running = true; requestAnimationFrame(this.frame); }
   }
@@ -73,14 +77,14 @@ export class ReviveScreen {
           arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Mode", mode]] } });
         if (ui) {
           const use = ui.find("use_spark"), buy = ui.find("buy_spark");
-          if (use) use.onAction = () => { if (this.actions.use()) this.close(); };
+          if (use) use.onAction = () => { if (use.enabled && this.actions.use()) this.close(); };
           // the title's message key reads "Revivenow"; the spark's view model draws as a plain
           // quad here, so the frame shows without it
           const walk = (c: Component) => { if (c.kind === "label" && /^revive ?now$/i.test(c.text)) c.text = "Revive Now"; c.children.forEach(walk); };
           walk(ui);
           const view = ui.find("renderview");
           if (view) view.visible = false;
-          if (buy) buy.onAction = () => { if (this.actions.buy()) { this.actions.sound("sound/feedback/ui_merchant_trade_add.ogg"); void this.refresh(); } };
+          if (buy) buy.onAction = () => { if (buy.enabled && this.actions.buy()) { this.actions.sound("sound/feedback/ui_merchant_trade_add.ogg"); void this.refresh(); } };
           resetInput(ui);
           this.ui = ui;
           this.mode = mode;
@@ -97,8 +101,11 @@ export class ReviveScreen {
     set("spark_count", String(this.actions.sparks()));
     set("spark_cost", String(this.actions.price()));
     set("description", this.mode === "Use" ? "Use a Spark of Life to get back up." : `No sparks left. Buy one for ${this.actions.price()} crowns (you have ${this.actions.crowns()}).`);
+    const ready = performance.now() - this.openedAt >= 1200;
+    const use = ui.find("use_spark");
+    if (use) use.enabled = ready && this.actions.sparks() > 0;
     const buy = ui.find("buy_spark");
-    if (buy) buy.enabled = this.actions.crowns() >= this.actions.price();
+    if (buy) buy.enabled = ready && this.actions.crowns() >= this.actions.price();
   }
 
   private frame = () => {
@@ -111,16 +118,15 @@ export class ReviveScreen {
     g.clearRect(0, 0, w, h);
     g.scale(dpr, dpr);
     const cw = w / dpr, ch = h / dpr;
-    g.fillStyle = "rgba(40,0,0,0.35)";
-    g.fillRect(0, 0, cw, ch);
+    // the client adds the revive panel to the HUD at its bottom centre (no dimming) and the
+    // leave-party panel to the party list on the left, 150 pixels down
     if (this.ui) {
       this.bind();
       const s = pack(this.ui);
-      const bottom = Math.round((ch + s.height) / 2);
-      render(this.ui, g, Math.round((cw - s.width) / 2), bottom, this.hooks);
+      render(this.ui, g, Math.round((cw - s.width) / 2), ch, this.hooks);
       if (this.leave) {
         const l = pack(this.leave);
-        render(this.leave, g, Math.round((cw - l.width) / 2), bottom + 24 + l.height, this.hooks);
+        render(this.leave, g, 0, 150 + l.height, this.hooks);
       }
     }
     requestAnimationFrame(this.frame);

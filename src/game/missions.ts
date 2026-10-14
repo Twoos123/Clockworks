@@ -13,7 +13,7 @@
 
 import { applyArguments } from "../config/params";
 import { rng } from "../gen/layout";
-import { hasMessage, text, xlate } from "../i18n";
+import { hasMessage, message, text, xlate } from "../i18n";
 import { bossName, BOSSES, FAMILIES, STYLES, type BossKey, type Family, type Floor, type Gate, type LevelStyle, type Stratum, type StratumTheme } from "./clockworks";
 
 export type MissionClass = "Rank" | "Prestige" | "Hidden" | "Expansion";
@@ -94,7 +94,9 @@ export const rankName = (rank: number) => {
   const r = Math.max(1, Math.min(10, rank));
   return text("mission", `m.rank_title_${r}`, RANK_NAMES[r - 1]);
 };
-export const rankLabel = (p: MissionProgress) => `RANK ${p.rank}-${p.subrank}`;
+/** The portrait's rank label: the mission bundle's c.rank ("Rank 1-1"), as the client's status panel sets it. */
+export const rankLabel = (p: MissionProgress) =>
+  hasMessage("mission", "c.rank") ? message("mission", "c.rank", p.rank, p.subrank) : `Rank ${p.rank}-${p.subrank}`;
 
 /** Clockworks tiers and the rank each needs (tier 2 from depth 8, tier 3 from depth 18). */
 export const TIER_RANK: Record<number, number> = { 1: 1, 2: 4, 3: 6 };

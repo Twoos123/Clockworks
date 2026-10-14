@@ -2386,7 +2386,8 @@ export class World implements LogicHost {
     const name = monsterName(t.m.def, (t.m.entity?.name ?? "").split("/").pop()!.replace(/\s+\d+(\.\d+)?$/, ""));
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(t.m.entity?.name ?? "")?.[1]?.toLowerCase() ?? "";
     const key = ((t.m as any).hudKey ??= ++this.hudKeys);
-    return { key: key + name, name, health: t.m.health, maxHealth: t.m.maxHealth, family: fam, model: t.m.def.model, idle: t.m.def.idle ?? null };
+    return { key: key + name, name, health: t.m.health, maxHealth: t.m.maxHealth, family: fam, model: t.m.def.model, idle: t.m.def.idle ?? null,
+      icon: t.m.def.descIcon ?? null, weakness: t.m.def.weakness ?? "NORMAL", attack: t.m.def.attackType ?? "NORMAL" };
   }
 
   private damageMonster(m: Monster, amounts: Amounts, knockback: Knock, fx: number, fy: number) {
