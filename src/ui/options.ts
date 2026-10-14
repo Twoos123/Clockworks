@@ -11,7 +11,7 @@
 import { CONFIG_REF } from "../config/params";
 import { loadSave, writeSave, type SaveData } from "../game/save";
 import { checklist } from "../game/levels";
-import { messages } from "../i18n";
+import { messages, text } from "../i18n";
 import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, setComboItems, type GuiContext } from "./gui";
 import { findParent, KeyBindings } from "./keybinds";
 import { buildUi, uiRef } from "./screen";
@@ -587,7 +587,9 @@ export class OptionsScreen {
 
   private setQualityLabel(ui: Component) {
     const l = ui.find("render_quality_label"), r = this.settings.renderScale;
-    if (l) l.text = r < 0.75 ? "Low" : r < 1 ? "Medium" : r < 1.25 ? "High" : "Very High";
+    // ProjectXPrefs.RenderQuality: three steps, named m.low, m.medium and m.high
+    const q = r < 5 / 6 ? "low" : r < 7 / 6 ? "medium" : "high";
+    if (l) l.text = text("projectx", `m.${q}`, q[0].toUpperCase() + q.slice(1));
   }
 
   private setScaleLabel(ui: Component) {

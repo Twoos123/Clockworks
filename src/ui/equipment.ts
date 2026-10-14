@@ -33,8 +33,12 @@ import {
 } from "../game/sprites";
 import { validName } from "./createknight";
 import { messageText, type Component, type Style } from "./gui";
-import { itemTip, ItemList, type ListEntry, type ListGroup } from "./itemlist";
-import { GuiScreen, row, uiRef, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
+import { itemTip, ItemList, levelBonuses, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
+import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
+import { styledLabel } from "./floating";
+import { freshProgress, rankName } from "../game/missions";
+import { text as bundleText } from "../i18n";
+import { buildStats, GuiScreen, row, uiRef, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
 
 export interface ArsenalHost extends ScreenHost {
   save(): SaveData;
@@ -98,6 +102,9 @@ const ACCESSORY_GROUPS: Record<AccessorySlot, { label: string; icon: string }> =
   armor_ankle: { label: "Armor Ankle", icon: CAT + "icon_accessory-aankle.png" },
   armor_aura: { label: "Armor Aura", icon: CAT + "icon_accessory-aaura.png" },
 };
+/** The arsenal's groups in the client's order (ItemCodes.Group), and their names in the item bundle. */
+const ARSENAL_GROUPS = ["sword", "gun", "bomb", "helmet", "armor", "shield", "trinket", "vitapod"];
+const GROUP_KEY: Record<string, string> = { sword: "m.sword", gun: "m.handgun", bomb: "m.bomb", helmet: "m.helm", armor: "m.armor", shield: "m.shield", trinket: "m.trinket" };
 /** Pills a costume or accessory group shows before the search field narrows it. */
 const WARDROBE_LIMIT = 40;
 
@@ -160,6 +167,52 @@ function wardrobe(data: GameData): Promise<Wardrobe> {
   return p;
 }
 
+/** The tooltip for an owned item (ItemConfig.Level's): the power bars, the unique variants, the level's bonuses at depth 30. */
+export function ownedTip(save: SaveData, data: GameData, eco: Economy, e: ItemEntry, worn: boolean) {
+  const heatable = !!eco.info(e.name)?.heatable;
+  const g = save.gear[e.name], lv = eco.level(save, e.name);
+  const bonuses: TipBonus[] = (g?.variants ?? []).map(v => ({ text: eco.variantLabel(v), bonus: true, color: "Variant" }));
+  if (heatable) bonuses.push(...levelBonuses(eco.levelStats(e.name, lv, 30)));
+  const flavor = heatable
+    ? `${g?.heat ?? 0} heat absorbed.${lv < MAX_LEVEL ? " Gear levels up with the heat it gathers in the Clockworks." : " Fully heated."}`
+    : `${e.category.label.replace(/s$/, "")}.`;
+  return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
+    flavor, level: heatable ? lv : undefined, noLevel: e.category.slot === "trinket",
+    progress: eco.heatProgress(save, e.name), equipped: worn, bonuses, stats: itemStats(data, eco, e.name, Math.max(1, lv)) });
+}
+
+/**
+ * ArsenalPanel's groups of what the knight owns: the client's item groups in ItemCodes.Group
+ * order, named in the item bundle and shown even when empty (the vitapod group is this
+ * port's own), then the minerals and materials.
+ */
+export function ownedGroups(save: SaveData, data: GameData, eco: Economy): ListGroup[] {
+  const owned = new Set(save.owned), l = save.loadout, groups: ListGroup[] = [];
+  const cats = ARSENAL_GROUPS.map(id => CATEGORIES.find(c => c.id === id)!).filter(Boolean);
+  for (const cat of cats) {
+    const entries = catalogue(data).filter(e => e.category === cat && owned.has(e.name)).map(e => {
+      const worn = isEquipped(l, e), heatable = !!eco.info(e.name)?.heatable;
+      const lv = heatable ? eco.level(save, e.name) : 0;
+      return { key: e.name, label: e.label, rarity: e.rarity, icon: e.icon, look: worn ? "True" : "False",
+        // weapons, armour, helmets and shields hold variants (pips shown, empty or not); trinkets do not
+        variants: heatable ? save.gear[e.name]?.variants.length ?? 0 : -1, levelled: heatable, level: lv,
+        damage: pillDamage(data, eco, e.name, Math.max(1, lv)), tip: ownedTip(save, data, eco, e, worn) } satisfies ListEntry;
+    });
+    const key = GROUP_KEY[cat.id];
+    groups.push({ id: cat.id, label: key ? messageText(key, "item") : cat.label, icon: cat.icon, entries, showEmpty: !!key });
+  }
+  for (const g of [{ id: "mineral", key: "m.mineral", icon: CAT + "icon_mineral.png", cats: ["mineral", "deposit"] },
+    { id: "material", key: "m.material", icon: CAT + "icon_puzzle.png", cats: ["material"] }]) {
+    const names = Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && g.cats.includes(eco.info(n)?.category ?? ""));
+    groups.push({ id: g.id, label: messageText(g.key, "item"), icon: g.icon, showEmpty: true, entries: names.map(n => {
+      const it = eco.info(n), count = save.materials[n] ?? 0;
+      return { key: `mat:${n}`, label: itemLabel(n), rarity: it?.rarity ?? 0, icon: it?.icon ?? null, count: count > 1 ? String(count) : "",
+        tip: itemTip({ label: itemLabel(n), type: messageText(g.key, "item"), rarity: it?.rarity ?? 0, flavor: "", item: n, kind: it?.category, plain: true }) } satisfies ListEntry;
+    }) });
+  }
+  return groups;
+}
+
 /** A skill or augment name from its message key ("m.extra_crispy" is "Extra Crispy"). */
 const named = (key: string) => key ? messageText(key) : "";
 
@@ -212,6 +265,7 @@ export class ArsenalScreen extends GuiScreen {
     this.defs = defs;
     this.list = new ItemList(this.ctx, left, this.tips, f => this.host.sound(f));
     this.list.onPick = e => this.pick(e);
+    this.list.clicks = this.clicks;
     this.on(left, "dismiss", () => this.close());
     this.on(right, "handle", () => this.close());
     this.on(right, "button_saveloadout", () => this.openSaveLoadout());
@@ -424,6 +478,8 @@ export class ArsenalScreen extends GuiScreen {
       case "costume": void this.toggleCostume(value); return;
       case "accessory": void this.toggleAccessory(value); return;
       case "sprite": this.chooseSprite(value); return;
+      // materials are listed to look at (the client's context menu offers nothing more here)
+      case "mat": return;
       case "food":
         this.food = this.food === value ? "" : value;
         this.focus = "sprite";
@@ -716,28 +772,10 @@ export class ArsenalScreen extends GuiScreen {
   // ------------------------------------------------------------------ the lists
 
   /** The tooltip for an owned item: its level and heat, what the level gives, its variants. */
-  private tip(e: ItemEntry, worn: boolean) {
-    const save = this.arsenal.save(), eco = this.eco!, heatable = !!eco.info(e.name)?.heatable;
-    const g = save.gear[e.name], lv = eco.level(save, e.name);
-    const lines: string[] = [];
-    if (heatable) {
-      const st = eco.levelStats(e.name, lv, Math.max(1, save.bestDepth));
-      if (st.damage + st.uncapped) lines.push(`Damage +${Math.round((st.damage + st.uncapped) * 100)}%`);
-      if (st.charge) lines.push(`Charge time -${Math.round(st.charge * 100)}%`);
-      if (st.defense) lines.push(`Defense +${Math.round(st.defense)}`);
-      if (st.health) lines.push(`Health +${Math.round(st.health / 40 * 10) / 10} pips`);
-    }
-    for (const v of g?.variants ?? []) lines.push(eco.variantLabel(v));
-    const flavor = heatable
-      ? `${g?.heat ?? 0} heat absorbed.${lv < MAX_LEVEL ? " Gear levels up with the heat it gathers in the Clockworks." : " Fully heated."}`
-      : `${e.category.label.replace(/s$/, "")}.`;
-    return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
-      flavor: flavor + (worn ? " Equipped." : " Click to equip."), level: heatable ? lv : undefined,
-      progress: eco.heatProgress(save, e.name), equipped: worn, lines });
-  }
+  private tip(e: ItemEntry, worn: boolean) { return ownedTip(this.arsenal.save(), this.arsenal.data(), this.eco!, e, worn); }
 
   private gearGroups(): ListGroup[] {
-    const save = this.arsenal.save(), owned = new Set(save.owned), l = save.loadout;
+    const save = this.arsenal.save(), l = save.loadout;
     const groups: ListGroup[] = [];
     const saved = save.loadouts ?? [];
     if (saved.length) groups.push({ id: "loadouts", label: "Loadouts", icon: CAT + "icon_equippable.png", entries: saved.map((s, i) => {
@@ -745,16 +783,7 @@ export class ArsenalScreen extends GuiScreen {
       return { key: `loadout:${i}`, label: s.name, rarity: -1, icon: null, look: worn ? "True" : "False", tip: this.loadoutTip(s),
         ui: uiRef(LOADOUT_PILL, { Name: s.name, Equipped: worn ? "True" : "False", Hoverable: true }) } satisfies ListEntry;
     }) });
-    for (const cat of CATEGORIES) {
-      const entries = catalogue(this.arsenal.data()).filter(e => e.category === cat && owned.has(e.name)).map(e => {
-        const worn = isEquipped(l, e);
-        const lv = this.eco?.info(e.name)?.heatable ? this.eco.level(save, e.name) : 0;
-        return { key: e.name, label: e.label, variants: save.gear[e.name]?.variants.length ?? 0, rarity: e.rarity, icon: e.icon, look: worn ? "True" : "False", count: lv ? String(lv) : "",
-          tip: this.tip(e, worn) } satisfies ListEntry;
-      });
-      if (entries.length) groups.push({ id: cat.id, label: cat.label, icon: cat.icon, entries });
-    }
-    return groups;
+    return [...groups, ...ownedGroups(save, this.arsenal.data(), this.eco!)];
   }
 
   private async costumeGroups(): Promise<ListGroup[]> {
@@ -789,7 +818,7 @@ export class ArsenalScreen extends GuiScreen {
     const owned = outfit.ownedSprites().filter(n => this.defs.has(n));
     if (owned.length) groups.push({ id: "sprites", label: "Battle Sprites", icon: CAT + "icon_battlesprite.png", entries: owned.map(n => {
       const def = this.defs.get(n)!, p = save.sprites?.sprites[n], lv = p?.level ?? 0, worn = n === active;
-      return { key: `sprite:${n}`, label: n, rarity: -1, icon: def.icons[spriteTier(lv) - 1], look: worn ? "True" : "False", count: String(lv),
+      return { key: `sprite:${n}`, label: n, rarity: lv, icon: def.icons[spriteTier(lv) - 1], look: worn ? "True" : "False",
         tip: itemTip({ label: n, type: "Battle Sprite", rarity: 0, flavor: `Level ${lv}. ${worn ? "In the field. Click to leave it home." : "Click to take it along."}`, equipped: worn }) };
     }) });
     const foods = Object.keys(save.materials).filter(n => /^Food\//.test(n) && foodStars(n) > 0 && (save.materials[n] ?? 0) > 0).sort();
@@ -830,13 +859,20 @@ export class ArsenalScreen extends GuiScreen {
     this.list.setInfo("ARSENAL", info[mode][0], info[mode][1], save.crowns);
     const groups = mode === "equipment" || mode === "achievements" ? this.gearGroups() : mode === "costume" ? await this.costumeGroups()
       : mode === "sprite" ? this.spriteGroups() : this.optionGroups();
+    // LoadoutPanel takes the battle sprite tab away while the knight has no sprite
+    const spriteTab = this.status.find("tabbed")?.parts.buttons?.children[2];
+    if (spriteTab) spriteTab.visible = this.arsenal.outfit().ownedSprites().length > 0;
+    // the gear list sorts as the client's arsenal does; the other pages keep their own order
+    this.list.sorts = mode === "equipment" || mode === "achievements" ? ["natural", "name", "stars", "level"] : [];
     await this.list.setGroups(groups);
     // the status window: names on every page, then each page's sockets
     for (const page of this.pages) {
       const set = (tag: string, text: string) => { const c = page.find(tag); if (c) c.text = text; };
       set("label_playername", knightName(save));
-      set("label_playerrank", save.bestDepth ? `Deepest Depth ${save.bestDepth}` : "Recruit");
-      set("label_prestige", `${save.runs} runs`);
+      // LoadoutPanel: the mission rank's title with the rank, and the prestige
+      const m = save.missions ?? freshProgress();
+      set("label_playerrank", `${rankName(m.rank)}(${m.rank}-${m.subrank})`);
+      set("label_prestige", m.prestige.toLocaleString("en-US"));
     }
     const st = this.status;
     for (const s of SOCKETS) {
@@ -872,6 +908,42 @@ export class ArsenalScreen extends GuiScreen {
     }
     await this.fillSprite();
     await this.fillAchievements();
+    await this.fillGearStats();
+  }
+
+  /** Whether the equipment page's gear stats column is folded away (the client starts it folded). */
+  private statsFolded = true;
+  private statsBuilt = "";
+
+  /**
+   * The equipment page's gear stats column (LoadoutPanel's equipment tab, client/l): "GEAR
+   * STATS" with the worn armour's defence power, then each weapon's name, attack power and
+   * level bonuses; the toggle beside the sockets folds it.
+   */
+  private async fillGearStats() {
+    const page = this.pages[0];
+    const toggle = page?.find("toggle_collapseleft"), left = page?.find("left_cont"), cont = page?.find("scroll_cont");
+    if (!page || !toggle || !left || !cont || !this.eco) return;
+    toggle.visible = true;
+    toggle.selected = this.statsFolded;
+    toggle.onAction = c => { this.statsFolded = !!c.selected; left.visible = !this.statsFolded; this.host.sound("sound/feedback/ui_dropdown_select.ogg"); };
+    left.visible = !this.statsFolded;
+    const save = this.arsenal.save(), eco = this.eco, data = this.arsenal.data(), l = save.loadout;
+    const lv = (n: string) => Math.max(1, eco.level(save, n));
+    const key = JSON.stringify([l, save.gear]);
+    if (key === this.statsBuilt) return;
+    this.statsBuilt = key;
+    const title = (t: string) => styledLabel(this.ctx, t.toUpperCase(), "Status/Gear Stats/Title", page.local);
+    const parts: (Component | null)[] = [await title(bundleText("projectx", "t.gear_stats", "Gear Stats"))];
+    const def = wornDefense(data, eco, [l.helmet, l.armor].filter(Boolean).map(n => ({ name: n, level: lv(n) })));
+    if (def) parts.push(await buildStats(this.ctx, def));
+    for (const w of l.weapons.filter(Boolean)) {
+      parts.push(await title(eco.displayName(w, save.gear[w])));
+      const st = itemStats(data, eco, w, lv(w));
+      if (st) parts.push(await buildStats(this.ctx, st));
+    }
+    cont.children = parts.filter((c): c is Component => !!c);
+    for (const c of cont.children) { c.constraints = null; if (c.kind === "label") c.preferredSize = { width: 180, height: -1 }; }
   }
 
   /** The achievements page: earned icons, locks, and the tooltips. */

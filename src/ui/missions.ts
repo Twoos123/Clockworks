@@ -19,8 +19,8 @@ import { knightName, type SaveData } from "../game/save";
 import { loadConversation, type Conversation } from "../game/conversation";
 import { SpawnTables } from "../game/spawntable";
 import { itemName } from "../game/text";
-import { text } from "../i18n";
-import { buildComponentConfig, Component, type GuiContext, type GuiImage } from "./gui";
+import { message, text } from "../i18n";
+import { buildComponentConfig, Component, restyle, type GuiContext, type GuiImage } from "./gui";
 import { notice } from "./notice";
 import { buildUi, GuiScreen, uiRef } from "./screen";
 
@@ -55,6 +55,7 @@ const PILL = "ui/recipes/parts/pill_recipe/interface.dat";
 const MATERIAL = "ui/recipes/parts/material/interface.dat";
 const PROMPT = "ui/window/confirm_prompt/interface.dat";
 const EMPTY_CARD = "ui/mission/images/cards/empty.png";
+const UNKNOWN_CARD = "ui/mission/images/cards/images/unknown.png";
 const CROWN = "ui/icon/crown_32.png";
 const BLANK = "ui/icon/inventory/blank.png";
 const PER_PAGE = 5;
@@ -65,9 +66,6 @@ const ref = (name: string) => ({ $class: CONFIG_REF, name });
 const label = (name: string) => itemName(name);
 const KIND_LABEL: Record<Mission["kind"], string> = {
   dungeon: "Mission", conversation: "Briefing", exchange: "Exchange", gate: "Arcade gate", "gate-conversation": "Briefing",
-};
-const ACTION: Record<Mission["kind"], string> = {
-  dungeon: "Start", exchange: "Turn In", gate: "To the Arcade", conversation: "Read Briefing", "gate-conversation": "Read Briefing",
 };
 
 /** The knight's mission progress in the save (created on first use). */
@@ -360,8 +358,8 @@ class MissionScreen extends GuiScreen {
     return t;
   }
 
-  private async button(text: string, fn: () => void, enabled = true): Promise<Component> {
-    const b = await buildComponentConfig(this.ctx, { $class: COMPONENT + "Button", text, style: ref("Default/Button (Yellow)/Button") }, this.root?.local ?? new Map());
+  private async button(text: string, fn: () => void, enabled = true, style = "Default/Button (Yellow)/Button"): Promise<Component> {
+    const b = await buildComponentConfig(this.ctx, { $class: COMPONENT + "Button", text, style: ref(style) }, this.root?.local ?? new Map());
     b.enabled = enabled;
     b.onAction = () => fn();
     return b;
@@ -402,8 +400,8 @@ class MissionScreen extends GuiScreen {
     const b = this.board, p = b.progress, save = b.game.save();
     // header: prestige and rank sockets, the rank bar
     const set = (root: Component, tag: string, text: string) => { const c = root.find(tag); if (c) c.text = text; };
-    set(ui, "prestige", `Prestige: ${p.prestige.toLocaleString("en-US")}`);
-    set(ui, "rank", `Rank: ${p.rank}-${p.subrank}`);
+    set(ui, "prestige", message("mission", "m.prestige_header", p.prestige.toLocaleString("en-US")) || `Prestige: ${p.prestige.toLocaleString("en-US")}`);
+    set(ui, "rank", message("mission", "m.rank_header", p.rank, p.subrank) || `Rank: ${p.rank}-${p.subrank}`);
     const rankUi = ui.find("rank_ui");
     if (rankUi) this.fillBar(rankUi, p);
     for (const [tab, tag] of TABS) { const c = ui.find(tag); if (c) c.selected = tab === this.tab; }
@@ -451,19 +449,24 @@ class MissionScreen extends GuiScreen {
     const m = this.chosen;
     const brief = ui.find("briefing_container"), mission = ui.find("mission_container");
     if (brief) {
+      // MissionPanel's briefing: the name (Header), the briefing (Body), the objective
+      // (Summary), "once per day" for once-only prestige missions, then REWARDS and the
+      // reward pills
       set(brief, "briefing", m ? m.title.toUpperCase() : "BRIEFING");
       const body = brief.children.find(k => k.kind === "label" && k.tag !== "briefing");
       if (body) body.text = m ? b.briefingOf(m) +(npcName(m) ? `\n\nWith ${npcName(m)}.` : "") : b.tabNote(this.tab);
-      // the chosen mission's action sits under its briefing
-      brief.children = brief.children.filter(k => k.tag !== "mission_action");
-      const st = m ? missionStatus(m, p) : null;
-      if (m && st === "available") {
-        const ok = m.kind !== "exchange" || canExchange(b.needs(m), save.materials, n => b.ownedLevel(n));
-        const go = await this.button(ACTION[m.kind], () => b.start(m), ok);
+      const fixed = brief.children.filter(k => !k.tag?.startsWith("brief_extra"));
+      brief.children = fixed;
+      if (m) {
+        const extra = (await Promise.all([
+          m.objective ? this.text(withName(m.objective, b.knight()), "Briefing Styles/Summary") : null,
+          m.cls === "Prestige" && m.onceOnly ? this.text(text("mission", "m.once_only", "This mission can only be played once per day."), "Briefing Styles/Summary") : null,
+          this.text(text("mission", "t.rewards", "REWARDS"), "Briefing Styles/Header"),
+          this.table([this.prestigePill(m.prestige), this.crownPill(crownReward(m)), ...b.rewardsOf(m).slice(0, 8).map(it => this.itemPill(it.item, it.count))]),
+        ])).filter((c): c is Component => !!c);
         if (gen !== this.generation) return;
-        go.tag = "mission_action";
-        go.constraints = null;
-        brief.children = [...brief.children, go];
+        extra.forEach((c, i) => { c.tag = `brief_extra${i}`; c.constraints = null; });
+        brief.children = [...fixed, ...extra];
       }
     }
     if (mission) {
@@ -473,6 +476,10 @@ class MissionScreen extends GuiScreen {
       const kids: Promise<Component | null>[] = [];
       if (m) {
         const st = missionStatus(m, p);
+        // the START button (Comlink style; an exchange's own style), enabled while the mission can start
+        const ok = st === "available" && (m.kind !== "exchange" || canExchange(b.needs(m), save.materials, n => b.ownedLevel(n)));
+        kids.push(this.button(text("mission", "m.start", "START"), () => b.start(m), ok,
+          m.kind === "exchange" ? "Adventure Board/Start Button/Exchange/Start" : "Adventure Board/Start Button/Comlink/Start"));
         kids.push(this.text(this.statusLine(m, st)));
         if (m.cls === "Rank") kids.push(this.text(`Rank ${m.rank}-${m.subrank}: ${rankName(m.rank)}`));
         if (m.needs.length && st === "locked") kids.push(this.text("After: " + m.needs.map(id => b.list.find(x => x.id === id)?.title ?? id).join(", ")));
@@ -489,9 +496,6 @@ class MissionScreen extends GuiScreen {
             }));
           }
         }
-        kids.push(this.text("REWARDS", "Briefing Styles/Header"));
-        kids.push(this.table([this.prestigePill(m.prestige), this.crownPill(crownReward(m)),
-          ...b.rewardsOf(m).slice(0, 8).map(it => this.itemPill(it.item, it.count))]));
       } else kids.push(this.text("No missions here yet."));
       const done = (await Promise.all(kids)).filter((c): c is Component => !!c);
       if (gen !== this.generation) return;
@@ -503,20 +507,37 @@ class MissionScreen extends GuiScreen {
   /** A card for a mission (or an empty slot). */
   private card(m: Mission | null, i: number, p: MissionProgress): Promise<Component | null> {
     const st = m ? missionStatus(m, p) : "locked";
+    // MissionPanel: a rank mission above the knight's rank is unknown ("???" on the unknown
+    // card); a known one that cannot start yet shows its card locked with the lock icon; a
+    // completed one keeps its card and shows the difficulty it was done at
+    const unknown = !!m && m.cls === "Rank" && (m.rank > p.rank || (m.rank === p.rank && m.subrank > p.subrank));
+    const locked = st === "locked" || st === "upcoming";
     const args = m
-      ? { "Card Image": m.cardImage ?? EMPTY_CARD, Empty: "False", Status: st === "locked" || st === "upcoming" ? "Locked" : "Unlocked", "Button Tag": `btn_mission_${i}` }
+      ? { "Card Image": unknown ? UNKNOWN_CARD : m.cardImage ?? EMPTY_CARD, Empty: "False", Status: locked ? "Locked" : "Unlocked", "Button Tag": `btn_mission_${i}` }
       : { "Card Image": EMPTY_CARD, Empty: "True", Status: "Unlocked", "Button Tag": `btn_mission_${i}` };
-    const key = `${m?.id ?? ""}|${st}|` + JSON.stringify(args);
+    const key = `${m?.id ?? ""}|${st}|${unknown}|` + JSON.stringify(args);
     let c = this.cards.get(key);
     if (!c) {
-      c = buildUi(this.ctx, uiRef(CARD, args)).then(ui => {
+      c = buildUi(this.ctx, uiRef(CARD, args)).then(async ui => {
         if (!ui) return null;
         if (m) {
           const set = (tag: string, text: string) => { const x = ui.find(tag); if (x) x.text = text; };
-          set("name", m.title);
-          set("rank", m.cls === "Rank" ? `${m.rank}-${m.subrank}` : String(m.rank));
+          set("name", unknown ? text("mission", "m.unknown", "???") : m.title);
+          // the card's label: RANK and the rank; prestige missions TODAY, TOMORROW or REPLAYABLE
+          set("card_label", m.cls === "Rank" ? text("mission", "t.rank", "RANK")
+            : m.cls === "Prestige" ? text("mission", st === "upcoming" ? "t.tomorrow" : m.daily ? "t.today" : "t.replayable", "")
+            : String(m.rank));
+          set("rank", m.cls === "Rank" ? `${m.rank}-${m.subrank}` : "");
           const done = ui.find("mission_completed");
-          if (done) done.visible = st === "complete";
+          if (done) done.visible = false;
+          const icon = ui.find("icon");
+          if (icon) {
+            icon.visible = st === "complete" || locked;
+            const file = st === "complete" ? `ui/icon/difficulty/${m.kind === "gate" ? "medium" : "hard"}.png` : "ui/icon/inventory/icon_locked.png";
+            if (icon.visible) await restyle(this.ctx, icon, "Icon", { File: file }).catch(() => undefined);
+          }
+          const btn = ui.find(`btn_mission_${i}`);
+          if (btn) btn.enabled = !unknown;
         } else {
           const rc = ui.find("rank_cont");
           if (rc) rc.visible = false;
@@ -533,7 +554,8 @@ class MissionScreen extends GuiScreen {
     const set = (tag: string, text: string) => { const c = bar.find(tag); if (c) c.text = text; };
     set("rank_current", String(p.rank));
     set("rank_next", p.rank < 10 ? String(p.rank + 1) : "");
-    set("rank_title", `${rankName(p.rank).toUpperCase()} ${p.rank}-${p.subrank}`);
+    // MissionPanel.zJ: the rank's title alone (the rank sits in the header)
+    set("rank_title", rankName(p.rank).toUpperCase());
     const ofRank = this.board.list.filter(m => m.cls === "Rank" && m.rank === p.rank);
     const done = ofRank.filter(m => p.completed.includes(m.id)).length;
     (bar as any).__fraction = ofRank.length ? done / ofRank.length : 1;

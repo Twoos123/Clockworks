@@ -6,7 +6,8 @@
 // beneath it. Invites and gifts are multiplayer and stay hidden.
 
 import type { SaveData } from "../game/save";
-import { buildComponentConfig, selectTab, type Component } from "./gui";
+import { buildComponentConfig, restyle, selectTab, type Component } from "./gui";
+import { text } from "../i18n";
 import { GuiScreen, uiRef, buildUi, type ScreenHost } from "./screen";
 
 export interface UplinkHost extends ScreenHost {
@@ -35,10 +36,14 @@ export function mailbox(save: SaveData): Letter[] {
   return mail;
 }
 
+/** MailPanel's date: "dd MMM yyyy". */
 const date = (t: number) => {
   const d = new Date(t);
-  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${String(d.getFullYear() % 100).padStart(2, "0")}`;
+  return `${String(d.getDate()).padStart(2, "0")} ${d.toLocaleString("en-US", { month: "short" })} ${d.getFullYear()}`;
 };
+
+/** Spiral HQ's letters are the game's sealed announcements; the rest are letters. */
+const official = (m: Letter) => /spiral hq/i.test(m.from);
 
 export class UplinkScreen extends GuiScreen {
   /** The letter open beneath its header. */
@@ -65,9 +70,9 @@ export class UplinkScreen extends GuiScreen {
     // invites and gifts come from other players
     pane?.parts.buttons?.children.forEach((b, i) => { if (i >= 2) b.visible = false; });
     if (pane) pane.onAction = c => { this.tab = c.selectedIndex === 1 ? "mail" : "news"; this.host.sound("sound/feedback/ui_dropdown_select.ogg"); void this.refresh(); };
-    // the window's title is a message key of the game's bundles
+    // the window's title and the mark-all button are the uplink bundle's
     const title = ui.find("container_uplink")?.children[0]?.children.find(k => k.kind === "label");
-    if (title) title.text = "News and Mail";
+    if (title) title.text = text("uplink", "m.title", "SPIRAL UPLINK");
     // the news promotions were server images: the tab lists news feed entries instead
     const news = ui.find("newstab");
     const page = news?.children[0];
@@ -87,7 +92,7 @@ export class UplinkScreen extends GuiScreen {
     const compose = mail?.find("button_compose");
     if (compose) compose.visible = false;
     const markall = mail?.find("button_markall");
-    if (markall) markall.text = "Mark all read";
+    if (markall) markall.text = text("uplink", "m.markall", "Mark All");
     if (mail) this.on(mail, "button_markall", () => {
       for (const m of mailbox(this.up.save())) m.read = true;
       this.up.write();
@@ -111,13 +116,24 @@ export class UplinkScreen extends GuiScreen {
     if (!ui) return;
     const pane = ui.find("tabs");
     if (pane) selectTab(pane, this.tab === "mail" ? 1 : 0);
+    // UplinkWindow: the Mail tab carries the notice icon while a letter is unread
+    const unread = mailbox(this.up.save()).some(m => !m.read);
+    const mailTab = pane?.parts.buttons?.children[1];
+    if (mailTab && (mailTab as any).__unread !== unread) {
+      (mailTab as any).__unread = unread;
+      const icon = unread ? { $class: "com.threerings.opengl.gui.config.IconConfig$Image", file: "ui/icon/notice.png" } : { $class: "com.threerings.opengl.gui.config.IconConfig$Blank" };
+      await restyle(this.ctx, mailTab, "Default/Tab", { Icon: icon }).catch(() => undefined);
+    }
     const list = ui.find("mail_list");
     if (!list) return;
     const gen = ++this.generation;
     const mail = [...mailbox(this.up.save())].reverse();
     const rows: Component[] = [];
     for (const m of mail) {
-      const h = await buildUi(this.ctx, uiRef(HEADER, { Subject: (m.read ? "" : "● ") + m.subject, From: m.from, Date: date(m.at) }));
+      // MailPanel: the seal on official mail, the letter or announcement icon, lit while unread
+      const h = await buildUi(this.ctx, uiRef(HEADER, { "Seal Icon": official(m) ? "ui/icon/spiralseal.png" : null,
+        Icon: `ui/icon/uplink/icon_${official(m) ? "announcement" : "letter"}.png`, "Icon Color": m.read ? "Read" : "Unread",
+        Subject: m.subject, From: m.from, Date: date(m.at) }));
       if (!h) continue;
       const sel = h.find("entryselect");
       if (sel) {

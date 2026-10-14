@@ -91,7 +91,7 @@ export class GameScreens {
   }
 
   get backpack() {
-    return this.backpack_ ??= new BackpackScreen(this.host.gui, this.base());
+    return this.backpack_ ??= new BackpackScreen(this.host.gui, { ...this.base(), write: () => this.host.write() });
   }
 
   get shop() {

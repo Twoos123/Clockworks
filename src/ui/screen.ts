@@ -6,9 +6,13 @@
 
 import { CONFIG_REF } from "../config/params";
 import { ScriptRunner } from "./script";
+import { text as bundleText } from "../i18n";
+import type { ItemStats } from "../game/itemstats";
 import { buildInterface, Component, dispatch, hitTest, pack, render, resetInput, type GuiContext, type GuiImage, type RenderHooks } from "./gui";
 
 const BONUS = "ui/window/tooltip_parts/bonus.dat";
+const STATS = "ui/window/tooltip_parts/container_stats.dat";
+const BAR = "ui/window/tooltip_parts/stat_bar.dat";
 
 export interface ScreenHost {
   /** Plays a UI feedback sound. */
@@ -47,7 +51,29 @@ export async function buildUi(ctx: GuiContext, ref: any): Promise<Component | nu
 }
 
 /** A tooltip: an interface reference and lines of bonus text (ui/window/tooltip_parts/bonus.dat). */
-export interface TipSpec { ref: any; lines?: string[]; /** Texts set on tagged labels after the build. */ texts?: Record<string, string> }
+export interface TipSpec {
+  ref: any; lines?: string[]; /** Texts set on tagged labels after the build. */ texts?: Record<string, string>;
+  /** An item's attack or defence power bars (tooltip_parts/container_stats.dat), before the lines. */
+  stats?: ItemStats;
+  /** Bonus and penalty lines (green or red, with an icon), after the lines. */
+  bonuses?: { text: string; bonus: boolean; icon?: string | null; /** "Variant" for a unique variant's line. */ color?: string }[];
+}
+
+/**
+ * A tooltip's stat container as ItemConfig builds it: the title and a bar per damage type
+ * (the placeholder bar removed), each with its icon, label and the bars' widths.
+ */
+export async function buildStats(ctx: GuiContext, st: ItemStats): Promise<Component | null> {
+  const t = (k: string) => bundleText("item", k, k.replace(/^t\./, "").replace(/_/g, " ").toUpperCase());
+  const [box, ...bars] = await Promise.all([buildUi(ctx, uiRef(STATS, { "Stat Title": t(st.title) })),
+    ...st.bars.map(b => buildUi(ctx, uiRef(BAR, { Icon: `ui/icon/stats/${b.icon}.png`, "Stat Label": t(b.label), Alignment: "Left",
+      "Bonus Width": b.now, "Bonus Potential Width": b.potential, "Bar Type": "Bonus" })))]);
+  const list = box?.find("stats") ?? box;
+  if (!box || !list) return null;
+  list.children = [list.children[0], ...bars.filter((b): b is Component => !!b)].filter(Boolean);
+  for (const b of list.children.slice(1)) b.constraints = null;
+  return box;
+}
 
 /** A synthetic container laying children out in a row (as interface_forge.dat does). */
 export function row(kids: Component[], gap = 0, align = "TOP"): Component {
@@ -209,8 +235,13 @@ export abstract class GuiScreen {
 
   /** Builds a tooltip: its placeholder stat pills give way to the spec's bonus lines. */
   private async buildTip(spec: TipSpec): Promise<Component | null> {
-    const [c, ...lines] = await Promise.all([buildUi(this.ctx, spec.ref),
-      ...(spec.lines ?? []).map(l => buildUi(this.ctx, uiRef(BONUS, { Description: l, "Toggle Icon": false })))]);
+    const plain = spec.lines?.length ?? 0;
+    const [c, stats, ...lines] = await Promise.all([buildUi(this.ctx, spec.ref), spec.stats ? buildStats(this.ctx, spec.stats) : null,
+      ...(spec.lines ?? []).map(l => buildUi(this.ctx, uiRef(BONUS, { Description: l, "Toggle Icon": false }))),
+      ...(spec.bonuses ?? []).map(b => buildUi(this.ctx, uiRef(BONUS, { Color: b.color ?? (b.bonus ? "Bonus" : "Penalty"), Description: b.text,
+        "Bonus Icon": b.icon ?? null, "Toggle Icon": !!b.icon })))]);
+    // our own lines (not the game's bonuses) leave out the bonus arrow
+    lines.slice(0, plain).forEach(l => { const arrow = l?.children[0]?.children.at(-1); if (arrow && !arrow.tag) arrow.visible = false; });
     if (!c) return null;
     // the tooltips' 3D item previews are drawn by the game's item renderer; not here
     const view = c.find("renderview");
@@ -218,8 +249,8 @@ export abstract class GuiScreen {
     for (const [tag, text] of Object.entries(spec.texts ?? {})) { const t = c.find(tag); if (t) t.text = text; }
     const pills = c.find("tooltip_pills");
     if (pills) {
-      pills.children = lines.filter((l): l is Component => !!l);
-      for (const l of pills.children) { l.constraints = null; const arrow = l.children[0]?.children.at(-1); if (arrow && !arrow.tag) arrow.visible = false; }
+      pills.children = [stats, ...lines].filter((l): l is Component => !!l);
+      for (const l of pills.children) l.constraints = null;
       pills.visible = pills.children.length > 0;
     }
     return c;

@@ -17,6 +17,7 @@
 import type { SaveData } from "../game/save";
 import { EMBLEM_COLORS, EMBLEM_SYMBOLS, guildOf, transfer } from "../game/guild";
 import { itemLabel } from "../game/items";
+import { text } from "../i18n";
 import { hitTest, type Component, type GuiContext, type GuiImage } from "./gui";
 import { styledButton, styledLabel } from "./floating";
 import { itemTip } from "./itemlist";
@@ -159,12 +160,13 @@ export class GuildWindow extends GuiScreen {
     if (caption2?.kind === "label") caption2.text = "Treasury";
     // the cards
     const specs: CardSpec[] = [
-      { image: "treasury.png", text: "Guild Vault", act: () => this.showVault() },
+      // guild/client/a's cards where this port has the same thing: the treasury, the member storage, design mode
+      { image: "treasury.png", text: text("guild", "m.show_treasury", "Show Guild Treasury"), act: () => this.showVault() },
       { image: "charter.png", text: "Emblem", act: () => this.showEmblem() },
       { image: "environments.png", text: "Go to Guild Hall", act: () => { if (this.guild.inHall()) return; this.close(); this.guild.goToHall(); } },
-      { image: "designmode.png", text: "Furniture Mode", act: () => { this.close(); this.guild.openFurniture(); } },
+      { image: "designmode.png", text: text("guild", "b.console_edit", "Design Mode"), act: () => { this.close(); this.guild.openFurniture(); } },
       { image: "themes.png", text: "Furnish Like Cached Hall", act: () => { this.guild.furnish(true); this.say("The cached hall's furniture now stands in your hall (it is yours)."); } },
-      { image: "memberstorage.png", text: "Store All Furniture", act: () => { this.guild.furnish(false); this.say("Every placed item went back to storage."); } },
+      { image: "publish.png", text: "Store All Furniture", act: () => { this.guild.furnish(false); this.say("Every placed item went back to storage."); } },
     ];
     const built = await Promise.all(specs.map(s => this.ui(CARD, { "Card Image": CARDS + s.image, Text: s.text, Empty: false, Status: "Unlocked", Tooltip: "" })));
     const middle = ui.find("middle_container");
