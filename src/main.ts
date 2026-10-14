@@ -3163,9 +3163,6 @@ class Viewer {
           this.interactPressed = false;
         }
         this.attackPressed = false;
-        // Q and E turn the camera (ours: the game's camera does not turn)
-        if (this.keys.has(this.bound("turnLeft"))) this.az += dt * this.options_.cameraSpeed;
-        if (this.keys.has(this.bound("turnRight"))) this.az -= dt * this.options_.cameraSpeed;
         // the camera is locked on the knight plus the camera offset, no smoothing (TudeySceneView)
         const k = this.world.knight, cam = this.cam;
         if (cam && cam.t < 1) {

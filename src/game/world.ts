@@ -1989,8 +1989,8 @@ export class World implements LogicHost {
     const held = input.attackHeld || input.attackDown;
     if (held !== k.attackFlag) { k.attackFlag = held; k.attackChanged = now; }
     else if (input.attackDown) k.attackChanged = now;
-    // safe places (towns, the Rescue Camp): no shield and no shield bash, as there are no weapons
-    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield && !this.safe, bash: !!input.bash && !this.safe, dodge: !!input.dash };
+    // safe places (towns, the Rescue Camp): only walking and clicking — no shield, bash or dash
+    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield && !this.safe, bash: !!input.bash && !this.safe, dodge: !!input.dash && !this.safe };
     const status: ControlStatus = {
       move: true, rotate: true, attack: true,
       defend: !!k.shield && k.shieldBroken <= 0,
