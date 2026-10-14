@@ -586,6 +586,7 @@ export class World implements LogicHost {
       void this.loader.loadRef(argRef("particle/fx_gethit_monster-scaled.dat", [["variant", `${kind} (${size})`]])).catch(() => null);
     }
     void this.loader.loadRef(argRef("particle/fx_gethit_player.dat", [["Color", "Red"]])).catch(() => null);
+    for (const name of ["particle/charging.dat", "particle/charging_ready.dat"]) void this.loader.loadRef({ name }).catch(() => null);
     await this.startLogic();
   }
 
@@ -1698,6 +1699,7 @@ export class World implements LogicHost {
     if (act.kind === "charge") {
       k.charge = (now - act.started) / 1000;
       this.overlay(k, CHARGE_ANIMS[weapon?.kind ?? "Other"], true);
+      this.updateChargeFx(now - act.started > rules.chargeTime);
     }
     k.shielding = act.kind === "defend";
     this.setShieldEffect(k.shielding || act.kind === "shieldHit");
@@ -1721,9 +1723,66 @@ export class World implements LogicHost {
     }
   }
 
+  /**
+   * The charge's own effects (the knight sprite's charge activity): particle/charging.dat with
+   * the charging sound for the weapon's charge time (the 2, 3 or 5 second clip), then, once
+   * held past the charge time, particle/charging_ready.dat with the completion chime and the
+   * looping ready hum.
+   */
+  private chargeFx: { full: boolean; effect: Effect | null; stops: (() => void)[]; gen: number } | null = null;
+  private chargeGen = 0;
+  private updateChargeFx(full: boolean) {
+    const k = this.knight, fx = this.chargeFx;
+    if (fx && fx.full === full) return;
+    this.endChargeFx();
+    const gen = ++this.chargeGen;
+    const pos: Vec3 = [k.x, k.y, k.z];
+    const clip = (file: string, gain: number, looping = false) => argRef(looping ? "Clip/Looping (Gain)" : "Clip/Default (Gain)",
+      [["File", file], ["Gain", gain], ["Range", "Medium"]]);
+    const stops: (() => void)[] = [];
+    if (!full) {
+      const secs = Math.trunc(this.knightRules().chargeTime / 1000);
+      const len = secs <= 2 ? 2 : secs <= 3 ? 3 : 5;
+      if (this.audio) stops.push(this.audio.hold(clip(`sound/effect/weapon/charging_${len}second_mono_01.ogg`, 1), pos));
+    } else {
+      this.audio?.play(clip("sound/effect/weapon/charge_complete_01.ogg", 0.3), pos);
+      if (this.audio) stops.push(this.audio.hold(clip("sound/effect/weapon/charging_idle_01.ogg", 1, true), pos));
+    }
+    this.chargeFx = { full, effect: null, stops, gen };
+    void this.attachEffect({ name: full ? "particle/charging_ready.dat" : "particle/charging.dat" }, k).then(e => {
+      if (!e) return;
+      if (this.chargeFx?.gen === gen) this.chargeFx.effect = e;
+      else e.life = 0;
+    });
+  }
+  private endChargeFx() {
+    const fx = this.chargeFx;
+    if (!fx) return;
+    this.chargeFx = null;
+    if (fx.effect) fx.effect.life = 0;
+    for (const s of fx.stops) s();
+  }
+
+  /** A transient model kept on an actor until its effect's life is set to 0. */
+  private async attachEffect(ref: any, follow: Actor): Promise<Effect | null> {
+    const model = await this.loader.loadRef(ref).catch(() => null);
+    if (!model) return null;
+    const e: Effect = { instance: await this.instantiate(model), matrix: follow.matrix(), life: 1e9, follow };
+    this.effects.push(e);
+    return e;
+  }
+
+  /** How far the knight's charge is (0 to 1 at the charge time, more when held past it), or null when not charging. */
+  chargeProgress(): number | null {
+    const a = this.knight?.control.activity;
+    if (!a || a.kind !== "charge") return null;
+    return (this.clock * 1000 - a.started) / Math.max(1, this.knightRules().chargeTime);
+  }
+
   /** Stops whatever the knight was playing for its activity (an attack, a charge, the shield). */
   private endKnightActivity() {
     const k = this.knight;
+    this.endChargeFx();
     if (k.attack) {
       if (k.attack.overlay) k.instance.overlay = null;
       this.weaponAnim(k, "ks_default", true);
@@ -1838,11 +1897,23 @@ export class World implements LogicHost {
   }
 
   private shieldFx: Effect | null = null;
+  /** The bubble's "Power" in quarters of the shield's health (the knight sprite's `bio`). */
+  private shieldPower = -1;
+  /**
+   * The shield bubble while defending: the shield's effect with "Power" set to its health in
+   * quarters (25, 50, 75, 100), remade when the quarter changes, as the knight sprite does.
+   */
   private setShieldEffect(on: boolean) {
     const k = this.knight;
+    const level = k.shield ? Math.round(4 * Math.max(0, k.shieldHealth) / Math.max(1, k.shieldMax)) : 4;
+    if (on && this.shieldFx && level !== this.shieldPower) { this.shieldFx.life = 0; this.shieldFx = null; }
     if (on && !this.shieldFx && k.shield?.effect && !this.shieldLoading) {
       this.shieldLoading = true;
-      this.loader.loadRef(k.shield.effect).then(async m => {
+      this.shieldPower = level;
+      const base = k.shield.effect;
+      const entries = ((base.arguments?.entries ?? []) as [string, any][]).filter(([n]) => n !== "Power");
+      const ref = { ...base, arguments: { $map: "com.threerings.config.ArgumentMap", entries: [...entries, ["Power", String(level * 25)]] } };
+      this.loader.loadRef(ref).then(async m => {
         if (m && this.knight.shielding) {
           this.shieldFx = { instance: await this.instantiate(m), matrix: k.matrix(), life: 1e9, follow: k };
           this.effects.push(this.shieldFx);

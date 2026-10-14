@@ -24,12 +24,12 @@ export class Hud {
     const pose = numberPose(f.style!, f.age, f.seed);
     if (!pose || pose.scale <= 0.01) return;
     const x = f.x + pose.dx, y = f.y + pose.dy, z = f.z + pose.dz;
-    const p = project(x, y, z), q = project(x, y, z + 1);
-    if (!p || !q) return;
+    const p = project(x, y, z);
+    if (!p) return;
     const st = NUMBER_FONTS[f.style!];
-    // a label about half a unit tall at size 1 (ours: the billboard's scale is not in the data)
-    const unit = Math.hypot(q[0] - p[0], q[1] - p[1]);
-    const px = unit * 0.55 * pose.scale * (st.size / 32);
+    // the label's billboard: 0.01 world units a GUI pixel (ComponentBillboardConfig's scale)
+    // times the particle's size
+    const px = this.unitPx(x, y, z) * 0.01 * st.size * pose.scale;
     if (px < 2) return;
     g.save();
     g.translate(p[0], p[1]);
@@ -44,6 +44,18 @@ export class Hud {
     g.fillStyle = st.color;
     g.fillText(f.text, 0, 0);
     g.restore();
+  }
+
+  private unitPx: (x: number, y: number, z: number) => number = () => 0;
+  /** Loads a game image for the HUD's billboards (set by the app). */
+  image: ((file: string) => Promise<{ source: CanvasImageSource; width: number; height: number } | null>) | null = null;
+  private images = new Map<string, { source: CanvasImageSource; width: number; height: number } | null>();
+  private img(file: string) {
+    if (!this.images.has(file)) {
+      this.images.set(file, null);
+      void this.image?.(file).then(i => this.images.set(file, i));
+    }
+    return this.images.get(file) ?? null;
   }
 
   clear() {
@@ -67,6 +79,12 @@ export class Hud {
       if (cwv <= 0.01) return null;
       return [(cx / cwv * 0.5 + 0.5) * cw, (1 - (cy / cwv * 0.5 + 0.5)) * ch];
     };
+    // screen pixels per world unit for a billboard at a point (one unit along the camera's right)
+    const unitPx = (x: number, y: number, z: number) => {
+      const a = project(x, y, z), b = project(x + view[0], y + view[4], z + view[8]);
+      return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
+    };
+    this.unitPx = unitPx;
 
     // monster health bars
     for (const m of this.options.healthBars ? world.liveMonsters : []) {
@@ -98,15 +116,22 @@ export class Hud {
 
     const k = world.knight;
 
-    // charge meter above the knight
-    if (k.charge !== null && k.weapon) {
-      const p = project(k.x, k.y, k.z + 2.1);
-      if (p) {
-        const frac = Math.min(1, (k.charge * 1000) / k.weapon.chargeTime);
-        g.fillStyle = "rgba(0,0,0,0.6)";
-        g.fillRect(p[0] - 31, p[1] - 1, 62, 9);
-        g.fillStyle = frac >= 1 ? (Math.floor(performance.now() / 120) % 2 ? "#ffe066" : "#fff6c2") : "#8ec5ff";
-        g.fillRect(p[0] - 30, p[1], 60 * frac, 7);
+    // the charge bar (character/charge_transformed.dat): a 100 x 20 billboard at 0.015 units a
+    // pixel, 0.667 below the knight's root, at half opacity, filling with the charge; it gives
+    // way to the charge-complete effect once full
+    const progress = world.chargeProgress();
+    if (progress !== null && progress <= 1) {
+      const p = project(k.x, k.y, k.z - 0.667), u = unitPx(k.x, k.y, k.z - 0.667);
+      if (p && u > 0) {
+        const bw = 100 * 0.015 * u, bh = 20 * 0.015 * u, x0 = p[0] - bw / 2, y0 = p[1] - bh / 2;
+        g.save();
+        g.globalAlpha = 0.5;
+        const back = this.img("ui/health/chargemeter_empty.png"), fill = this.img("ui/health/chargemeter.png");
+        if (back) g.drawImage(back.source, x0, y0, bw, bh); else { g.fillStyle = "rgb(41,50,57)"; g.fillRect(x0, y0, bw, bh); }
+        const fw = Math.max(0, Math.min(1, progress));
+        if (fill && fw > 0) g.drawImage(fill.source, 0, 0, fill.width * fw, fill.height, x0, y0, bw * fw, bh);
+        else if (fw > 0) { g.fillStyle = "rgb(250,183,61)"; g.fillRect(x0, y0, bw * fw, bh); }
+        g.restore();
       }
     }
     g.textAlign = "left";

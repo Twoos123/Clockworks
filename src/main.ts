@@ -718,6 +718,7 @@ class Viewer {
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
+    this.hud.image = f => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f);
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
     // arriving in Haven, and the arsenal as it stands, may earn achievements
