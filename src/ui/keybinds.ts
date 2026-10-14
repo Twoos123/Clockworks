@@ -15,7 +15,7 @@ const key2 = (a: Action) => KEY2[a] ?? (WHEEL_KEYS[a] ? gameKeyName(WHEEL_KEYS[a
 /** The gamepad's fixed buttons (src/gamepad.ts). */
 const PAD: Partial<Record<Action, string>> = {
   up: "Left Stick", down: "Left Stick", left: "Left Stick", right: "Left Stick", dash: "X", interact: "Y", cycle: "RB", prevWeapon: "LB",
-  item1: "D-Pad Up", item2: "D-Pad Right", item3: "D-Pad Down", item4: "D-Pad Left", turnLeft: "Right Stick", turnRight: "Right Stick",
+  item1: "D-Pad Up", item2: "D-Pad Right", item3: "D-Pad Down", item4: "D-Pad Left",
 };
 
 /** "Dash (also Shift + right click)" is "Dash" in the command column. */

@@ -11,6 +11,7 @@
 //   npx tsx tools/audit/sweep.ts --weapons sword       swords only
 //   npx tsx tools/audit/sweep.ts --monsters jelly      monsters whose name matches /jelly/i
 //   npx tsx tools/audit/sweep.ts --knight              the knight's actions
+//   npx tsx tools/audit/sweep.ts --blocks              blocks broken hit by hit (their hit and break effects)
 //   npx tsx tools/audit/sweep.ts --report-only         rebuild the sheets and report
 // Options: --out .scratch/sweep  --url http://localhost:5183/  --workers 1  --limit N
 //          --redo (sweep items already on disk again)  --redo-errors  --timeout 150  --serve
@@ -25,8 +26,8 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chromium, type Browser, type Page } from "playwright";
 import { CHROMIUM_ARGS } from "./boot.ts";
 import {
-  groupOf, judgeKnight, judgeMonster, judgeWeapon, parseArgs, reportMarkdown, slug,
-  type KnightRecord, type MonsterRecord, type Shot, type WeaponRecord,
+  groupOf, judgeBlocks, judgeKnight, judgeMonster, judgeWeapon, parseArgs, reportMarkdown, slug,
+  type BlocksRecord, type KnightRecord, type MonsterRecord, type Shot, type WeaponRecord,
 } from "./sweep-judge.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -70,11 +71,11 @@ function withTimeout<T>(p: Promise<T>, s: number): Promise<T> {
 
 // ------------------------------------------------------------------ records on disk
 
-const dirOf = (kind: Kind | "knight") => join(OUT, kind);
+const dirOf = (kind: Kind | "knight" | "blocks") => join(OUT, kind);
 const recPath = (kind: Kind, name: string) => join(dirOf(kind), `${slug(name)}.json`);
 
 /** Writes a record's shots as files (full PNG and thumbnail) and the record without the pixels. */
-function saveRecord(kind: Kind | "knight", id: string, rec: { shots: (Shot & { full?: string })[] }) {
+function saveRecord(kind: Kind | "knight" | "blocks", id: string, rec: { shots: (Shot & { full?: string })[] }) {
   const dir = join(dirOf(kind), id);
   mkdirSync(dir, { recursive: true });
   rec.shots.forEach((s, i) => {
@@ -87,10 +88,10 @@ function saveRecord(kind: Kind | "knight", id: string, rec: { shots: (Shot & { f
 }
 
 /** The records on disk, judged again (the rules may have changed since they were swept). */
-function loadRecords<T>(kind: Kind | "knight"): T[] {
+function loadRecords<T>(kind: Kind | "knight" | "blocks"): T[] {
   const dir = dirOf(kind);
   if (!existsSync(dir)) return [];
-  const judge = kind === "weapons" ? judgeWeapon : kind === "monsters" ? judgeMonster : judgeKnight;
+  const judge = kind === "weapons" ? judgeWeapon : kind === "monsters" ? judgeMonster : kind === "blocks" ? judgeBlocks : judgeKnight;
   return readdirSync(dir).filter(f => f.endsWith(".json")).map(f => {
     const r = JSON.parse(readFileSync(join(dir, f), "utf8"));
     r.problems = (judge as (x: any) => string[])(r);
@@ -157,6 +158,20 @@ async function sweepKnight(browser: Browser) {
   try { await rp.page.close(); } catch { /* gone */ }
 }
 
+async function sweepBlocks(browser: Browser) {
+  if (existsSync(join(dirOf("blocks"), "blocks.json")) && !args.redo) { console.log("blocks: already on disk"); return; }
+  const rp = await bootRange(browser);
+  let rec: BlocksRecord;
+  try { rec = await withTimeout(rp.page.evaluate("window.__sweep.blocks()") as Promise<BlocksRecord>, args.timeout * 2); }
+  catch (e) { rec = { blocks: [], shots: [], console: [], problems: [], error: String((e as Error).message).slice(0, 300) }; }
+  rec.console = [...rp.errors];
+  rec.problems = judgeBlocks(rec);
+  mkdirSync(dirOf("blocks"), { recursive: true });
+  saveRecord("blocks", "blocks", rec);
+  console.log(`blocks: ${rec.problems.length ? rec.problems.join("; ") : "no flags"}`);
+  try { await rp.page.close(); } catch { /* gone */ }
+}
+
 // ------------------------------------------------------------------ contact sheets
 
 interface SheetRow { name: string; flags: string[]; tiles: { label: string; src: string | null }[] }
@@ -188,6 +203,18 @@ async function buildSheets(getBrowser: () => Promise<Browser>): Promise<string[]
     g.rows[rowIndex] ??= { name: rowIndex ? "" : "Knight", flags: rowIndex ? [] : knight.problems, tiles: [] };
     g.rows[rowIndex].tiles.push({ label: s.label, src: thumb(s) });
   });
+  const blocks = loadRecords<BlocksRecord>("blocks")[0];
+  if (blocks) {
+    // a row per block: its shots are labelled "<block>: <moment>"
+    const g = groups.get("blocks") ?? (groups.set("blocks", { title: "Blocks", rows: [], cols: 5 }), groups.get("blocks")!);
+    for (const s of blocks.shots) {
+      const [name, moment] = s.label.split(": ");
+      let row = g.rows.find(r => r.name === name);
+      if (!row) g.rows.push(row = { name, flags: blocks.problems.filter(p => p.startsWith(`${name}:`)), tiles: [] });
+      row.tiles.push({ label: moment ?? s.label, src: thumb(s) });
+      g.cols = Math.max(g.cols, row.tiles.length);
+    }
+  }
   if (!groups.size) return [];
   const page = await (await getBrowser()).newPage();
   const written: string[] = [];
@@ -213,9 +240,10 @@ function writeReport(sheets: string[]) {
   const weapons = loadRecords<WeaponRecord>("weapons").sort((a, b) => a.name.localeCompare(b.name));
   const monsters = loadRecords<MonsterRecord>("monsters").sort((a, b) => a.name.localeCompare(b.name));
   const knight = loadRecords<KnightRecord>("knight")[0] ?? null;
+  const blocks = loadRecords<BlocksRecord>("blocks")[0] ?? null;
   const generated = new Date().toISOString();
-  writeFileSync(join(OUT, "report.json"), JSON.stringify({ generated, weapons, monsters, knight, sheets }, null, 1));
-  writeFileSync(join(OUT, "report.md"), reportMarkdown({ weapons, monsters, knight, sheets, generated }));
+  writeFileSync(join(OUT, "report.json"), JSON.stringify({ generated, weapons, monsters, knight, blocks, sheets }, null, 1));
+  writeFileSync(join(OUT, "report.md"), reportMarkdown({ weapons, monsters, knight, blocks, sheets, generated }));
   const flagged = (l: { problems: string[] }[]) => l.filter(r => r.problems.length).length;
   console.log(`report: ${join(OUT, "report.md")} — weapons ${weapons.length} (${flagged(weapons)} flagged), monsters ${monsters.length} (${flagged(monsters)} flagged)` +
     (knight ? `, knight ${knight.problems.length} flag(s)` : ""));
@@ -265,6 +293,7 @@ try {
   const getBrowser = async () => (browser ??= await chromium.launch({ args: CHROMIUM_ARGS }));
   if (!args.reportOnly) {
     if (args.knight) await sweepKnight(await getBrowser());
+    if (args.blocks) await sweepBlocks(await getBrowser());
     if (args.weapons) await sweepKind(await getBrowser(), "weapons", args.weapons);
     if (args.monsters) await sweepKind(await getBrowser(), "monsters", args.monsters);
   }

@@ -128,6 +128,11 @@ export function loadingInfo(name: string, floor: Floor | null, gateName?: string
     const t = levelText(key, bundle);
     return t ? { title: t.title, zone: t.zone || zone } : { title, zone };
   };
+  // the places past Haven's doors, with their scenes' own backgrounds (placeConfig.background)
+  const behind: [RegExp, string, string][] = [[/^hall of heroes/, "hoh.jpg", "Hall of Heroes"], [/^haven laboratory$/, "readyroom.jpg", "The Lab"],
+    [/^advanced training$/, "traininghall.jpg", "Advanced Training Hall"], [/^guild training/, "traininghall_guild.jpg", "Guild Training Hall"]];
+  for (const [re, image, title] of behind) if (re.test(n.trim()))
+    return { ...real(`m.${n.trim().replace(/ /g, "_")}`, "dungeon", title, "Haven"), depth: "", image: IMAGES + image };
   if (/haven|bazaar/.test(n)) return { ...real("m.haven_bazaar", "dungeon", "Haven", "Home sweet Home"), depth: "", image: IMAGES + "haven.jpg" };
   if (/^hall\b|guild/.test(n)) return { ...real("m.border_guildhall", "town", "Guild Hall", "Haven"), depth: "", image: IMAGES + "guildhall.jpg" };
   if (/emberlight/.test(n)) return { ...real("m.emberlight", "dungeon", "Emberlight", "The Clockworks"), depth: "", image: IMAGES + "emberlight.jpg" };
@@ -167,6 +172,7 @@ export class LoadingScreen extends OverlayScreen {
     this.progressValue = 0;
     this.shownValue = 0;
     this.shown = performance.now();
+    this.isUp = true;
     const all = loadingTips();
     this.tipIndex = this.tipIndex < 0 ? Math.floor(Math.random() * all.length) : (this.tipIndex + 1) % all.length;
     this.open();
@@ -227,6 +233,27 @@ export class LoadingScreen extends OverlayScreen {
   }
 
   hide() { this.close(true); }
+
+  /** Whether the screen is up (shown and not yet taken down). */
+  get up() { return this.isUp; }
+  private isUp = false;
+  private goneWaiters: (() => void)[] = [];
+
+  /**
+   * Resolves once the screen is taken down (at once when it is not up). The scene's music
+   * waits for it: TudeySceneView leaves out the viewer effects that omit themselves while
+   * loading (ViewerEffectConfig.Sound, which the scene's music global is) until its loading
+   * window goes.
+   */
+  gone(): Promise<void> {
+    return this.isUp ? new Promise(r => this.goneWaiters.push(r)) : Promise.resolve();
+  }
+
+  protected close(immediate = false) {
+    super.close(immediate);
+    this.isUp = false;
+    for (const r of this.goneWaiters.splice(0)) r();
+  }
 
   protected update(dt: number) {
     this.shownValue += (this.progressValue - this.shownValue) * Math.min(1, dt * 8);

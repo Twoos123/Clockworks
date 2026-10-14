@@ -193,19 +193,55 @@ const FOG_MODES = { linear: 1, exp: 2, exp2: 3 } as const;
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const ALPHA_FUNCS = ["ALWAYS", "NEVER", "LESS", "EQUAL", "LEQUAL", "GREATER", "NOTEQUAL", "GEQUAL"];
 const ENVS = ["Modulate", "Replace", "Add", "Decal"];
-const QUEUE_ORDER: Record<string, number> = {
-  Skybox: 0, "Skybox (Fov Standard)": 0, Opaque: 1, Transparent: 3, Overlay: 4, Blurred: 5,
-};
-/** A part's place in the draw order: its queue, then its queue inside a group (skyboxes). */
-const queueRank = (m: { queue: string; subQueue?: string }) =>
-  (QUEUE_ORDER[m.queue] ?? 2) * 10 + (m.subQueue ? QUEUE_ORDER[m.subQueue] ?? 2 : 0);
+/** RenderQueueConfig.SortMode: how a queue orders the batches of one priority level. */
+export type QueueSort = "NONE" | "BY_STATE" | "BACK_TO_FRONT" | "FRONT_TO_BACK";
 /**
- * Mesh draw order: by queue, then by the material's enqueuer priority (RenderQueue keeps one
- * batch list per priority and renders them in rising order), keeping the collection order
- * otherwise (the sort is stable).
+ * The render queues of config/render_queue.dat: each one's priority (the compositor keeps its
+ * queues sorted by it and renders them in that order) and sort mode. Opaque has no priority
+ * of its own (0) and sorts BY_STATE; Transparent and Blurred keep RenderQueueConfig's default
+ * BACK_TO_FRONT; the skyboxes and Overlay leave theirs unsorted.
  */
-export const drawOrder = (a: { queue: string; subQueue?: string; priority?: number }, b: { queue: string; subQueue?: string; priority?: number }) =>
-  queueRank(a) - queueRank(b) || (a.priority ?? 0) - (b.priority ?? 0);
+export const RENDER_QUEUES: Record<string, { priority: number; sort: QueueSort }> = {
+  Skybox: { priority: -100, sort: "NONE" },
+  "Skybox (Fov Standard)": { priority: -90, sort: "NONE" },
+  Blurred: { priority: -75, sort: "BACK_TO_FRONT" },
+  Opaque: { priority: 0, sort: "BY_STATE" },
+  Transparent: { priority: 100, sort: "BACK_TO_FRONT" },
+  Overlay: { priority: 200, sort: "NONE" },
+};
+/**
+ * A queue the file lacks takes RenderQueueConfig's defaults (priority 0, BACK_TO_FRONT); it is
+ * created after Opaque, so it renders after it.
+ */
+const UNKNOWN_QUEUE = { priority: 0.5, sort: "BACK_TO_FRONT" as QueueSort };
+export const queueConfig = (q: string) => RENDER_QUEUES[q] ?? UNKNOWN_QUEUE;
+
+export interface DrawKey { queue: string; subQueue?: string; priority?: number; depth?: number }
+/**
+ * The compositor's draw order (RenderQueue): by queue priority; inside a grouped enqueuer's
+ * group (the skyboxes), by the group's own queue; then by the enqueuer priority (a queue keeps
+ * one batch list per priority and renders them in rising order); then by the queue's sort
+ * mode over each batch's depth (the view-space z of its geometry's centre: more negative is
+ * farther), so Transparent draws back to front. BY_STATE sorts by GL state, then front to back;
+ * our batches keep their collection order there (the sort is stable), which only changes how
+ * often state is switched.
+ */
+export const drawOrder = (a: DrawKey, b: DrawKey) => {
+  const d = queueConfig(a.queue).priority - queueConfig(b.queue).priority
+    || (a.subQueue ? queueConfig(a.subQueue).priority : -1000) - (b.subQueue ? queueConfig(b.subQueue).priority : -1000)
+    || (a.priority ?? 0) - (b.priority ?? 0);
+  if (d) return d;
+  switch (queueConfig(a.subQueue ?? a.queue).sort) {
+    case "BACK_TO_FRONT": return (a.depth ?? 0) - (b.depth ?? 0);
+    case "FRONT_TO_BACK": return (b.depth ?? 0) - (a.depth ?? 0);
+    default: return 0;
+  }
+};
+/** Whether a queue orders its batches by depth (each placement is then a batch of its own). */
+export const sortsByDepth = (m: { queue: string; subQueue?: string }) => {
+  const s = queueConfig(m.subQueue ?? m.queue).sort;
+  return s === "BACK_TO_FRONT" || s === "FRONT_TO_BACK";
+};
 /**
  * The skybox render queues (config/render_queue.dat, RenderQueueConfig.Skybox): drawn first,
  * by priority, each with its field of view scaled and the depth buffer cleared afterwards.
@@ -219,6 +255,21 @@ const SKY_QUEUES: { queue: string; fovScale: number }[] = [
  */
 const ambientOnly = (p: PassState) => p.lit && !!p.ambient && p.overrideLights === 0;
 const isSkyQueue = (q: string) => q === "Skybox" || q === "Skybox (Fov Standard)";
+const unlitPasses = new WeakMap<PassState, PassState>();
+/**
+ * A pass as a model draws it in a scene. A model whose InfluenceFlagConfig turns lights off
+ * (the snipes' character/npc/snipe/model.dat) takes no light state from the scene (Clyde's
+ * Model.setInfluences leaves it null); PassConfig looks up "lightState" through the scope chain
+ * (the model it is attached to, then the scene, which has none) and falls back to
+ * LightState.DISABLED, so a pass that would use the scene's draws at its texture colours. A pass
+ * with a light-state override of its own stays lit by it.
+ */
+export function modelPass(pass: PassState, receivesLights: boolean): PassState {
+  if (receivesLights || !pass.lit || pass.ambient) return pass;
+  let p = unlitPasses.get(pass);
+  if (!p) unlitPasses.set(pass, p = { ...pass, lit: false });
+  return p;
+}
 
 /**
  * A ViewerEffectConfig.Skybox model: placed each frame at camera + (origin - camera) * scale,
@@ -350,6 +401,12 @@ export class ModelInstance {
   tint: Tint = null;
   /** False leaves this instance and its attachments undrawn (a debugging aid). */
   visible = true;
+  /**
+   * Whether its passes take the scene's lights this frame (set as the frame collects it): see
+   * modelPass. Under a scene environment, a model whose InfluenceFlagConfig turns lights off
+   * takes its parent model's light state, and a root one none.
+   */
+  lightsOn = true;
   readonly parts: GpuPart[] = [];
   readonly children: { node: string; transform: Mat4; instance: ModelInstance }[] = [];
   /** Node name -> local transform (bind pose). */
@@ -646,8 +703,13 @@ export class Renderer {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
   }
 
-  /** Uploads a model's geometry and starts loading its textures. */
-  async instantiate(model: LoadedModel): Promise<ModelInstance> {
+  /**
+   * Uploads a model's geometry and starts loading its textures. `textured` false loads its
+   * geometry alone: a Meshes particle layer draws the mesh with the layer's material, so the
+   * mesh's own textures (often missing from the install: particle/mesh/freeze's skinhalf.png,
+   * particle/mesh/shockwave's testsmoke.png) are never requested.
+   */
+  async instantiate(model: LoadedModel, textured = true): Promise<ModelInstance> {
     const inst = new ModelInstance(model);
     const gl = this.gl;
     for (const part of model.parts) {
@@ -672,20 +734,20 @@ export class Renderer {
       gl.bindVertexArray(null);
       const textures = await Promise.all(part.material.passes.map(p => {
         const u = p.units[0];
-        return u?.texture ? this.texture(u) : Promise.resolve(null);
+        return textured && u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
       const second = await Promise.all(part.material.passes.map(p => {
         const u = p.units[1];
-        return u?.texture ? this.texture(u) : Promise.resolve(null);
+        return textured && u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
       inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures, second });
     }
     for (const a of model.attachments) {
-      inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model) });
+      inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model, textured) });
     }
     // (waited for at most PARTICLE_PRELOAD_MS: a texture that never arrives must not hold
     // back the instance, and with it a bullet or an effect, for good)
-    if (model.particles?.length) await Promise.race([this.preloadParticles(model), new Promise(r => setTimeout(r, PARTICLE_PRELOAD_MS))]);
+    if (textured && model.particles?.length) await Promise.race([this.preloadParticles(model), new Promise(r => setTimeout(r, PARTICLE_PRELOAD_MS))]);
     return inst;
   }
 
@@ -1340,10 +1402,14 @@ export class Renderer {
     const lights: WorldLight[] = [];
     // skel: the nearest articulated ancestor, whose skeleton drives skinned meshes in wrapper
     // models below it (armour inside compound/conditional wrappers on a knight)
+    // Clyde's Model.setInfluences: a model with light influences off keeps no light state of its
+    // own, and its passes find one up the scope chain (the model it is attached to) or none
+    const influences = !!this.env.influences;
     const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null, parentTint: Tint = null,
-      filter: QueueFilter = undefined) => {
+      filter: QueueFilter = undefined, parentLit = false) => {
       if (!inst.visible) return;
       inst.update(frame);
+      inst.lightsOn = inst.model.receivesLights !== false || (influences && parentLit);
       const tint = inst.tint ?? parentTint;
       if (inst.model.light && !this.skyboxPass) lights.push(placeLight(inst.model.light, placement));
       if (inst.model.root) skel = { inst, placement };
@@ -1392,7 +1458,7 @@ export class Renderer {
           : placement;
         const bb = c.node ? inst.model.billboards.get(c.node) : undefined;
         if (bb) at = this.faceCamera(at, bb);
-        collect(c.instance, multiply(at, c.transform), skel, tint, filter);
+        collect(c.instance, multiply(at, c.transform), skel, tint, filter, inst.lightsOn);
       }
     };
     for (const it of items) collect(it.instance, it.matrix, null, null, it.filter);
@@ -1401,7 +1467,7 @@ export class Renderer {
     // each batch carries its own light set (most placements have none and stay together)
     const batches: { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[]; tint: Tint }[] = [];
     for (const [gp, g] of groups) {
-      const lit = lights.length > 0 && g.inst.model.receivesLights !== false
+      const lit = lights.length > 0 && g.inst.lightsOn
         && gp.part.material.passes.some(p => p.lit && !p.ambient);
       if (!lit) { batches.push({ gp, inst: g.inst, matrices: g.matrices, lights: [], tint: g.tint }); continue; }
       const byKey = new Map<string, { gp: GpuPart; inst: ModelInstance; matrices: Mat4[]; lights: WorldLight[]; tint: Tint }>();
@@ -1416,27 +1482,67 @@ export class Renderer {
       batches.push(...byKey.values());
     }
 
-    // upload every instance matrix for this frame in one buffer
+    // Everything goes through the compositor's queues together, meshes and particle layers
+    // alike: a queue sorted by depth (Transparent) takes each placement as a batch of its own
+    // at its geometry's centre, the others keep their placements instanced
+    const v = this.view;
+    const viewZ = (m: Mat4, c: Vec3) => {
+      const x = m[0] * c[0] + m[4] * c[1] + m[8] * c[2] + m[12];
+      const y = m[1] * c[0] + m[5] * c[1] + m[9] * c[2] + m[13];
+      const z = m[2] * c[0] + m[6] * c[1] + m[10] * c[2] + m[14];
+      return v[2] * x + v[6] * y + v[10] * z + v[14];
+    };
+    type MeshBatch = (typeof batches)[number];
+    type Op = DrawKey & { mesh?: MeshBatch; layer?: { emitter: Emitter; li: number; matrix: Mat4 }; at?: number };
+    const ops: Op[] = [];
+    for (const b of batches) {
+      const mat = b.gp.part.material;
+      if (sortsByDepth(mat)) {
+        const c = partBounds(b.gp.part).c;
+        for (const m of b.matrices) ops.push({ queue: mat.queue, subQueue: mat.subQueue, priority: mat.priority, depth: viewZ(m, c), mesh: { ...b, matrices: [m] } });
+      } else ops.push({ queue: mat.queue, subQueue: mat.subQueue, priority: mat.priority, mesh: b });
+    }
+    for (const { emitter, matrix, filter } of particles) {
+      // a system's layers in their drawing order (GroupPriority), each a batch at the centre
+      // of its particles' bounds, nudged toward the camera by its place in that order
+      emitter.order.forEach((li, rank) => {
+        const state = emitter.states[li];
+        if (state.particles.length === 0 || !passesFilter(filter, state.layer.material.queue)) return;
+        const mat = state.layer.material;
+        const local = state.layer.moveWithEmitter;
+        const mn: Vec3 = [Infinity, Infinity, Infinity], mx: Vec3 = [-Infinity, -Infinity, -Infinity];
+        for (const p of state.particles) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p.pos[k]); mx[k] = Math.max(mx[k], p.pos[k]); }
+        const c: Vec3 = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+        const depth = viewZ(local ? matrix : IDENTITY, c) + rank * 1e-4;
+        ops.push({ queue: mat.queue, subQueue: mat.subQueue, priority: mat.priority, depth, layer: { emitter, li, matrix } });
+      });
+    }
+    ops.sort(drawOrder);
+
+    // upload every instance matrix for this frame in one buffer, in drawing order
     let total = 0;
-    for (const b of batches) total += b.matrices.length;
+    for (const o of ops) if (o.mesh) total += o.mesh.matrices.length;
     if (this.instanceData.length < total * 16) this.instanceData = new Float32Array(total * 16 * 2);
-    const order = batches.sort((a, b) => drawOrder(a.gp.part.material, b.gp.part.material));
-    const offsets: number[] = [];
     let at = 0;
-    for (const b of order) {
-      offsets.push(at);
-      for (const m of b.matrices) { this.instanceData.set(m, at * 16); at++; }
+    for (const o of ops) {
+      if (!o.mesh) continue;
+      o.at = at;
+      for (const m of o.mesh.matrices) { this.instanceData.set(m, at * 16); at++; }
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, this.instanceData.subarray(0, total * 16), gl.DYNAMIC_DRAW);
 
-    order.forEach((b, i) => {
-      this.setLocalLights(b.lights);
-      this.drawPart(b.inst, b.gp, offsets[i], b.matrices.length, b.tint);
-    });
+    for (const o of ops) {
+      if (o.mesh) {
+        this.setLocalLights(o.mesh.lights);
+        this.drawPart(o.mesh.inst, o.mesh.gp, o.at!, o.mesh.matrices.length, o.mesh.tint);
+      } else if (o.layer) {
+        this.setLocalLights([]);
+        this.drawParticleLayer(o.layer.emitter, o.layer.li, o.layer.matrix);
+      }
+    }
     this.setLocalLights([]);
     if (!this.skyboxPass) this.lastTime = this.time;
-    if (particles.length) this.drawParticles(particles);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
   }
@@ -1466,14 +1572,21 @@ export class Renderer {
 
   private readonly meshInstances = new Map<LoadedModel, ModelInstance | null>();
   private readonly meshInstanceLoads = new Map<LoadedModel, Promise<unknown>>();
+  private readonly meshGeometries = new Map<LoadedModel, ModelInstance | null>();
+  private readonly meshGeometryLoads = new Map<LoadedModel, Promise<unknown>>();
 
-  /** Instance for a particle-emitted model; null until its textures have loaded. */
-  private meshInstance(model: LoadedModel): ModelInstance | null {
-    if (!this.meshInstances.has(model)) {
-      this.meshInstances.set(model, null);
-      this.meshInstanceLoads.set(model, this.instantiate(model).then(i => this.meshInstances.set(model, i)).catch(() => {}));
+  /**
+   * Instance for a particle-emitted model; null until it has loaded. A meta layer's model
+   * draws with its own materials; a Meshes layer's (`geometry`) only lends its geometry to the
+   * layer's material, so its own textures are never loaded.
+   */
+  private meshInstance(model: LoadedModel, geometry = false): ModelInstance | null {
+    const done = geometry ? this.meshGeometries : this.meshInstances, loads = geometry ? this.meshGeometryLoads : this.meshInstanceLoads;
+    if (!done.has(model)) {
+      done.set(model, null);
+      loads.set(model, this.instantiate(model, !geometry).then(i => done.set(model, i)).catch(() => {}));
     }
-    return this.meshInstances.get(model) ?? null;
+    return done.get(model) ?? null;
   }
 
   /**
@@ -1491,9 +1604,9 @@ export class Renderer {
         if (p) waits.push(p.catch(() => null));
       }
       if (l.model && l.geometry === "Meshes") {
-        this.meshInstance(l.model);
+        this.meshInstance(l.model, true);
         // (a mesh with particles of its own is not waited for: a cycle would never resolve)
-        const p = this.meshInstanceLoads.get(l.model);
+        const p = this.meshGeometryLoads.get(l.model);
         if (p && !l.model.particles?.length) waits.push(p);
       }
     }
@@ -1516,7 +1629,8 @@ export class Renderer {
     return this.readyParticleTextures.get(key) ?? undefined;
   }
 
-  private drawParticles(list: { emitter: Emitter; matrix: Mat4; filter?: QueueFilter }[]) {
+  /** Draws one particle layer of a placed system (its batch in the queues). */
+  private drawParticleLayer(emitter: Emitter, li: number, matrix: Mat4) {
     const gl = this.gl, v = this.view;
     const right: [number, number, number] = [v[0], v[4], v[8]], up: [number, number, number] = [v[1], v[5], v[9]];
     gl.bindVertexArray(this.particleVao);
@@ -1528,21 +1642,14 @@ export class Renderer {
     }
     gl.uniform1i(this.u.u_skinned, 0);
     gl.uniform1i(this.u.u_particle, 1);
-    const data: number[] = [];
-    for (const { emitter, matrix, filter } of list) {
-      // a system's layers in their drawing order (GroupPriority)
-      for (const li of emitter.order) {
-        const state = emitter.states[li];
-        if (state.particles.length === 0) continue;
-        if (!passesFilter(filter, state.layer.material.queue)) continue;
-        if (state.layer.geometry === "Meshes") {
-          this.drawMeshParticles(emitter, li, matrix);
-          gl.bindVertexArray(this.particleVao);
-          continue;
-        }
-        data.length = 0;
-        emitter.emit(li, matrix, right, up, data);
-        if (data.length === 0) continue;
+    const state = emitter.states[li];
+    if (state.layer.geometry === "Meshes") {
+      this.drawMeshParticles(emitter, li, matrix);
+    } else {
+      const data = this.particleData;
+      data.length = 0;
+      emitter.emit(li, matrix, right, up, data);
+      if (data.length > 0) {
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STREAM_DRAW);
         for (const pass of state.layer.material.passes) {
@@ -1560,6 +1667,7 @@ export class Renderer {
     gl.uniform1i(this.u.u_particle, 0);
     gl.bindVertexArray(null);
   }
+  private readonly particleData: number[] = [];
 
   /**
    * Meshes geometry: each particle draws the layer's mesh with the layer's material and the
@@ -1567,7 +1675,7 @@ export class Renderer {
    */
   private drawMeshParticles(emitter: Emitter, li: number, matrix: Mat4) {
     const gl = this.gl, layer = emitter.states[li].layer;
-    const inst = layer.model ? this.meshInstance(layer.model) : null;
+    const inst = layer.model ? this.meshInstance(layer.model, true) : null;
     if (!inst) return;
     const passes = layer.material.passes;
     const textures = passes.map(p => this.particleTexture(p.units[0]));
@@ -1609,7 +1717,7 @@ export class Renderer {
       gl.vertexAttribDivisor(6 + k, 1);
     }
     gp.part.material.passes.forEach((pass, i) => {
-      this.applyPass(pass, gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
+      this.applyPass(modelPass(pass, inst.lightsOn || !this.env.influences), gp.textures[i], !!gp.part.normal, !!gp.part.color, gp.second[i], !!gp.part.texCoord1, tint);
       if (gp.indexed) gl.drawElementsInstanced(gp.primitive, gp.count, gl.UNSIGNED_SHORT, 0, instances);
       else gl.drawArraysInstanced(gp.primitive, 0, gp.count, instances);
       this.stats.draws++;

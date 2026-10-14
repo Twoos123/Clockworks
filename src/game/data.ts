@@ -152,6 +152,12 @@ export interface MonsterDef {
   hitFx?: any;
   deathFx?: any;
   collisionFlags: number;
+  /**
+   * What it collides with (ActorConfig.Original collisionMask, default 1): an actor is blocked
+   * by another whose flags meet its mask (Actor.collidesWith), so a snipe (flags 4) never
+   * blocks the knight (mask 43).
+   */
+  collisionMask: number;
   /** Handlers such as loot drops. */
   handlers: any[];
 }
@@ -461,6 +467,12 @@ export class GameData {
       }
       // "Base/Default" fire actions run an action of their own (a heal bomb, a raised corpse)
       const act = getArg(fire, "Action") as any;
+      // ...or strike a region around the attacker (an ice cube's roundhouse): a melee hit
+      const strike = !spawn && !shapeArg ? regionStrike(act) : null;
+      if (strike) {
+        fires.push({ delay, damage: strike.damage ?? null, shape: strike.shape, knockback: readKnock(strike.impulseDealt), spawn: null, name: fire.name });
+        continue;
+      }
       if (!spawn && !shapeArg && act?.$class && /ActionConfig\$/.test(String(act.$class))) {
         fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name, action: act });
         continue;
@@ -535,7 +547,8 @@ export class GameData {
       attackType: desc?.damage ?? "NORMAL",
       model: sprite.model,
       scale: sprite.scale ?? 1,
-      radius: m.shape?.radius ?? 0.5,
+      // the Circle default (1) is the Jelly Green Giant's: twice a jelly cube's 0.4 at 0.8 scale
+      radius: actorRadius(m.shape),
       // ActorConfig Mobile speed and Monster targetedSpeed both default to 6
       speed: m.speed ?? 6,
       targetedSpeed: m.targetedSpeed ?? 6,
@@ -560,6 +573,7 @@ export class GameData {
       hitFx: transient(sprite.hitTransient),
       deathFx: transient(sprite.destructionTransient),
       collisionFlags: m.collisionFlags ?? 8,
+      collisionMask: m.collisionMask ?? 1,
       handlers: m.handlers ?? [],
     };
   }
@@ -784,6 +798,31 @@ export function shutdownParts(action: any): { out: any | null; back: any | null;
 /** An animation reference, kept whole when it names a file (its arguments matter). */
 function refOf(r: any): any {
   return r?.name?.endsWith(".dat") ? r : undefined;
+}
+
+/**
+ * The region strike a fire action's action makes, if it is one: a DamageRegion(FromPoint)
+ * whose region a parameter gave a shape ("Damage Region": Small, Medium, Large), around the
+ * attacker at its translation. A Conditional whose (server-side) condition the export
+ * stripped takes its else branch, as Logic.execute does with Clyde's default condition: the
+ * ice cube's roundhouse ("Jelly Roundhouse (Ice)") strikes with its "Damage Frozen".
+ */
+export function regionStrike(action: any, depth = 0): { damage: any; shape: DamageShape; impulseDealt: any } | null {
+  if (!action || depth > 4) return null;
+  const k = kind(action);
+  if (k === "Conditional") return action.condition == null ? regionStrike(action.elseAction, depth + 1) : null;
+  if (!/^DamageRegion(FromPoint)?$/.test(k) || action.target) return null;
+  const shape = action.region?.shape;
+  if (!shape) return null;
+  const t = action.translation ?? {};
+  return { damage: action.damage ?? null, impulseDealt: action.impulseDealt,
+    shape: readShape({ shape, transform: { translation: { x: t.x ?? 0, y: t.y ?? 0 } } }) };
+}
+
+/** An actor's collision radius: ShapeConfig.Circle's default radius is 1. */
+function actorRadius(shape: any): number {
+  if (kind(shape) === "Circle") return shape.radius ?? 1;
+  return shape?.radius ?? 0.5;
 }
 
 function readShape(s: any): DamageShape {
