@@ -91,16 +91,23 @@ separate audit. Damage numbers, hitstop and hurt reactions belong to the combat-
 | The target is the knight sprite's current target (`PO()`) | The last monster struck, for 6 s | flagged (the client's targeting is not reproduced) |
 | The panel also describes hovered townsfolk, shops and items (`as.i(description)`) | No hover descriptions | flagged |
 
-## Minimap (`client/hud/Minimap`, `dungeon/client/F`, `M`)
+## Minimap (`client/hud/Minimap`, `dungeon/client/F`, `W`, `C`; `map/client/a`, `AbstractMapComponent`; Tudey's map renderer)
 
 | What the client does | What we did | Status |
 |---|---|---|
-| Map scale is 3 px per world unit | The scale was fitted to show 14 units edge to centre (about 4.9 px) | fixed |
+| The map is a texture with one texel per cell. Tiles give each cell its collision flags under the map mask (wall, edge, player, player barrier). Placeables and areas with such flags mark the cells their shape covers (more than four of the nine thirds of a cell), and floor-tile placeables mark floor. Markers add nothing | Walkable cells were filled with a pale colour as the knight walked | fixed (`src/game/levelmap.ts`, built in `src/scene.ts`) |
+| Floor is flooded from the default-entrance placeables and the party's spawn point through cells with no flags (four sides). Reached floor is dark blue (0.082, 0.2, 0.29), other floor grey-blue (0.29, 0.44, 0.47), blocked cells light blue (0.42, 0.69, 0.73), and uncovered cells clear. Walls and edges are one or two cells deep, so the level reads as a light outline | A filled blob | fixed |
+| Exploration: Clockworks levels (`MapType.DISCOVER`) show a disc around each two-unit square the knight has visited, solid to 20 cells and fading out at 32. Terminals, towns and other places show the same disc around every reached cell | Cells within 9 units of the knight were revealed | fixed (the spawn seed is the knight's first position) |
+| The minimap uses the overlay's map renderer, drawn at 3 px per unit in the 160 px square at the map layer's upper-right corner, multiplied by `ui/hud_v2/images/minimap/mask.png`. It sits after the faceplate and under the hash marks and gloss | Drawn in the map background spacer with an elliptical clip | fixed |
+| Markers, in order: the knight as `ui/minimap/player_local.png` (colour print 264 in towns; the knight's personal colour in dungeons), half transparent and turned to its heading; then `MinimapIcon` entities; then monsters (dungeon only) | A yellow arrow drawn last | fixed |
 | Monsters use `ui/minimap/monster.png` at full size and are hidden beyond the 69 px edge | Red dots | fixed |
-| Entity icons are drawn at 0.75 size. Beyond 69 px they are pinned to the edge, shrinking to 0.25 over 690 px, and hidden further out | They were drawn at full size and clipped | fixed |
+| Entity icons are drawn at 0.75 size. Beyond 69 px they are pinned to the edge, shrinking to 0.25 over 690 px, and hidden further out. They are not rotated | They were drawn at full size and clipped | fixed |
+| Edge markers are rotated toward their direction only for other players (an occupant's arrow, `ui/minimap/arrow*.png`, guild members and friends) | No other players | n/a (single player) |
 | The floor label is the dungeon bundle's `m.depth` ("DEPTH 3"), or `???` on shadow and core floors | "Depth 3" | fixed (`m.depth`) |
-| Zoom and map toggle buttons with tooltips; connection-quality ping icon; HUD lock button disabled | Drawn but inactive | flagged (zoom and map overlay not implemented) |
-| Edge markers are rotated toward their direction | Not rotated | flagged |
+| `spacer_zoom` (the magnifier) shows only where the scene controller allows zoom (`dA.Ja()`: towns, guild halls, arenas); the dungeon minimap has none. The zoom button toggles the camera zoom (`TOGGLE_ZOOM`, `=`) and shows it selected while zoomed | Always drawn, inactive | fixed |
+| `spacer_map` always shows. The map button toggles the `map_overlay` preference (`TOGGLE_MAP`, the B key) and shows it selected while the overlay is on | Opened the Gate Map | fixed (kept in local storage; our B key is the backpack, so only the button toggles it) |
+| `button_lockhud` is disabled (the dungeon enables it for party HUD lock); the ping label shows the connection icon; the instance-select button is for town instances | Drawn | fixed (lock disabled) / n/a |
+| When the camera's target is off radar (`Dungeoneer.OFF_RADAR`, actor flag 512) the dungeon minimap shows random static and no monsters, and the overlay hides | Not done | flagged (no off-radar state) |
 
 ## Corner menus, activities, objectives (`client/hud/M`, `L`, `P`, `y`, `a`, `E`)
 
@@ -149,4 +156,4 @@ separate audit. Damage numbers, hitstop and hurt reactions belong to the combat-
 | `client/hud/r` (`ui/energy/interface_collapse.dat`) | Energy widget | n/a |
 | `dungeon/client/an` (clock timer) | `interface_clocktimer.dat` as mm:ss. The colour is `default`, then `warning`, then `suddendeath` under the thresholds, with a blip under 4 s | n/a (party timers and PvP) |
 | `dungeon/client/Z`, `I`, `am` (party list, split invites, go-ahead) | Party UI | n/a |
-| `client/hud/z`, `A` (map component) | The full map window | flagged (no map overlay) |
+| `client/hud/z`, `A`, `client/bU`, `dungeon/client/V`, `N` (map overlay) | A full-screen window under the HUD, shown by the `map_overlay` preference: the level map at 4.5 px per unit and half opacity, centred on the camera target, with the knight and the entity icons at full size and no monsters | fixed (drawn first by `GameHud.draw`) |
