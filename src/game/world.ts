@@ -307,6 +307,8 @@ class Projectile {
   shooter: Actor | null = null;
   /** A disk swaps to its returning model once it turns home. */
   returnInstance: ModelInstance | null = null;
+  /** Bursts a trail bullet has left. */
+  bursts = 0;
   constructor(readonly def: ProjectileDef, public instance: ModelInstance | null, readonly team: Team,
     public x: number, public y: number, public z: number, public heading: number, readonly ctx: DepthContext) {}
   matrix(): Mat4 {
@@ -2619,7 +2621,7 @@ export class World implements LogicHost {
     this.projectiles.push(proj);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), p.fuse / 1000);
     // point blank: a target between the attacker and the muzzle is hit at once
-    if (p.kind === "Bullet") {
+    if (p.kind === "Bullet" && !p.trail) {
       for (let i = 1; i <= 4 && !proj.done; i++) {
         proj.x = a.x + (x - a.x) * i / 4; proj.y = a.y + (y - a.y) * i / 4;
         if (this.projectileTarget(proj)) this.detonate(proj, true);
@@ -2730,12 +2732,14 @@ export class World implements LogicHost {
         for (let i = 0; i < steps && !p.done; i++) {
           p.x += (Math.cos(p.heading) * d.speed * dt) / steps;
           p.y += (Math.sin(p.heading) * d.speed * dt) / steps;
-          const hit = this.projectileTarget(p);
+          // a trail bullet passes through what it meets; its bursts do the striking
+          const hit = !d.trail && this.projectileTarget(p);
           if (hit) this.detonate(p, true);
           else if (p.team === "monster" && this.boss?.bullet?.(p.x, p.y, p.heading, p.owner)) this.detonate(p, true);
           // walls only (tile flag 1 and 128 in the bullet's mask); pits (flag 2) are flown over
           else if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false)) this.detonate(p, true);
         }
+        if (d.trail && !p.done) this.leaveBursts(p, d.trail);
         if (!p.done && p.age * 1000 >= d.fuse) {
           p.done = true;
           if (d.fizzleFx) this.spawnEffect(d.fizzleFx, compose([p.x, p.y, p.z], [0, 0, 0, 1], 1), 1);
@@ -2743,6 +2747,19 @@ export class World implements LogicHost {
       } else if (p.age * 1000 >= d.fuse) this.detonate(p, false);
     }
     for (let i = this.projectiles.length - 1; i >= 0; i--) if (this.projectiles[i].done) this.projectiles.splice(i, 1);
+  }
+
+  /**
+   * A trail bullet's bursts (the brandishes' charge): one each interval where the bullet is,
+   * each a bomb with the bullet's damage, on the bullet's side and with its shooter's
+   * damage context; the bullet ends with its last burst.
+   */
+  private leaveBursts(p: Projectile, trail: NonNullable<ProjectileDef["trail"]>) {
+    while (!p.done && p.bursts < trail.count && p.age * 1000 >= (p.bursts + 1) * trail.interval) {
+      p.bursts++;
+      void this.spawnProjectileAt(trail.actor, p.x, p.y, p.heading, p.team, p.ctx);
+      if (p.bursts >= trail.count) p.done = true;
+    }
   }
 
   /** Whether a bullet touches something it can hit. */
