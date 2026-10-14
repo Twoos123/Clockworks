@@ -70,6 +70,8 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
   const n = m.name, tier = tierOf(n);
   const idx = (re: RegExp) => m.attacks.flatMap((a, i) => (re.test(a) ? [i] : []));
   const first = (re: RegExp) => idx(re)[0];
+  // bosses fight across their arenas: a wide region, never let go (ours)
+  const boss = /\/Boss\//.test(n) ? { acquireRadius: 16, leash: 60 } : {};
   const offensive = m.attacks.flatMap((a, i) => (a && !DODGE.test(a) && !SUPPORT.test(a) ? [i] : []));
   const dodges = (re: RegExp, chance: number, direction = 0, minDodgeInterval = 1000) => {
     const list = idx(re);
@@ -79,7 +81,7 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
     d ? { type: "Dodging", behavior: inner, ...d } : inner;
   const wander: Behavior = m.speed > 0 ? { type: "Wander", evaluationInterval: [2, 4], radius: 4 } : { type: "Idle" };
   const target = (targetAction: TargetAction, extra: Partial<Extract<Behavior, { type: "Targeting" }>> = {}): Behavior =>
-    ({ type: "Targeting", routine: wander, acquireRadius: 10, targetAction, ...extra });
+    ({ type: "Targeting", routine: wander, acquireRadius: 10, targetAction, ...boss, ...extra });
   const path = (attacks: number[], maxAttackDistance = 0.85, more: object = {}): TargetAction =>
     ({ type: "PathAttack", attacks, maxAttackDistance, ...more });
   const track = (attacks: number[], minAttackDistance: number, maxAttackDistance: number): TargetAction =>
@@ -147,6 +149,12 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
     return target({ type: "SimpleAttack", attacks: offensive }, { routine: { type: "Idle" } });
 
   // ---- Beasts
+  if (/Snarbolax/.test(n))
+    // the wolver pattern, bigger: tail-whips close up, charges from afar, barks (its director
+    // runs the bell stuns and burrows; Snarbolax/Stun and Warp To are its)
+    return target(random([3, path(idx(/Tail-Whip/), 1)],
+      [when(far(4), 1.5, 0), { type: "ChargeAttack", attacks: idx(/Charge - Start/), chargeAttacks: idx(/Charge - End/), warmup: 1000, maxLength: 2500, maxAttackDistance: 1 }],
+      [when(far(3), 0.3, 0), path(idx(/Snarbolax\/Bark/), 99)]), { acquireRadius: 16, leash: 40 });
   if (/Wolver|Vog Cub/.test(n)) {
     // close in and bite; bark now and then; sidestep or hop back from shots, burrowing away
     // at tier 3 (wiki: Wolver)
@@ -284,7 +292,7 @@ export function monsterBehavior(m: MonsterInfo): Behavior {
   if (/\/Drone\//.test(n))
     return { type: "Attack", attacks: idx(/Peek$|Flip/), stop: false, minAttackInterval: 0 };
 
-  return generic(m, offensive, wander);
+  return { ...generic(m, offensive, wander), ...boss } as Behavior;
 }
 
 /** Anything else, from its data: a turret, a ranged keeper of distance, or a brawler. */
