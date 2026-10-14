@@ -9,10 +9,12 @@ A single-player loop runs in the browser, built from the install's own data:
 1. **Haven.** The town loads from the scenes cache. Shopkeepers stand in the bazaar and sell
    gear for crowns.
 2. **Arsenal.** The game's own arsenal and equipment windows (`ui/arsenal`, `ui/status`):
-   owned gear by category with icons, stars and heat levels, the game's item tooltips, sockets
-   for helmet, armour, shield, two trinkets, three weapons and the vitapod, the knight
-   preview, and the personal colour. B opens the backpack (`ui/inventory`): pocket items and
-   materials.
+   owned gear and materials by item group as the client lists them (damage-coloured item
+   pills, star ranks, sorting), the game's item tooltips with attack and defence bars, sockets
+   for helmet, armour, shield, two trinkets, three weapons and the vitapod, the gear stats
+   column, the knight preview, and the personal colour. B opens the inventory window
+   (`ui/inventory/interface_combined.dat`, an arsenal list). The windows' behaviour is audited
+   against the client's controllers in docs/research/ui-audit-windows.md.
 3. **Runs.** Enter the Clockworks from town. Each cached combat level is followed by a
    newly generated floor of its theme, one depth per floor. The Core's elevator returns to
    Haven; "go deeper" past the end keeps generating floors.
@@ -48,10 +50,11 @@ A single-player loop runs in the browser, built from the install's own data:
 9. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
    deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
    boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
-10. **Crafting.** The game's forge (`ui/forge`, K): recipes from `config/recipe.dat` turn
-   materials, crowns and a levelled base item into the next item, with the forging animation
-   played by the interface's own scripts. Shops use the game's vendor and cart windows
-   (`ui/shop`).
+10. **Crafting.** The game's recipe window (`ui/recipes`, K; the client's crafting window, not
+   the crystal forge `ui/forge`): learned recipes from `config/recipe.dat` turn materials,
+   crowns and a levelled, unequipped base item into the next item, with the transmute result
+   window and its script. Shops are the client's shop dialog: the vendor list, the shopping
+   cart with the keeper's portrait and the knight's arsenal to sell from (`ui/shop`).
 11. **Saving.** The browser keeps:
    - loadout, owned items and colour;
    - banked crowns, heat and materials;
