@@ -1,26 +1,32 @@
-// The backpack: the game's inventory window (ui/inventory/interface.dat), sixteen sockets a
-// bag and two bag tabs, with the crowns line. It holds what the knight carries besides gear:
-// the pocket's capsules and vials first, then the crafting materials, each with its icon and
-// count and the game's item tooltip.
+// The HUD's Arsenal button: the client's inventory window (item/client/f on
+// ui/inventory/interface_combined.dat), which is an arsenal list (ArsenalPanel on
+// ui/arsenal/interface.dat in Window mode) of everything the knight owns: its gear by item
+// group, then its minerals and materials, with the sort header, the search field and the
+// crowns line. The old sixteen-socket bag (ui/inventory/interface.dat) is the part the client
+// takes out ("inv_panel"). Pocket capsules and vials live on the quickbar, not here
+// (ArsenalPanel drops those groups). A click on gear equips or removes it.
 
+import type { GameData } from "../game/data";
 import type { Economy } from "../game/economy";
-import { itemLabel } from "../game/items";
+import { catalogue, toggleEquip } from "../game/items";
 import type { SaveData } from "../game/save";
+import { text } from "../i18n";
 import type { Component } from "./gui";
-import { itemTip } from "./itemlist";
+import { ownedGroups } from "./equipment";
+import { ItemList } from "./itemlist";
 import { GuiScreen, type ScreenHost } from "./screen";
 
 export interface BackpackHost extends ScreenHost {
   save(): SaveData;
   eco(): Promise<Economy>;
+  data(): GameData;
+  /** Writes the save after a change (equipping). */
+  write?(): void;
 }
 
-const SLOTS = 16;
-
 export class BackpackScreen extends GuiScreen {
-  private bag = 0;
-  private icons_ = new Map<Component, any>();
   private eco: Economy | null = null;
+  private list: ItemList | null = null;
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly pack: BackpackHost) {
     super(ctx, pack, "backpackCanvas");
@@ -28,53 +34,28 @@ export class BackpackScreen extends GuiScreen {
 
   protected async build(): Promise<Component | null> {
     this.eco = await this.pack.eco();
-    const ui = await this.ui("ui/inventory/interface.dat");
+    const ui = await this.ui("ui/arsenal/interface.dat", { Mode: "Window" });
     if (!ui) return null;
     this.on(ui, "dismiss", () => this.close());
-    for (const [i, tag] of ["tab_bag1", "tab_bag2"].entries()) {
-      this.on(ui, tag, () => { this.bag = i; this.host.sound("sound/feedback/ui_dropdown_select.ogg"); void this.refresh(); });
-    }
-    this.hooks = {
-      tagged: {
-        slot_ring: (c, g, x, y, w, h) => {
-          const cfg = this.icons_.get(c);
-          const im = cfg ? this.icon(cfg, Math.min(w, h) - 6) : null;
-          if (im) g.drawImage(im.source as CanvasImageSource, Math.round(x + (w - im.width) / 2), Math.round(y + (h - im.height) / 2), im.width, im.height);
-        },
-      },
+    const list = this.list = new ItemList(this.ctx, ui, this.tips, f => this.host.sound(f));
+    list.sorts = ["natural", "name", "stars", "level"];
+    list.clicks = this.clicks;
+    list.onPick = e => {
+      const save = this.pack.save(), item = catalogue(this.pack.data()).find(x => x.name === e.key);
+      if (!item) return;
+      save.loadout = toggleEquip(save.loadout, item);
+      this.pack.write?.();
+      this.host.sound("sound/feedback/ui_equip.ogg");
+      void this.refresh();
     };
     return ui;
   }
 
-  /** What the knight carries: pocket consumables, then materials, as [name, count]. */
-  private contents(): [string, number][] {
-    const s = this.pack.save();
-    const mats = Object.entries(s.materials).filter(([, n]) => n > 0).sort((a, b) => itemLabel(a[0]).localeCompare(itemLabel(b[0])));
-    return [...s.pocket.filter(([, n]) => n > 0), ...mats];
-  }
-
   protected async refresh() {
-    const ui = this.root;
-    if (!ui) return;
-    const save = this.pack.save(), all = this.contents(), eco = this.eco!;
-    const crowns = ui.find("crowns");
-    if (crowns) crowns.text = save.crowns.toLocaleString("en-US");
-    ["tab_bag1", "tab_bag2"].forEach((t, i) => { const c = ui.find(t); if (c) c.selected = i === this.bag; });
-    const pocket = new Set(save.pocket.map(p => p[0]));
-    for (let i = 0; i < SLOTS; i++) {
-      const slot = ui.find(`slot${i + 1}`);
-      if (!slot) continue;
-      const item = all[this.bag * SLOTS + i];
-      const ring = slot.find("slot_ring"), count = slot.find("itemcount");
-      if (count) count.text = item && item[1] > 1 ? String(item[1]) : "";
-      if (!ring) continue;
-      if (!item) { this.icons_.delete(ring); this.tips.delete(slot); continue; }
-      const info = eco.info(item[0]);
-      this.icons_.set(ring, info?.icon ?? null);
-      const kind = pocket.has(item[0]) ? (/Vial/.test(item[0]) ? "Vial" : "Capsule") : info?.category === "mineral" ? "Mineral" : "Material";
-      this.tips.set(slot, itemTip({ label: itemLabel(item[0]), type: kind, rarity: info?.rarity ?? 0, item: item[0], kind,
-        flavor: pocket.has(item[0]) ? "Carried in the pocket: use it from the quickbar." : "A crafting material: the forge's recipes call for it.",
-        lines: [`${item[1]} carried`, ...(eco.sellPrice(item[0]) ? [`Sells for ${eco.sellPrice(item[0]).toLocaleString("en-US")} crowns`] : [])] }));
-    }
+    if (!this.list || !this.eco) return;
+    const save = this.pack.save();
+    // g.b: the arsenal's title and crowns line, no infobox
+    this.list.setInfo(text("item", "t.arsenal", "ARSENAL"), "", "", save.crowns);
+    await this.list.setGroups(ownedGroups(save, this.pack.data(), this.eco));
   }
 }

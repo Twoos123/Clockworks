@@ -167,6 +167,52 @@ function wardrobe(data: GameData): Promise<Wardrobe> {
   return p;
 }
 
+/** The tooltip for an owned item (ItemConfig.Level's): the power bars, the unique variants, the level's bonuses at depth 30. */
+export function ownedTip(save: SaveData, data: GameData, eco: Economy, e: ItemEntry, worn: boolean) {
+  const heatable = !!eco.info(e.name)?.heatable;
+  const g = save.gear[e.name], lv = eco.level(save, e.name);
+  const bonuses: TipBonus[] = (g?.variants ?? []).map(v => ({ text: eco.variantLabel(v), bonus: true, color: "Variant" }));
+  if (heatable) bonuses.push(...levelBonuses(eco.levelStats(e.name, lv, 30)));
+  const flavor = heatable
+    ? `${g?.heat ?? 0} heat absorbed.${lv < MAX_LEVEL ? " Gear levels up with the heat it gathers in the Clockworks." : " Fully heated."}`
+    : `${e.category.label.replace(/s$/, "")}.`;
+  return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
+    flavor, level: heatable ? lv : undefined, noLevel: e.category.slot === "trinket",
+    progress: eco.heatProgress(save, e.name), equipped: worn, bonuses, stats: itemStats(data, eco, e.name, Math.max(1, lv)) });
+}
+
+/**
+ * ArsenalPanel's groups of what the knight owns: the client's item groups in ItemCodes.Group
+ * order, named in the item bundle and shown even when empty (the vitapod group is this
+ * port's own), then the minerals and materials.
+ */
+export function ownedGroups(save: SaveData, data: GameData, eco: Economy): ListGroup[] {
+  const owned = new Set(save.owned), l = save.loadout, groups: ListGroup[] = [];
+  const cats = ARSENAL_GROUPS.map(id => CATEGORIES.find(c => c.id === id)!).filter(Boolean);
+  for (const cat of cats) {
+    const entries = catalogue(data).filter(e => e.category === cat && owned.has(e.name)).map(e => {
+      const worn = isEquipped(l, e), heatable = !!eco.info(e.name)?.heatable;
+      const lv = heatable ? eco.level(save, e.name) : 0;
+      return { key: e.name, label: e.label, rarity: e.rarity, icon: e.icon, look: worn ? "True" : "False",
+        // weapons, armour, helmets and shields hold variants (pips shown, empty or not); trinkets do not
+        variants: heatable ? save.gear[e.name]?.variants.length ?? 0 : -1, levelled: heatable, level: lv,
+        damage: pillDamage(data, eco, e.name, Math.max(1, lv)), tip: ownedTip(save, data, eco, e, worn) } satisfies ListEntry;
+    });
+    const key = GROUP_KEY[cat.id];
+    groups.push({ id: cat.id, label: key ? messageText(key, "item") : cat.label, icon: cat.icon, entries, showEmpty: !!key });
+  }
+  for (const g of [{ id: "mineral", key: "m.mineral", icon: CAT + "icon_mineral.png", cats: ["mineral", "deposit"] },
+    { id: "material", key: "m.material", icon: CAT + "icon_puzzle.png", cats: ["material"] }]) {
+    const names = Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && g.cats.includes(eco.info(n)?.category ?? ""));
+    groups.push({ id: g.id, label: messageText(g.key, "item"), icon: g.icon, showEmpty: true, entries: names.map(n => {
+      const it = eco.info(n), count = save.materials[n] ?? 0;
+      return { key: `mat:${n}`, label: itemLabel(n), rarity: it?.rarity ?? 0, icon: it?.icon ?? null, count: count > 1 ? String(count) : "",
+        tip: itemTip({ label: itemLabel(n), type: messageText(g.key, "item"), rarity: it?.rarity ?? 0, flavor: "", item: n, kind: it?.category, plain: true }) } satisfies ListEntry;
+    }) });
+  }
+  return groups;
+}
+
 /** A skill or augment name from its message key ("m.extra_crispy" is "Extra Crispy"). */
 const named = (key: string) => key ? messageText(key) : "";
 
@@ -726,22 +772,10 @@ export class ArsenalScreen extends GuiScreen {
   // ------------------------------------------------------------------ the lists
 
   /** The tooltip for an owned item: its level and heat, what the level gives, its variants. */
-  private tip(e: ItemEntry, worn: boolean) {
-    const save = this.arsenal.save(), eco = this.eco!, heatable = !!eco.info(e.name)?.heatable;
-    const g = save.gear[e.name], lv = eco.level(save, e.name);
-    // ItemConfig.Level's tooltip: the power bars, the unique variants, then the level's bonuses at depth 30
-    const bonuses: TipBonus[] = (g?.variants ?? []).map(v => ({ text: eco.variantLabel(v), bonus: true, color: "Variant" }));
-    if (heatable) bonuses.push(...levelBonuses(eco.levelStats(e.name, lv, 30)));
-    const flavor = heatable
-      ? `${g?.heat ?? 0} heat absorbed.${lv < MAX_LEVEL ? " Gear levels up with the heat it gathers in the Clockworks." : " Fully heated."}`
-      : `${e.category.label.replace(/s$/, "")}.`;
-    return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
-      flavor, level: heatable ? lv : undefined, noLevel: e.category.slot === "trinket",
-      progress: eco.heatProgress(save, e.name), equipped: worn, bonuses, stats: itemStats(this.arsenal.data(), eco, e.name, Math.max(1, lv)) });
-  }
+  private tip(e: ItemEntry, worn: boolean) { return ownedTip(this.arsenal.save(), this.arsenal.data(), this.eco!, e, worn); }
 
   private gearGroups(): ListGroup[] {
-    const save = this.arsenal.save(), owned = new Set(save.owned), l = save.loadout;
+    const save = this.arsenal.save(), l = save.loadout;
     const groups: ListGroup[] = [];
     const saved = save.loadouts ?? [];
     if (saved.length) groups.push({ id: "loadouts", label: "Loadouts", icon: CAT + "icon_equippable.png", entries: saved.map((s, i) => {
@@ -749,34 +783,7 @@ export class ArsenalScreen extends GuiScreen {
       return { key: `loadout:${i}`, label: s.name, rarity: -1, icon: null, look: worn ? "True" : "False", tip: this.loadoutTip(s),
         ui: uiRef(LOADOUT_PILL, { Name: s.name, Equipped: worn ? "True" : "False", Hoverable: true }) } satisfies ListEntry;
     }) });
-    // the client's item groups in ItemCodes.Group order, named in the item bundle, shown even
-    // when empty (the vitapod group is this port's own)
-    const cats = ARSENAL_GROUPS.map(id => CATEGORIES.find(c => c.id === id)!).filter(Boolean);
-    for (const cat of cats) {
-      const entries = catalogue(this.arsenal.data()).filter(e => e.category === cat && owned.has(e.name)).map(e => {
-        const worn = isEquipped(l, e), heatable = !!this.eco?.info(e.name)?.heatable;
-        const lv = heatable ? this.eco!.level(save, e.name) : 0;
-        return { key: e.name, label: e.label, rarity: e.rarity, icon: e.icon, look: worn ? "True" : "False",
-          // weapons, armour, helmets and shields hold variants (pips shown, empty or not); trinkets do not
-          variants: heatable ? save.gear[e.name]?.variants.length ?? 0 : -1, levelled: heatable, level: lv,
-          damage: pillDamage(this.arsenal.data(), this.eco!, e.name, Math.max(1, lv)),
-          tip: this.tip(e, worn) } satisfies ListEntry;
-      });
-      const key = GROUP_KEY[cat.id];
-      groups.push({ id: cat.id, label: key ? messageText(key, "item") : cat.label, icon: cat.icon, entries, showEmpty: !!key });
-    }
-    // ArsenalPanel also lists the minerals and materials (shown even while empty)
-    const eco = this.eco;
-    for (const g of [{ id: "mineral", key: "m.mineral", icon: CAT + "icon_mineral.png", cats: ["mineral", "deposit"] },
-      { id: "material", key: "m.material", icon: CAT + "icon_puzzle.png", cats: ["material"] }]) {
-      const names = Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && g.cats.includes(eco?.info(n)?.category ?? ""));
-      groups.push({ id: g.id, label: messageText(g.key, "item"), icon: g.icon, showEmpty: true, entries: names.map(n => {
-        const it = eco?.info(n), count = save.materials[n] ?? 0;
-        return { key: `mat:${n}`, label: itemLabel(n), rarity: it?.rarity ?? 0, icon: it?.icon ?? null, count: count > 1 ? String(count) : "",
-          tip: itemTip({ label: itemLabel(n), type: messageText(g.key, "item"), rarity: it?.rarity ?? 0, flavor: "", item: n, kind: it?.category, plain: true }) } satisfies ListEntry;
-      }) });
-    }
-    return groups;
+    return [...groups, ...ownedGroups(save, this.arsenal.data(), this.eco!)];
   }
 
   private async costumeGroups(): Promise<ListGroup[]> {
