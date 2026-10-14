@@ -135,6 +135,8 @@ abstract class Actor {
   statuses: ActiveStatus[] = [];
   /** When it was last struck (world clock, seconds), for its colour flash. */
   flashAt = -1e9;
+  /** Development (the Test Range): hits still land, react and knock back, but health never runs out. */
+  undying = false;
   abstract radius: number;
   abstract get team(): Team;
   constructor(public instance: ModelInstance, readonly scale = 1) {}
@@ -228,11 +230,65 @@ export class Monster extends Actor {
   behaviorTarget: (() => Entity | null) | null = null;
   /** The actor reference it was spawned from (its arguments carry behaviour scripts). */
   ref: any = null;
+  /**
+   * Development (the Test Range, src/dev/testrange.ts): "live" runs its behaviour as usual;
+   * "passive" walks and turns but never starts an attack; "frozen" stands idle with no
+   * behaviour (an attack started by hand still plays out); "pose" is frozen and keeps whatever
+   * animation was put on it.
+   */
+  hold: MonsterHold = "live";
   constructor(instance: ModelInstance, readonly def: MonsterDef, health: number) {
     super(instance, def.scale);
     this.radius = def.radius;
     this.health = this.maxHealth = health;
   }
+}
+
+export type MonsterHold = "live" | "passive" | "frozen" | "pose";
+
+/** A hit as the development probe reports it (amounts before defence, what was dealt, its push). */
+export interface ProbeHit {
+  /** The damage per type before defence (UNBLOCKABLE included when the hit has any). */
+  amounts: Record<string, number>;
+  /** Health taken (after defence and bonuses; the shield's loss when `shielded`). */
+  dealt: number;
+  /** The hit's knockback impulse: distance (units), duration (ms) and impulse level. */
+  knock: { distance: number; duration: number; level: number } | null;
+  /** The knockback moved the target (its level reached the target's impulse level). */
+  moved: boolean;
+  /** The hit interrupted the target (a monster's hit reaction, the knight's flinch or knockdown). */
+  reacted: boolean;
+  /** The knight was knocked off its feet (a "major react" hit). */
+  knockdown?: boolean;
+  /** The knight's raised shield took it. */
+  shielded?: boolean;
+  killed: boolean;
+  /** The striker's attack under way when it landed (null for a bullet or bomb whose attack has ended). */
+  attack: AttackDef | null;
+}
+
+/**
+ * Development hooks (the Test Range, src/dev/testrange.ts): the world tells a probe about
+ * attacks starting, hits and status rolls as they happen. Null in the game.
+ */
+export interface WorldProbe {
+  attack?(who: Knight | Monster, def: AttackDef): void;
+  hitMonster?(m: Monster, hit: ProbeHit): void;
+  hitKnight?(hit: ProbeHit, from: { x: number; y: number }): void;
+  status?(target: Knight | Monster, roll: { kind: string; chance: number; applied: boolean; duration: number }): void;
+}
+
+/**
+ * A model posed outside the game's rules (the Test Range's animation browser): drawn, its
+ * clock advanced at `rate` and its frame actions (sounds, effects) run, nothing else.
+ */
+export interface Puppet {
+  instance: ModelInstance;
+  x: number; y: number; z: number;
+  heading: number;
+  scale: number;
+  /** Clock rate: 1 plays at speed, 0 holds the frame (stepped by hand). */
+  rate: number;
 }
 
 /** A bullet in flight or a bomb on its fuse. */
@@ -423,6 +479,10 @@ export class World implements LogicHost {
   private beamGen = 0;
   /** The boss fight being played, if any. */
   boss: BossDirector | null = null;
+  /** Development hooks (the Test Range); null in the game. */
+  probe: WorldProbe | null = null;
+  /** Development (the Test Range's animation browser): models played outside the game's rules. */
+  readonly puppets: Puppet[] = [];
 
   constructor(private readonly loader: ModelLoader, private readonly renderer: Renderer,
     private readonly scene: LoadedScene, private readonly collision: CollisionMap, opts: WorldOptions = {}) {
@@ -665,6 +725,43 @@ export class World implements LogicHost {
     void this.loader.loadRef(argRef("particle/fx_gethit_player.dat", [["Color", "Red"]])).catch(() => null);
     for (const name of ["particle/charging.dat", "particle/charging_ready.dat"]) void this.loader.loadRef({ name }).catch(() => null);
     await this.startLogic();
+  }
+
+  /**
+   * Development (the Test Range): puts a loadout on the knight at once, where it stands, with
+   * no ownership or rank checks, as start() would have dressed it (weapons in hand, shield,
+   * armour and helmet worn, the gear's bonuses and defence), the first weapon in hand.
+   */
+  async equip(gear: GearLoadout) {
+    const k = this.knight;
+    const shield = await this.data.shield(gear.shield || STARTER_SHIELD);
+    const weapons = (await Promise.all(gear.weapons.map(n => this.data.weapon(n)))).filter((w): w is WeaponDef => !!w);
+    const armor = (await Promise.all([gear.armor || STARTER_ARMOR[0], gear.helmet || STARTER_ARMOR[1]].map(n => this.data.armor(n))))
+      .filter((a): a is ArmorDef => !!a);
+    armor.forEach((a, i) => { a.slot = i === 0 ? "armor" : "helmet"; if (!(i === 0 ? gear.armor : gear.helmet)) a.model = null; });
+    const loadouts: Loadout[] = await Promise.all(weapons.map(async def => ({ def, instance: await this.knightInstance(def, shield, armor) })));
+    await Promise.all([...weapons.map(w => this.preloadAttacks([...w.attacks, w.chargedAttack, w.incompleteChargedAttack, w.cooldownAttack])),
+      this.preloadAttacks([shield?.bash])]);
+    this.endKnightActivity();
+    const inst = loadouts[0]?.instance ?? await this.knightInstance(null, shield, armor);
+    inst.time = 0;
+    k.weapons = loadouts;
+    k.slot = 0;
+    k.pendingSlot = null;
+    k.shield = shield;
+    k.armor = armor;
+    k.bonuses = emptyBonuses();
+    const worn = [gear.armor, gear.helmet, gear.shield, ...(gear.trinkets ?? []), gear.vitapod];
+    for (const n of worn) if (n) addItemBonuses(k.bonuses, this.data.resolveSync("config/item.dat", { name: n }, "item"));
+    this.applyGearState(k, weapons, worn);
+    k.shieldHealth = 1;
+    k.shieldBroken = 0;
+    this.updateKnightStats(k);
+    k.health = Math.min(k.health, k.maxHealth);
+    k.instance = inst;
+    k.upperBody = inst.subtree("Bip01 Spine");
+    k.control.reset(this.clock * 1000);
+    this.play(k, "character/pc/idle.dat");
   }
 
   /** Builds the level logic from the scene's entries and starts it (EntryLogic startup). */
@@ -1647,6 +1744,7 @@ export class World implements LogicHost {
     this.boss?.update(dt);
     this.separate();
     this.updateProjectiles(dt);
+    for (const p of this.puppets) p.instance.advance(dt * p.rate);
     this.runEvents();
     for (const e of this.effects) {
       e.life -= dt;
@@ -2103,6 +2201,7 @@ export class World implements LogicHost {
   private shieldLoading = false;
 
   private startAttack(a: Actor, def: AttackDef, overlay = false) {
+    if (this.probe?.attack && (a instanceof Knight || a instanceof Monster)) this.probe.attack(a, def);
     // an attack the config marks as not blended (a gun's charged shot, a sword swing) plays on
     // the whole body even for a weapon that otherwise fires on the move
     a.attack = { def, phase: "start", t: 0, ft: 0, fired: new Set(), lunged: false, overlay: overlay && def.blended && !!a.upperBody };
@@ -2297,7 +2396,9 @@ export class World implements LogicHost {
     if (!got) return;
     // gear resists cut a condition's chance and length on the knight
     const resist = target instanceof Knight ? resistFactor(target.bonuses.resist[STATUS_BITS[got.def.kind] ?? 0] ?? 0) : 1;
-    if (Math.random() >= (chance ?? got.chance) * resist) return;
+    const p = (chance ?? got.chance) * resist, applied = Math.random() < p;
+    if (this.probe?.status && (target instanceof Knight || target instanceof Monster)) this.probe.status(target, { kind: got.def.kind, chance: p, applied, duration: got.def.duration * resist });
+    if (!applied) return;
     const def = resist < 1 ? { ...got.def, duration: got.def.duration * resist } : got.def;
     // buffs of different kinds (attack, defence, speed) stack; the same one refreshes
     const same = target.statuses.find(s => s.def.kind === def.kind && (def.kind !== "Buff" || s.def.icon === def.icon));
@@ -2771,12 +2872,15 @@ export class World implements LogicHost {
     // a big enough hit interrupts the monster (minReactPercent of its health) for reactTime;
     // a monster whose reactTime is 0 never reacts (drones, Vanaduke, the Swarm's core,
     // tortodrones in their shells: DungeonActorConfig Monster)
-    if (m.def.reactTime > 0 && dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning" && m.health > dmg) {
+    let reacted = false;
+    if (m.def.reactTime > 0 && dmg >= m.maxHealth * m.def.minReactPercent && m.state !== "spawning" && (m.undying || m.health > dmg)) {
       m.attack = null;
       m.reacting = m.def.reactTime / 1000;
+      reacted = true;
       if (m.def.react) this.play(m, m.def.react, { loop: false, blend: 0.05 });
     }
     m.health -= dmg;
+    if (m.undying) m.health = m.maxHealth;
     // who hurt it, for its Targeting behaviour (acquireDamagers, hitWeight, damageWeight)
     const rec = m.hurtBy.get(0) ?? { hits: 0, damage: 0 };
     rec.hits++; rec.damage += dmg;
@@ -2788,6 +2892,11 @@ export class World implements LogicHost {
     m.flashAt = this.clock;
     void this.spawnEffect(argRef("particle/fx_gethit_monster-scaled.dat", [["variant", performanceVariant(perf)]]), compose([m.x, m.y, m.z], [0, 0, 0, 1], 1), 1);
     this.knock(m, fx, fy, knockback);
+    if (this.probe?.hitMonster) {
+      const kn = knockOf(knockback);
+      this.probe.hitMonster(m, { amounts: amountsOf(amounts), dealt: dmg, knock: kn, moved: !!kn && kn.distance > 0 && kn.level >= (m.def.impulseLevel ?? 1),
+        reacted, killed: m.health <= 0, attack: this.knight.attack?.def ?? null });
+    }
     if (m.def.hitFx) this.spawnEffect(m.def.hitFx, compose([m.x, m.y, m.z + 0.5], [0, 0, 0, 1], 1), 0.8);
     if (m.health <= 0) {
       this.startDying(m);
@@ -2820,6 +2929,12 @@ export class World implements LogicHost {
     if ((k.shielding || c.activity.kind === "shieldHit") && k.shieldBroken <= 0 && k.shield) {
       const sdmg = Math.max(1, Math.round(dealt(amounts, k.shieldDefense)));
       k.shieldHealth -= sdmg;
+      if (this.probe?.hitKnight) {
+        const kn = knockOf(knockback);
+        this.probe.hitKnight({ amounts: amountsOf(amounts), dealt: sdmg, knock: kn ? { ...kn, distance: kn.distance * 0.3 } : null, moved: !!kn && kn.distance > 0,
+          reacted: true, shielded: true, killed: false, attack: null }, { x: fx, y: fy });
+      }
+      if (k.undying) k.shieldHealth = Math.max(k.shieldHealth, k.shieldMax);
       k.sinceShieldHit = 0;
       this.knock(k, fx, fy, knockback, 0.3);
       k.invulnerable = 0.25;
@@ -2839,11 +2954,17 @@ export class World implements LogicHost {
     this.hitStatuses(k, amounts, dmg);
     const before = k.health;
     k.health = Math.max(0, k.health - dmg);
+    if (k.undying) k.health = k.maxHealth;
     k.recentDamage += before - k.health;
     k.sinceDamage = 0;
     k.invulnerable = 0.5;
     this.knightHitFeedback(amounts, dmg);
     this.knock(k, fx, fy, knockback);
+    if (this.probe?.hitKnight) {
+      const kn = knockOf(knockback);
+      this.probe.hitKnight({ amounts: amountsOf(amounts), dealt: dmg, knock: kn, moved: !!kn && kn.distance > 0, reacted: k.health > 0,
+        knockdown: k.health > 0 && !!(amounts as any).major && !!this.clip("character/pc/hurt_hard.dat"), killed: k.health <= 0, attack: null }, { x: fx, y: fy });
+    }
     if (k.health <= 0) {
       this.knockOut();
       return;
@@ -3107,7 +3228,13 @@ export class World implements LogicHost {
     if (m.state === "spawning") {
       // DungeonActorConfig activateTime: the monster acts once its activation has played
       const ready = m.def.activateTime > 0 ? m.stateTime * 1000 >= m.def.activateTime : m.instance.finished || m.stateTime > 1.2;
-      if (ready) { m.state = "idle"; this.play(m, m.def.idle); }
+      if (ready) { m.state = "idle"; if (m.hold !== "pose") this.play(m, m.def.idle); }
+      return;
+    }
+    if (m.hold === "frozen" || m.hold === "pose") {
+      // development (the Test Range): no behaviour; an attack started by hand plays out
+      if (m.attack) { this.advanceAttack(m, dt); if (!m.attack) { m.state = "idle"; if (m.hold === "frozen") this.play(m, m.def.idle); } }
+      else if (m.hold === "frozen") { m.state = "idle"; this.play(m, m.def.idle); }
       return;
     }
     const brain = this.brainOf(m);
@@ -3184,11 +3311,11 @@ export class World implements LogicHost {
       sees: (ax, ay, bx, by) => this.collision.clearLine(ax, ay, bx, by, m.radius * 0.8, MONSTER_MASK),
       threats: (x, y, r) => m.ally ? [] : this.threatsNear(x, y, r),
       attackCount: () => def.slots.length,
-      canAttack: () => !m.attack && m.reacting <= 0 && m.state !== "spawning" && m.state !== "dying",
+      canAttack: () => m.hold !== "passive" && !m.attack && m.reacting <= 0 && m.state !== "spawning" && m.state !== "dying",
       attacking: () => !!m.attack,
       attack: i => {
         const a = def.slots[i];
-        if (!a || m.attack) return false;
+        if (!a || m.attack || m.hold === "passive") return false;
         // a boss director may limit the attacks
         const pool = this.boss?.attacks?.(m);
         if (pool && !pool.includes(a)) return false;
@@ -3413,6 +3540,7 @@ export class World implements LogicHost {
     drain(k.instance, () => k.matrix(), k);
     for (const m of this.monsters) drain(m.instance, () => m.matrix(), m);
     for (const e of this.effects) if (e.instance) drain(e.instance, () => e.follow ? e.follow.matrix() : e.matrix, e.follow);
+    for (const p of this.puppets) drain(p.instance, () => puppetMatrix(p));
   }
 
   items(): { instance: ModelInstance; matrix: Mat4 }[] {
@@ -3433,6 +3561,7 @@ export class World implements LogicHost {
     if (this.companion) out.push(...this.companion.items());
     for (const p of this.projectiles) if (p.instance && !p.done) out.push({ instance: p.instance, matrix: p.matrix() });
     for (const e of this.effects) if (e.instance) out.push({ instance: e.instance, matrix: e.follow ? e.follow.matrix() : e.matrix });
+    for (const p of this.puppets) out.push({ instance: p.instance, matrix: puppetMatrix(p) });
     return out;
   }
 
@@ -3499,3 +3628,20 @@ export function blockHits(name: string): number {
   return 1;
 }
 
+/** A knockback as distance, duration and level (a bare number is a distance over 250 ms). */
+function knockOf(k: Knock): { distance: number; duration: number; level: number } | null {
+  const kn = typeof k === "number" ? { distance: k, duration: 250, level: 1 } : k;
+  return kn ? { distance: kn.distance, duration: kn.duration, level: kn.level } : null;
+}
+
+/** A hit's amounts per damage type, as plain numbers (the probe's copy). */
+function amountsOf(a: Amounts): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const t of [...DAMAGE_TYPES, "UNBLOCKABLE"] as const) { const v = (a as any)[t]; if (typeof v === "number" && v) out[t] = v; }
+  return out;
+}
+
+function puppetMatrix(p: Puppet): Mat4 {
+  const a = p.heading + Math.PI / 2;
+  return compose([p.x, p.y, p.z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], p.scale);
+}
