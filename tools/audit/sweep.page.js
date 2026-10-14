@@ -45,7 +45,20 @@
   }
 
   /** A screenshot of the stage now, a thumbnail for the contact sheet, and the subject's pose. */
+  /** The sweep's own framing: the camera close on the stage and the hall lit, so a contact sheet shows the subject. */
+  function frame() {
+    const v = window.__viewer;
+    if (!v || v.__sweepFramed) return;
+    v.__sweepFramed = true;
+    // the Camera Distance option, applied the way the options screen applies it
+    if (v.options_) { v.options_.zoom = 0.35; if (v.cam?.to) v.applyCamView(v.cam.to); }
+    const e = v.environment;
+    if (e && Array.isArray(e.ambient)) e.ambient = e.ambient.map((x, i) => (i < 3 ? Math.max(x, 0.6) : x));
+    if (e && e.fog) e.fog = null;
+  }
+
   async function shot(label, inst) {
+    frame();
     const full = await A().grab(2);
     return { label, full, thumb: await thumb(full), pose: inst ? pose(inst) : null, t: +A().log().t.toFixed(2) };
   }
