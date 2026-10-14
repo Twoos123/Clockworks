@@ -1,0 +1,312 @@
+// Which behaviour each monster runs (src/game/behavior.ts). The game's behaviour configs
+// (config/behavior.dat, the actors' behavior fields) are stripped from the export, so each
+// family's Targeting behaviour is rebuilt here from what survives: the actor's attack list
+// (whose order the stripped configs indexed), its speeds and turn rate, the behaviour
+// scripts some actors pass as arguments, and the wiki's account of how the family fights.
+// Every choice and its source is logged in docs/research/monster-ai.md.
+import { applyArguments } from "../config/params";
+import type { Behavior, Condition, TargetAction, Weight } from "./behavior";
+
+const isScript = (v: unknown): v is any[] =>
+  Array.isArray(v) && v.length > 0 && v.every(s => /ScriptConfig\$/.test(String(s?.$class)));
+
+/**
+ * The behaviour script an actor carries (BehaviorConfig.Scripted steps). The behaviour
+ * configs themselves are stripped from the export, but some actors pass their script as an
+ * argument ("Behavior Script", "Behavior", "Steps") down their Derived chain, and the
+ * argument survives: Blastcores, scripted knights and mission NPCs. The deepest reference
+ * holding one wins (outer arguments are already applied to it).
+ */
+export function behaviorScript(ref: any, lookup: (name: string) => any): any[] | null {
+  let found: any[] | null = null;
+  for (let i = 0; i < 12 && ref?.name; i++) {
+    for (const [k, v] of (ref.arguments?.entries ?? []) as [string, unknown][]) {
+      if (/behavio|script|steps/i.test(String(k)) && isScript(v)) found = v;
+    }
+    const base = lookup(ref.name);
+    if (!base) break;
+    const impl = applyArguments(base, ref).implementation;
+    if (impl?.behavior?.steps && isScript(impl.behavior.steps)) return impl.behavior.steps;
+    if (!String(impl?.$class ?? "").endsWith("$Derived")) break;
+    ref = impl.actor;
+  }
+  return found;
+}
+
+/** What the family table reads about a monster. */
+export interface MonsterInfo {
+  /** The actor config's name ("Character/NPC/Monster/Beast/Wolver/Wolver/Wolver 2"). */
+  name: string;
+  /** Its attacks' config names, in the config's order (the stripped behaviours index them). */
+  attacks: string[];
+  speed: number;
+  targetedSpeed: number;
+  /** Whether each attack strikes directly (a hit shape) rather than spawning something. */
+  melee: boolean[];
+  /** Each attack's reach, edge to edge (melee) or its projectile's range. */
+  reach: number[];
+  script?: any[] | null;
+}
+
+/** Attacks that move or posture rather than strike (used by Dodging, never as attacks). */
+export const DODGE = /Dodge|Dive Away|Close Ground|Cower|Warp \(Instant\)|Soldier Dodge/;
+/** Attacks that support rather than strike: chosen by name, not as an attack on the target. */
+export const SUPPORT = /Heal|Raise|Promote|Overtime|Sip Coffee|Buff|Use Potion|Bark|Aura|Talk|Taunt|Speech|Defend|Deflect|Spaz|Camoflage|Panic|Expose|Hide|Signal|Recover|Twitch|Monologue|Merge|Cloak|Self Destruct|Writhe|Cower|Stunned|Charge - (Start|Finish|Wait|Stop|End)|Charge (Loop|Outro)|Ready Sword|Spawn|Swap|Activate|Call Minions|Kill Minions|Consume|Pulse/;
+
+/** The monster's tier from its name (" 2", "Mk III"), 1 when it says none. */
+export function tierOf(name: string): number {
+  const m = /\b([123])\)?$/.exec(name) ?? /(?:Mk|Stage) ?(I{1,3}|[123])\b/.exec(name);
+  if (!m) return 1;
+  const t = m[1];
+  return t === "III" ? 3 : t === "II" ? 2 : t === "I" ? 1 : Number(t);
+}
+
+const near = (max: number): Condition => ({ type: "TargetDistance", max });
+const far = (min: number): Condition => ({ type: "TargetDistance", min });
+const when = (condition: Condition, success: number, fail = 0): Weight => ({ condition, success, fail });
+
+/** Builds a monster's behaviour. */
+export function monsterBehavior(m: MonsterInfo): Behavior {
+  const n = m.name, tier = tierOf(n);
+  const idx = (re: RegExp) => m.attacks.flatMap((a, i) => (re.test(a) ? [i] : []));
+  const first = (re: RegExp) => idx(re)[0];
+  const offensive = m.attacks.flatMap((a, i) => (!DODGE.test(a) && !SUPPORT.test(a) ? [i] : []));
+  const dodges = (re: RegExp, chance: number, direction = 0, minDodgeInterval = 1000) => {
+    const list = idx(re);
+    return list.length ? { dodges: list.map(attack => ({ attack, direction })), chance, minDodgeInterval } : null;
+  };
+  const dodging = (inner: Behavior, d: ReturnType<typeof dodges>): Behavior =>
+    d ? { type: "Dodging", behavior: inner, ...d } : inner;
+  const wander: Behavior = m.speed > 0 ? { type: "Wander", evaluationInterval: [2, 4], radius: 4 } : { type: "Idle" };
+  const target = (targetAction: TargetAction, extra: Partial<Extract<Behavior, { type: "Targeting" }>> = {}): Behavior =>
+    ({ type: "Targeting", routine: wander, acquireRadius: 10, targetAction, ...extra });
+  const path = (attacks: number[], maxAttackDistance = 0.85, more: object = {}): TargetAction =>
+    ({ type: "PathAttack", attacks, maxAttackDistance, ...more });
+  const track = (attacks: number[], minAttackDistance: number, maxAttackDistance: number): TargetAction =>
+    ({ type: "TrackAttack", attacks, minAttackDistance, maxAttackDistance });
+  const random = (...actions: [Weight, TargetAction | null][]): TargetAction => {
+    const ok = actions.filter((x): x is [Weight, TargetAction] => !!x[1] && hasAttacks(x[1]));
+    if (!ok.length) return path(offensive);
+    return ok.length === 1 ? ok[0][1] : { type: "RandomAction", actions: ok.map(([weight, action]) => ({ weight, action })) };
+  };
+
+  // a behaviour script that survived in the actor's arguments is the real behaviour
+  if (m.script?.length) return { type: "Scripted", steps: m.script };
+
+  // ---- Slimes
+  if (/\/Slime\/(Polyp)\//.test(n))
+    // Polyps are turrets that see in every direction (wiki: Polyp)
+    return target({ type: "SimpleAttack", attacks: offensive }, { acquireRadius: 9, routine: { type: "Idle" } });
+  if (/Lichen Colony/.test(n))
+    return target(random([1, path(idx(/^.*\/Lichen$/))], [when(near(2.5), 1, 0.2), path(idx(/Spin|Impale/), 1.5)]), { acquireRadius: 8 });
+  if (/\/(Oiler)/.test(n))
+    // Oilers dash across the floor leaving slicks, and punch close up
+    return target(random([when(far(2), 2, 0), path(idx(/Oiler Dash/), 6)], [when(near(1.5), 2, 0.2), path(idx(/Punch|Spin/))],
+      [0.5, path(idx(/Oiler Place/), 8)]), { acquireRadius: 9 });
+  if (/Quicksilver/.test(n))
+    return target(random([2, path(idx(/Punch/))], [when(far(2), 1, 0), path(idx(/Quicksilver Charge/), 4)]));
+  if (/Glop Drop|\/Drop\//.test(n))
+    // drops roll at the knight and become a puddle under it (wiki: Drop)
+    return target(path(offensive.length ? offensive : [0], 0.3), { acquireRadius: 8 });
+  if (/\/Slime\//.test(n) || /Creep Cake|Void Gel/.test(n)) {
+    // jellies close in and tackle; higher tiers raise thorns under the knight (wiki: Jelly)
+    const melee = idx(/Roundhouse|Punch|Lichen$/);
+    return target(random([3, path(melee.length ? melee : offensive)],
+      [when(far(1), 1, 0.3), path(idx(/Impale/), 3)],
+      [when(near(1.5), 1, 0), path(idx(/Spin/), 0.85)]), { acquireRadius: 8 });
+  }
+
+  // ---- Constructs
+  if (/Gun Puppy|Rocket Puppy|Love Puppy|Plasma Dog|Red Rover|Howlizter|Howlitzer/.test(n))
+    // stationary, turning slowly, firing at what it sees or what shot it (wiki: Gun Puppy)
+    return target({ type: "SimpleAttack", attacks: offensive }, { acquireRadius: 10, sight: true, routine: { type: "Idle" } });
+  if (/Retrode|Cake Bot/.test(n))
+    // zombie-like: a swipe close up, an eye beam along a line from tier 2 (wiki: Retrode)
+    return target(random([3, path(idx(/Swipe/))], [when(far(1.5), 1.5, 0), path(idx(/Eye Beam/), 6)]));
+  if (/Mecha Knight|Mega Knight/.test(n)) {
+    // advance and slash; the shield goes up against shots at tiers 2 and 3 (wiki: Mecha Knight)
+    const inner = target(random([3, path(idx(/Charge \(/), 0.85)], [1, path(idx(/Swing/), 1.2)], [0.15, path(idx(/Spaz/), 99)]));
+    return tier >= 2 || /Mk II|Mega/.test(n) ? dodging(inner, dodges(/Defend/, 0.6)) : inner;
+  }
+  if (/Lumber|Ironwood|Sentinel|Electreant|Redward|Silversap|Vilewood/.test(n))
+    // slow, swinging at anything close (wiki: Lumber)
+    return target(path(offensive, 0.85), { acquireRadius: 8 });
+  if (/Scuttlebot|Brumabot|Cinderbot|Hazbot|Surgebot/.test(n))
+    // a short-range spread of three bullets (wiki: Scuttlebot)
+    return target(track(offensive, 0, 3), { acquireRadius: 9 });
+  if (/Tortodrone/.test(n)) {
+    // patrols ignoring knights unless provoked; the corrupted one attacks (wiki: Tortodrone)
+    const provoked = /hostile|corrupted/.test(n) ? 10 : 0;
+    return target(random(
+      [when(far(4), 1.5, 0), { type: "ChargeAttack", attacks: idx(/Charge Loop/), chargeAttacks: idx(/Charge Outro/), warmup: 900, maxLength: 2000, maxAttackDistance: 1 }],
+      [when(far(3), 1, 0.2), track(idx(/Missle|Missile/), 3, 10)],
+      [when(near(2), 2, 0), path(idx(/Punch$/), 1.5)],
+      [when(near(2.5), 1, 0), path(idx(/Fist Pound/), 2)]), { acquireRadius: provoked });
+  }
+  if (/Blastcore/.test(n))
+    return target({ type: "SimpleAttack", attacks: offensive }, { routine: { type: "Idle" } });
+
+  // ---- Beasts
+  if (/Wolver|Vog Cub/.test(n)) {
+    // close in and bite; bark now and then; sidestep or hop back from shots, burrowing away
+    // at tier 3 (wiki: Wolver)
+    const bite = idx(/Bite/);
+    const inner = target(random([4, path(bite, 1.2)], [when(far(3), 0.4, 0.1), path(idx(/Bark/), 99)]), { acquireRadius: 12 });
+    return dodging(inner, dodges(/Dodge|Warp/, tier >= 2 || /Alpha/.test(n) ? 0.5 : 0.25));
+  }
+  if (/Chromalisk|Electrolisk|Salamander|Tundralisk|Virulisk|Kleptolisk/.test(n)) {
+    // licks close up or spits from range; dodges projectiles (wiki: Chromalisk)
+    const lick = idx(/Chromalisk$|Chromalisk Whelp$|Kleptolisk$/), spit = idx(/Spew/);
+    const inner = target(spit.length ? track(spit, 1.5, 5) : path(lick, 1.5));
+    return dodging(inner, dodges(/Dodge/, 0.5));
+  }
+  if (/Dust Bunny|Bunny/.test(n))
+    return target(path(offensive, 1), { acquireRadius: 10 });
+  if (/Lizardman/.test(n))
+    return dodging(target(path(idx(/Thrust/), 4)), dodges(/Dodge/, 0.5));
+
+  // ---- Fiends
+  if (/Devilite|Firebrander|Layoafer|Blarful|Devil-IT/.test(n) && !/Pit Boss|Yesman/.test(n)) {
+    // hold their spot and throw; overtimers charge and swing; all dodge projectiles; dive away
+    // from a knight on top of them (wiki: Devilite)
+    const throws = idx(/(^|\/)(Office Supplies|Junk|Electronics|Throw|Weapons)\//);
+    const inner = target(random(
+      [2, track(throws, 2, 6)],
+      [when(near(1.5), 2, 0.6), path(idx(/Swing Weapon/), 0.85)],
+      [when(near(0.6), 0.5, 0), path(idx(/Dive Away/), 99)]), { acquireRadius: 10 });
+    return dodging(inner, dodges(/Devilite\/Dodge$/, 0.7, Math.PI / 2));
+  }
+  if (/Pit Boss/.test(n))
+    // keeps away from knights and works its staff (wiki: Devilite: Pit Boss)
+    return { type: "Combined", first: target({ type: "Flee", distance: 4 }), second: { type: "Attack", attacks: offensive.length ? offensive : idx(/Overtime|Promote|Sip/), minAttackInterval: 6000, stop: false } };
+  if (/Yesman/.test(n))
+    return { type: "Follow", target: { kind: "allies" }, minimumDistance: 1, maximumDistance: 3 };
+  if (/Trojan|Slag Guard/.test(n)) {
+    // turns to face whoever hurt it most; charges from afar, slams close up, pushes back
+    // knights at its feet (wiki: Trojan)
+    const slam = idx(/Sword Slam/);
+    const inner = target(random(
+      [when(far(3), 2, 0), { type: "StraightAttack", attacks: slam, maxAttackDistance: 1.2, maxLength: 1500 }],
+      [when(near(3), 3, 0), path(slam, 1.2)],
+      [when(near(1.5), 1, 0), path(idx(/Push Back/), 1.5)]), { damageWeight: 30, acquireRadius: 10 });
+    return dodging(inner, dodges(/Shield Deflect/, 0.4));
+  }
+  if (/Deadnaught|Deadnought|Almire Knight|Beast Master/.test(n)) {
+    // charges with its spear on its own timer, and raises the dead (wiki: Deadnaught)
+    const inner = target(random(
+      [3, { type: "ChargeAttack", attacks: idx(/Charge - Start/), chargeAttacks: idx(/Charge - Finish/), warmup: 700, maxLength: 2500, maxAttackDistance: 1, minAttackInterval: 2500 }],
+      [0.5, path(idx(/Raise Dead/), 99)]), { acquireRadius: 14 });
+    return dodging(inner, dodges(/Shield Deflect/, 0.4));
+  }
+  if (/Soldier of Almire/.test(n))
+    return dodging(target(path(idx(/Charge \(Swipe\)/), 3)), dodges(/Soldier Dodge/, 0.4));
+  if (/Gorgo|Firegut|Guster|Storm Belly|Waster/.test(n))
+    // hover until a knight is in sight, then lunge in and chomp (wiki: Gorgo)
+    return target(path(idx(/Bite/), 2), { acquireRadius: 9, sight: true });
+  if (/Greaver/.test(n))
+    // follows its knight and swoops in after a moment (wiki: Greaver)
+    return target(path(offensive, 4, { minAttackInterval: 2000 }), { acquireRadius: 10 });
+  if (/Silkwing/.test(n)) {
+    // no attack: it heals the wounded it touches (its timer's heal), follows big monsters,
+    // and darts away from shots (wiki: Silkwing)
+    return dodging({ type: "Cascading", cascades: [
+      { condition: { type: "AllyHurt", radius: 12 }, behavior: { type: "Follow", target: { kind: "hurtAllies" }, minimumDistance: 0, maximumDistance: 0.6, evaluationInterval: 0.5 } },
+      { condition: { type: "Always" }, behavior: { type: "Random", evaluationInterval: 3, behaviors: [
+        { weight: 2, behavior: { type: "Follow", target: { kind: "allies", sizes: ["LARGE", "MEDIUM"] }, minimumDistance: 1, maximumDistance: 3, evaluationInterval: 1 } },
+        { weight: 1, behavior: { type: "Wander", evaluationInterval: [1, 3], radius: 4 } }] } }] }, dodges(/Silkwing 1/, 0.5));
+  }
+
+  // ---- Gremlins
+  if (/Mender/.test(n)) {
+    // heals wounded allies; otherwise keeps away from knights; dodgy (wiki: Gremlin)
+    const heals = idx(/Heal \((Target|Renew)\)/), omni = idx(/Heal \(Omni\)/);
+    return dodging({ type: "Cascading", cascades: [
+      { condition: { type: "AllyHurt", radius: 10 }, behavior: { type: "Targeting", targets: "hurtAllies", acquireRadius: 10, routine: wander,
+        targetAction: random([2, path(heals, 3, { minAttackInterval: 2500 })], [1, path(omni, 2, { minAttackInterval: 2500 })]) } },
+      { condition: { type: "Always" }, behavior: target({ type: "Flee", distance: 5 }) }] }, dodges(/Dodge/, 0.6));
+  }
+  if (/Demo/.test(n))
+    // runs about throwing and placing bombs (wiki: Gremlin: Demo)
+    return dodging(target(random([3, track(idx(/Throw/), 3, 7)], [1, path(idx(/Place Bomb/), 8)]), { acquireRadius: 11 }),
+      dodges(/Dodge Back/, /Tenderfoot/.test(n) ? 0.3 : 0.5));
+  if (/Scorcher/.test(n))
+    // flames close up, bullets when the flames cannot reach (wiki: Gremlin: Scorcher)
+    return target(random(
+      [when(near(3), 3, 0), path(idx(/Torch/), 2.5)],
+      [when(far(3), 2, 0.3), track(idx(/Fire Bullet/), 2.5, 7)],
+      [0.5, path(idx(/FlameWall/), 5)],
+      [when({ type: "Health", health: 0.25 }, 2, 0), path(idx(/Self Destruct/), 99)],
+      [when({ type: "Health", health: 0.4 }, 1, 0), path(idx(/Use Potion/), 99, { minAttackInterval: 10000 })]), { acquireRadius: 10 });
+  if (/Thwacker|Gremlin Chef|Void Gremlin/.test(n)) {
+    // hammer swings close up; tenderfoots throw when out of reach; ironclaws close the gap
+    // and dodge (wiki: Gremlin: Thwacker)
+    const inner = target(random(
+      [when(near(2), 3, 0.3), path(idx(/Hammer (Swing|Thwack|Pushaway)/), 1)],
+      [when(far(2.5), 1.5, 0), track(idx(/Hammer Throw/), 2.5, 6)],
+      [when(far(2), 1, 0), path(idx(/Close Ground/), 5)],
+      [when({ type: "Health", health: 0.4 }, 1, 0), path(idx(/Use Potion/), 99, { minAttackInterval: 10000 })]), { acquireRadius: 10 });
+    return /Ironclaw|Darkfang|Void|Chef/.test(n) ? dodging(inner, dodges(/Dodge Back/, 0.4)) : inner;
+  }
+  if (/Knocker|Choker|Cooler|Jumper|Lighter/.test(n))
+    return target(path(offensive, 1));
+  if (/Mortafire/.test(n))
+    return target(track(idx(/Artillery/), 3, 9), { acquireRadius: 12 });
+  if (/Stalker|Herex/.test(n))
+    // strikes out of its cloak, dodges, cloaks again
+    return dodging(target(random([3, path(idx(/Uncloak/), 1)], [when(far(3), 0.5, 0), path(idx(/^.*\/Cloak$/), 99)])), dodges(/Generic\/Dodge$/, 0.4));
+
+  // ---- Undead
+  if (/Bombie/.test(n))
+    // runs at a knight and blows up on contact (wiki: Bombie)
+    return target(path(offensive.length ? offensive : idx(/Destroy/), 0.2), { acquireRadius: 9 });
+  if (/Zombie|Droul|Frankenzom|Carnavon|Shamber|Slag Walker|Gourdling|Slag Curser/.test(n)) {
+    // shamble in and swipe; leap on knights a little way off; breathe from tier 2 (wiki: Zombie)
+    const grapple = first(/Grapple/), breath = first(/Breath$/);
+    return target(random([3, path(idx(/Swipe/))],
+      [when({ type: "All", conditions: [far(1.2), near(4)] }, 2, 0), grapple === undefined ? null : path([grapple], 3.5)],
+      [when(near(2.5), 1, 0), breath === undefined ? null : path([breath], 2)]), { acquireRadius: 10 });
+  }
+  if (/Spookat|Kat|Bloogato|Dybbuk|Barlok/.test(n)) {
+    // fly at a knight and bite; spit hairballs from tier 2; black kats summon (wiki: Kat)
+    return target(random([3, path(idx(/Bite|Undead\/Spookat$/), 1.5)],
+      [when(far(2), 1.5, 0), track(idx(/Spit/), 2, 6)],
+      [0.3, path(idx(/Spookat Aura/), 99, { minAttackInterval: 8000 })]), { acquireRadius: 10 });
+  }
+  if (/Scarab/.test(n))
+    // swarms, homing in with flying tackles (wiki: Scarab)
+    return target(path(offensive, 1.5), { acquireRadius: 10 });
+  if (/Phantom/.test(n))
+    return target(random([3, path(offensive, 1)]), { acquireRadius: 10 });
+
+  // ---- Drones: they ride their own rails and never target (wiki: Shankle)
+  if (/\/Drone\//.test(n))
+    return { type: "Attack", attacks: idx(/Peek$|Flip/), stop: false, minAttackInterval: 0 };
+
+  return generic(m, offensive, wander);
+}
+
+/** Anything else, from its data: a turret, a ranged keeper of distance, or a brawler. */
+function generic(m: MonsterInfo, offensive: number[], wander: Behavior): Behavior {
+  const attacks = offensive.length ? offensive : m.attacks.map((_, i) => i).filter(i => !DODGE.test(m.attacks[i]));
+  const routine = wander;
+  if (m.targetedSpeed <= 0) return { type: "Targeting", routine: { type: "Idle" }, targetAction: { type: "SimpleAttack", attacks } };
+  const melee = attacks.filter(i => m.melee[i]), ranged = attacks.filter(i => !m.melee[i]);
+  if (!melee.length && ranged.length) {
+    const range = Math.min(...ranged.map(i => m.reach[i] || 6));
+    return { type: "Targeting", routine, targetAction: { type: "TrackAttack", attacks: ranged, minAttackDistance: range * 0.3, maxAttackDistance: range * 0.8 } };
+  }
+  const reach = melee.length ? Math.max(0.6, Math.min(...melee.map(i => m.reach[i] || 0.85))) : 0.85;
+  const action: TargetAction = ranged.length
+    ? { type: "RandomAction", actions: [
+      { weight: { condition: { type: "TargetDistance", max: reach + 0.5 }, success: 3, fail: 0.5 }, action: { type: "PathAttack", attacks: melee, maxAttackDistance: reach } },
+      { weight: { condition: { type: "TargetDistance", min: reach + 0.5 }, success: 1.5, fail: 0 }, action: { type: "TrackAttack", attacks: ranged, minAttackDistance: reach, maxAttackDistance: Math.min(...ranged.map(i => m.reach[i] || 6)) * 0.8 } }] }
+    : { type: "PathAttack", attacks: melee, maxAttackDistance: reach };
+  return { type: "Targeting", routine, targetAction: action };
+}
+
+/** Whether a target action names any attack (empty ones are dropped from random choices). */
+function hasAttacks(a: TargetAction): boolean {
+  if (a.type === "Flee") return true;
+  if (a.type === "RandomAction") return a.actions.length > 0;
+  return (a.attacks?.length ?? 1) > 0;
+}

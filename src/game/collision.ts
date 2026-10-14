@@ -189,6 +189,69 @@ export class CollisionMap {
     return null;
   }
 
+  /**
+   * Tudey's Pathfinder.getPath (clyde tudey/server/util/Pathfinder): straight there when the
+   * swept shape is clear; else A* over the walkable grid, at most `longest` units of path
+   * (AStarPathUtil's longest), and when `partial` the path to the explored cell nearest the
+   * goal if the goal cannot be reached; with `shortcut` the waypoints are pulled tight
+   * (each waypoint skips to the farthest later one the swept shape reaches). Returns the
+   * waypoints after the start, or null when no step can be made.
+   */
+  getPath(ax: number, ay: number, bx: number, by: number, r: number, mask: number,
+    opts: { longest?: number; partial?: boolean; shortcut?: boolean } = {}): [number, number][] | null {
+    if (ax === bx && ay === by) return [];
+    if (this.clearLine(ax, ay, bx, by, r, mask)) return [[bx, by]];
+    const longest = opts.longest ?? Infinity;
+    const sx = Math.floor(ax), sy = Math.floor(ay), gx = Math.floor(bx), gy = Math.floor(by);
+    const key = (x: number, y: number) => (x + 32768) * 65536 + (y + 32768);
+    const unkey = (k: number): [number, number] => [Math.floor(k / 65536) - 32768, (k % 65536) - 32768];
+    const free = new Map<number, boolean>();
+    const walkable = (x: number, y: number) => {
+      const k = key(x, y);
+      let f = free.get(k);
+      if (f === undefined) free.set(k, f = !this.collides(x + 0.5, y + 0.5, r, mask));
+      return f;
+    };
+    const open: { x: number; y: number; g: number; f: number }[] = [{ x: sx, y: sy, g: 0, f: Math.hypot(gx - sx, gy - sy) }];
+    const came = new Map<number, number>(), best = new Map<number, number>([[key(sx, sy), 0]]);
+    let closest = key(sx, sy), cd = Math.hypot(gx - sx, gy - sy), goal: number | null = null, expanded = 0;
+    while (open.length && expanded++ < 2000) {
+      let bi = 0;
+      for (let i = 1; i < open.length; i++) if (open[i].f < open[bi].f) bi = i;
+      const cur = open.splice(bi, 1)[0];
+      const ck = key(cur.x, cur.y), h = Math.hypot(gx - cur.x, gy - cur.y);
+      if (h < cd) { cd = h; closest = ck; }
+      if (cur.x === gx && cur.y === gy) { goal = ck; break; }
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        if (!dx && !dy) continue;
+        const nx = cur.x + dx, ny = cur.y + dy;
+        if (!walkable(nx, ny)) continue;
+        if (dx && dy && (!walkable(cur.x + dx, cur.y) || !walkable(cur.x, cur.y + dy))) continue;
+        const g = cur.g + (dx && dy ? Math.SQRT2 : 1), k = key(nx, ny);
+        if (g > longest || g >= (best.get(k) ?? Infinity)) continue;
+        best.set(k, g);
+        came.set(k, ck);
+        open.push({ x: nx, y: ny, g, f: g + Math.hypot(gx - nx, gy - ny) });
+      }
+    }
+    const end = goal ?? (opts.partial ? closest : null);
+    if (end === null || end === key(sx, sy)) return null;
+    let pts: [number, number][] = [];
+    for (let k = end; came.has(k); k = came.get(k)!) { const [x, y] = unkey(k); pts.unshift([x + 0.5, y + 0.5]); }
+    if (goal !== null) pts[pts.length - 1] = [bx, by];
+    if (!opts.shortcut) return pts;
+    const out: [number, number][] = [];
+    let cx = ax, cy = ay;
+    for (let i = 0; i < pts.length;) {
+      let j = pts.length - 1;
+      while (j > i && !this.clearLine(cx, cy, pts[j][0], pts[j][1], r, mask)) j--;
+      out.push(pts[j]);
+      [cx, cy] = pts[j];
+      i = j + 1;
+    }
+    return out;
+  }
+
   /** Ground height under (x, y). */
   groundZ(x: number, y: number): number {
     const c = this.cell(Math.floor(x), Math.floor(y));

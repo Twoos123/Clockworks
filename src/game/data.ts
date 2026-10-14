@@ -33,6 +33,8 @@ export interface FireDef {
   spawn: { actor: any; variance: number; rotation: number } | null;
   /** The fire action's name (Base/Spawn Actor, a monster's own). */
   name?: string;
+  /** A fire action that runs an action (a mender's heal spawns its heal bomb). */
+  action?: any;
 }
 
 export interface AttackDef {
@@ -121,6 +123,16 @@ export interface MonsterDef {
   /** Milliseconds the body stays after death (the dying animation's time). */
   deathTime: number;
   attacks: AttackDef[];
+  /**
+   * The attacks in the config's own order, null where one did not resolve: the behaviour
+   * configs (and the scripts that survive) name attacks by this index.
+   */
+  slots: (AttackDef | null)[];
+  /** DungeonActorConfig Monster size (MINI, SMALL, MEDIUM, LARGE; UNKNOWN by default). */
+  size: string;
+  /** DungeonActorConfig Monster moveWhileAttacking (false) and activateTime (0 ms). */
+  moveWhileAttacking: boolean;
+  activateTime: number;
   hitFx?: any;
   deathFx?: any;
   collisionFlags: number;
@@ -355,6 +367,12 @@ export class GameData {
       // "Fire Prefired" launches bullets spawned earlier in the attack; it hits nothing itself
       if (!spawn && /Prefired/.test(fire.name ?? "")) continue;
       const delay = Number(getArg(fire, "Delay") ?? 0);
+      // "Base/Default" fire actions run an action of their own (a heal bomb, a raised corpse)
+      const act = getArg(fire, "Action") as any;
+      if (!spawn && !shapeArg && act?.$class && /ActionConfig\$/.test(String(act.$class))) {
+        fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name, action: act });
+        continue;
+      }
       // a fire action whose config does nothing (a lichen's merge) marks a moment the game's
       // own code acts on; it strikes nothing
       if (!spawn && !shapeArg && !damage) {
@@ -389,6 +407,12 @@ export class GameData {
       contact: contactAction ? { damage: contactAction.damage ?? null, knockback: readKnock(contactAction.impulseDealt) } : null,
       bashHealthPct: kind(a) === "ShieldBash" ? a.bashHealthPct ?? 0.5 : undefined,
     };
+  }
+
+  private async attackSlots(refs: any[] | undefined): Promise<{ attacks: AttackDef[]; slots: (AttackDef | null)[] }> {
+    const slots: (AttackDef | null)[] = [];
+    for (const r of refs ?? []) slots.push(r?.ref ? await this.attack(r.ref).catch(() => null) : null);
+    return { attacks: slots.filter((a): a is AttackDef => !!a), slots };
   }
 
   private async attacks(refs: any[] | undefined): Promise<AttackDef[]> {
@@ -437,7 +461,10 @@ export class GameData {
       deathTime: m.deathTime ?? 2467,
       impulseLevel: m.impulseLevel ?? 1,
       creationFx: sprite.creationTransient ?? undefined,
-      attacks: await this.attacks(m.attacks),
+      ...await this.attackSlots(m.attacks),
+      size: m.size?.name ?? "UNKNOWN",
+      moveWhileAttacking: !!m.moveWhileAttacking,
+      activateTime: m.activateTime ?? 0,
       hitFx: transient(sprite.hitTransient),
       deathFx: transient(sprite.destructionTransient),
       collisionFlags: m.collisionFlags ?? 8,

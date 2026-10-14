@@ -28,6 +28,8 @@ import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
 import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
+import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "./behavior";
+import { behaviorScript, monsterBehavior, type MonsterInfo } from "./monsterai";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -38,7 +40,6 @@ const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
  */
 const KNIGHT_HEALTH = 200;
 const MONSTER_MASK = 1 | 2 | 8 | 32;
-const AGGRO_RANGE = 10, LEASH_RANGE = 18;
 export const STARTER_WEAPONS = ["Weapon/Sword/Proto Sword", "Weapon/Handgun/Proto Gun", "Weapon/Bomb/Proto Bomb"];
 const STARTER_SHIELD = "Gear/Shield/Proto Shield";
 const STARTER_ARMOR = ["Gear/Armor/Parts/Proto (Base)", "Gear/Helm/Parts/Proto (Base)"];
@@ -196,18 +197,21 @@ export class Monster extends Actor {
   cooldown = 1;
   /** Seconds left in a hit reaction (interrupted, not acting). */
   reacting = 0;
-  /** Waypoints around walls toward the knight, and seconds until they are recomputed. */
-  path: [number, number][] | null = null;
-  pathAge = 0;
   homeX = 0; homeY = 0;
-  /** Seconds left following a path after getting stuck on the straight line. */
-  stuck = 0;
   /** A lichen colony's size (its "Size" argument, 1 to 21), or 0 for anything else. */
   size = 0;
   /** The lichen this one is merging with. */
   mergeWith: Monster | null = null;
   /** Moved and made to attack by a boss director rather than the AI. */
   scripted = false;
+  /** Its behaviour (the AgentLogic and BehaviorLogic), made when it first acts. */
+  brain: Agent | null = null;
+  /** Hits and damage taken from each actor (the knight is 0): Targeting's acquireDamagers. */
+  hurtBy = new Map<number, { hits: number; damage: number }>();
+  /** The logic's Behavior target (TargetConfig.Behavior): what its behaviour targets. */
+  behaviorTarget: (() => Entity | null) | null = null;
+  /** The actor reference it was spawned from (its arguments carry behaviour scripts). */
+  ref: any = null;
   constructor(instance: ModelInstance, readonly def: MonsterDef, health: number) {
     super(instance, def.scale);
     this.radius = def.radius;
@@ -2037,9 +2041,23 @@ export class World implements LogicHost {
       if (at.fired.has(i) || at.ft * 1000 < f.delay) continue;
       at.fired.add(i);
       if (f.spawn) void this.spawnProjectile(a, f.spawn);
+      else if (f.action) this.fireAction(a, f.action);
       else if (f.shape) this.resolveHit(a, f);
       else if (/Merge$/.test(f.name ?? "") && a instanceof Monster && a.mergeWith) this.mergeLichens(a, a.mergeWith);
     }
+  }
+
+  /**
+   * A fire action that runs an action (FireActionConfig Base/Default's "Action": a mender's
+   * heal bomb, a raised corpse), through the logic from where the attacker stands, with its
+   * behaviour's target as the activator.
+   */
+  private fireAction(a: Actor, action: any) {
+    const src = a instanceof Monster ? a.entity : this.knightEntity;
+    if (!src) return;
+    const target = a instanceof Monster ? a.behaviorTarget?.() ?? null : null;
+    src.x = a.x; src.y = a.y; src.rotation = a.heading;
+    this.logic.execute(action, src, target ?? src);
   }
 
   /** A shield bash's one-time hit on every enemy the charging knight touches. */
@@ -2435,6 +2453,10 @@ export class World implements LogicHost {
       if (m.def.react) this.play(m, m.def.react, { loop: false, blend: 0.05 });
     }
     m.health -= dmg;
+    // who hurt it, for its Targeting behaviour (acquireDamagers, hitWeight, damageWeight)
+    const rec = m.hurtBy.get(0) ?? { hits: 0, damage: 0 };
+    rec.hits++; rec.damage += dmg;
+    m.hurtBy.set(0, rec);
     // the client's hit feedback: the hit particle for how the hit performed (with its camera
     // shake), the damage number in that style, and a red flash
     const perf = performanceOf(dmg, Math.max(1, Math.round(dealt(amounts, null, bonus))), m.maxHealth);
@@ -2449,8 +2471,6 @@ export class World implements LogicHost {
       if (m.entity) this.logic.destroy(m.entity, this.knightEntity);
       for (const st of [...m.statuses]) this.endStatus(m, st);
       if (m.def.deathFx) this.spawnEffect(m.def.deathFx, compose([m.x, m.y, m.z], [0, 0, 0, 1], m.scale), 2);
-    } else if (m.state === "idle") {
-      m.state = "chase";
     }
   }
 
@@ -2694,6 +2714,7 @@ export class World implements LogicHost {
     m.z = this.collision.groundZ(m.x, m.y);
     m.heading = e.rotation;
     m.entity = e;
+    m.ref = ref;
     m.ally = isAlly(e.name);
     m.captive = m.ally && isCaptive(e.name);
     if (def.creationFx) this.spawnEffect(def.creationFx, m.matrix(), 2);
@@ -2724,10 +2745,10 @@ export class World implements LogicHost {
   }
 
   /**
-   * Monster AI. The game's own AI lives in closed code and configs this port does not read,
-   * so this one follows the data: a monster with no speed is a turret that turns at its
-   * turn rate and fires once it faces the knight; one whose attacks are all ranged keeps
-   * its distance and fires; anything else closes in and uses whichever attack reaches.
+   * A monster's tick: its knockback and lunge, statuses, hit reaction, activation, the attack
+   * under way, then its behaviour (src/game/behavior.ts, Tudey's behaviour engine with
+   * Spiral Knights' Targeting behaviours; which one each family runs is
+   * src/game/monsterai.ts, docs/research/monster-ai.md).
    */
   private updateMonster(m: Monster, dt: number) {
     m.instance.advance(dt);
@@ -2745,108 +2766,138 @@ export class World implements LogicHost {
       if (m.attack) { this.advanceAttack(m, dt); if (!m.attack) { m.state = "idle"; this.play(m, m.def.idle); } }
       return;
     }
-    // allies fight the nearest monster, else follow the knight
-    const k: Actor = m.ally ? (this.allyTarget(m) ?? this.knight) : this.knight;
-    const follow = m.ally && k === this.knight;
-    const dx = k.x - m.x, dy = k.y - m.y, dist = Math.hypot(dx, dy) || 1e-3;
-    // turnRate is radians per second (a jelly's 174.5 is 10,000 degrees: instant)
-    const turn = m.def.turnRate;
-
     if (m.state === "spawning") {
-      if (m.instance.finished || m.stateTime > 1.2) { m.state = "idle"; this.play(m, m.def.idle); }
+      // DungeonActorConfig activateTime: the monster acts once its activation has played
+      const ready = m.def.activateTime > 0 ? m.stateTime * 1000 >= m.def.activateTime : m.instance.finished || m.stateTime > 1.2;
+      if (ready) { m.state = "idle"; this.play(m, m.def.idle); }
       return;
     }
+    const brain = this.brainOf(m);
     if (m.attack) {
-      // slow turners keep tracking the knight while winding up
-      if (m.attack.phase === "start" && turn < 6) m.turnToward(Math.atan2(dy, dx), turn, dt);
+      // slow turners keep tracking their target while winding up
+      const t = brain.target, turn = m.def.turnRate;
+      if (t && m.attack.phase === "start" && turn < 6 && !brain.run) m.turnToward(Math.atan2(t.y - m.y, t.x - m.x), turn, dt);
       const was = m.attack.def;
       this.advanceAttack(m, dt);
       if (!m.attack) {
         m.state = "chase";
         // a Chain attack leads straight into another of the monster's attacks
-        const next = was.chainTo !== null ? m.def.attacks[was.chainTo] : null;
+        const next = was.chainTo !== null ? m.def.slots[was.chainTo] ?? null : null;
         if (next && next !== was) { m.state = "attack"; this.startAttack(m, next); }
-        else if (was.chainTo !== null && next === was) m.cooldown = Math.max(m.cooldown, 0.5);
       }
-      return;
     }
-    // a cloaked knight (the Maskeraith's Shadow Cloak) is lost to the monsters
-    if (!m.ally && (k.dead || this.companion?.hidesKnight())) { m.state = "idle"; this.play(m, m.def.idle); return; }
-    if (m.size && this.lichenMerge(m)) return;
-
-    if (m.state === "idle") {
-      if (dist < AGGRO_RANGE) m.state = "chase";
-      else { this.play(m, m.def.idle); return; }
-    }
-    if (dist > LEASH_RANGE && !m.ally) { m.state = "idle"; return; }
-
-    const want = Math.atan2(dy, dx);
-    m.turnToward(want, turn, dt);
-    const facing = Math.abs(Math.atan2(Math.sin(want - m.heading), Math.cos(want - m.heading)));
-    const gap = dist - k.radius - m.radius;
-    // attacks on the knight (a boss director may choose them; a lichen's merge is for its own
-    // kind; a chain's later links follow the first)
-    const pool = this.boss?.attacks?.(m) ?? m.def.attacks;
-    const free = pool.filter(a => !/Merge$/.test(a.name)), linked = chainedTo(m.def.attacks);
-    const own = free.some(a => !linked.has(a)) ? free.filter(a => !linked.has(a)) : free;
-    const melee = own.filter(a => a.shape), ranged = own.filter(a => !a.shape);
-    const usable = own.filter(a => gap <= this.reach(a));
-    // prefer a melee attack in reach, then a ranged one
-    const attack = usable.find(a => a.shape) ?? usable[0] ?? null;
-    if (!follow && attack && m.cooldown <= 0 && facing < (turn < 6 ? 0.25 : 0.6)) {
-      if (turn >= 6) m.heading = want;
-      m.state = "attack";
-      this.startAttack(m, attack);
-      // TargetActionConfig SimpleAttack: minAttackInterval 1000 ms between attack starts (the
-      // class default; the monsters' behaviour configs are stripped from the export)
-      m.cooldown = 1;
-      return;
-    }
-    const sp = m.def.targetedSpeed * this.statusSpeed(m);
-    if (sp <= 0) { this.play(m, m.def.idle); return; }
-    // ranged-only monsters hold a middle distance; others close to melee range
-    const keep = follow ? 2 : !melee.length && ranged.length ? Math.min(...ranged.map(a => this.reach(a))) * 0.6 : (melee.length ? this.reach(melee[0]) * 0.7 : 1);
-    let mx = 0, my = 0;
-    if (gap > keep) {
-      // straight at the knight when the way is clear, else along an A* path around walls
-      m.pathAge -= dt;
-      m.stuck -= dt;
-      if (m.stuck <= 0 && this.collision.clearLine(m.x, m.y, k.x, k.y, m.radius * 0.8, MONSTER_MASK)) m.path = null;
-      else if (!m.path || m.pathAge <= 0) {
-        m.path = this.collision.findPath(m.x, m.y, k.x, k.y, m.radius * 0.8, MONSTER_MASK);
-        m.pathAge = 0.6 + Math.random() * 0.4;
-      }
-      while (m.path?.length && Math.hypot(m.path[0][0] - m.x, m.path[0][1] - m.y) < 0.35) m.path.shift();
-      const [tx, ty] = m.path?.length ? m.path[0] : [k.x, k.y];
-      const tdx = tx - m.x, tdy = ty - m.y, td = Math.hypot(tdx, tdy) || 1;
-      mx = tdx / td; my = tdy / td;
-      if (m.path?.length) m.turnToward(Math.atan2(my, mx), turn, dt);
-    }
-    else if (!melee.length && gap < keep * 0.5) { mx = -dx / dist; my = -dy / dist; }
-    if (mx || my) {
-      const ox = m.x, oy = m.y;
-      this.move(m, mx * sp * dt, my * sp * dt, MONSTER_MASK);
-      // blocked (a ledge or rail the straight line slips past): path around it for a while
-      if (Math.hypot(m.x - ox, m.y - oy) < sp * dt * 0.25 && m.stuck <= 0) {
-        m.path = this.collision.findPath(m.x, m.y, k.x, k.y, m.radius, MONSTER_MASK);
-        m.pathAge = 1;
-        m.stuck = 1.5;
-      }
-      this.play(m, m.def.move ?? m.def.idle, { speed: sp / Math.max(0.5, m.def.moveSpeed) });
-    } else {
+    if (m.size && !m.attack && this.lichenMerge(m)) return;
+    // the behaviour (src/game/behavior.ts): what it targets, where it walks, which attack
+    const motion = brain.tick(this.clock * 1000, m.x, m.y, m.heading);
+    if (!m.attack || brain.run) m.heading = brain.rotation;
+    const sp = motion.speed * this.statusSpeed(m);
+    if (motion.moving && sp > 0) {
+      const ox = m.x, oy = m.y, dx = Math.cos(motion.direction) * sp * dt, dy = Math.sin(motion.direction) * sp * dt;
+      this.move(m, dx, dy, MONSTER_MASK);
+      // blocked: the penetration points back out of the wall, along each axis that stopped
+      const bx = Math.abs(m.x - ox) < Math.abs(dx) * 0.5, by = Math.abs(m.y - oy) < Math.abs(dy) * 0.5;
+      if ((bx && Math.abs(dx) > 1e-4) || (by && Math.abs(dy) > 1e-4)) brain.blocked(bx ? -Math.sign(dx) : 0, by ? -Math.sign(dy) : 0);
+      if (!m.attack) this.play(m, m.def.move ?? m.def.idle, { speed: sp / Math.max(0.5, m.def.moveSpeed) });
+    } else if (!m.attack) {
       this.play(m, m.def.idle);
     }
+    m.state = m.attack ? "attack" : brain.target ? "chase" : "idle";
   }
 
-  /** An ally's foe: the nearest fighting monster near it and the knight. */
-  private allyTarget(m: Monster): Monster | null {
-    let best: Monster | null = null, bd = 9;
-    for (const o of this.monsters) {
-      if (o.ally || o.passive || o.state === "dying" || o.state === "spawning") continue;
-      const d = Math.hypot(o.x - m.x, o.y - m.y);
-      if (d < bd && Math.hypot(o.x - this.knight.x, o.y - this.knight.y) < 14) { bd = d; best = o; }
+  /** Numbers for the behaviour engine's actors (the knight is 0). */
+  private uids = new WeakMap<Monster, number>();
+  private nextUid = 1;
+  private uid(m: Monster) { let u = this.uids.get(m); if (!u) this.uids.set(m, u = this.nextUid++); return u; }
+
+  private seen(m: Monster): Seen {
+    return { id: this.uid(m), x: m.x, y: m.y, radius: m.radius, health: m.health, maxHealth: m.maxHealth, size: m.def.size };
+  }
+
+  /** The monster's behaviour (built on first use from monsterai.ts's family table). */
+  private brainOf(m: Monster): Agent {
+    if (m.brain) return m.brain;
+    const def = m.def, name = m.entity?.name ?? def.name;
+    const script = behaviorScript(m.ref ?? { name }, n => this.data.config("config/actor.dat", n));
+    const info: MonsterInfo = {
+      name, attacks: def.slots.map(a => a?.name ?? ""), speed: def.speed, targetedSpeed: def.targetedSpeed,
+      melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a ? Math.max(0, this.reach(a) - m.radius) : 0)),
+      script,
+    };
+    let cfg: Behavior = monsterBehavior(info);
+    // allies (freed companions, energy turrets) fight monsters near the knight, else follow it
+    if (m.ally) cfg = { type: "Cascading", cascades: [
+      { condition: { type: "FoeNear", radius: 9 }, behavior: cfg },
+      { condition: { type: "Always" }, behavior: { type: "Follow", target: { kind: "allies" }, minimumDistance: 1.5, maximumDistance: 3, evaluationInterval: 0.5 } }] };
+    const k = this.knight;
+    const live = (o: Monster) => o !== m && o.state !== "dying" && o.state !== "spawning" && !o.passive;
+    const host: BehaviorHost = {
+      rand: Math.random,
+      foes: () => m.ally
+        ? this.monsters.filter(o => live(o) && !o.ally && Math.hypot(o.x - k.x, o.y - k.y) < 14).map(o => this.seen(o))
+        // a cloaked knight (the Maskeraith's Shadow Cloak) is lost to the monsters
+        : k.dead || this.companion?.hidesKnight() ? [] : [{ id: 0, x: k.x, y: k.y, radius: k.radius, health: k.health, maxHealth: k.maxHealth }],
+      allies: () => m.ally
+        ? (k.dead ? [] : [{ id: 0, x: k.x, y: k.y, radius: k.radius, health: k.health, maxHealth: k.maxHealth }])
+        : this.monsters.filter(o => live(o) && !o.ally && !o.scripted).map(o => this.seen(o)),
+      damage: id => m.hurtBy.get(id),
+      damagers: () => [...m.hurtBy.keys()],
+      path: (ax, ay, bx, by, longest) => this.collision.getPath(ax, ay, bx, by, m.radius * 0.8, MONSTER_MASK, { longest, partial: true, shortcut: true }),
+      sees: (ax, ay, bx, by) => this.collision.clearLine(ax, ay, bx, by, m.radius * 0.8, MONSTER_MASK),
+      threats: (x, y, r) => m.ally ? [] : this.threatsNear(x, y, r),
+      attackCount: () => def.slots.length,
+      canAttack: () => !m.attack && m.reacting <= 0 && m.state !== "spawning" && m.state !== "dying",
+      attacking: () => !!m.attack,
+      attack: i => {
+        const a = def.slots[i];
+        if (!a || m.attack) return false;
+        // a boss director may limit the attacks
+        const pool = this.boss?.attacks?.(m);
+        if (pool && !pool.includes(a)) return false;
+        m.heading = brain.rotation;
+        m.state = "attack";
+        this.startAttack(m, a);
+        return true;
+      },
+      stopAttack: () => { m.attack = null; this.play(m, m.def.idle); },
+      moveWhileAttacking: () => def.moveWhileAttacking,
+      action: a => { if (m.entity) this.logic.execute(a, m.entity, m.entity); },
+      condition: c => (m.entity ? this.logic.condition(c, m.entity, m.entity) : true),
+      locate: t => {
+        const e = m.entity ? this.logic.resolveTarget(t, m.entity, m.entity)[0] : null;
+        return e ? { x: e.x, y: e.y } : null;
+      },
+    };
+    const brain = new Agent(host, cfg, def.speed, def.targetedSpeed, def.turnRate, m.radius, m.x, m.y, m.heading);
+    selfHealth.set(brain, m);
+    m.brain = brain;
+    m.behaviorTarget = () => {
+      const t = brain.target;
+      if (!t) return null;
+      if (t.id === 0) return this.knightEntity;
+      return this.monsters.find(o => this.uids.get(o) === t.id)?.entity ?? null;
+    };
+    return brain;
+  }
+
+  /**
+   * What a dodging monster reacts to: the knight's shots flying toward a point, and its
+   * swings (an attack winding up or landing) that reach it.
+   */
+  private threatsNear(x: number, y: number, r: number): Threat[] {
+    const out: Threat[] = [];
+    for (const p of this.projectiles) {
+      if (p.done || p.team !== "knight") continue;
+      const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy);
+      if (d > r + 2) continue;
+      if ((Math.cos(p.heading) * dx + Math.sin(p.heading) * dy) / (d || 1) > 0.7) out.push(p);
     }
-    return best;
+    const k = this.knight, at = k.attack;
+    if (at && at.phase !== "end" && at.def.shape) {
+      const dx = x - k.x, dy = y - k.y, d = Math.hypot(dx, dy);
+      const reach = at.def.shape.forward + Math.max(at.def.shape.halfLength, at.def.shape.radius) + 0.3;
+      if (d < reach + r * 0.5 && (Math.cos(k.heading) * dx + Math.sin(k.heading) * dy) / (d || 1) > 0.5) out.push((at as any).threat ??= { x: k.x, y: k.y });
+    }
+    return out;
   }
 
   /**
@@ -3033,11 +3084,6 @@ export class World implements LogicHost {
 }
 
 /** Attacks that only follow another (the later links of Chain attacks). */
-function chainedTo(list: AttackDef[]): Set<AttackDef> {
-  const out = new Set<AttackDef>();
-  for (const a of list) { const n = a.chainTo !== null ? list[a.chainTo] : undefined; if (n && n !== a) out.add(n); }
-  return out;
-}
 
 /** The first FireAction reference inside an action tree. */
 function findFireAction(a: any, depth = 0): any | null {
