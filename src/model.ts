@@ -320,6 +320,19 @@ export class ModelLoader {
   }
 
   /**
+   * Starts reading and parsing the files these model references name, all at once, for loads
+   * that follow one by one (a scene's models, a compound's components): their reads overlap
+   * instead of each waiting for the last. Failures surface when the model itself is loaded.
+   */
+  prefetch(refs: Iterable<any>) {
+    for (const ref of refs) {
+      const name: unknown = ref?.name;
+      if (typeof name !== "string" || !name.endsWith(".dat") || editorOnly(name) || this.cache.has(name)) continue;
+      this.importFile(name).catch(() => undefined);
+    }
+  }
+
+  /**
    * Loads a model file. When a reference with arguments is given (as tiles, props and
    * derived models supply), the arguments are applied through the model's parameters first.
    * Results are cached per path and argument set, so identical references share GPU data.
@@ -378,6 +391,7 @@ export class ModelLoader {
     // Compound models place several component models
     // (merged static models, such as the unbreakable crystal, list their components the same way)
     if (impl.$class.endsWith("CompoundConfig") || impl.$class.endsWith("MergedStaticConfig")) {
+      this.prefetch(((impl.models ?? []) as any[]).map(c => c?.model));
       for (const c of impl.models ?? []) {
         const m = await this.loadRef(c.model, depth, chain);
         if (m) model.attachments.push({ node: c.node ?? "", transform: readTransform(c.transform), model: m });
@@ -464,6 +478,7 @@ export class ModelLoader {
     if (impl.$class.endsWith("ParticleSystemConfig")) {
       model.particles = readParticleLayers(impl, ref => lib.resolve(ref, null, local),
         impl.$class.endsWith("MetaParticleSystemConfig"));
+      this.prefetch(model.particles.map(l => l.modelRef));
       for (const layer of model.particles) if (layer.modelRef) layer.model = await this.loadRef(layer.modelRef, depth, chain);
       if (model.particles.length === 0) model.skipped.push(model.kind);
       return model;
@@ -474,6 +489,9 @@ export class ModelLoader {
       if (nt.node) model.billboards.set(nt.node, k);
     }
 
+    // the attachments' and automatic animations' files load while the meshes are read
+    this.prefetch(((impl.attachments ?? []) as any[]).map(a => a?.model));
+    this.prefetch(((impl.animationMappings ?? []) as any[]).filter(am => am?.startAutomatically).map(am => am.animation));
     const ctx: Ctx = { lib, local, impl, dir };
     if (impl.root) model.root = readNode(ctx, impl.root, model.parts);
     for (const am of impl.animationMappings ?? []) {

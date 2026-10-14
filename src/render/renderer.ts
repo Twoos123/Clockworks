@@ -640,6 +640,9 @@ export class Renderer {
   async instantiate(model: LoadedModel): Promise<ModelInstance> {
     const inst = new ModelInstance(model);
     const gl = this.gl;
+    // every part's textures and every attachment load at once (each part used to wait for the
+    // last part's textures); the parts and children keep their order
+    const parts: Promise<GpuPart>[] = [];
     for (const part of model.parts) {
       const vao = gl.createVertexArray()!;
       gl.bindVertexArray(vao);
@@ -660,18 +663,21 @@ export class Renderer {
         count = Math.floor(part.vertex.data.length / stride);
       }
       gl.bindVertexArray(null);
-      const textures = await Promise.all(part.material.passes.map(p => {
+      const textures = Promise.all(part.material.passes.map(p => {
         const u = p.units[0];
         return u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
-      const second = await Promise.all(part.material.passes.map(p => {
+      const second = Promise.all(part.material.passes.map(p => {
         const u = p.units[1];
         return u?.texture ? this.texture(u) : Promise.resolve(null);
       }));
-      inst.parts.push({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures, second });
+      parts.push(Promise.all([textures, second]).then(([t, s]) => ({ part, vao, count, indexed, primitive: primitive(gl, part.mode), textures: t, second: s })));
     }
-    for (const a of model.attachments) {
-      inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await this.instantiate(a.model) });
+    const children = model.attachments.map(a => this.instantiate(a.model));
+    for (const p of parts) inst.parts.push(await p);
+    for (let i = 0; i < model.attachments.length; i++) {
+      const a = model.attachments[i];
+      inst.children.push({ node: a.node, transform: toMatrix(a.transform), instance: await children[i] });
     }
     if (model.particles?.length) await this.preloadParticles(model);
     return inst;

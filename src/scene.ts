@@ -282,6 +282,8 @@ export class SceneLoader {
     // --- load each distinct model reference once
     let done = 0;
     const unique = new Set<LoadedModel>();
+    // every model file is read at once; the models are still built (and placed) in order
+    this.loader.prefetch(jobs.map(j => j.ref));
     for (const job of jobs) {
       if (editorOnly(job.ref?.name ?? "")) { stats.markers++; continue; }
       const model = await this.loader.loadRef(job.ref);
