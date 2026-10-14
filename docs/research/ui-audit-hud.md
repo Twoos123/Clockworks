@@ -91,16 +91,21 @@ separate audit. Damage numbers, hitstop and hurt reactions belong to the combat-
 | The target is the knight sprite's current target (`PO()`): the auto-target picked in the weapon's wedge (`dungeon/util/i.Sc`), kept while it stays within twice the wedge's angle, none while the knight has something to act on | The last monster struck, for 6 s | fixed (`hudTarget` and `findTarget` in `world.ts`) |
 | The panel also describes what the knight can act on (`KnightSprite` passes the knight's description to `as.i`): a townsperson, shop or item's `DescriptionConfig` name, title and text in its kind's bundle, before any monster. It follows the knight's action target, not the mouse | No descriptions | fixed (`actionTarget` in `world.ts`) |
 
-## Minimap (`client/hud/Minimap`, `dungeon/client/F`, `M`)
+## Minimap (`client/hud/Minimap`, `dungeon/client/F`, `W`, `C`; `map/client/a`, `AbstractMapComponent`; Tudey's map renderer)
 
 | What the client does | What we did | Status |
 |---|---|---|
-| The map is a texture of the level's collision cells (`map/client/a` over Clyde's `LargeSceneMap`): walls (0.42, 0.69, 0.73), walkable floor (0.082, 0.2, 0.29), so the explored level reads as a teal outline of its walls (seen against the wiki screenshot); cells show fully within 20 of the explorer, fading out at 32. The knight is `player_local.png` in the personal colour, turned to its heading at half strength | A filled light blob 9 cells around the knight and a yellow arrow | fixed (minimap drawing continues in a separate pass) |
+| The map is a texture with one texel per cell, built from the scene, not from what the knight walked: tiles give each cell its collision flags under the map mask (wall, edge, player, player barrier); placeables and areas with such flags mark the cells their shape covers (more than four of a cell's nine thirds); floor-tile placeables mark floor; markers add nothing | Collision cells, walls by the wall bit only | fixed (`src/game/levelmap.ts`, built in `src/scene.ts`) |
+| Floor is flooded from the default-entrance placeables and the spawn point through flagless cells (four sides). Reached floor is dark blue (0.082, 0.2, 0.29), other floor grey-blue (0.29, 0.44, 0.47), blocked cells light blue (0.42, 0.69, 0.73), uncovered cells clear, so the level reads as a light outline | All floor dark blue | fixed (the spawn seed is the knight's first position) |
+| Exploration (`dungeon/client/C`): Clockworks levels (`MapType.DISCOVER`) show a disc around each two-unit square the knight has visited, solid to 20 cells and fading out at 32; terminals, towns and other places (`FULL`) show the same disc around every reached cell | A disc around every cell the knight stood in, everywhere | fixed |
+| The minimap uses the overlay's map renderer at 3 px a unit, in the 160 px square at the map layer's upper-right corner, multiplied by `ui/hud_v2/images/minimap/mask.png`; it draws after the faceplate, under the hash marks and gloss | An elliptical clip in the map background | fixed |
+| Markers in order: the knight (`player_local.png`, colour print 264 in towns and the personal colour in dungeons, half strength, turned to its heading), then `MinimapIcon` entities, then monsters (dungeon minimap only) | The knight drawn last in the personal colour everywhere | fixed |
 | Map scale is 3 px per world unit | The scale was fitted to show 14 units edge to centre (about 4.9 px) | fixed |
 | Monsters use `ui/minimap/monster.png` at full size and are hidden beyond the 69 px edge | Red dots | fixed |
 | Entity icons are drawn at 0.75 size. Beyond 69 px they are pinned to the edge, shrinking to 0.25 over 690 px, and hidden further out | They were drawn at full size and clipped | fixed |
 | The floor label is the dungeon bundle's `m.depth` ("DEPTH 3"), or `???` on shadow and core floors | "Depth 3" | fixed (`m.depth`) |
-| The zoom button shows only where the camera zooms (towns, the guild hall: `Ja()`) and toggles TOGGLE_ZOOM; the map button toggles the map overlay (`map_overlay`); both have `i.hotkey` tooltips with their keys. The lock button works only in dungeons, with its `m.toggle_hud_lock` tooltip | Drawn but inactive | fixed (minimap drawing continues in a separate pass) |
+| The zoom button shows only where the camera zooms (towns, the guild hall: `Ja()`) and toggles TOGGLE_ZOOM; the map button toggles the map overlay (`map_overlay`); both have `i.hotkey` tooltips with their keys. The lock button works only in dungeons, with its `m.toggle_hud_lock` tooltip | Drawn but inactive | fixed |
+| When the camera target is off radar (`Dungeoneer.OFF_RADAR`, actor flag 512) the dungeon minimap shows random static without monsters, and the overlay hides | Not done | flagged (no off-radar state) |
 | Edge arrows rotated toward their direction (`AbstractMapComponent`, `arrow.png`) are drawn only for other players (party members, friends, guildmates) beyond the edge | Not rotated | n/a (no other players; the client does not rotate monster or entity icons either) |
 
 ## Corner menus, activities, objectives (`client/hud/M`, `L`, `P`, `y`, `a`, `E`)
@@ -153,4 +158,4 @@ separate audit. Damage numbers, hitstop and hurt reactions belong to the combat-
 | `client/hud/r` (`ui/energy/interface_collapse.dat`) | Energy widget | n/a |
 | `dungeon/client/an` (clock timer) | `interface_clocktimer.dat` as mm:ss. The colour is `default`, then `warning`, then `suddendeath` under the thresholds, with a blip under 4 s | n/a (party timers and PvP) |
 | `dungeon/client/Z`, `I`, `am` (party list, split invites, go-ahead) | Party UI | n/a |
-| `client/hud/z`, `A` (map component) | The full map overlay: the map over the screen at 4.5 px a unit, half strength, toggled by the map button and TOGGLE_MAP | fixed (`drawOverlay` in `minimap.ts`; minimap drawing continues in a separate pass) |
+| `client/hud/z`, `A`, `client/bU`, `dungeon/client/V`, `N` (map overlay) | A full-screen window under the HUD: the level map at 4.5 px a unit and half strength centred on the camera target, the knight and the entity icons at full size, no monsters | fixed (`drawOverlay` in `minimap.ts`) |

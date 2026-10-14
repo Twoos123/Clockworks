@@ -1,189 +1,214 @@
-// The minimap layer and the map overlay, as the client draws them (client/hud/Minimap and
-// hud/z over map/client/a and Clyde's LargeSceneMap): the level's collision cells as a texture,
-// walls in light teal (0.42, 0.69, 0.73), walkable floor in dark blue (0.082, 0.2, 0.29), so the
-// explored level reads as an outline of its walls; cells come in as the knight explores, at full
-// strength within 20 cells and fading out to 32. The minimap draws it at 3 pixels a unit inside
-// the map mask, with entity icons from the data's MinimapIcon handlers (elevators, gold keys and
-// gates) pinned to the edge, monsters as ui/minimap/monster.png inside it, and the knight as
-// ui/minimap/player_local.png in its personal colour, turned to its heading at half strength.
-// The overlay draws the same map over the whole screen at 4.5 pixels a unit at half strength.
+// The minimap and the full map overlay, drawn as the game's map components draw them
+// (client/hud/Minimap, its dungeon subclasses, client/hud/z and the map overlay window):
+// - the level map (src/game/levelmap.ts) is a texture of one texel per cell: reached floor dark
+//   blue, other floor grey-blue, walls and edges light blue, so the level reads as a light outline;
+// - the minimap shows it at 3 pixels a unit inside the 160-pixel round mask, centred on the
+//   knight, under the hash marks and gloss. Markers follow: the knight (ui/minimap/player_local.png
+//   in its personal colour, half transparent, turned to its heading), the MinimapIcon entities
+//   (0.75 size; past 69 pixels pinned to the edge, shrinking to 0.25 over 690 pixels, then gone)
+//   and the monsters (ui/minimap/monster.png, only within 69 pixels);
+// - the overlay (the map button; the HUD keeps the map_overlay preference) draws the same map over the whole
+//   screen at 4.5 pixels a unit and half opacity, with the knight and the entity icons at full size;
+// - Clockworks levels reveal the map in discs around where the knight has been; other places show
+//   the map around every reached cell.
 
 import type { World } from "../game/world";
+import type { LoadedScene } from "../scene";
+import { Exploration, LevelMap } from "../game/levelmap";
 import type { GuiContext, GuiImage } from "./gui";
 
-/** Map pixels per world unit: the minimap's (Minimap.a.Kf) and the overlay's (map/client/a.Kf). */
+/** Minimap pixels per world unit (Minimap.a.Kf). */
 const SCALE = 3;
-const OVERLAY_SCALE = 4.5;
+/** Overlay pixels per world unit, and its opacity (map component defaults Kf, Kg). */
+const OVERLAY_SCALE = 4.5, OVERLAY_ALPHA = 0.5;
 /** Markers further than this many pixels from the centre are pinned to the edge (the client's radius). */
 const EDGE = 69;
-/** map/client/a.e: cells within 20 of the explorer show fully, fading to nothing at 32. */
-const NEAR = 20, FAR = 32;
+/** How far past the edge pinned icons shrink before they vanish. */
+const FADE = 690;
+/** The map mask (ui/hud_v2/images/minimap/mask.png) and its size before it loads. */
+const MASK = "ui/hud_v2/images/minimap/mask.png", MASK_SIZE = 160;
+/** The self marker's colour print in towns (AbstractMapComponent: 264); dungeons use the knight's colour. */
+const TOWN_SELF_COLOR = 264;
 
-const WALL: [number, number, number] = [0.42, 0.69, 0.73];
-const WALKABLE: [number, number, number] = [0.082, 0.2, 0.29];
+/** Map colours (the map component's colour set: floor, blocked, reached). */
+const FLOOR = [74, 112, 120], BLOCKED = [107, 176, 186], REACHED = [21, 51, 74];
+
+export interface MinimapPlace {
+  /** Clockworks levels reveal the map as the knight explores (MapType.DISCOVER). */
+  discover: boolean;
+  /** Dungeon markers: the knight in its personal colour, and monsters. */
+  dungeon: boolean;
+}
 
 export class Minimap {
-  /** One canvas pixel per cell, premultiplied by each cell's reveal strength. */
-  private canvas: OffscreenCanvas | null = null;
-  private origin: [number, number] = [0, 0];
-  /** Reveal strength per cell key. */
-  private revealed = new Map<number, number>();
-  private lastCell = "";
-  private icons = new Map<string, GuiImage | null>();
   private world: World | null = null;
+  private map: LevelMap | null = null;
+  private explored: Exploration | null = null;
+  private visited = new Set<string>();
+  private texture: OffscreenCanvas | null = null;
+  private dirty = true;
+  private layer: OffscreenCanvas | null = null;
+  private icons = new Map<string, GuiImage | null>();
+  private place: MinimapPlace = { discover: false, dungeon: false };
 
   constructor(private readonly gui: GuiContext) {}
 
-  /** Starts mapping a new level. */
-  setWorld(w: World) {
+  /** Starts mapping a level (the scene's level map, seeded at the knight's spawn). */
+  setWorld(w: World, scene: LoadedScene | null, place: MinimapPlace) {
     if (w === this.world) return;
     this.world = w;
-    this.revealed.clear();
-    this.lastCell = "";
-    this.canvas = null;
+    this.place = place;
+    this.map = scene?.levelMap ?? null;
+    this.visited.clear();
+    this.texture = null;
+    this.dirty = true;
+    const map = this.map;
+    if (!map) { this.explored = null; return; }
+    if (w.knight) map.entrance(w.knight.x, w.knight.y);
+    map.flood();
+    const b = map.bounds();
+    this.explored = !b ? null : place.discover ? new Exploration(b.minX, b.minY, b.maxX, b.maxY) : Exploration.around(map);
   }
 
-  private build(w: World) {
-    const cells = w.collisionMap.cells;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const k of cells.keys()) {
-      const x = Math.floor(k / 65536) - 32768, y = (k % 65536) - 32768;
-      minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
-    }
-    if (!isFinite(minX)) return;
-    this.origin = [minX, maxY];
-    this.canvas = new OffscreenCanvas(maxX - minX + 1, maxY - minY + 1);
-  }
-
-  /** Reveals the cells around the knight and paints those that grew stronger. */
-  private reveal(w: World) {
-    const k = w.knight, kx = Math.floor(k.x), ky = Math.floor(k.y);
-    const at = kx + "," + ky;
-    if (at === this.lastCell) return;
-    this.lastCell = at;
-    const g = this.canvas!.getContext("2d")!;
-    for (let dy = -FAR; dy <= FAR; dy++) for (let dx = -FAR; dx <= FAR; dx++) {
-      const d2 = dx * dx + dy * dy;
-      if (d2 > FAR * FAR) continue;
-      const a = d2 <= NEAR * NEAR ? 1 : 1 - (d2 - NEAR * NEAR) / (FAR * FAR - NEAR * NEAR);
-      const x = kx + dx, y = ky + dy, key = (x + 32768) * 65536 + (y + 32768);
-      if ((this.revealed.get(key) ?? 0) >= a) continue;
-      this.revealed.set(key, a);
-      const cell = w.collisionMap.cells.get(key);
-      if (!cell) continue;
-      const c = (cell.flags & 1) !== 0 ? WALL : cell.floor ? WALKABLE : null;
-      if (!c) continue;
-      const px = x - this.origin[0], py = this.origin[1] - y;
-      g.clearRect(px, py, 1, 1);
-      g.fillStyle = `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a})`;
-      g.fillRect(px, py, 1, 1);
-    }
-  }
-
-  private icon(file: string, color?: number): GuiImage | null {
-    const key = file + "|" + (color ?? "");
+  private icon(file: string, colorization?: number): GuiImage | null {
+    const key = colorization === undefined ? file : `${file}|${colorization}`;
     if (!this.icons.has(key)) {
       this.icons.set(key, null);
-      const zs = color !== undefined ? [{ $class: "com.threerings.opengl.renderer.config.ColorizationConfig$Normal", colorization: color }] : undefined;
+      const zs = colorization === undefined ? undefined : [{ $class: "com.threerings.media.image.ColorizationConfig$Normal", colorization }];
       void this.gui.image(file, zs).then(im => this.icons.set(key, im));
     }
     return this.icons.get(key) ?? null;
   }
 
-  /** Prepares the map texture; false when there is nothing to draw. */
-  private ready(): World | null {
-    const world = this.world;
-    if (!world?.knight) return null;
-    if (!this.canvas) this.build(world);
-    if (!this.canvas) return null;
-    this.reveal(world);
-    return world;
+  /** Explores around the knight (the dungeon marks the two-unit square it stands in). */
+  private explore(w: World) {
+    const e = this.explored;
+    if (!this.place.discover || !e || !w.knight) return;
+    const vx = Math.round(w.knight.x / 2), vy = Math.round(w.knight.y / 2);
+    const id = `${vx},${vy}`;
+    if (this.visited.has(id)) return;
+    this.visited.add(id);
+    if (e.stamp(Math.round((vx + 0.5) * 2), Math.round((vy + 0.5) * 2))) this.dirty = true;
   }
 
-  /** The map texture drawn centred on the knight at `scale` pixels a unit. */
-  private drawMap(g: CanvasRenderingContext2D, world: World, cx: number, cy: number, scale: number, alpha: number) {
-    const k = world.knight;
-    const ox = cx + (this.origin[0] - k.x) * scale, oy = cy - (this.origin[1] + 1 - k.y) * scale;
-    g.save();
-    g.globalAlpha = alpha;
+  /** The map texture: one texel per cell, row 0 at the top (the highest y). */
+  private paint(): OffscreenCanvas | null {
+    const map = this.map, e = this.explored;
+    if (!map || !e) return null;
+    if (this.texture && !this.dirty) return this.texture;
+    const tex = this.texture ??= new OffscreenCanvas(e.width, e.height);
+    const g = tex.getContext("2d")!;
+    const img = g.createImageData(e.width, e.height);
+    const d = img.data;
+    for (const [x, y, v, reached] of map.cells()) {
+      const a = e.at(x, y);
+      if (a <= 0) continue;
+      const c = reached ? REACHED : v === 0 ? FLOOR : BLOCKED;
+      const n = ((e.height - 1 - (y - e.minY)) * e.width + (x - e.minX)) * 4;
+      d[n] = c[0]; d[n + 1] = c[1]; d[n + 2] = c[2]; d[n + 3] = Math.round(a * 255);
+    }
+    g.putImageData(img, 0, 0);
+    this.dirty = false;
+    return tex;
+  }
+
+  /** Draws the map texture with the point (cx, cy) on screen at the world point (tx, ty). */
+  private drawMap(g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, tex: OffscreenCanvas, scale: number, cx: number, cy: number, tx: number, ty: number) {
+    const e = this.explored!;
     g.imageSmoothingEnabled = false;
-    g.drawImage(this.canvas!, ox, oy, this.canvas!.width * scale, this.canvas!.height * scale);
-    g.restore();
+    g.drawImage(tex, cx + (e.minX - tx) * scale, cy - (e.minY + e.height - ty) * scale, e.width * scale, e.height * scale);
   }
 
-  /** The knight's marker: player_local.png in the personal colour, turned to its heading, at half strength. */
-  private drawSelf(g: CanvasRenderingContext2D, world: World, cx: number, cy: number) {
-    const k = world.knight;
-    const im = this.icon("ui/minimap/player_local.png", world.color);
+  /** The knight's marker: player_local.png in its colour, half transparent, turned to its heading. */
+  private self(g: CanvasRenderingContext2D, w: World, x: number, y: number) {
+    const k = w.knight;
+    const im = this.icon("ui/minimap/player_local.png", this.place.dungeon ? w.color : TOWN_SELF_COLOR);
     if (!im) return;
     g.save();
-    g.globalAlpha = 0.5;
-    g.translate(Math.round(cx), Math.round(cy));
+    g.globalAlpha *= 0.5;
+    g.translate(Math.round(x), Math.round(y));
     g.rotate(-k.heading);
-    g.drawImage(im.source, -im.width / 2, -im.height / 2, im.width, im.height);
+    g.drawImage(im.source, -Math.trunc(im.width / 2), -Math.trunc(im.height / 2), im.width, im.height);
     g.restore();
   }
 
-  /** Entities with MinimapIcon handlers, alive and placed. */
-  private *entityIcons(world: World) {
-    for (const e of [...world.logic.entries, ...world.logic.actors]) {
-      const h2 = e.handlers.find(hh => hh.kind === "MinimapIcon");
-      const file = h2?.cfg.icon?.file;
+  private entities(w: World) {
+    const out: { im: GuiImage; x: number; y: number }[] = [];
+    for (const e of [...w.logic.entries, ...w.logic.actors]) {
+      const h = e.handlers.find(hh => hh.kind === "MinimapIcon");
+      const file = h?.cfg.icon?.file;
       if (!file || e.destroyed) continue;
       const im = this.icon(file);
-      if (im) yield { im, x: e.x, y: e.y };
+      if (im) out.push({ im, x: e.x, y: e.y });
     }
+    return out;
   }
 
-  /** The minimap inside the map background component at (x, y, w, h). */
-  draw(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
-    if (w <= 0 || h <= 0) return;
-    const world = this.ready();
-    if (!world) return;
+  /**
+   * The minimap, drawn by the map layer spacer at (x, y) (its top-left corner, w x h). The map
+   * fills the mask's square at the layer's upper-right corner, as the client's map layer does.
+   */
+  draw(g: CanvasRenderingContext2D, x: number, y: number, w: number, _h: number) {
+    const world = this.world;
+    if (!world?.knight) return;
+    this.explore(world);
     const k = world.knight;
-    const cx = x + w / 2, cy = y + h / 2;
-    g.save();
-    g.beginPath();
-    g.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
-    g.clip();
-    this.drawMap(g, world, cx, cy, SCALE, 1);
-    g.restore();
-    // a marker past the edge radius is pinned to the edge, shrinking from `near` to `far` of its
-    // size over 690 pixels and gone beyond (the client draws entity icons at 0.75 to 0.25,
-    // monsters at 1 and only inside the edge)
+    const mask = this.icon(MASK);
+    const mw = mask?.width ?? MASK_SIZE, mh = mask?.height ?? MASK_SIZE;
+    const left = x + w - mw, top = y;
+    const cx = left + mw * 0.5, cy = top + mh * 0.5;
+    const tex = this.paint();
+    if (tex && mask) {
+      // the map texture modulated by the round mask
+      const layer = this.layer ??= new OffscreenCanvas(mw, mh);
+      if (layer.width !== mw || layer.height !== mh) { layer.width = mw; layer.height = mh; }
+      const lg = layer.getContext("2d")!;
+      lg.globalCompositeOperation = "source-over";
+      lg.clearRect(0, 0, mw, mh);
+      this.drawMap(lg, tex, SCALE, mw * 0.5, mh * 0.5, k.x, k.y);
+      lg.globalCompositeOperation = "destination-in";
+      lg.drawImage(mask.source, 0, 0, mw, mh);
+      g.drawImage(layer, left, top);
+    }
+    // the knight, then the entity icons, then the monsters; a marker past the edge radius is
+    // pinned to the edge (entity icons, shrinking from 0.75 to 0.25 of their size over 690
+    // pixels and gone beyond) or hidden (monsters)
+    this.self(g, world, cx, cy);
     const marker = (im: GuiImage, wx: number, wy: number, near: number, far: number, pin: boolean) => {
       let dx = (wx - k.x) * SCALE, dy = -(wy - k.y) * SCALE;
       const d = Math.hypot(dx, dy);
       let s = near;
       if (d > EDGE) {
-        if (!pin || d > EDGE + 690) return;
-        s = near + (far - near) * (d - EDGE) / 690;
+        if (!pin || d > EDGE + FADE) return;
+        s = near + (far - near) * (d - EDGE) / FADE;
         dx *= EDGE / d; dy *= EDGE / d;
       }
       const iw = Math.round(im.width * s), ih = Math.round(im.height * s);
-      g.drawImage(im.source, Math.round(cx + dx) - (iw >> 1), Math.round(cy + dy) - (ih >> 1), iw, ih);
+      g.drawImage(im.source, Math.round(cx + dx) - Math.trunc(iw / 2), Math.round(cy + dy) - Math.trunc(ih / 2), iw, ih);
     };
-    for (const e of this.entityIcons(world)) marker(e.im, e.x, e.y, 0.75, 0.25, true);
-    const mon = this.icon("ui/minimap/monster.png");
-    if (mon) for (const m of world.liveMonsters) marker(mon, m.x, m.y, 1, 1, false);
-    this.drawSelf(g, world, cx, cy);
+    for (const e of this.entities(world)) marker(e.im, e.x, e.y, 0.75, 0.25, true);
+    if (this.place.dungeon) {
+      const mon = this.icon("ui/minimap/monster.png");
+      if (mon) for (const m of world.liveMonsters) marker(mon, m.x, m.y, 1, 1, false);
+    }
   }
 
-  /**
-   * The map overlay (hud/z): the map over the whole screen centred on the knight at 4.5 pixels
-   * a unit and half strength, the entity icons and monsters at full size wherever they are.
-   */
+  /** The map overlay over the whole screen (cw x ch), under the HUD. */
   drawOverlay(g: CanvasRenderingContext2D, cw: number, ch: number) {
-    const world = this.ready();
-    if (!world) return;
-    const k = world.knight;
-    const cx = cw / 2, cy = ch / 2;
-    this.drawMap(g, world, cx, cy, OVERLAY_SCALE, 0.5);
-    const at = (im: GuiImage, wx: number, wy: number) =>
-      g.drawImage(im.source, Math.round(cx + (wx - k.x) * OVERLAY_SCALE) - (im.width >> 1), Math.round(cy - (wy - k.y) * OVERLAY_SCALE) - (im.height >> 1));
-    for (const e of this.entityIcons(world)) at(e.im, e.x, e.y);
-    const mon = this.icon("ui/minimap/monster.png");
-    if (mon) for (const m of world.liveMonsters) at(mon, m.x, m.y);
-    this.drawSelf(g, world, cx, cy);
+    const world = this.world;
+    if (!world?.knight) return;
+    this.explore(world);
+    const k = world.knight, cx = cw / 2, cy = ch / 2;
+    const tex = this.paint();
+    g.save();
+    g.globalAlpha = OVERLAY_ALPHA;
+    if (tex) this.drawMap(g, tex, OVERLAY_SCALE, cx, cy, k.x, k.y);
+    g.restore();
+    this.self(g, world, cx, cy);
+    for (const e of this.entities(world)) {
+      g.drawImage(e.im.source, Math.round(cx + (e.x - k.x) * OVERLAY_SCALE) - Math.trunc(e.im.width / 2),
+        Math.round(cy - (e.y - k.y) * OVERLAY_SCALE) - Math.trunc(e.im.height / 2), e.im.width, e.im.height);
+    }
   }
 }
+

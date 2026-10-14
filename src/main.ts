@@ -2334,9 +2334,14 @@ class Viewer {
         this.lastView = view;
         if (this.world && this.hud) {
           const gh = this.gameHud;
-          gh?.minimap.setWorld(this.world);
+          const dungeon = !!this.scene && !TOWN.test(this.scene.name);
+          // the client's map types: Clockworks levels reveal their map as the knight explores
+          // (DISCOVER); terminals, towns and arenas show it all (FULL)
+          const floor = this.gate && this.run.depth > 0 ? this.floors[this.run.depth] : null;
+          const discover = dungeon && !this.world.arena && !(floor && (floor.kind === "terminal" || floor.kind === "subtown" || floor.kind === "core"));
+          gh?.minimap.setWorld(this.world, this.scene, { discover, dungeon });
           gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
-            dungeon: !!this.scene && !TOWN.test(this.scene.name),
+            dungeon,
             pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))), ...this.hudExtras() }, dt);
           // items the knight gained come up as the HUD's acquire icons
           while (this.world.acquired.length) { const a = this.world.acquired.shift()!; gh?.acquire(a); }

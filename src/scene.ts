@@ -6,7 +6,8 @@ import { applyArguments } from "./config/params";
 import { importBinary } from "./export/BinaryImport";
 import { compose, toMatrix, readTransform, type Mat4 } from "./math";
 import { editorOnly, inflate, type LoadedModel, type ModelLoader } from "./model";
-import { CollisionMap } from "./game/collision";
+import { CollisionMap, forTileCells } from "./game/collision";
+import { LevelMap } from "./game/levelmap";
 import { shapeFromConfig, type Shape } from "./game/shapes";
 
 export interface SceneObject {
@@ -49,6 +50,8 @@ export interface LoadedScene {
   bounds: { min: [number, number]; max: [number, number] };
   /** Tile and prop collision, for walking around. */
   collision: CollisionMap;
+  /** The level map the minimap and map overlay draw. */
+  levelMap: LevelMap;
   spawns: SpawnPoint[];
   triggers: TriggerArea[];
   startupActors: StartupActor[];
@@ -163,6 +166,7 @@ export class SceneLoader {
   async loadRoot(id: string, s: any, onProgress?: (done: number, total: number) => void): Promise<LoadedScene> {
     const objects: SceneObject[] = [];
     const collision = new CollisionMap();
+    const levelMap = new LevelMap();
     const spawns: SpawnPoint[] = [], triggers: TriggerArea[] = [], startupActors: StartupActor[] = [];
     const logic: LogicEntry[] = [];
     let start: [number, number] | null = null;
@@ -171,6 +175,8 @@ export class SceneLoader {
       const tags = collectSignalTags(e.area);
       if (tags.length) triggers.push({ poly: e.vertices.map((v: any) => [v.x ?? 0, v.y ?? 0]), tags });
       const area = await this.resolveImpl("config/area.dat", e.area, "area");
+      const vpts: [number, number][] = e.vertices.map((v: any) => [v.x ?? 0, v.y ?? 0]);
+      levelMap.entry(vpts.length === 1 ? { k: "point", x: vpts[0][0], y: vpts[0][1] } : { k: "poly", pts: vpts }, area?.collisionFlags ?? 0);
       const atags = tagList(area?.tags);
       if (area && (area.handlers?.length || atags.length)) {
         const pts: [number, number][] = e.vertices.map((v: any) => [v.x ?? 0, v.y ?? 0]);
@@ -198,6 +204,8 @@ export class SceneLoader {
         if (v === empty) continue;
         const x = (coord.x << granularity) | (i & mask), y = (coord.y << granularity) | (i >> granularity);
         const impl = tileImpls[v >>> 16];
+        // the map takes every tile, marker tiles included
+        if (impl) forTileCells(impl, x, y, v & 3, (tx, ty, flags) => levelMap.tile(tx, ty, flags));
         if (!impl?.model) { stats.unresolved++; continue; }
         const w = impl.width ?? 1, h = impl.height ?? 1, rotation = v & 3, elevation = (v << 16) >> 18;
         // TudeySceneMetrics.getTileTransform
@@ -217,6 +225,14 @@ export class SceneLoader {
       if (!e.$class.endsWith("PlaceableEntry")) continue;
       const impl = await this.resolveImpl("config/placeable.dat", e.placeable, "placeable");
       if (!impl) { stats.unresolved++; continue; }
+      {
+        // the map: the placeable's shape with its collision flags (markers have none: what they
+        // spawn collides instead); default entrances seed its flood
+        const t = readTransform(e.transform);
+        if (impl.defaultEntrance) levelMap.entrance(t.t[0], t.t[1]);
+        const shape = impl.shape ? shapeFromConfig(impl.shape, t.t[0], t.t[1], 2 * Math.atan2(t.r[2], t.r[3]), t.s) : null;
+        levelMap.entry(shape, HIDDEN.test(impl.$class) ? 0 : impl.collisionFlags ?? 1, !!impl.floorTile);
+      }
       if (/Elevator\/Start Platform/.test(e.placeable?.name ?? "") && !start) {
         const t0 = readTransform(e.transform);
         start = [t0.t[0], t0.t[1]];
@@ -271,7 +287,7 @@ export class SceneLoader {
     }
     stats.uniqueModels = unique.size;
     const globals = (s.entries ?? []).filter((e: any) => e.$class.endsWith("GlobalEntry")).map((e: any) => e.sceneGlobal);
-    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision, spawns, triggers, startupActors, logic, start };
+    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision, levelMap, spawns, triggers, startupActors, logic, start };
   }
 }
 
