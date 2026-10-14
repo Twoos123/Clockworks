@@ -293,6 +293,25 @@ function boundsOf(b: any): LoadedModel["bounds"] {
   return { min: [mn.x, mn.y, mn.z], max: [mx.x, mx.y, mx.z] };
 }
 
+/**
+ * The model references a model file loads in any case: a derived model's base, a compound's
+ * components, attachments, and a conditional's default (before its arguments are applied).
+ */
+function componentRefs(root: any): any[] {
+  const impl = root?.$class === "com.threerings.opengl.model.config.ModelConfig" ? root.implementation : null;
+  if (!impl || typeof impl !== "object") return [];
+  const c = String(impl.$class ?? "");
+  if (c.endsWith("ModelConfig$Derived")) return [impl.model];
+  if (c.endsWith("CompoundConfig") || c.endsWith("MergedStaticConfig")) return ((impl.models ?? []) as any[]).map(m => m?.model);
+  if (c.endsWith("ConditionalConfig")) return [impl.defaultModel];
+  if (c.endsWith("ModelConfig$Schemed")) {
+    // the variant tried first (see fromImplementation)
+    const list: any[] = impl.models ?? [];
+    return [(list.find(m => m?.scheme == null) ?? list[0])?.model];
+  }
+  return ((impl.attachments ?? []) as any[]).map(a => a?.model);
+}
+
 const EDITOR_LIGHTS = /^editor\/marker\/(point|directional)light\/(model|parts\/influencer_pointlight|influencer_directionallight)\.dat$/;
 /** Editor-only helpers (spawn markers, gizmos) the game never draws; light markers are real lights. */
 export const editorOnly = (name: string) => name.startsWith("editor/") && !EDITOR_LIGHTS.test(name);
@@ -322,13 +341,14 @@ export class ModelLoader {
   /**
    * Starts reading and parsing the files these model references name, all at once, for loads
    * that follow one by one (a scene's models, a compound's components): their reads overlap
-   * instead of each waiting for the last. Failures surface when the model itself is loaded.
+   * instead of each waiting for the last. Each file's own components, attachments and base
+   * model are fetched as soon as it is read. Failures surface when the model itself is loaded.
    */
-  prefetch(refs: Iterable<any>) {
+  prefetch(refs: Iterable<any>, depth = 0) {
     for (const ref of refs) {
       const name: unknown = ref?.name;
       if (typeof name !== "string" || !name.endsWith(".dat") || editorOnly(name) || this.cache.has(name)) continue;
-      this.importFile(name).catch(() => undefined);
+      this.importFile(name).then(root => { if (depth < 8) this.prefetch(componentRefs(root), depth + 1); }).catch(() => undefined);
     }
   }
 
@@ -351,6 +371,8 @@ export class ModelLoader {
           throw new Error(`${path} is a ${short(String(root?.$class ?? typeof root))}, not a model`);
         }
         root = applyArguments(root, ref);
+        // the components its arguments name
+        if (hasArguments(ref)) this.prefetch(componentRefs(root));
         return this.fromImplementation(path, root.implementation, depth, localConfigs(root), inner);
       })();
       this.models.set(key, p);

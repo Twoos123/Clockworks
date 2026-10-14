@@ -116,9 +116,11 @@ export class ConfigLibrary {
         return (Array.isArray(root) ? root : []) as any[];
       } catch { return []; }
     };
-    for (const c of await list("config/material.dat")) this.materials.set(c.name, c);
-    for (const c of await list("config/texture.dat")) this.textures.set(c.name, c);
-    for (const c of await list("config/shader.dat")) this.shaderConfigs.set(c.name, c);
+    // (the three are read at once)
+    const [materials, textures, shaders] = await Promise.all(["config/material.dat", "config/texture.dat", "config/shader.dat"].map(list));
+    for (const c of materials) this.materials.set(c.name, c);
+    for (const c of textures) this.textures.set(c.name, c);
+    for (const c of shaders) this.shaderConfigs.set(c.name, c);
     return this;
   }
 
