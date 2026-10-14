@@ -2,7 +2,8 @@
 // health bars, floating damage numbers and a defeated screen.
 
 import { multiply, type Mat4 } from "../math";
-import type { World } from "./world";
+import type { Floater, World } from "./world";
+import { NUMBER_FONTS, numberPose } from "./feedback";
 
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D;
@@ -12,6 +13,37 @@ export class Hud {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext("2d")!;
+  }
+
+  /**
+   * A damage or heal number as the game draws it (fx_damagenumber.dat's billboarded labels):
+   * the style's font and outline, popping in and falling on the layer's path, drawn over
+   * everything (its depth test is ALWAYS).
+   */
+  private drawNumber(g: CanvasRenderingContext2D, f: Floater, project: (x: number, y: number, z: number) => [number, number] | null) {
+    const pose = numberPose(f.style!, f.age, f.seed);
+    if (!pose || pose.scale <= 0.01) return;
+    const x = f.x + pose.dx, y = f.y + pose.dy, z = f.z + pose.dz;
+    const p = project(x, y, z), q = project(x, y, z + 1);
+    if (!p || !q) return;
+    const st = NUMBER_FONTS[f.style!];
+    // a label about half a unit tall at size 1 (ours: the billboard's scale is not in the data)
+    const unit = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    const px = unit * 0.55 * pose.scale * (st.size / 32);
+    if (px < 2) return;
+    g.save();
+    g.translate(p[0], p[1]);
+    if (pose.turn) g.rotate(-pose.turn);
+    g.font = `${st.italic ? "italic " : ""}${st.bold ? "bold " : ""}${px.toFixed(1)}px "Arial Black", "Arial", sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.lineJoin = "round";
+    g.lineWidth = px * (st.outlineSize / st.size);
+    g.strokeStyle = st.outline;
+    g.strokeText(f.text, 0, 0);
+    g.fillStyle = st.color;
+    g.fillText(f.text, 0, 0);
+    g.restore();
   }
 
   clear() {
@@ -52,6 +84,7 @@ export class Hud {
     g.textAlign = "center";
     g.font = "bold 18px system-ui, sans-serif";
     for (const f of this.options.damageNumbers ? world.floaters : []) {
+      if (f.style) { this.drawNumber(g, f, project); continue; }
       const p = project(f.x, f.y, f.z + f.age * 1.2);
       if (!p) continue;
       g.globalAlpha = Math.max(0, 1 - f.age / 1.2);

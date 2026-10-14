@@ -261,6 +261,8 @@ class Viewer {
   /** The action key (F) went down since the last update. */
   private interactPressed = false;
   private dashPressed = false;
+  /** The mouse-move scheme's left button: run toward the pointer. */
+  private mouseMoveHeld = false;
   private bashPressed = false;
   private readonly pads = new Gamepads();
   private shieldHeld = false;
@@ -347,6 +349,11 @@ class Viewer {
       (["sprite1", "sprite2", "sprite3"] as const).forEach((a, i) => { if (b(a) && !e.repeat && !this.paused) this.outfit.useSkill(i); });
       if (b("interact") && !e.repeat) this.interactPressed = true;
       if (b("dash") && !e.repeat) this.dashPressed = true;
+      // the mouse-move scheme's keys: Z attacks (Shift + Z bashes), X shields (Shift + X dodges)
+      if (this.options_.mouseMove && !e.repeat) {
+        if (key === "z") { if (e.shiftKey) this.bashPressed = true; else { this.attackPressed = true; this.attackHeld = true; } }
+        if (key === "x") { if (e.shiftKey) this.dashPressed = true; else this.shieldHeld = true; }
+      }
       // the game's TOGGLE_ZOOM key
       if ((e.key === "=" || e.key === "+") && !e.repeat && !this.paused) this.toggleZoom();
       if (b("help") && !e.repeat) this.toggleHelp();
@@ -360,7 +367,12 @@ class Viewer {
       this.keys.add(e.key.toLowerCase());
       if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(e.key.toLowerCase())) e.preventDefault();
     });
-    addEventListener("keyup", e => this.keys.delete(e.key.toLowerCase()));
+    addEventListener("keyup", e => {
+      const key = e.key.toLowerCase();
+      this.keys.delete(key);
+      if (this.options_.mouseMove && key === "z") this.attackHeld = false;
+      if (this.options_.mouseMove && key === "x") this.shieldHeld = false;
+    });
     addEventListener("blur", () => { this.keys.clear(); this.attackHeld = false; this.shieldHeld = false; });
     const hash = new URLSearchParams(location.hash.substring(1));
     const fromHash = hash.get("model");
@@ -1597,7 +1609,12 @@ class Viewer {
     const f = (on("up") || k.has("arrowup") ? 1 : 0) - (on("down") || k.has("arrowdown") ? 1 : 0);
     const r = (on("right") || k.has("arrowright") ? 1 : 0) - (on("left") || k.has("arrowleft") ? 1 : 0);
     const fx = -Math.cos(this.az), fy = -Math.sin(this.az);
-    return { x: fx * f + fy * r, y: fy * f - fx * r };
+    // keys first (TudeySceneController: an absolute direction before a relative one), else the
+    // held left button's "forward": toward the pointer
+    if ((f || r) || !this.mouseMoveHeld || !this.world) return { x: fx * f + fy * r, y: fy * f - fx * r };
+    const kn = this.world.knight, aim = this.aimPoint();
+    const dx = aim ? aim[0] - kn.x : 0, dy = aim ? aim[1] - kn.y : 0, l = Math.hypot(dx, dy);
+    return l > 1e-3 ? { x: dx / l, y: dy / l } : { x: 0, y: 0 };
   }
 
   private renderList() {
@@ -1761,6 +1778,13 @@ class Viewer {
       if (this.world && (e.button === 0 || e.button === 2)) {
         // play mode: left attacks (hold to charge), right raises the shield
         // Shift + right click dashes (the game's default binding); right click alone shields
+        // the mouse-move scheme: the left button runs toward the pointer, the right attacks
+        if (this.options_.mouseMove) {
+          if (e.button === 0) this.mouseMoveHeld = true;
+          else { this.attackPressed = true; this.attackHeld = true; }
+          c.setPointerCapture(e.pointerId);
+          return;
+        }
         // Shift + left click is the shield bash (the WASD scheme's SHIELD_BASH)
         if (e.button === 0 && e.shiftKey) this.bashPressed = true;
         else if (e.button === 0) { this.attackPressed = true; this.attackHeld = true; }
@@ -1773,11 +1797,16 @@ class Viewer {
       c.setPointerCapture(e.pointerId);
     });
     const release = (e: PointerEvent) => {
+      if (this.options_.mouseMove) {
+        if (e.button === 0) this.mouseMoveHeld = false;
+        if (e.button === 2) this.attackHeld = false;
+        return;
+      }
       if (e.button === 0) this.attackHeld = false;
       if (e.button === 2) this.shieldHeld = false;
     };
     c.addEventListener("pointerup", release);
-    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; });
+    c.addEventListener("pointercancel", () => { this.attackHeld = false; this.shieldHeld = false; this.mouseMoveHeld = false; });
     c.addEventListener("pointermove", e => {
       const r = c.getBoundingClientRect();
       this.mouse = [e.clientX - r.left, e.clientY - r.top];
@@ -1885,10 +1914,11 @@ class Viewer {
         this.target[2] + this.dist * Math.sin(this.el),
       ];
       const proj = perspective(this.fov, w / Math.max(1, h), this.dist * 0.01, this.dist * 50);
-      // camera shake from explosions (ShakeCamera actions)
-      const shake = this.world?.shake ?? 0;
-      if (shake > 0) for (let i = 0; i < 3; i++) eye[i] += (Math.random() - 0.5) * shake * 0.6;
-      const view = lookAt(eye, this.target, [0, 0, 1]);
+      // camera shakes (ShakeCamera actions: hits, explosions) move the camera, not its aim
+      const shake = this.world?.cameraShake() ?? [0, 0, 0];
+      const aimAt: Vec3 = [this.target[0] + shake[0], this.target[1] + shake[1], this.target[2] + shake[2]];
+      for (let i = 0; i < 3; i++) eye[i] += shake[i];
+      const view = lookAt(eye, aimAt, [0, 0, 1]);
       if (this.world) this.audio?.setListener([this.world.knight.x, this.world.knight.y, this.world.knight.z]);
       if (!this.paused) this.renderer.time += dt;
       if (this.sceneItems) {

@@ -26,6 +26,7 @@ import { itemName, monsterName } from "./text";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
+import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
@@ -42,6 +43,9 @@ export const STARTER_WEAPONS = ["Weapon/Sword/Proto Sword", "Weapon/Handgun/Prot
 const STARTER_SHIELD = "Gear/Shield/Proto Shield";
 const STARTER_ARMOR = ["Gear/Armor/Parts/Proto (Base)", "Gear/Helm/Parts/Proto (Base)"];
 /** The body model's default armour and helmet (character/pc/model.dat's own arguments). */
+/** A ConfigReference with arguments. */
+const argRef = (name: string, entries: [string, any][]) => ({ $class: "com.threerings.config.ConfigReference", name,
+  arguments: { $map: "com.threerings.config.ArgumentMap", entries } });
 const gearRef = (name: string) => ({ $class: "com.threerings.config.ConfigReference", name,
   arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Colorization", 257], ["Variant", "grey"]] } });
 const DEFAULT_GEAR = { armor: gearRef("item/gear/armor/doublebelt/model.dat"), helmet: gearRef("item/gear/helm/pith/model.dat") };
@@ -79,7 +83,11 @@ export interface KnightInput {
   bash?: boolean;
 }
 
-export interface Floater { x: number; y: number; z: number; text: string; color: string; age: number }
+export interface Floater {
+  x: number; y: number; z: number; text: string; color: string; age: number;
+  /** A damage or heal number in the game's style (src/game/feedback.ts), and its random pick. */
+  style?: NumberStyle; seed?: number;
+}
 
 type Phase = "start" | "fire" | "end";
 /** Hazard bullets (gun blocks, rocket blocks) strike the knight, monsters and blocks alike. */
@@ -108,6 +116,8 @@ abstract class Actor {
   defense: Amounts | null = null;
   /** Active status conditions (fire, freeze, shock...). */
   statuses: ActiveStatus[] = [];
+  /** When it was last struck (world clock, seconds), for its colour flash. */
+  flashAt = -1e9;
   abstract radius: number;
   abstract get team(): Team;
   constructor(public instance: ModelInstance, readonly scale = 1) {}
@@ -317,8 +327,31 @@ export class World implements LogicHost {
   depth: number;
   difficulty: Difficulty;
   readonly audio: AudioSystem | null;
-  /** Camera shake strength from ShakeCamera actions, decaying. */
-  shake = 0;
+  /** Camera shakes under way (ShakeCamera actions): each one's spec, strength and start (clock seconds). */
+  private shakes: { spec: ShakeSpec; scale: number; at: number }[] = [];
+  /** The camera's offset from the shakes under way (world units), as Clyde's camera offsets add up. */
+  cameraShake(): [number, number, number] {
+    const o: [number, number, number] = [0, 0, 0];
+    for (const s of this.shakes) {
+      const d = shakeOffset(s.spec, s.scale, this.clock - s.at);
+      o[0] += d[0]; o[1] += d[1]; o[2] += d[2];
+    }
+    return o;
+  }
+  /** Starts a ShakeCamera felt by its distance from the camera's target (the knight, 1 up). */
+  private addShake(action: any, x: number, y: number, z: number) {
+    const spec = readShake(action), k = this.knight;
+    const scale = k ? shakeScale(spec, Math.hypot(x - k.x, y - k.y, z - (k.z + 1))) : 1;
+    if (scale > 0) this.shakes.push({ spec, scale, at: this.clock });
+  }
+  /** A damage or heal number over an actor in the game's style (fx_damagenumber.dat). */
+  private numberAt(a: Actor, text: string, style: NumberStyle, color: string) {
+    // the layer's launch point, anywhere within its placer around its offset
+    const l = NUMBER_LAYERS[style];
+    const r = l.spread * Math.cbrt(Math.random()), th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+    this.floaters.push({ x: a.x + l.offset[0] + r * Math.sin(ph) * Math.cos(th), y: a.y + l.offset[1] + r * Math.sin(ph) * Math.sin(th),
+      z: a.z + l.offset[2] + r * Math.cos(ph), text, color, age: 0, style, seed: Math.random() });
+  }
   /** Dungeon objects: crystals, ghost blocks, explosives, prisms, gun blocks, cages (objects.ts). */
   readonly objects: DungeonObjects;
   /**
@@ -352,7 +385,7 @@ export class World implements LogicHost {
         at.x = x; at.y = y; at.rotation = source.rotation;
         at.fixedShape = { k: "circle", x, y, r };
         this.logic.execute(action, at, source);
-        this.shake = Math.max(this.shake, 0.25);
+        this.addShake({ amplitude: { x: 0, y: 0, z: 0.25 }, duration: 0.6, innerRadius: 4, outerRadius: 12 }, x, y, this.collision.groundZ(x, y));
       },
       spawn: (ref, x, y, rot, source) => { this.logic.spawn(ref, x, y, rot, source, source); },
       heal: n => this.healKnight(n),
@@ -548,6 +581,11 @@ export class World implements LogicHost {
       this.preload("character/pc/dodge/dodge_fire.dat", "character/pc/dodge/dodge_end.dat"),
     ]);
     this.play(knight, "character/pc/idle.dat");
+    // the hit feedback models, loaded ahead so the first hit shows (and shakes) at once
+    for (const kind of ["Crap", "Normal", "Effective"]) for (const size of ["Small", "Medium", "Large"]) {
+      void this.loader.loadRef(argRef("particle/fx_gethit_monster-scaled.dat", [["variant", `${kind} (${size})`]])).catch(() => null);
+    }
+    void this.loader.loadRef(argRef("particle/fx_gethit_player.dat", [["Color", "Red"]])).catch(() => null);
     await this.startLogic();
   }
 
@@ -739,7 +777,7 @@ export class World implements LogicHost {
             if (m.state === "dying" || m.passive || m.ally || Math.hypot(m.x - fs.x, m.y - fs.y) > fs.r + m.radius || m.health >= m.maxHealth) continue;
             const h = Math.max(1, Math.min(amount, m.maxHealth * 0.1));
             m.health = Math.min(m.maxHealth, m.health + h);
-            this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.4, text: `+${Math.round(h)}`, color: "#7bd88f", age: 0 });
+            this.numberAt(m, `+${Math.round(h)}`, "Heal", "#7bd88f");
           }
           return true;
         }
@@ -1458,7 +1496,6 @@ export class World implements LogicHost {
     this.separate();
     this.updateProjectiles(dt);
     this.runEvents();
-    this.shake = Math.max(0, this.shake - dt * 2);
     for (const e of this.effects) {
       e.life -= dt;
       e.instance?.advance(dt);
@@ -1471,7 +1508,14 @@ export class World implements LogicHost {
     }
     for (let i = this.effects.length - 1; i >= 0; i--) if (this.effects[i].life <= 0) this.effects.splice(i, 1);
     for (const f of this.floaters) f.age += dt;
-    for (let i = this.floaters.length - 1; i >= 0; i--) if (this.floaters[i].age > 1.2) this.floaters.splice(i, 1);
+    for (let i = this.floaters.length - 1; i >= 0; i--) {
+      const f = this.floaters[i];
+      if (f.age > (f.style ? numberLength(f.style) : 1.2)) this.floaters.splice(i, 1);
+    }
+    // struck actors' colour flash
+    this.knight.instance.tint = hitFlash((this.clock - this.knight.flashAt) * 1000);
+    for (const m of this.monsters) m.instance.tint = hitFlash((this.clock - m.flashAt) * 1000);
+    for (let i = this.shakes.length - 1; i >= 0; i--) if (this.clock - this.shakes[i].at >= this.shakes[i].spec.duration) this.shakes.splice(i, 1);
     for (let i = this.monsters.length - 1; i >= 0; i--) {
       const m = this.monsters[i];
       if (m.state === "dying" && m.stateTime > this.deathLength(m)) this.monsters.splice(i, 1);
@@ -2302,7 +2346,12 @@ export class World implements LogicHost {
       if (m.def.react) this.play(m, m.def.react, { loop: false, blend: 0.05 });
     }
     m.health -= dmg;
-    this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.2, text: String(dmg), color: TYPE_COLORS[mainType(amounts)], age: 0 });
+    // the client's hit feedback: the hit particle for how the hit performed (with its camera
+    // shake), the damage number in that style, and a red flash
+    const perf = performanceOf(dmg, Math.max(1, Math.round(dealt(amounts, null, bonus))), m.maxHealth);
+    this.numberAt(m, "-" + dmg, numberStyle(perf), TYPE_COLORS[mainType(amounts)]);
+    m.flashAt = this.clock;
+    void this.spawnEffect(argRef("particle/fx_gethit_monster-scaled.dat", [["variant", performanceVariant(perf)]]), compose([m.x, m.y, m.z], [0, 0, 0, 1], 1), 1);
     this.knock(m, fx, fy, knockback);
     if (m.def.hitFx) this.spawnEffect(m.def.hitFx, compose([m.x, m.y, m.z + 0.5], [0, 0, 0, 1], 1), 0.8);
     if (m.health <= 0) {
@@ -2360,7 +2409,7 @@ export class World implements LogicHost {
     k.recentDamage += before - k.health;
     k.sinceDamage = 0;
     k.invulnerable = 0.5;
-    this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: String(dmg), color: "#ff6b6b", age: 0 });
+    this.knightHitFeedback(amounts, dmg);
     this.knock(k, fx, fy, knockback);
     if (k.health <= 0) {
       this.knockOut();
@@ -2383,6 +2432,27 @@ export class World implements LogicHost {
       k.hurtTime = 0.5;
       this.overlay(k, "character/pc/hurt_soft.dat");
       c.hurt("hurt", now);
+    }
+  }
+
+  /**
+   * The knight's side of a hit (the knight sprite): its hit transient (fx_gethit_player, red),
+   * a red flash, and hearts bursting out per damage type in that type's colour
+   * (fx_damagenumber-pc.dat) instead of a number.
+   */
+  private knightHitFeedback(amounts: Amounts, dmg: number) {
+    const k = this.knight;
+    k.flashAt = this.clock;
+    void this.spawnEffect(argRef("particle/fx_gethit_player.dat", [["Color", "Red"]]), k.matrix(), 1.2, k);
+    let raw = 0;
+    for (const t of DAMAGE_TYPES) raw += Math.max(0, amounts[t]);
+    raw += Math.max(0, amounts.UNBLOCKABLE ?? 0);
+    if (raw <= 0) return;
+    for (const t of [...DAMAGE_TYPES, "UNBLOCKABLE"] as const) {
+      const a = Math.max(0, (amounts as any)[t] ?? 0);
+      if (a <= 0) continue;
+      void this.spawnEffect(argRef("particle/fx_damagenumber-pc.dat", [["number", heartCount(dmg * a / raw)], ["type", HEART_TYPES[t] ?? "Normal"]]),
+        k.matrix(), 1.5, k);
     }
   }
 
@@ -2437,7 +2507,7 @@ export class World implements LogicHost {
     for (const s of m.statuses) amount *= s.def.heal;
     const before = m.health;
     m.health = Math.min(m.maxHealth, m.health + amount);
-    if (m.health > before) this.floaters.push({ x: m.x, y: m.y, z: m.z + 2, text: `+${Math.round(m.health - before)}`, color: "#7bd88f", age: 0 });
+    if (m.health > before) this.numberAt(m, `+${Math.round(m.health - before)}`, "Heal", "#7bd88f");
   }
 
   /** Deals a DamageConfig to the knight from a point (beams and hazards a director runs). */
@@ -2814,11 +2884,7 @@ export class World implements LogicHost {
       case "PlaySound":
         this.audio?.play(action.sounder, [matrix[12], matrix[13], matrix[14]]);
         break;
-      case "ShakeCamera": {
-        const d = Math.hypot(matrix[12] - this.knight.x, matrix[13] - this.knight.y);
-        this.shake = Math.max(this.shake, (action.amplitude ?? 0.3) / (1 + d * 0.3));
-        break;
-      }
+      case "ShakeCamera": this.addShake(action, matrix[12], matrix[13], matrix[14]); break;
       case "Compound": for (const a of action.actions ?? []) this.modelAction(a, matrix, follow, depth + 1); break;
       case "Random": {
         const list: any[] = action.actions ?? [];

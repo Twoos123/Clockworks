@@ -53,6 +53,12 @@ export interface Settings {
   controlsHint: boolean;
   /** Guns and bombs turn toward the nearest monster near the aim. */
   autoAim: boolean;
+  /**
+   * The game's mouse-move control scheme (Command.ControlScheme MOUSE_MOVE): holding the left
+   * button runs toward the pointer; Z or the right button attacks, X shields, Shift + Z bashes
+   * and Shift + X dodges. Off: the WASD scheme (left button attacks, right shields).
+   */
+  mouseMove: boolean;
   /** Camera turn speed for Q and E, in radians per second. */
   cameraSpeed: number;
   /** Camera distance multiplier. */
@@ -72,7 +78,7 @@ export function defaultSettings(): Settings {
     masterVolume: 0.8, musicVolume: 0.45, effectsVolume: 1, uiVolume: 1, muted: false,
     renderScale: 1, fog: true, shadows: true, decals: true, particles: true, showFps: false,
     hudScale: 1, damageNumbers: true, healthBars: true, minimap: true, controlsHint: true,
-    autoAim: true, cameraSpeed: 1.8, zoom: 1, screenFlash: true, deadZone: 0.2, locale: "",
+    autoAim: true, mouseMove: false, cameraSpeed: 1.8, zoom: 1, screenFlash: true, deadZone: 0.2, locale: "",
     keys: Object.fromEntries(Object.entries(ACTIONS).map(([k, v]) => [k, v.key])) as Record<Action, string>,
   };
 }

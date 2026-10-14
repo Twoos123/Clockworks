@@ -39,7 +39,7 @@ const HIDDEN = ["party_with_any", "region_label", "region", "bugreport", "resetp
 const HIDDEN_ADVANCED = ["vsync_enabled", "compatibility_mode", "cull_transients", "antialiasing", "fps_box",
   "auto_advance", "ping_gfx", "hide_ui", "lovegroup"];
 
-type Flag = "muted" | "fog" | "shadows" | "decals" | "particles" | "showFps" | "minimap" | "controlsHint";
+type Flag = "muted" | "fog" | "shadows" | "decals" | "particles" | "showFps" | "minimap" | "controlsHint" | "mouseMove";
 type Range = "masterVolume" | "cameraSpeed" | "zoom" | "deadZone";
 /** Slider ranges, and how the value label reads. */
 const RANGES: Record<Range, { min: number; max: number; fmt: (v: number) => string }> = {
@@ -208,7 +208,7 @@ export class OptionsScreen {
     await Promise.all([this.buildGeneral(ui), this.buildControls(ui), this.buildSaveTab(ui),
       video && this.buildAdvanced(video, "render_effects", [["fog", "Fog"], ["shadows", "Character Shadows"],
         ["decals", "Projected Shade (Roofs, Trees)"], ["showFps", "Show Frame Rate"]]),
-      game && this.buildAdvanced(game, "auto_advance", [["minimap", "Show Minimap"], ["controlsHint", "Show Controls Hint"]])]);
+      game && this.buildAdvanced(game, "auto_advance", [["minimap", "Show Minimap"], ["controlsHint", "Show Controls Hint"], ["mouseMove", "Hold Left Button to Move"]])]);
     if (video) {
       const fx = video.find("render_effects");
       if (fx) this.bindFlag(fx, "particles");
