@@ -527,17 +527,13 @@ export class GameHud {
    */
   private fold(ui: Component, folded: boolean, animate = true) {
     this.folded.set(ui, folded);
-    // how far it slides: the panel's width less its handle's (measured with the parts hidden)
-    const parts = ["middle", "left"].map(t => ui.find(t)).filter((c): c is Component => !!c);
-    for (const c of parts) c.visible = true;
-    const full = pack(ui).width;
-    for (const c of parts) c.visible = false;
-    const handleOnly = pack(ui).width;
-    for (const c of parts) c.visible = true;
-    pack(ui);
+    // where it rests (hud/M.b): open, 40 pixels out past its corner (the backing's outer edge
+    // goes off screen, so the panel sits flush with the edge); folded, its width less its
+    // handle's further out, so only the handle shows, against the edge
+    const width = pack(ui).width, handle = this.handle(ui);
     const sign = ui === this.menuLeft ? -1 : 1;
-    const to = folded ? sign * Math.max(0, full - handleOnly) : 0;
-    const from = this.offsets.get(ui) ?? 0;
+    const to = folded ? sign * (width - (handle?.visible ? handle.width : 0)) : sign * 40;
+    const from = this.dx(ui);
     if (!animate) { this.offsets.set(ui, to); this.slides.delete(ui); return; }
     this.slides.set(ui, { from, to, t: 0, ease: folded ? cubicIn : cubicOutOvershoot });
   }
@@ -552,7 +548,8 @@ export class GameHud {
   }
 
   /** The panel's x offset while it slides or sits folded. */
-  private dx(ui: Component) { return this.offsets.get(ui) ?? 0; }
+  /** A panel's x offset; one never folded rests open, 40 pixels out (hud/M). */
+  private dx(ui: Component) { return this.offsets.get(ui) ?? (ui === this.menuLeft ? -40 : 40); }
 
   /** The panels taking the pointer, top first: the status panel (its rim button), the minimap, the menus, the quickbar. */
   private panels() {

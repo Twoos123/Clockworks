@@ -2,12 +2,16 @@
 // models are placed with their view-model transforms, and the camera sits at the
 // model's view node (e.g. "shopview"), or orbits the model when there is none.
 // The picture is rendered offscreen with a transparent background and composited into the
-// 2D HUD between the backdrop and the gloss.
+// 2D HUD between the backdrop and the gloss. The status panel's portraits are still pictures
+// (client hud/F): the idle pose half a second in, rendered once and cut to the portrait's mask.
 
 import { loadAnimation, type ModelLoader } from "../model";
 import { compose, invert, lookAt, multiply, perspective, readTransform, type Mat4 } from "../math";
 import type { ModelInstance, Renderer } from "../render/renderer";
-import type { Component } from "./gui";
+import type { Component, GuiImage } from "./gui";
+
+/** A still, masked portrait (the status panel's): the pose's time and the mask image. */
+export interface StillPortrait { time: number; mask: Promise<GuiImage | null> }
 
 /** Re-render the animated portrait at this rate; each render reads pixels back from the GPU. */
 const FRAME_INTERVAL = 1 / 15;
@@ -26,7 +30,12 @@ export class PortraitView {
     /** Overrides the view's model reference (e.g. the knight's current gear). */
     private modelRef?: any,
     /** The animation the model idles with (a path or reference), or null for none. */
-    private readonly idle: any = "character/pc/idle.dat") {}
+    private readonly idle: any = "character/pc/idle.dat",
+    /** Rendered once at this pose and masked, instead of animated. */
+    private readonly still?: StillPortrait) {
+    void still?.mask.then(m => { this.mask = m; this.canvas = null; });
+  }
+  private mask: GuiImage | null = null;
 
   private async load(view: any) {
     this.loading = true;
@@ -38,6 +47,7 @@ export class PortraitView {
       const inst = await this.renderer.instantiate(model);
       const idle = this.idle ? await loadAnimation(this.loader, this.idle).catch(() => null) : null;
       if (idle) inst.play(idle, { loop: true });
+      if (this.still) inst.time += this.still.time;
       const t = readTransform(vm?.transform);
       this.placement = t.matrix ?? compose(t.t, t.r, t.s);
       this.instance = inst;
@@ -47,7 +57,7 @@ export class PortraitView {
   private last = performance.now();
 
   /** Shows another model (the knight redressed): it loads on the next draw. */
-  setModelRef(ref: any) { this.modelRef = ref; this.instance = null; }
+  setModelRef(ref: any) { this.modelRef = ref; this.instance = null; this.canvas = null; }
 
   draw(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
     const now = performance.now(), dt = Math.min(0.1, (now - this.last) / 1000);
@@ -57,11 +67,11 @@ export class PortraitView {
     const key = JSON.stringify(view.models?.[0]?.model ?? "", (k, v) => (k === "$outer" ? undefined : v));
     if (key !== this.configKey) { this.configKey = key; this.instance = null; }
     if (!this.instance) { if (!this.loading) void this.load(view); return; }
-    this.since += dt;
-    this.instance.time += dt;
+    // a still portrait keeps its pose; it is drawn again only when it changes
+    if (!this.still) { this.since += dt; this.instance.time += dt; }
     const scale = Math.min(2, devicePixelRatio || 1) * SUPERSAMPLE;
     const pw = Math.round(w * scale), ph = Math.round(h * scale);
-    if (!this.canvas || this.since >= FRAME_INTERVAL || this.canvas.width !== pw || this.canvas.height !== ph) {
+    if (!this.canvas || (!this.still && this.since >= FRAME_INTERVAL) || this.canvas.width !== pw || this.canvas.height !== ph) {
       this.since = 0;
       this.canvas = this.renderView(view, pw, ph);
     }
@@ -92,7 +102,14 @@ export class PortraitView {
     const proj = perspective(view.fov ?? Math.PI / 3, pw / ph, view.near ?? 1, view.far ?? 100);
     const img = this.renderer.renderToPixels([{ instance: inst, matrix: placement }], proj, cam, pw, ph);
     const canvas = this.canvas && this.canvas.width === pw && this.canvas.height === ph ? this.canvas : new OffscreenCanvas(pw, ph);
-    canvas.getContext("2d")!.putImageData(img, 0, 0);
+    const g = canvas.getContext("2d")!;
+    g.putImageData(img, 0, 0);
+    if (this.still && this.mask) {
+      // the client's masked image: the picture shows only where the mask is opaque
+      g.globalCompositeOperation = "destination-in";
+      g.drawImage(this.mask.source, 0, 0, pw, ph);
+      g.globalCompositeOperation = "source-over";
+    }
     return canvas;
   }
 }

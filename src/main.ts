@@ -807,7 +807,9 @@ class Viewer {
     this.tooSmall ??= new TooSmallWarning(this.gui);
     // arriving in Haven, and the arsenal as it stands, may earn achievements
     this.achieve();
-    const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef());
+    // the status panel's portraits: still pictures cut to their masks (client hud/F)
+    const still = (mask: string) => ({ time: 0.5, mask: this.gui?.image(mask) ?? Promise.resolve(null) });
+    const portrait = new PortraitView(this.renderer, this.loader, world.portraitRef(), "character/pc/idle.dat", still("ui/hud_v2/images/portrait/mask.png"));
     if (import.meta.env.DEV) (window as any).__portrait = portrait;
     this.outfit.onRedress = () => portrait.setModelRef(world.portraitRef());
     // render views: the knight portrait, the heat meter's flame, the dash cooldown's ring and
@@ -830,7 +832,7 @@ class Viewer {
         const p = world.companion?.portrait();
         if (!p) return;
         const key = JSON.stringify(p.ref, (k, v) => (k === "$outer" ? undefined : v));
-        if (petView?.key !== key) petView = { key, view: new PortraitView(this.renderer, this.loader, p.ref, p.idle) };
+        if (petView?.key !== key) petView = { key, view: new PortraitView(this.renderer, this.loader, p.ref, p.idle, still("ui/hud_v2/images/portrait_mini/mask.png")) };
         petView.view.draw(c, g, x, y, w, h);
       } else if (c.viewOwner === "target") {
         const t = world.hudTarget();
