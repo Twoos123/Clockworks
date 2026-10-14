@@ -6,3 +6,4 @@ tools/.scan-*
 engine-spike/
 .claude/worktrees/
 .decompiled/
+release/

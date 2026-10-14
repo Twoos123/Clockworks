@@ -1,13 +1,21 @@
 // The game's launcher: finds the Spiral Knights install, serves the built game (dist/) and the
-// install's files on localhost only, and opens the browser. `npm start` builds first.
+// install's files on localhost only, and opens the browser. `npm start` builds first; packaged as
+// a single executable (tools/package.ts) it serves the game from the files embedded in it.
 
 import { exec } from "node:child_process";
+import { createRequire } from "node:module";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 import { archiveDir, candidates, detectInstall, installMiddleware, syncArchive } from "./install";
 
-const DIST = normalize(join(import.meta.dirname, "..", "dist"));
+// packaged: the built game is embedded as assets keyed by their path under dist/
+const load = typeof require === "function" ? require : createRequire(import.meta.url);
+const sea: { isSea(): boolean; getRawAsset(key: string): string | ArrayBuffer } | null = (() => {
+  try { const m = load("node:sea"); return m.isSea() ? m : null; } catch { return null; }
+})();
+const DIST = sea ? "" : normalize(join(import.meta.dirname ?? ".", "..", "dist"));
+const embedded = (key: string): Buffer | null => { try { const a = sea!.getRawAsset(key); return typeof a === "string" ? Buffer.from(a) : Buffer.from(a); } catch { return null; } };
 const PORT = Number(process.env.PORT ?? 5175);
 const TYPES: Record<string, string> = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
   ".png": "image/png", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".ico": "image/x-icon" };
@@ -21,12 +29,21 @@ if (install) {
 else {
   console.log("Spiral Knights was not found. Looked in:\n  " + candidates().join("\n  ") + "\nSet SK_DIR to the install folder and run again.");
 }
-if (!existsSync(join(DIST, "index.html"))) { console.log("No build found: run `npm start` (it builds first)."); process.exit(1); }
+if (!sea && !existsSync(join(DIST, "index.html"))) { console.log("No build found: run `npm start` (it builds first)."); process.exit(1); }
 
 const sk = installMiddleware(() => install);
 createServer((req, res) => {
   const url = (req.url ?? "/").split("?")[0];
   if (url.startsWith("/__sk/")) { req.url = req.url!.substring(5); sk(req, res); return; }
+  if (sea) {
+    // the embedded game: unknown paths fall back to the page itself
+    const key = decodeURIComponent(url).replace(/^\/+/, "") || "index.html";
+    let body = embedded(key), type = TYPES[extname(key)];
+    if (!body) { body = embedded("index.html"); type = TYPES[".html"]; }
+    res.setHeader("content-type", type ?? "application/octet-stream");
+    res.end(body);
+    return;
+  }
   let file = normalize(join(DIST, decodeURIComponent(url)));
   if (!file.startsWith(DIST + sep) && file !== DIST) { res.statusCode = 403; res.end(); return; }
   if (!existsSync(file) || statSync(file).isDirectory()) file = join(DIST, "index.html");
