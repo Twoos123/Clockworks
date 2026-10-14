@@ -6,8 +6,21 @@
   <title>Spiral Knights</title>
   <script>if (!/viewer|dev=1/.test(location.hash)) document.documentElement.classList.add("game");</script>
   <link rel="stylesheet" href="/src/style.css">
+  <style>
+    /* the loading screen: shown from the first paint, before any script, until the log-on screen draws */
+    #boot { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 18px; background: radial-gradient(circle at 50% 45%, #0f3a52 0%, #06141f 60%, #02070c 100%);
+      color: #cfe8f5; font: 600 15px/1.4 system-ui, sans-serif; letter-spacing: 0.02em; transition: opacity 0.4s; }
+    #boot.done { opacity: 0; pointer-events: none; }
+    html:not(.game) #boot { display: none; }
+    #boot .spinner { width: 46px; height: 46px; border-radius: 50%; border: 4px solid rgba(120, 200, 240, 0.18);
+      border-top-color: #5fd0ff; animation: boot-spin 0.9s linear infinite; }
+    #boot .sub { font-weight: 400; font-size: 12px; opacity: 0.6; }
+    @keyframes boot-spin { to { transform: rotate(360deg); } }
+  </style>
 </head>
 <body>
+  <div id="boot"><div class="spinner"></div><div id="bootText">Starting Spiral Knights…</div><div class="sub">Everything is read from your own game install</div></div>
   <section id="welcome" class="welcome">
     <div class="card">
       <h1>Spiral Knights</h1>

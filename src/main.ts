@@ -170,6 +170,7 @@ async function start() {
     // the game never asks for its install: the local server (npm start, or the dev server)
     // finds it and serves it; without one the page explains how to start the game
     if (!$("dev").hidden) return void await open(async () => new DevServerVfs());
+    bootStatus(null);
     $("welcome").querySelector(".actions")!.remove();
     $("welcome").querySelectorAll(".hint").forEach(h => h.remove());
     $("welcomeIntro").innerHTML = "Spiral Knights wasn't found on this computer.<br><br>Start the game with <code>npm start</code>: " +
@@ -222,18 +223,32 @@ async function readEntries(root: FileSystemDirectoryEntry): Promise<[string, Fil
   return out;
 }
 
+/** The loading screen's status line (index.html #boot); null text hides it once the game shows. */
+export function bootStatus(text: string | null) {
+  const el = document.getElementById("boot");
+  if (!el) return;
+  if (text === null) { el.classList.add("done"); setTimeout(() => el.remove(), 500); return; }
+  const t = document.getElementById("bootText");
+  if (t) t.textContent = text;
+}
+
 async function open(make: () => Promise<Vfs>) {
   try {
     $("welcomeError").hidden = true;
+    bootStatus("Finding your Spiral Knights install…");
     const vfs = await make();
+    bootStatus("Reading the game's files…");
     const files = await vfs.list();
     if (!files.some(f => f.endsWith(".dat"))) throw new VfsError("No .dat files were found in that folder.");
     // the game's text, from the install's message bundles (our own English where they are missing)
+    bootStatus("Loading the game's text…");
     await loadMessages(vfs, loadSettings().locale).catch(() => 0);
+    bootStatus("Loading the log-on screen…");
     $("welcome").hidden = true;
     $("app").hidden = false;
     new Viewer(vfs, files);
   } catch (e) {
+    bootStatus(null);
     showWelcomeError((e as Error).message);
   }
 }
@@ -597,6 +612,7 @@ class Viewer {
     const n = namedKnights(gameRoster()).length;
     this.title.setStatus(n ? `${n} knight${n === 1 ? "" : "s"} saved in this browser` : "");
     await this.title.show();
+    bootStatus(null);
   }
 
   /**
