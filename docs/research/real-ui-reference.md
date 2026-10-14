@@ -446,3 +446,79 @@ This corrects the earlier note that the client skips the Details window: it does
        and "Monsters Ahead! / Aim at enemies with your mouse and attack with <Left Mouse>".
      - Tutorial items lie on the ground, and the path leads up the stairs, past a pool, to the
        Rescue Camp.
+
+## Options in motion: UI scale and Controls
+
+From a 16-second recording; frames are in `.scratch/vid8` (git-ignored).
+
+- **UI Scaling (Video tab):** ticking "Max!" (orange, it gains a ✓) jumps the scale to the
+  screen's largest, 130% at 1335x800.
+  - The "100%" button greys out, and the slider moves to its right end and is disabled. Its
+    label reads "130%".
+  - The whole interface redraws larger at once, the options screen and HUD included.
+  - The Display Mode dropdown shows the window size ("1335x800").
+- **Controls tab:** hovering a tile darkens it and turns its icon and label yellow. The
+  selected scheme looks the same, and in the last frame "Custom (Click to Change)" is
+  selected that way. The HUD stays visible but dimmed behind the options.
+
+## The mission board's four tabs
+
+From a 20-second recording; frames are in `.scratch/vid9` (one every 2 seconds, git-ignored).
+
+- **ARCADE tab: the Arcade's gates are chosen here.** It is the same board as the Arcade's gate
+  machines.
+  - **Cards:** one per gate, with its emblem art and name: Diamond Bishop Gate, Dark Serpent
+    Gate, Sapphire Queen Gate, Coral King Gate. The selected card is outlined gold with a
+    pointer under it.
+  - **Two sub-tabs:**
+    - "Gate Map" shows the gate's map, rows of stratum and level icons with arrows, as on the
+      gate map site.
+    - "Gate Materials" lists the materials each tier drops: "TIER 2 / Depths 08-12", then a
+      two-column list with icon, name, star rank and count (Ironwood ★4, Rocky Core ★4, Brute
+      Core ★3, Redwood ★3, Driftwood ★2, Gel Core ★2, ...).
+  - **Right side:** CONFIGURE YOUR PARTY (Join Party, Create Public Party, Create Private Party,
+    Play Solo) and the difficulty bar.
+  - **Tier buttons:** "TIER 1 (Depth 0)", "TIER 2 (Depth 8)", "TIER 3 (Depth 18)", then START.
+- **PRESTIGE tab:**
+  - **Cards:** labelled REPLAYABLE, TODAY or TOMORROW (March of the Tortodrones, Heart of Ice,
+    Nature of the Beast, Monstrous Research, ...). Arrows scroll the row.
+  - **Exchange missions** (e.g. Monstrous Research):
+    - the description and a gold instruction line, with REWARDS Prestige 60;
+    - a MATERIALS list at the right with have/need and a magnifier ("Phial of Phear 111 / 1",
+      "Redwood 199 / 1", "Torchstone 326 / 1");
+    - TOGGLE ARSENAL, then a ticked "Confirm these items to be exchanged for the Mission
+      Rewards.", then START with a coin icon.
+- **EXPANSION tab:** Operation Crimson Hammer cards (red), with long briefing text.
+- **RANK tab:** as described earlier.
+- **Featured Items timer:** it counts down ("1 more hour").
+
+## Character window tabs and item tooltips
+
+From a 40-second recording; frames are in `.scratch/vid10` (one every 2 seconds, git-ignored).
+
+- **Compare tooltips** (hovering an arsenal pill): two tooltip cards sit side by side to the
+  left of the ARSENAL. The worn item is on the left with "EQUIPPED SWORD" in its footer, the
+  hovered item on the right with "SWORD".
+  - Each card has a gold title bar with the name and "NN LEVEL" (or "-COMPLETE-" under the name
+    once maxed), the heat bar, and the attack bars (NORMAL, ELEMENTAL, SPEED).
+  - Then the bonus rows, each with an up-arrow badge: "Good chance of causing Strong FIRE",
+    "Attack Speed Increased: High", "Charge Time Reduction: Medium", "Damage Bonus vs Beast:
+    High".
+  - Then "This item is bound to you.", the description, the star rank, and the 3D model.
+- **Character window (P)**, titled "<Current Equipment>" with Save Loadout and "Character
+  Options ▼":
+  - **Equipment tab:**
+    - A narrow slot column at the left, with the worn items' icons and padlocks on locked
+      slots.
+    - A big 3D view of the knight in a blue room.
+    - Under the knight: "Vanguard(10-3)", the name in gold ("Twoos") and "★ 11,995" (prestige).
+  - **Battle Sprite tab, skills page:**
+    - A skill ("Firestorm") with its icon, then "Skill Points: 0".
+    - Three upgrade rows, each with a bar, a "+" button and a tooltip ("Extra Crispy" /
+      "Increases the potency of the fire and chance of …", "SKILL POWER").
+    - Cancel and Confirm buttons.
+    - "Cooldown: 55 seconds" and the skill text ("Summon the power of true dragon fire to burn
+      everything in your path.").
+    - The sprite's skill icons in a column, and the sprite in its view ("Level 59 / Corona").
+  - **Achievements tab:** a grid of square achievement icons. Earned ones are coloured (gold,
+    red, purple), unearned ones grey-blue, and some show padlocks. It scrolls.

@@ -21,6 +21,8 @@ const DOCK_MARGIN = 8;
 const DOCK_BOTTOM = 145;
 /** Pixels between docked windows. */
 const DOCK_GAP = 4;
+/** hud/r: the energy panel's bottom edge above the screen's (its anchor's 70 pixel offset). */
+const ENERGY_BOTTOM = 70;
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 
 export interface ScreenHost {
@@ -324,7 +326,7 @@ export abstract class GuiScreen {
    * (client/bL, placed left of the arsenal) beside it, as the client docks them by the forge,
    * the crafting window and the character window. Each takes the pointer where it lies.
    */
-  private docks: { key: string; order: number; panel: DockPanel }[] = [];
+  private docks: { key: string; order: number; panel: DockPanel; left?: boolean }[] = [];
   /** The docked windows, from the screen's edge inward. */
   protected get sides(): Component[] { return this.docks.map(d => d.panel.ui); }
   /** Docks the main window at the screen's right edge instead of centring it (item/client/i). */
@@ -339,6 +341,21 @@ export abstract class GuiScreen {
   dockedWidth = 0;
   /** Darkens the game behind the window (a docked list leaves it be). */
   protected dim = true;
+  /**
+   * The docked windows stand full height above the HUD from the top edge, as the shop's
+   * vendor and arsenal and the crafting window's do (client/g with its side), instead of
+   * centred at their own height.
+   */
+  protected tallDocks = false;
+  /**
+   * The HUD's energy panel (hud/r: ui/energy/interface_collapse.dat holding the energy module
+   * ui/energy/interface.dat), which the client's item lists show at the screen's bottom right,
+   * 70 pixels up, while they are open (client/d.wasAdded with its list's Cd()): the knight's
+   * energy, or null for a window that does not show it.
+   */
+  protected energy: (() => number) | null = null;
+  private energyUi: Component | null = null;
+  private energyBuilding = false;
   private captured: Component | null = null;
 
   /** Whether a docked window is shown. */
@@ -348,13 +365,13 @@ export abstract class GuiScreen {
    * Shows a docked window (built once by `make`) or takes it away; `order` places it from the
    * edge inward (the arsenal 0, the loadouts 1).
    */
-  async dock(key: string, on: boolean, order: number, make: (s: GuiScreen) => Promise<DockPanel | null>) {
+  async dock(key: string, on: boolean, order: number, make: (s: GuiScreen) => Promise<DockPanel | null>, left = false) {
     if (!on) { this.docks = this.docks.filter(d => d.key !== key); return; }
     if (this.docked(key)) return;
     let panel = this.panels.get(key);
     if (panel === undefined) { panel = await make(this); this.panels.set(key, panel); }
     if (!panel || this.docked(key)) return;
-    this.docks = [...this.docks, { key, order, panel }].sort((a, b) => a.order - b.order);
+    this.docks = [...this.docks, { key, order, panel, left }].sort((a, b) => a.order - b.order);
     resetInput(panel.ui);
     await panel.refresh();
   }
@@ -495,11 +512,22 @@ export abstract class GuiScreen {
     this.tick();
     // docked windows from the right edge inward, then the main window: at the left edge, at
     // the docked windows' left, or centred where that leaves them clear
-    let edge = cw - DOCK_MARGIN;
-    for (const d of this.sides) {
-      const s = pack(d);
+    let edge = cw - DOCK_MARGIN, leftEdge = 0;
+    const tall = Math.max(200, Math.round(ch - DOCK_BOTTOM));
+    for (const d of this.docks) {
+      const ui = d.panel.ui;
+      if (this.tallDocks) ui.preferredSize = { width: -1, height: tall };
+      const s = pack(ui);
+      const bottom = this.tallDocks ? s.height : Math.round((ch + s.height) / 2);
+      if (d.left) {
+        // a window docked at the left edge (the shop's vendor), the next one beside it
+        leftEdge += DOCK_MARGIN;
+        render(ui, g, leftEdge, bottom, this.hooks);
+        leftEdge += s.width;
+        continue;
+      }
       edge -= s.width;
-      render(d, g, Math.max(0, edge), Math.round((ch + s.height) / 2), this.hooks);
+      render(ui, g, Math.max(0, edge), bottom, this.hooks);
       edge -= DOCK_GAP;
     }
     if (this.root) {
@@ -511,11 +539,13 @@ export abstract class GuiScreen {
         render(this.root, g, Math.min(Math.max(0, cw - s.width), this.dockLeft()), s.height, this.hooks);
       } else {
         const s = pack(this.root);
-        const right = this.sides.length ? edge : cw - DOCK_MARGIN;
-        const x = this.dockLeft ? DOCK_MARGIN : this.dockRight ? right - s.width : Math.min(Math.round((cw - s.width) / 2), right - s.width);
+        const right = this.docks.some(d => !d.left) ? edge : cw - DOCK_MARGIN;
+        const x = this.dockLeft ? DOCK_MARGIN : this.dockRight ? right - s.width
+          : Math.max(leftEdge + DOCK_GAP, Math.min(Math.round((cw - s.width) / 2), right - s.width));
         render(this.root, g, Math.max(0, x), Math.round((ch + s.height) / 2), this.hooks);
       }
     }
+    this.drawEnergy(g, cw, ch);
     for (const o of this.overlays) {
       g.fillStyle = "rgba(4,10,18,0.45)";
       g.fillRect(0, 0, cw, ch);
@@ -548,6 +578,22 @@ export abstract class GuiScreen {
 
   /** Per-frame work before drawing (animations). */
   protected tick() {}
+
+  /** The HUD's energy panel at the bottom right (hud/r, anchored right and bottom, 70 up). */
+  private drawEnergy(g: CanvasRenderingContext2D, cw: number, ch: number) {
+    if (!this.energy) return;
+    if (!this.energyUi) {
+      if (!this.energyBuilding) {
+        this.energyBuilding = true;
+        void energyPanel(this.ctx).then(c => { this.energyUi = c; }, e => console.error("energy panel failed", e));
+      }
+      return;
+    }
+    const n = this.energyUi.find("crystalenergy");
+    if (n) n.text = this.energy().toLocaleString("en-US");
+    const s = pack(this.energyUi);
+    render(this.energyUi, g, Math.max(0, cw - s.width), Math.round(ch - ENERGY_BOTTOM), this.hooks);
+  }
 }
 
 /** Builds a tooltip: its placeholder stat pills give way to the spec's bonus lines. */
@@ -595,4 +641,26 @@ export async function textTip(ctx: GuiContext, text: string): Promise<Component>
   const label = win.children[0];
   if (label) label.text = text;
   return win;
+}
+
+/**
+ * hud/r: the HUD's collapsible panel (ui/energy/interface_collapse.dat, its title hidden) with
+ * the energy module (client/af, ui/energy/interface.dat) in its "energywidget" place. Its fold
+ * handles are hidden (hud/r.wasAdded: aTU hidden, b(false, false)); its crystal's view is not drawn.
+ */
+export async function energyPanel(ctx: GuiContext): Promise<Component | null> {
+  const [box, module] = await Promise.all([buildUi(ctx, uiRef("ui/energy/interface_collapse.dat")),
+    buildUi(ctx, uiRef("ui/energy/interface.dat", { "Crystal Energy": "On", "Get Energy Button": false }))]);
+  if (!box || !module) return module;
+  const swap = (c: Component): boolean => {
+    const i = c.children.findIndex(k => k.tag === "energywidget" || k.tag === "content");
+    if (i >= 0) { module.constraints = c.children[i].constraints; c.children[i] = module; return true; }
+    return c.children.some(swap);
+  };
+  if (!swap(box)) return module;
+  const hide = (c: Component) => { if (c.tag === "handle" || c.tag === "label_title") c.visible = false; c.children.forEach(hide); };
+  hide(box);
+  const level = module.find("level");
+  if (level) level.visible = false;
+  return box;
 }

@@ -37,6 +37,11 @@ export const MIST_REFILL_MS = 22 * 3600_000;
 /** The exchange's instant buy: 100 energy for 6500 crowns (the client's Get Energy panel). */
 export const EXCHANGE_ENERGY = 100;
 export const EXCHANGE_CROWNS = 6500;
+/**
+ * Crowns the exchange pays for 100 energy (Get Crowns!). The market set it (2,765 in the Haven
+ * tour recording); ours, below the buying rate so that trading back and forth costs crowns.
+ */
+export const EXCHANGE_SELL_CROWNS = 5000;
 /** Crowns one point of energy costs at that rate. */
 export const ENERGY_CROWNS = EXCHANGE_CROWNS / EXCHANGE_ENERGY;
 /** A Spark of Life bought in the knockout window (CostsConfigObject dungeonSparkOfLifeCost). */
@@ -102,6 +107,19 @@ export function buyEnergy(w: { crowns: number }, e: EnergyState, lots = 1): bool
   if (lots <= 0 || w.crowns < cost) return false;
   w.crowns -= cost;
   e.crystal += lots * EXCHANGE_ENERGY;
+  return true;
+}
+
+/**
+ * The exchange's other side (ui/exchange/mini_getcrowns.dat: "Get [crowns] for 100 [energy]",
+ * Get Crowns!): 100 Crystal Energy sold for EXCHANGE_SELL_CROWNS. The mist tank's free energy
+ * is not sold (Crystal Energy was what the exchange traded). Returns false (and changes
+ * nothing) without 100 Crystal Energy.
+ */
+export function sellEnergy(w: { crowns: number }, e: EnergyState): boolean {
+  if (e.crystal < EXCHANGE_ENERGY) return false;
+  e.crystal -= EXCHANGE_ENERGY;
+  w.crowns += EXCHANGE_SELL_CROWNS;
   return true;
 }
 

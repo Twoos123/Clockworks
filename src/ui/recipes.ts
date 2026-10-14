@@ -8,9 +8,14 @@
 //   so; a notice offers the recipes the knight could still learn.
 // - The ingredients (craft/a/s on ui/recipes/interface_ingredients.dat): the item's name,
 //   the materials (ui/recipes/parts/material) and the three orbs of alchemy of the recipe's
-//   star (bought for energy as it is made when the knight holds none), the special ingredient (the base item,
+//   star, with have / need counts, the special ingredient (the base item,
 //   ui/recipes/parts/special), "Items must be unequipped" when the base item is worn, the
-//   crowns (dimmed when short) and Transmute, enabled when everything is at hand.
+//   crowns (dimmed when short) and Transmute, enabled when everything is at hand. Under them
+//   the orb panel (exchange/client/F, ui/supplydepot/interface_mini_buy_item.dat): the
+//   recipe's orb of alchemy and Buy Item, a pack of three from the depot for energy.
+// - Laid out as the Haven tour recording shows: the list full height at the left edge, the
+//   ingredients beside it, the arsenal full height at the right with the HUD's energy panel
+//   under it, the game undimmed. An alchemy machine (CraftActionConfig$OpenCrafter) opens it.
 // - Transmuting (craft/a/G on ui/recipes/interface_success.dat): "You have created..." or
 //   "Your X has become...", then after three seconds SUCCESS!, the new item's name and icon,
 //   "Unique Variant Acquired!" when it rolled variants, where it went, and Equip and OK.
@@ -26,7 +31,7 @@ import type { Outfit } from "../game/outfit";
 import { InventoryPanel } from "./backpack";
 import { message, text } from "../i18n";
 import type { Component } from "./gui";
-import { itemPreview, itemTip, ItemList, type ListGroup } from "./itemlist";
+import { itemPreview, itemTip, ItemList, pillRef, type ListGroup } from "./itemlist";
 import { buildUi, GuiScreen, uiRef, type DockPanel, type ScreenHost } from "./screen";
 
 export interface RecipesHost extends ScreenHost {
@@ -66,6 +71,21 @@ export class RecipesScreen extends GuiScreen {
 
   constructor(ctx: ConstructorParameters<typeof GuiScreen>[0], private readonly host_: RecipesHost) {
     super(ctx, host_, "recipesCanvas");
+    // the client's layout (ui/recipes/interface.dat anchors the window at the screen's top
+    // left): the recipe list full height above the HUD at the left edge, the ingredients
+    // beside it, the arsenal full height at the right, the HUD's energy panel under it; the
+    // game goes on undimmed behind them
+    this.dockLeft = () => 0;
+    this.tallDocks = true;
+    this.dim = false;
+    this.energy = () => energyNow(energyOf(this.host_.save()));
+  }
+
+  /** The recipe list's window (its height follows the screen's, as the vendor's and arsenal's). */
+  private listUi: Component | null = null;
+
+  protected tick() {
+    if (this.listUi) this.listUi.preferredSize = { width: -1, height: Math.max(200, Math.round(this.canvas.clientHeight - 145)) };
   }
 
   protected async build(): Promise<Component | null> {
@@ -76,6 +96,7 @@ export class RecipesScreen extends GuiScreen {
     const left = root.find("recipes"), right = root.find("ingredients");
     if (!left || !right) return null;
     this.ingredients = right;
+    this.listUi = left;
     this.list = new ItemList(this.ctx, left, this.tips, f => this.host.sound(f));
     this.list.showSelection = true;
     this.list.sorts = ["natural", "name", "stars"];
@@ -88,8 +109,14 @@ export class RecipesScreen extends GuiScreen {
       void this.refresh();
     };
     this.on(left, "dismiss", () => this.close());
-    // the item preview on the knight, the market's buy widget, unbinding: not in this port
-    for (const tag of ["buy_item_widget", "keep_variants", "result_bound"]) { const c = right.find(tag); if (c) c.visible = false; }
+    // the item preview on the knight and unbinding: not in this port
+    for (const tag of ["keep_variants", "result_bound"]) { const c = right.find(tag); if (c) c.visible = false; }
+    // exchange/client/F: the orb of alchemy the recipe takes, offered at the depot (Buy Item)
+    const buyOrb = right.find("buy_item_widget");
+    if (buyOrb) {
+      buyOrb.visible = false;
+      this.on(buyOrb, "get_item_button", () => this.buyOrbs());
+    }
     this.on(right, "confirm", () => void this.transmute());
     this.hooks = {
       tagged: {
@@ -166,13 +193,11 @@ export class RecipesScreen extends GuiScreen {
     const crowns = set("cost_crowns", r.crowns.toLocaleString("en-US"));
     if (crowns) crowns.enabled = save.crowns >= r.crowns;
     // the materials
-    // the orbs of alchemy (three of the recipe's star) after them: the knight's own, else a
-    // pack bought for energy as the craft is made (src/game/economy.ts orbEnergy)
-    const orbEnergy = eco.orbEnergy(save, r), energy = energyNow(energyOf(save));
+    // the orbs of alchemy (three of the recipe's star) after them, the knight's own: the orb
+    // panel under the ingredients buys a pack at the depot
     const mats = await Promise.all([...r.materials, ...(r.orbs ? [r.orbs] : [])].map(([n, k]) => {
-      const have = save.materials[n] ?? 0, info = eco.info(n), orb = n === r.orbs?.[0];
-      const name = orb && orbEnergy > 0 ? `${itemLabel(n)} (or ${orbEnergy} energy; you have ${energy})` : itemLabel(n);
-      const args = { Name: name, "Amount Have": String(have), "Amount Needed": String(k), Ready: have >= k || (orb && energy >= orbEnergy),
+      const have = save.materials[n] ?? 0, info = eco.info(n);
+      const args = { Name: itemLabel(n), "Amount Have": String(have), "Amount Needed": String(k), Ready: have >= k,
         Icon: info?.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: info?.icon?.colorizations ?? [] };
       return this.part(JSON.stringify(args, (kk, v) => (kk === "$outer" ? undefined : v)), uiRef(MATERIAL, args)).then(c => {
         // "find this material" opens the gates that drop it (a market of gates this port lacks): a blank of its size
@@ -204,9 +229,57 @@ export class RecipesScreen extends GuiScreen {
       special.children = kids;
       kids.forEach(c => { c.constraints = null; });
     }
-    const ready = eco.missing(save, r).length === 0 && baseReady;
+    // every ingredient at hand, the orbs too (craft/a/g: each line ready)
+    const orbsHeld = !r.orbs || (save.materials[r.orbs[0]] ?? 0) >= r.orbs[1];
+    const ready = eco.missing(save, r).length === 0 && baseReady && orbsHeld;
     const confirm = f.find("confirm");
     if (confirm) confirm.enabled = ready;
+    await this.fillOrbPanel(save);
+  }
+
+  /**
+   * exchange/client/F under the ingredients: the recipe's orb of alchemy as an item pill with
+   * the depot's pack count, and Buy Item; shown while the recipe takes orbs the depot sells.
+   */
+  private async fillOrbPanel(save: SaveData) {
+    const w = this.ingredients?.find("buy_item_widget"), r = this.chosen, eco = this.eco!;
+    if (!w) return;
+    const good = r?.orbs ? eco.depotGoods().find(g => g.name === r.orbs![0]) ?? null : null;
+    w.visible = !!good;
+    if (!good) return;
+    const info = eco.info(good.name);
+    const ref = pillRef({ key: good.name, label: itemLabel(good.name), rarity: info?.rarity ?? 0, icon: info?.icon ?? null, equippable: false });
+    const pill = await this.part("orb" + good.name, ref);
+    const slot = w.find("item_display") ?? this.orbSlot;
+    if (pill && slot && slot !== pill) {
+      // F.SJ replaces the display label with the pill, its count the depot's pack
+      const parent = this.parentOf(w, slot);
+      if (parent) { pill.constraints = slot.constraints; parent.children[parent.children.indexOf(slot)] = pill; this.orbSlot = pill; }
+    }
+    const count = pill?.find("itemcount");
+    if (count) count.text = good.count > 1 ? String(good.count) : "";
+    if (pill) this.tips.set(pill, itemTip({ label: itemLabel(good.name), type: "", rarity: info?.rarity ?? 0, item: good.name, flavor: "", plain: true,
+      lines: [`${good.count} for ${good.energy.toLocaleString("en-US")} energy at the Supply Depot.`] }));
+    const buy = w.find("get_item_button");
+    if (buy) buy.enabled = energyNow(energyOf(save)) >= good.energy;
+  }
+  private orbSlot: Component | null = null;
+
+  private parentOf(root: Component, c: Component): Component | null {
+    for (const k of root.children) { if (k === c) return root; const p = this.parentOf(k, c); if (p) return p; }
+    return null;
+  }
+
+  /** Buy Item: a pack of the recipe's orbs from the depot, for energy. */
+  private buyOrbs() {
+    const save = this.host_.save(), r = this.chosen, eco = this.eco!;
+    const good = r?.orbs ? eco.depotGoods().find(g => g.name === r.orbs![0]) : null;
+    if (!good) return;
+    if (eco.buyDepot(save, good)) {
+      this.host.sound("sound/feedback/merchant_transaction.ogg");
+      this.host_.changed();
+    } else this.host.sound("sound/feedback/ui_dismiss.ogg");
+    void this.refreshAll();
   }
 
   private async transmute() {
