@@ -128,8 +128,22 @@ export function loadSettings(): Settings {
     const raw = localStorage.getItem(KEY);
     if (!raw) return d;
     const s = JSON.parse(raw) as Partial<Settings>;
-    return { ...d, ...s, keys: { ...d.keys, ...(s.keys ?? {}) } };
+    return { ...d, ...s, keys: migrateKeys(d.keys, s.keys ?? {}) };
   } catch { return d; }
+}
+
+/**
+ * Saved keys over the defaults. Keys still on this port's old defaults (Forge K, Help H) move to
+ * the client's (U, F1), and actions that are gone (the old Backpack on B) are dropped.
+ */
+export function migrateKeys(defaults: Record<Action, string>, saved: Record<string, string>): Record<Action, string> {
+  const OLD: Partial<Record<Action, string>> = { forge: "k", help: "h" };
+  const keys = { ...defaults };
+  for (const [a, k] of Object.entries(saved)) {
+    if (!(a in defaults)) continue;
+    keys[a as Action] = OLD[a as Action] === k ? defaults[a as Action] : k;
+  }
+  return keys;
 }
 
 export function saveSettings(s: Settings) {
