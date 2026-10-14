@@ -33,14 +33,15 @@ import {
   unlockedSkills, type SpriteDef, type SpriteProgress,
 } from "../game/sprites";
 import { validName } from "./createknight";
-import { messageText, selectTab, type Component, type Style } from "./gui";
+import { loadoutPill, loadoutTip, wearLoadout } from "./loadouts";
+import { messageText, type Component, type Style } from "./gui";
 import { itemPreview, itemTip, ItemList, levelBonuses, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
 import { applyItemAction, COMPARE, compareTarget, itemMenu, rankAllows, rankLimitText, SLOT_ICON } from "./itemmenu";
 import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
 import { styledLabel } from "./floating";
 import { freshProgress, rankName } from "../game/missions";
 import { text as bundleText } from "../i18n";
-import { buildStats, GuiScreen, row, uiRef, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
+import { buildStats, GuiScreen, row, type ScreenHost, type TipSpec, type ViewModel } from "./screen";
 
 export interface ArsenalHost extends ScreenHost {
   save(): SaveData;
@@ -110,8 +111,6 @@ const GROUP_KEY: Record<string, string> = { sword: "m.sword", gun: "m.handgun", 
 /** Pills a costume or accessory group shows before the search field narrows it. */
 const WARDROBE_LIMIT = 40;
 
-const LOADOUT_PILL = "ui/loadout/parts/interface_pill.dat";
-const LOADOUT_TIP = "ui/loadout/parts/tooltip.dat";
 const RENAME = "ui/rename/interface.dat";
 const HUNGER = "ui/status/parts/interface_battlesprite-hunger.dat";
 const SKILL = "ui/status/parts/panel_battlesprite-skill.dat";
@@ -185,7 +184,8 @@ function ownTip(save: SaveData, data: GameData, eco: Economy, e: ItemEntry, worn
   const bonuses: TipBonus[] = (g?.variants ?? []).map(v => ({ text: eco.variantLabel(v), bonus: true, color: "Variant" }));
   if (heatable) bonuses.push(...levelBonuses(eco.levelStats(e.name, lv, 30)));
   const flavor = heatable
-    ? `${g?.heat ?? 0} heat absorbed.${lv < MAX_LEVEL ? " Gear levels up with the heat it gathers in the Clockworks." : " Fully heated."}`
+    ? `${Math.floor(g?.heat ?? 0)} heat absorbed.${lv >= MAX_LEVEL ? " Fully heated." : eco.forgeReady(save, e.name)
+      ? " Ready to level up at the Forge with fire crystals." : " Its heat bar fills in the Clockworks; a full bar levels up at the Forge."}`
     : `${e.category.label.replace(/s$/, "")}.`;
   return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
     flavor, level: heatable ? lv : undefined, noLevel: e.category.slot === "trinket",
@@ -213,9 +213,12 @@ export function ownedGroups(save: SaveData, data: GameData, eco: Economy): ListG
     const key = GROUP_KEY[cat.id];
     groups.push({ id: cat.id, label: key ? messageText(key, "item") : cat.label, icon: cat.icon, entries, showEmpty: !!key });
   }
+  // ItemCodes.Group RARITY: fire crystals, orbs of alchemy and the like (Rarity/ tickets)
   for (const g of [{ id: "mineral", key: "m.mineral", icon: CAT + "icon_mineral.png", cats: ["mineral", "deposit"] },
-    { id: "material", key: "m.material", icon: CAT + "icon_puzzle.png", cats: ["material"] }]) {
-    const names = Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && g.cats.includes(eco.info(n)?.category ?? ""));
+    { id: "material", key: "m.material", icon: CAT + "icon_puzzle.png", cats: ["material"] },
+    { id: "rarity", key: "m.rarity", icon: CAT + "icon_rarity.png", cats: [] as string[] }]) {
+    const names = Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0
+      && (g.id === "rarity" ? /^Rarity\//.test(n) && !!eco.info(n) : g.cats.includes(eco.info(n)?.category ?? "")));
     groups.push({ id: g.id, label: messageText(g.key, "item"), icon: g.icon, showEmpty: true, entries: names.map(n => {
       const it = eco.info(n), count = save.materials[n] ?? 0;
       return { key: `mat:${n}`, label: itemLabel(n), rarity: it?.rarity ?? 0, icon: it?.icon ?? null, count: count > 1 ? String(count) : "",
@@ -260,18 +263,20 @@ export class ArsenalScreen extends GuiScreen {
 
   private get mode(): Mode { return this.options ? "options" : TABS[this.tab] ?? "equipment"; }
 
-  /** The page shown (the client's TOGGLE_PROGRESS asks for the achievements). */
+  /** The tab showing ("achievements" while that page is up). */
   get page(): Mode { return this.mode; }
 
-  /** Shows one of the character window's pages (as.Ep opens it on the achievements). */
-  async showPage(mode: (typeof TABS)[number]) {
-    this.tab = Math.max(0, TABS.indexOf(mode));
+  /** Turns to a tab (as.Ep: TOGGLE_PROGRESS opens the window on its achievements). */
+  async showPage(mode: Mode) {
+    const i = TABS.indexOf(mode);
+    if (i < 0) return;
+    await this.prebuild();
+    this.tab = i;
     this.options = false;
-    const opts = this.root?.find("characteroptions");
+    const pane = this.status?.find("tabbed"), opts = this.status?.find("characteroptions");
+    if (pane) pane.value = i;
     if (opts) opts.selected = false;
-    const pane = this.root?.find("tabbed");
-    if (pane) selectTab(pane, this.tab);
-    if (this.isOpen) await this.refresh();
+    await this.refresh();
   }
 
   protected async build(): Promise<Component | null> {
@@ -560,34 +565,15 @@ export class ArsenalScreen extends GuiScreen {
   // ------------------------------------------------------------------ loadouts
 
   private loadoutTip(l: SavedLoadout): TipSpec {
-    const label = (n: string) => n ? (this.eco?.displayName(n, this.arsenal.save().gear[n]) ?? itemLabel(n)) : "Empty";
-    const icon = (n: string, fallback: string) => this.itemIcon(n)?.file ?? fallback;
-    const g = l.loadout, c = l.appearance.costume;
-    const slots: [string, string, string][] = [
-      ["0", g.helmet, CAT + "icon_helmet.png"], ["1", g.armor, CAT + "icon_armor.png"], ["2", g.shield, CAT + "icon_shield.png"],
-      ["3", c.helmet, CAT + "icon_helmet_nocore.png"], ["4", c.armor, CAT + "icon_armor_nocore.png"], ["15", c.shield, CAT + "icon_shield_nocore.png"],
-      ["6", g.weapons[0] ?? "", CAT + "icon_gauntlet.png"], ["7", g.weapons[1] ?? "", CAT + "icon_gauntlet.png"], ["8", g.weapons[2] ?? "", CAT + "icon_gauntlet.png"],
-      ["9", g.vitapod, CAT + "icon_capsule.png"], ["10", g.trinkets[0] ?? "", CAT + "icon_core.png"], ["11", g.trinkets[1] ?? "", CAT + "icon_core.png"],
-    ];
-    const args: Record<string, unknown> = { Name: l.name.toUpperCase(), "Visible Harness": false, "Visible Perk": false,
-      "Name Sprite": l.sprite || "No battle sprite", "Icon Sprite": CAT + "icon_battlesprite.png" };
-    for (const [i, n, fb] of slots) { args[`Name ${i}`] = label(n); args[`Icon ${i}`] = n ? icon(n, fb) : fb; }
-    return { ref: uiRef(LOADOUT_TIP, args), texts: { tooltip_type: "Click to wear this loadout" } };
+    const tip = loadoutTip(this.arsenal.save(), this.eco, n => this.itemIcon(n), l.name, l.loadout, l.appearance.costume, l.sprite);
+    return { ...tip, texts: { tooltip_type: "Click to wear this loadout" } };
   }
 
   private wearLoadout(i: number) {
     const save = this.arsenal.save(), l = save.loadouts?.[i];
     if (!l) return;
     this.host.sound("sound/feedback/ui_equip.ogg");
-    this.arsenal.equipped(wearableLoadout(save, l));
-    const outfit = this.arsenal.outfit();
-    void (async () => {
-      for (const s of COSTUME_GROUPS) if (outfit.appearance.costume[s.slot] !== l.appearance.costume[s.slot]) await outfit.equipCostume(s.slot, l.appearance.costume[s.slot]);
-      for (const s of ACCESSORY_SLOTS) if (outfit.appearance.accessories[s] && !l.appearance.accessories[s]) await outfit.removeAccessory(s);
-      for (const s of ACCESSORY_SLOTS) { const n = l.appearance.accessories[s]; if (n && outfit.appearance.accessories[s] !== n) await outfit.equipAccessory(n); }
-      if (l.sprite !== (save.sprites?.active ?? "") && (!l.sprite || outfit.ownedSprites().includes(l.sprite))) outfit.setSprite(l.sprite);
-      void this.refresh();
-    })();
+    void wearLoadout(save, this.arsenal.outfit(), l, x => this.arsenal.equipped(x)).then(() => this.refresh());
   }
 
   /** A name entry window over the status window (ui/rename/interface.dat). */
@@ -831,7 +817,7 @@ export class ArsenalScreen extends GuiScreen {
     if (saved.length) groups.push({ id: "loadouts", label: "Loadouts", icon: CAT + "icon_equippable.png", entries: saved.map((s, i) => {
       const worn = JSON.stringify(wearableLoadout(save, s)) === JSON.stringify(l);
       return { key: `loadout:${i}`, label: s.name, rarity: -1, icon: null, look: worn ? "True" : "False", tip: this.loadoutTip(s),
-        ui: uiRef(LOADOUT_PILL, { Name: s.name, Equipped: worn ? "True" : "False", Hoverable: true }) } satisfies ListEntry;
+        ui: loadoutPill(s.name, wearableLoadout(save, s), n => Math.max(0, this.eco?.info(n)?.rarity ?? 0), worn) } satisfies ListEntry;
     }) });
     return [...groups, ...ownedGroups(save, this.arsenal.data(), this.eco!)];
   }

@@ -38,6 +38,7 @@ import { itemName, variantText } from "./text";
 import type { DepthContext } from "./depth";
 import { itemValue } from "./bonus";
 import { energyNow, orbFor, ORBS_PER_CRAFT, spendEnergy, type EnergyState } from "./energy";
+import { crystalBand, crystalFor, forgedLevel, forgeSteps, HEAT_BONUS, rollForge, type ForgeOutcome, type ForgeStep } from "./forge";
 import { vendorDay, vendorKey, vendorMatch, vendorNames, vendorSeed, VENDORS } from "./vendors";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
@@ -48,7 +49,7 @@ const last = (n: string) => n.split("/").pop() ?? n;
 export type Libs = (file: string) => Map<string, any>;
 
 export const ECONOMY_FILES = ["config/item.dat", "config/item_property.dat", "config/level_table.dat", "config/recipe.dat",
-  "config/recipe_property.dat", "config/variant.dat", "config/variant_table.dat", "config/item_depth_weight.dat", "config/spawn_table.dat"];
+  "config/forge_property.dat", "config/recipe_property.dat", "config/variant.dat", "config/variant_table.dat", "config/item_depth_weight.dat", "config/spawn_table.dat"];
 
 export type Category = "sword" | "handgun" | "bomb" | "shield" | "armor" | "helm" | "trinket" | "vitapod" | "pickup"
   | "material" | "mineral" | "deposit" | "recipe" | "other";
@@ -70,7 +71,11 @@ export interface ItemInfo {
 }
 
 /** One owned item: its heat, level and unique variants. */
-export interface GearState { heat: number; level: number; variants: string[] }
+export interface GearState {
+  heat: number; level: number; variants: string[];
+  /** The forge's Heat Bonus: extra heat toward the next level (0.25), until the next forging. */
+  heatBonus?: number;
+}
 
 /** What the economy reads and writes in the save (a subset of SaveData). */
 export interface Wallet {
@@ -90,7 +95,18 @@ export interface Wallet {
 }
 
 /** A Supply Depot good sold for energy: its item, the energy it costs and how many come. */
-export interface DepotGood { name: string; energy: number; count: number; kind: "heat" | "spark" | "orb" }
+export interface DepotGood { name: string; energy: number; count: number; kind: "heat" | "spark" | "orb" | "crystal" }
+
+/** The forge's buy panel offer: a stack of a tier's fire crystals, for energy or for crowns. */
+export interface CrystalOffer { name: string; count: number; energy: number; crowns: number }
+
+/** The Supply Depot sells fire crystals by fifty (the wiki: "50 units for 85 energy"). */
+export const CRYSTAL_PACK = 50;
+/** Vatel sells Cracked and Dim crystals for crowns by five (the wiki: "5 units for 50 crowns"). */
+export const CROWN_CRYSTAL_PACK = 5;
+
+/** What one forging did: the outcome, the crystals spent, the level reached, a prize box's crystals. */
+export interface ForgeResult extends ForgeOutcome { spent: number; level: number; prize: { name: string; count: number } | null }
 
 export interface Recipe {
   /** The recipe config name ("Sword/Calibur"). */
@@ -234,6 +250,8 @@ export class Economy {
     for (const n of ["Upgrade/Heat Bonus", "Upgrade/Heat Bonus (7 days)", "Upgrade/Heat Bonus (30 days)"]) add(n, 1, "heat");
     add("Rarity/Spark of Life", 10, "spark");
     for (let r = 1; r <= 5; r++) add(orbFor(r), ORBS_PER_CRAFT, "orb");
+    // the fire crystals the depot prices in energy (Warm to Radiant), by fifty
+    for (let r = 2; r <= 5; r++) add(crystalFor(r), CRYSTAL_PACK, "crystal");
     return out;
   }
 
@@ -428,41 +446,124 @@ export class Economy {
     return Math.round(raw * ((w.heatAmplifier ?? 0) > now ? HEAT_AMPLIFIER : 1));
   }
 
-  /** Equipped items that take heat: weapons, shield, armour and helmet below level 10. */
+  /**
+   * The heat an item can hold at its level: the next level's threshold. A full bar waits for
+   * the forge (LevelItem: heat progress stops at 1; the level rises only by forging).
+   */
+  heatCap(name: string, level: number): number {
+    return this.heatTable(name)[Math.max(0, Math.min(MAX_LEVEL - 1, level))];
+  }
+
+  /** LevelItem.N: an owned item whose heat bar is full below the top level, ready for the forge. */
+  forgeReady(w: Wallet, name: string): boolean {
+    const s = w.gear[name];
+    return !!s && w.owned.includes(name) && !!this.info(name)?.heatable && s.level < MAX_LEVEL && s.heat >= this.heatCap(name, s.level);
+  }
+
+  /** Every owned item ready for the forge (the forge window's list, the HUD button's notice). */
+  forgeable(w: Wallet): string[] {
+    return w.owned.filter(n => this.forgeReady(w, n));
+  }
+
+  /** Equipped items that take heat: weapons, shield, armour and helmet below level 10 whose bar is not full. */
   heatedItems(w: Wallet): string[] {
     const l = w.loadout;
-    return [...new Set([...l.weapons, l.shield, l.armor, l.helmet].filter(n => n && w.owned.includes(n) && this.info(n)?.heatable && this.level(w, n) < MAX_LEVEL))];
+    return [...new Set([...l.weapons, l.shield, l.armor, l.helmet].filter(n => n && w.owned.includes(n) && this.info(n)?.heatable
+      && this.level(w, n) < MAX_LEVEL && !this.forgeReady(w, n)))];
   }
 
   /**
    * Banks a floor's heat: the total is shared evenly between the equipped items that can
-   * still take heat (the client's end-of-level report), then they level up. Returns the
-   * items that gained levels and their new level.
+   * still take heat (the client's end-of-level report), each filling its bar no further than
+   * its next level (with its Heat Bonus). Items do not level here: the ones whose bar filled
+   * are returned, ready for the forge at the level they hold.
    */
   addHeat(w: Wallet, raw: number, now = Date.now()): { name: string; level: number }[] {
     const items = this.heatedItems(w);
     const heat = items.length ? this.heatGain(w, raw, now) / items.length : 0;
-    const ups: { name: string; level: number }[] = [];
-    if (heat <= 0) return ups;
+    const ready: { name: string; level: number }[] = [];
+    if (heat <= 0) return ready;
     for (const n of items) {
       const s = w.gear[n] ??= { heat: 0, level: 1, variants: [] };
-      s.heat += heat;
-      const lv = this.levelUp(w, n);
-      if (lv) ups.push({ name: n, level: lv });
+      s.heat = this.heatAfter(n, s, heat);
+      if (this.forgeReady(w, n)) ready.push({ name: n, level: s.level });
     }
-    return ups;
+    return ready;
   }
 
-  /** Applies the levels an item's heat has earned. Returns the new level, or 0 if unchanged. */
-  levelUp(w: Wallet, name: string): number {
+  /** An item's heat after gaining `heat` (its Heat Bonus applied), held at its level's full bar. */
+  heatAfter(name: string, s: GearState, heat: number): number {
+    return Math.min(this.heatCap(name, s.level), s.heat + heat * (1 + (s.heatBonus ?? 0)));
+  }
+
+  // ---------------------------------------------------------------- the forge
+
+  /** The forge's step for an item at a level (its star's ForgePropertyConfig), or null at the top level. */
+  forgeStep(name: string, level: number): ForgeStep | null {
+    const ref = this.info(name)?.props?.forgeProperty;
+    if (!ref?.name || level < 1 || level >= MAX_LEVEL) return null;
+    const cfg = resolveRef(this.libs("config/forge_property.dat"), ref, "props");
+    return forgeSteps(cfg)[level - 1] ?? null;
+  }
+
+  /** The fire crystals of an item's star the knight holds. */
+  crystalsHeld(w: Wallet, name: string): number {
+    return w.materials[crystalFor(this.info(name)?.rarity ?? 0)] ?? 0;
+  }
+
+  /**
+   * The forge's buy panel: a stack of a tier's fire crystals, fifty for the depot's energy
+   * (Warm to Radiant), else five for Vatel's crowns (Cracked and Dim).
+   */
+  crystalOffer(rarity: number): CrystalOffer | null {
+    const name = crystalFor(rarity);
+    if (!this.info(name)) return null;
+    const energy = this.depotCost(name);
+    if (energy > 0) return { name, count: CRYSTAL_PACK, energy, crowns: 0 };
+    const crowns = this.price(name);
+    return crowns > 0 ? { name, count: CROWN_CRYSTAL_PACK, energy: 0, crowns } : null;
+  }
+
+  /** Buys a crystal offer; false when the energy or crowns do not cover it. */
+  buyCrystals(w: Wallet, offer: CrystalOffer, now = Date.now()): boolean {
+    if (offer.energy > 0) { if (!w.energy || !spendEnergy(w.energy, offer.energy, now)) return false; }
+    else if (w.crowns < offer.crowns) return false;
+    else w.crowns -= offer.crowns;
+    w.materials[offer.name] = (w.materials[offer.name] ?? 0) + offer.count;
+    return true;
+  }
+
+  /**
+   * Forges an item ready for it with `n` fire crystals (capped at the step's maximum): the
+   * crystals are spent whatever happens; success raises the level (two with a skip) and the
+   * heat bar starts empty there; failure keeps the heat. A Heat Bonus speeds the next level's
+   * heat; a prize box opens into fire crystals of its tier. Null when the forging cannot be
+   * made (not ready, too few crystals).
+   */
+  forge(w: Wallet, name: string, n: number, rand: () => number = Math.random): ForgeResult | null {
     const s = w.gear[name];
-    if (!s) return 0;
-    const t = this.heatTable(name);
-    s.heat = Math.min(s.heat, t[MAX_LEVEL - 1]);
-    const lv = this.levelFor(name, s.heat);
-    if (lv <= s.level) return 0;
-    s.level = lv;
-    return lv;
+    if (!s || !this.forgeReady(w, name)) return null;
+    const step = this.forgeStep(name, s.level);
+    if (!step) return null;
+    const crystal = crystalFor(this.info(name)?.rarity ?? 0);
+    const spent = Math.min(n, step.crystals[2]);
+    if (crystalBand(step, spent) < 0 || (w.materials[crystal] ?? 0) < spent) return null;
+    w.materials[crystal] -= spent;
+    if (w.materials[crystal] <= 0) delete w.materials[crystal];
+    const outcome = rollForge(step, spent, rand);
+    if (!outcome.success) return { ...outcome, spent, level: s.level, prize: null };
+    s.level = forgedLevel(s.level, outcome, MAX_LEVEL);
+    s.heat = this.heatTable(name)[s.level - 1];
+    delete s.heatBonus;
+    if (outcome.bonus?.kind === "heat") s.heatBonus = HEAT_BONUS;
+    let prize: ForgeResult["prize"] = null;
+    if (outcome.bonus?.kind === "prize") {
+      const box = outcome.bonus.item ? this.info(outcome.bonus.item) : null;
+      const tier = crystalFor(box && box.rarity >= 0 ? box.rarity : this.info(name)?.rarity ?? 0);
+      prize = { name: tier, count: step.crystals[0] };
+      w.materials[tier] = (w.materials[tier] ?? 0) + prize.count;
+    }
+    return { ...outcome, spent, level: s.level, prize };
   }
 
   /** Progress toward the next level, 0 to 1 (1 at level 10). */

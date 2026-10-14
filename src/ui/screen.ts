@@ -19,6 +19,8 @@ const COMPARE = "ui/window/tooltip_compare.dat";
 const DOCK_MARGIN = 8;
 /** The HUD's height under a left-docked list (as.i: the display height less 145). */
 const DOCK_BOTTOM = 145;
+/** Pixels between docked windows. */
+const DOCK_GAP = 4;
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 
 export interface ScreenHost {
@@ -32,6 +34,9 @@ export interface ScreenHost {
    */
   view?(c: Component, g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, model?: ViewModel): void;
 }
+
+/** A window docked beside another (the arsenal, the loadouts): its interface and how it fills itself. */
+export interface DockPanel { ui: Component; refresh(): void | Promise<void> }
 
 /** A model shown in a RenderableView instead of the knight: its reference (null for none) and idle animation. */
 export interface ViewModel { ref: any; idle: string | null }
@@ -182,7 +187,7 @@ export abstract class GuiScreen {
       if (type === "down") this.captured = target;
       if (type === "up") this.captured = null;
       // the other window loses its hover
-      if (type === "move") for (const o of [this.root, this.side]) if (o && o !== target && !this.overlays.length) dispatch(o, { type: "move", x: -1, y: -1 });
+      if (type === "move") for (const o of [this.root, ...this.sides]) if (o && o !== target && !this.overlays.length) dispatch(o, { type: "move", x: -1, y: -1 });
       // an open popup menu takes the pointer: nothing under it is clicked
       const menu = !!target.overlay;
       dispatch(target, { type, x, y, button: (e as PointerEvent).button ?? 0, delta: type === "wheel" ? Math.sign((e as WheelEvent).deltaY) : 0 });
@@ -215,8 +220,8 @@ export abstract class GuiScreen {
   private forward(e: PointerEvent | WheelEvent, type: string, x: number, y: number): boolean {
     let to = this.forwardTo;
     if (!to) {
-      if (type === "up" || this.captured || this.overlays.length || this.root?.overlay || this.side?.overlay) return false;
-      if ((this.root && hitTest(this.root, x, y)) || (this.side && hitTest(this.side, x, y))) return false;
+      if (type === "up" || this.captured || this.overlays.length || this.root?.overlay || this.sides.some(d => d.overlay)) return false;
+      if ((this.root && hitTest(this.root, x, y)) || this.sides.some(d => hitTest(d, x, y))) return false;
       to = (document.elementsFromPoint?.(e.clientX, e.clientY) ?? []).find((el): el is HTMLCanvasElement =>
         el !== this.canvas && el instanceof HTMLCanvasElement && el.classList.contains("gui-screen") && !el.hidden) ?? null;
       if (!to) return false;
@@ -249,7 +254,7 @@ export abstract class GuiScreen {
       this.building ??= this.build();
       this.root = await this.building;
     }
-    if (this.root && this.isOpen) { resetInput(this.root); if (this.side) resetInput(this.side); this.captured = null; await this.refresh(); }
+    if (this.root && this.isOpen) { resetInput(this.root); for (const d of this.sides) resetInput(d); this.captured = null; await this.refreshAll(); }
   }
 
   /**
@@ -271,7 +276,9 @@ export abstract class GuiScreen {
     this.last = 0;
     this.overlays = [];
     if (this.root) resetInput(this.root);
-    if (this.side) resetInput(this.side);
+    for (const d of this.sides) resetInput(d);
+    // the docked windows close with it
+    this.docks = [];
     this.captured = null;
     this.host.sound("sound/feedback/ui_dismiss.ogg");
     this.host.closed();
@@ -312,31 +319,71 @@ export abstract class GuiScreen {
   }
 
   /**
-   * A second window docked at the screen's right edge, centred vertically (the inventory
-   * window the client opens beside the crafting window, item/client/f); it takes the pointer
-   * where it lies.
+   * Windows docked at the screen's right edge beside the main one, centred vertically, each
+   * with its own close button: the arsenal (item/client/f) at the edge and the loadouts
+   * (client/bL, placed left of the arsenal) beside it, as the client docks them by the forge,
+   * the crafting window and the character window. Each takes the pointer where it lies.
    */
-  protected side: Component | null = null;
+  private docks: { key: string; order: number; panel: DockPanel }[] = [];
+  /** The docked windows, from the screen's edge inward. */
+  protected get sides(): Component[] { return this.docks.map(d => d.panel.ui); }
   /** Docks the main window at the screen's right edge instead of centring it (item/client/i). */
   protected dockRight = false;
   /**
-   * Docks the main window at the screen's left edge, full height above the HUD (client/g with
-   * its left side), at the x this returns: past the windows docked there before it.
+   * Docks the main window at the screen's left edge. A function: full height above the HUD
+   * (client/g with its left side) at the x it returns, past the windows docked there before
+   * it (the event hub). True: at the edge, centred vertically (the forge, item/client/q.BH).
    */
-  protected dockLeft: (() => number) | null = null;
+  protected dockLeft: boolean | (() => number) = false;
   /** The left-docked window's width as last drawn (for the windows docked beside it). */
   dockedWidth = 0;
   /** Darkens the game behind the window (a docked list leaves it be). */
   protected dim = true;
   private captured: Component | null = null;
 
-  /** The window under a point: the top overlay, else the side window, else the main one. */
+  /** Whether a docked window is shown. */
+  docked(key: string): boolean { return this.docks.some(d => d.key === key); }
+
+  /**
+   * Shows a docked window (built once by `make`) or takes it away; `order` places it from the
+   * edge inward (the arsenal 0, the loadouts 1).
+   */
+  async dock(key: string, on: boolean, order: number, make: (s: GuiScreen) => Promise<DockPanel | null>) {
+    if (!on) { this.docks = this.docks.filter(d => d.key !== key); return; }
+    if (this.docked(key)) return;
+    let panel = this.panels.get(key);
+    if (panel === undefined) { panel = await make(this); this.panels.set(key, panel); }
+    if (!panel || this.docked(key)) return;
+    this.docks = [...this.docks, { key, order, panel }].sort((a, b) => a.order - b.order);
+    resetInput(panel.ui);
+    await panel.refresh();
+  }
+  private panels = new Map<string, DockPanel | null>();
+
+  /** Refreshes the window and its docked windows (after a change in any of them). */
+  async refreshAll() {
+    await this.refresh();
+    for (const d of this.docks) await d.panel.refresh();
+  }
+
+  /** Plays a UI sound (for docked windows and dialogs). */
+  sound(file: string) { this.host.sound(file); }
+  /** Shows a modal interface over the window (a dialog). */
+  pushOverlay(c: Component) { this.overlays.push(c); }
+  /** Takes a modal interface away. */
+  dropOverlay(c: Component) { this.overlays = this.overlays.filter(x => x !== c); }
+
+  /** What a docked window builds against: this window's tooltips, clicks and popup menus. */
+  get dockContext() { return { ctx: this.ctx, tips: this.tips, clicks: this.clicks, screen: this }; }
+
+  /** The window under a point: the top overlay, else a docked window, else the main one. */
   private targetAt(x: number, y: number): Component | null {
     const top = this.overlays[this.overlays.length - 1];
     if (top) return top;
-    if (this.side?.overlay) return this.side;
+    const sides = this.sides;
+    for (const d of sides) if (d.overlay) return d;
     if (this.root?.overlay) return this.root;
-    if (this.side && hitTest(this.side, x, y)) return this.side;
+    for (const d of sides) if (hitTest(d, x, y)) return d;
     return this.root;
   }
 
@@ -355,7 +402,7 @@ export abstract class GuiScreen {
 
   /** Escape: closes an open popup menu, then the topmost overlay, else the window. */
   escape() {
-    for (const top of [this.overlays[this.overlays.length - 1] ?? this.root, this.side]) if (top?.overlay) { top.overlay = null; return; }
+    for (const top of [this.overlays[this.overlays.length - 1] ?? this.root, ...this.sides]) if (top?.overlay) { top.overlay = null; return; }
     if (this.overlays.length) { this.overlays.pop(); return; }
     this.close();
   }
@@ -385,7 +432,7 @@ export abstract class GuiScreen {
 
   /** The tooltip for the hovered component (or an ancestor), built once per reference. */
   private hoveredTip(): Component | null {
-    if (!this.pointer || !this.root || this.overlays.length || this.root.overlay || this.side?.overlay) return null;
+    if (!this.pointer || !this.root || this.overlays.length || this.root.overlay || this.sides.some(d => d.overlay)) return null;
     const win = this.targetAt(this.pointer.x, this.pointer.y) ?? this.root;
     const hit = hitTest(win, this.pointer.x, this.pointer.y);
     if (!hit) return null;
@@ -446,8 +493,17 @@ export abstract class GuiScreen {
     this.last = now;
     for (const r of this.runners.values()) r.tick(dt);
     this.tick();
+    // docked windows from the right edge inward, then the main window: at the left edge, at
+    // the docked windows' left, or centred where that leaves them clear
+    let edge = cw - DOCK_MARGIN;
+    for (const d of this.sides) {
+      const s = pack(d);
+      edge -= s.width;
+      render(d, g, Math.max(0, edge), Math.round((ch + s.height) / 2), this.hooks);
+      edge -= DOCK_GAP;
+    }
     if (this.root) {
-      if (this.dockLeft) {
+      if (typeof this.dockLeft === "function") {
         // client/g.Ah: the screen's height less the HUD's 145 pixels, from the top edge
         this.root.preferredSize = { width: -1, height: Math.max(200, Math.round(ch - DOCK_BOTTOM)) };
         const s = pack(this.root);
@@ -455,12 +511,10 @@ export abstract class GuiScreen {
         render(this.root, g, Math.min(Math.max(0, cw - s.width), this.dockLeft()), s.height, this.hooks);
       } else {
         const s = pack(this.root);
-        render(this.root, g, this.dockRight ? Math.max(0, cw - s.width - DOCK_MARGIN) : Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
+        const right = this.sides.length ? edge : cw - DOCK_MARGIN;
+        const x = this.dockLeft ? DOCK_MARGIN : this.dockRight ? right - s.width : Math.min(Math.round((cw - s.width) / 2), right - s.width);
+        render(this.root, g, Math.max(0, x), Math.round((ch + s.height) / 2), this.hooks);
       }
-    }
-    if (this.side) {
-      const s = pack(this.side);
-      render(this.side, g, Math.max(0, cw - s.width - DOCK_MARGIN), Math.round((ch + s.height) / 2), this.hooks);
     }
     for (const o of this.overlays) {
       g.fillStyle = "rgba(4,10,18,0.45)";
