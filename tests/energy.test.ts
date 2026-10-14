@@ -9,9 +9,9 @@ import { importBinary } from "../src/export/BinaryImport.ts";
 import { ECONOMY_FILES, Economy, seeded, type Wallet } from "../src/game/economy.ts";
 import {
   buyEnergy, energyNow, EXCHANGE_CROWNS, freshEnergy, MIST_MAX, MIST_REFILL_MS, mistFullIn, mistNow, normalizeEnergy, payEnergy,
-  spendEnergy, SPARK_COST,
+  sellEnergy, spendEnergy, SPARK_COST, EXCHANGE_SELL_CROWNS,
 } from "../src/game/energy.ts";
-import { RANDOM_PER_DAY, vendorDay, vendorKey, vendorMatch, vendorNames, vendorSeed, VENDORS } from "../src/game/vendors.ts";
+import { LOBBY_RECIPES, RANDOM_PER_DAY, terminalStars, vendorDay, vendorKey, vendorMatch, vendorNames, vendorSeed, VENDORS } from "../src/game/vendors.ts";
 import { nodeInflate, skDir } from "../tools/common.ts";
 
 test("the mist tank refills 100 over 22 hours and is spent before crystal energy", () => {
@@ -146,4 +146,47 @@ test("Haven's Strangers stock the wiki's lists: every listed good is in the inst
   const twos = day.filter(s => s.rarity === 2).length, threes = day.filter(s => s.rarity === 3).length;
   assert.ok(twos >= 1 && twos <= RANDOM_PER_DAY && threes >= 1 && threes <= RANDOM_PER_DAY, `${twos} two-star, ${threes} three-star`);
   assert.ok(!day.some(s => s.rarity >= 4), "four and five star gear is crafted, not sold");
+});
+
+test("the exchange buys 100 Crystal Energy for crowns, never the mist tank's", () => {
+  const w = { crowns: 0 }, e = freshEnergy(0);
+  assert.ok(!sellEnergy(w, e), "mist is not sold");
+  e.crystal = 150;
+  assert.ok(sellEnergy(w, e));
+  assert.equal(w.crowns, EXCHANGE_SELL_CROWNS);
+  assert.equal(e.crystal, 50);
+  assert.ok(EXCHANGE_SELL_CROWNS < EXCHANGE_CROWNS, "selling and buying back costs crowns");
+});
+
+test("Basil's lobby stock: the mission's recipes from the wiki and the recorded supplies", { skip: !have }, async () => {
+  const e = await economy();
+  const stock = e.catalogue(e.keeper("Shop/Mission/Items 5", { mission: "The Great Escape" }));
+  const price = (n: string) => stock.find(s => s.category !== "recipe" && vendorMatch(s.name) === n.toLowerCase())?.price;
+  assert.equal(price("Remedy Capsule"), 100);
+  assert.equal(price("Ultra Health Capsule"), 500);
+  for (const v of ["Fire", "Freeze", "Poison", "Shock"]) assert.equal(price(`Ultra ${v} Vial`), 250);
+  assert.equal(price("Health +12"), 3000);
+  const out = (s: { name: string }) => vendorMatch(e.recipeOfItem(s.name)!.output);
+  const pepperbox = stock.find(s => s.category === "recipe" && out(s) === "volcanic pepperbox");
+  assert.equal(pepperbox?.price, 25000, stock.map(s => s.name).join());
+  // every lobby's recipes are in the install
+  const missing: string[] = [];
+  for (const [mission, list] of Object.entries(LOBBY_RECIPES)) {
+    const got = new Set(e.catalogue(e.keeper("Shop/Mission/Items 0-1", { mission })).filter(s => s.category === "recipe").map(out));
+    for (const n of list) if (!got.has(n.toLowerCase())) missing.push(`${mission}: ${n}`);
+  }
+  assert.deepEqual(missing, []);
+});
+
+test("Basil's terminal recipes: the tier's stars, six to twenty-five, one of the top star", { skip: !have }, async () => {
+  const e = await economy();
+  for (const tier of [1, 2, 3]) {
+    const [lo, hi] = terminalStars(tier);
+    for (let seed = 1; seed < 6; seed++) {
+      const stock = e.catalogue(e.keeper("Shop/Traveler/Terminal Tier " + tier, { tier }), { seed });
+      assert.ok(stock.length >= 6 && stock.length <= 25, `${stock.length}`);
+      assert.ok(stock.every(s => s.category === "recipe" && s.rarity >= lo && s.rarity <= hi));
+      assert.ok(stock.some(s => s.rarity === hi), `tier ${tier} seed ${seed}`);
+    }
+  }
 });

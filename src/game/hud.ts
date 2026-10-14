@@ -3,7 +3,13 @@
 
 import { multiply, type Mat4 } from "../math";
 import type { Floater, World } from "./world";
-import { NUMBER_FONTS, numberPose } from "./feedback";
+import { labelPose, NUMBER_FONTS, numberPose } from "./feedback";
+import { wrapText, type ChatLog } from "./lootlog";
+
+/** character/label.dat's ComponentBillboardConfig scale: world units a GUI pixel. */
+const NAME_SCALE = 0.008;
+/** sprite/g's label colour: ColorPository print 514 (item_1 grey_lite), its colorized root. */
+const NAME_COLOR = "rgb(191,191,191)";
 
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D;
@@ -43,6 +49,115 @@ export class Hud {
     g.strokeText(f.text, 0, 0);
     g.fillStyle = st.color;
     g.fillText(f.text, 0, 0);
+    g.restore();
+  }
+
+  /**
+   * character/label.dat, the NameLabel billboard (0.008 world units a GUI pixel): the name in
+   * its Label style (Arial Black 26, a 4 pixel black outline) with the description's name icon
+   * before it, and the title under it in its Sublabel style (Arial Black 20), both in the
+   * colour sprite/g gives them: colour print 514 (item_1 grey_lite, 191 grey).
+   */
+  private drawNameplates(g: CanvasRenderingContext2D, world: World, project: (x: number, y: number, z: number) => [number, number] | null,
+    unitPx: (x: number, y: number, z: number) => number) {
+    const plates = world.nameplates();
+    if (!plates.length) return;
+    g.save();
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.lineJoin = "round";
+    for (const n of plates) {
+      const p = project(n.x, n.y, n.z), k = unitPx(n.x, n.y, n.z) * NAME_SCALE;
+      if (!p || k * 26 < 6) continue;
+      const nameH = 26 * k, subH = n.title ? 20 * k : 0;
+      // the label's vertical group is centred on its root
+      let y = p[1] - (nameH + subH) / 2 + nameH / 2;
+      const line = (text: string, size: number, yy: number) => {
+        g.font = `${(size * k).toFixed(1)}px "Arial Black", "Arial", sans-serif`;
+        g.lineWidth = 2 * 4 * k;
+        g.strokeStyle = "#000";
+        g.strokeText(text, p[0] + (size === 26 && icon ? (icon.width * (size * k / icon.height) + 2 * k) / 2 : 0), yy);
+        g.fillStyle = NAME_COLOR;
+        g.fillText(text, p[0] + (size === 26 && icon ? (icon.width * (size * k / icon.height) + 2 * k) / 2 : 0), yy);
+        return g.measureText(text).width;
+      };
+      const icon = n.icon ? this.img(n.icon) : null;
+      const w = line(n.name, 26, y);
+      if (icon) {
+        const ih = 26 * k, iw = icon.width * (ih / icon.height);
+        g.drawImage(icon.source, p[0] - (w + iw + 2 * k) / 2, y - ih / 2, iw, ih);
+      }
+      y += nameH / 2 + subH / 2;
+      if (n.title) line(n.title, 20, y);
+    }
+    g.restore();
+  }
+
+  /**
+   * A particle label (status names, "Health At Max!"): billboarded Arial Black at 0.01 world
+   * units a GUI pixel, outlined, wrapped to the billboard's width, drifting on its path.
+   */
+  private drawLabel(g: CanvasRenderingContext2D, f: Floater, project: (x: number, y: number, z: number) => [number, number] | null) {
+    const l = f.label!, pose = labelPose(l, f.age);
+    if (!pose || pose.scale <= 0.01) return;
+    const z = f.z + pose.dz, p = project(f.x, f.y, z);
+    if (!p) return;
+    const k = this.unitPx(f.x, f.y, z) * 0.01 * pose.scale;
+    const px = k * l.size;
+    if (px < 2) return;
+    g.save();
+    g.font = `${px.toFixed(1)}px "Arial Black", "Arial", sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.lineJoin = "round";
+    g.lineWidth = k * l.outlineSize;
+    g.strokeStyle = l.outline;
+    g.fillStyle = l.color;
+    const lines = wrapText(f.text, k * l.width, s => g.measureText(s).width);
+    const lh = px * 1.05;
+    lines.forEach((s, i) => {
+      const y = p[1] + (i - (lines.length - 1) / 2) * lh;
+      g.strokeText(s, p[0], y);
+      g.fillText(s, p[0], y);
+    });
+    g.restore();
+  }
+
+  /** The chat overlay's lines (loot messages), drawn at the bottom left. */
+  chat: ChatLog | null = null;
+  /** The chat font's size (ProjectXPrefs ChatFont SMALL, 14). */
+  chatFont = 14;
+
+  /**
+   * The chat overlay (hud/default/chatoverlay.dat, placed by client/chat/l.JQ): the window at
+   * 0, 64 from the bottom left, its display 5 in and 30 up, 290 by 200; the lines sit at the
+   * display's bottom in Arial Black, outlined black 2 (ChatOverlayText), newest last.
+   */
+  private drawChat(g: CanvasRenderingContext2D, ch: number) {
+    const lines = this.chat?.lines;
+    if (!lines?.length) return;
+    const size = this.chatFont, lh = Math.round(size * 1.3), width = 290, height = 200;
+    const left = 5 + 8, bottom = ch - 64 - 30 - 4;
+    g.save();
+    g.font = `${size}px "Arial Black", "Arial", sans-serif`;
+    g.textAlign = "left";
+    g.textBaseline = "alphabetic";
+    g.lineJoin = "round";
+    g.lineWidth = 3;
+    g.strokeStyle = "#000";
+    const rows: { text: string; color: string }[] = [];
+    for (let i = lines.length - 1; i >= 0 && rows.length * lh < height; i--) {
+      const wrapped = wrapText(lines[i].text, width - 16, s => g.measureText(s).width);
+      for (let j = wrapped.length - 1; j >= 0; j--) rows.unshift({ text: wrapped[j], color: lines[i].color });
+    }
+    const max = Math.floor(height / lh);
+    const shown = rows.slice(Math.max(0, rows.length - max));
+    shown.forEach((r, i) => {
+      const y = bottom - (shown.length - 1 - i) * lh;
+      g.strokeText(r.text, left, y);
+      g.fillStyle = r.color;
+      g.fillText(r.text, left, y);
+    });
     g.restore();
   }
 
@@ -86,6 +201,9 @@ export class Hud {
     };
     this.unitPx = unitPx;
 
+    // the names over townsfolk and machines (client/sprite/g on character/label.dat)
+    this.drawNameplates(g, world, project, unitPx);
+
     // monster health bars
     for (const m of this.options.healthBars ? world.liveMonsters : []) {
       if (m.health >= m.maxHealth) continue;
@@ -101,7 +219,10 @@ export class Hud {
     // floating damage numbers
     g.textAlign = "center";
     g.font = "bold 18px system-ui, sans-serif";
-    for (const f of this.options.damageNumbers ? world.floaters : []) {
+    for (const f of world.floaters) {
+      // particle labels (status names) are effects, not damage numbers: they show either way
+      if (f.label) { this.drawLabel(g, f, project); continue; }
+      if (!this.options.damageNumbers) continue;
       if (f.style) { this.drawNumber(g, f, project); continue; }
       const p = project(f.x, f.y, f.z + f.age * 1.2);
       if (!p) continue;
@@ -140,6 +261,7 @@ export class Hud {
     g.save();
     g.scale(s, s);
     overlay?.(g, cw / s, ch / s);
+    this.drawChat(g, ch / s);
     g.restore();
     if (this.options.fps) {
       const now = performance.now();

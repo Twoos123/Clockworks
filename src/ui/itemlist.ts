@@ -52,6 +52,15 @@ export interface ListGroup {
   limit?: number;
   /** Shown (disabled) with nothing in it, as the client's weapon, gear and material groups are. */
   showEmpty?: boolean;
+  /** The header's text in place of "Label (count)" (the social list's "FRIENDS (1/107)"). */
+  title?: string;
+  /**
+   * A row under the header (client/d.c's azD in ui/social/parts/interface_header_cont.dat:
+   * the social list's Friends Options and Guild Options), pressed with `click`.
+   */
+  extra?: { ref: any; click?: () => void };
+  /** An interface in place of the header, with no entries under it (the social list's OFFLINE). */
+  headerRef?: any;
 }
 
 /** The client's sort choices (the arsenal's; the recipe list leaves out level). */
@@ -225,9 +234,9 @@ export class ItemList {
 
   /** A category header: "Sword (3)", pressed while folded, disabled while empty. */
   private header(g: ListGroup, count: number, open: boolean): Promise<Component | null> {
-    const name = message("item", "m.group_count", g.label, count) || `${g.label} (${count})`;
+    const name = g.title ?? (message("item", "m.group_count", g.label, count) || `${g.label} (${count})`);
     const args = { Name: name, Icon: g.icon, Selected: !open && count > 0, Enabled: count > 0 };
-    return this.build("h" + JSON.stringify(args), uiRef(HEADER, args));
+    return this.build("h" + g.id + JSON.stringify(args), uiRef(HEADER, args));
   }
 
   private sortHeader(): Promise<Component | null> {
@@ -253,6 +262,13 @@ export class ItemList {
     }
     let shownGroups = 0;
     for (const g of this.groups) {
+      if (g.headerRef) {
+        const h = await this.build("x" + g.id, g.headerRef);
+        if (gen !== this.generation) return;
+        if (h) rows.push(h);
+        shownGroups++;
+        continue;
+      }
       let entries = q ? g.entries.filter(e => e.label.toLowerCase().includes(q)) : g.entries;
       if (!entries.length && !g.showEmpty) continue;
       if (this.sorts.length) entries = [...entries].sort((a, b) => compare(this.sort, a, b, this.ascending));
@@ -264,6 +280,11 @@ export class ItemList {
         const b = h.find("categoryname");
         if (b) { b.selected = !open && entries.length > 0; b.enabled = entries.length > 0; b.onAction = () => this.toggle(g.id); }
         rows.push(h);
+      }
+      if (g.extra) {
+        const x = await this.build("e" + g.id + JSON.stringify(g.extra.ref, (k, v) => (k === "$outer" ? undefined : v)), g.extra.ref);
+        if (gen !== this.generation) return;
+        if (x) { if (g.extra.click) this.clicks.set(x, g.extra.click); rows.push(x); }
       }
       if (!open) continue;
       const shown = !q && g.limit && entries.length > g.limit ? entries.slice(0, g.limit) : entries;

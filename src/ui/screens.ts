@@ -45,6 +45,8 @@ export interface ScreensHost {
   arsenalClosed?(): void;
   /** The battle sprite, accessories and costumes. */
   outfit(): Outfit;
+  /** The knight with an item tried on (the vendor's Preview), or null. */
+  previewModel?(item: string): Promise<ViewModel | null>;
 }
 
 /** Dock keys and their places from the right edge inward. */
@@ -124,7 +126,7 @@ export class GameScreens {
   }
 
   get shop() {
-    return this.shop_ ??= new ShopScreen(this.host.gui, { ...this.base(), changed: () => this.host.write() });
+    return this.shop_ ??= new ShopScreen(this.host.gui, { ...this.base(), changed: () => this.host.write(), previewModel: this.host.previewModel });
   }
 
   private loadoutsHost() {

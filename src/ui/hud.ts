@@ -136,7 +136,7 @@ export interface HudState {
 }
 
 /** A DescriptionConfig shown in the target panel (a townsperson, shop or item the knight can act on). */
-export interface HudDescription { key: string; name: string; title: string; info: string; icon: string | null }
+export interface HudDescription { key: string; name: string; title: string; info: string; icon: string | null; /** The name label's icon (Descriptive.nameIcon). */ nameIcon?: string | null }
 
 /** What the status panel is built for: its heat meter's level, the portrait's colour and the prestige icon. */
 const statusKey = (s: HudState) => `${heatLevel(s.heat)}|${s.color ?? ""}|${prestigeIcon(s.prestige ?? 0)}`;
@@ -1083,24 +1083,51 @@ export class GameHud {
   // ------------------------------------------------------------------ personal menu
 
   /** The open popup menu (client cr, a PopupMenu at the mouse) and where it hangs. */
-  private popup: { ui: Component; x: number; y: number; run: (action: string) => void } | null = null;
+  private popup: { ui: Component; x: number; y: number; above: boolean; owner: Component | null; run: (action: string) => void } | null = null;
 
   /**
    * Opens a popup menu at (x, y) (client ui/E): a Menu/PlayerTitle title, Menu/SubTitle
-   * section labels and Default/MenuItem items in a Default/PopupMenu.
+   * section labels and Default/MenuItem items in a Default/PopupMenu. With `above` the point
+   * is the menu's bottom left (PopupMenu.popup's above: the main menu rises from its button);
+   * `owner` is a HUD button shown selected while the menu is up (hud/y.at). Disabled items
+   * show but take no press.
    */
-  async openMenu(x: number, y: number, title: string, entries: ({ label: string; action: string } | { header: string })[], run: (action: string) => void) {
+  async openMenu(x: number, y: number, title: string, entries: ({ label: string; action: string; enabled?: boolean } | { header: string })[],
+    run: (action: string) => void, opts: { above?: boolean; owner?: string } = {}) {
     const style = (name: string) => ({ $class: CONFIG_REF, name });
     const kids = [{ component: { $class: COMPONENT + "Label", text: "~" + title, style: style("Menu/PlayerTitle") } },
       ...entries.map(e => "header" in e
         ? { component: { $class: COMPONENT + "Label", text: "~" + e.header, style: style("Menu/SubTitle") } }
-        : { component: { $class: COMPONENT + "Button", text: "~" + e.label, action: e.action, style: style("Default/MenuItem") } })];
+        : { component: { $class: COMPONENT + "Button", text: "~" + e.label, action: e.action, enabled: e.enabled ?? true, style: style("Default/MenuItem") } })];
     const ui = await buildComponentConfig(this.ctx, { $class: COMPONENT + "Container", style: style("Default/PopupMenu"),
       layout: { $class: "LayoutConfig$VerticalGroup", policy: { name: "STRETCH" }, justification: { name: "TOP" }, offAxisPolicy: { name: "STRETCH" }, gap: 0, children: kids } });
-    this.popup = { ui, x, y, run };
+    this.closeMenu();
+    const owner = opts.owner ? this.menuButton(opts.owner) : null;
+    if (owner) owner.selected = true;
+    this.popup = { ui, x, y, above: !!opts.above, owner, run };
   }
 
   get menuOpen() { return !!this.popup; }
+
+  /** Closes the popup menu, if one is up. */
+  closeMenu() {
+    if (this.popup?.owner) this.popup.owner.selected = false;
+    this.popup = null;
+  }
+
+  /** A corner menu button's pressable part ("button_menu"), or null. */
+  private menuButton(tag: string): Component | null {
+    for (const ui of [this.menuLeft, this.menuRight]) {
+      const host = ui?.find(tag);
+      if (host) return host.find("button") ?? host;
+    }
+    return null;
+  }
+
+  /** Where a corner menu button was last drawn, in HUD pixels (the main menu rises from it). */
+  buttonRect(tag: string): { x: number; y: number; width: number; height: number } | null {
+    return this.menuButton(tag)?.screen ?? null;
+  }
 
   /** A press while the menu is open: an item runs its action, anywhere else closes the menu. True when taken. */
   private popupPointer(x: number, y: number, click: boolean): boolean {
@@ -1109,7 +1136,9 @@ export class GameHud {
     const hit = hitTest(p.ui, x, y, c => c.kind === "button");
     if (this.hovered !== hit) { if (this.hovered) this.hovered.hover = false; if (hit) hit.hover = true; this.hovered = hit; }
     if (click) {
-      this.popup = null;
+      // a disabled item takes the press and leaves the menu up
+      if (hit && !hit.enabled) return true;
+      this.closeMenu();
       if (hit?.action) p.run(hit.action);
     }
     return true;
@@ -1119,8 +1148,8 @@ export class GameHud {
     const p = this.popup;
     if (!p) return;
     const s = pack(p.ui);
-    // PopupMenu.popup: at the mouse, kept on the screen
-    const x = Math.max(0, Math.min(cw - s.width, p.x)), top = Math.max(0, Math.min(ch - s.height, p.y));
+    // PopupMenu.popup: at the point (its bottom when above), kept on the screen
+    const x = Math.max(0, Math.min(cw - s.width, p.x)), top = Math.max(0, Math.min(ch - s.height, p.above ? p.y - s.height : p.y));
     render(p.ui, g, Math.round(x), Math.round(top + s.height), this.hooks);
   }
 

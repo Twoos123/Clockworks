@@ -27,13 +27,14 @@ import { itemName, monsterName } from "./text";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
-import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type NumberStyle, type ShakeSpec } from "./feedback";
+import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type LabelStyle, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "./behavior";
 import { behaviorArgs, behaviorScript, monsterBehavior, type MonsterInfo } from "./monsterai";
 import { actionHint } from "./action";
 import { OrbitMotion } from "./orbitals";
-import { message } from "../i18n";
+import type { Prize, PrizeSource } from "./prizewheel";
+import { hasMessage, message } from "../i18n";
 import { scriptedMusic, type ScriptedMusic } from "./musicstack";
 
 /** A live level-scripted music actor ("Environment/Music"). */
@@ -47,6 +48,11 @@ const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
  * HealthBonus level entries and modifiers.
  */
 const KNIGHT_HEALTH = 200;
+/** The "Health At Max!" label (particle/fx_item_fail.dat, as effect.dat Player/Max Health spawns it). */
+const MAX_HEALTH_FX = { $class: "com.threerings.config.ConfigReference", name: "particle/fx_item_fail.dat",
+  arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Variant", "Max Health"]] } };
+/** The text labels particle effects carry as component billboards (status names, item notices). */
+const LABEL_MODELS = /particle\/part_component_(debuffname|itemfail)\.dat$/;
 const MONSTER_MASK = 1 | 2 | 8 | 32;
 export const STARTER_WEAPONS = ["Weapon/Sword/Proto Sword", "Weapon/Handgun/Proto Gun", "Weapon/Bomb/Proto Bomb"];
 const STARTER_SHIELD = "Gear/Shield/Proto Shield";
@@ -96,6 +102,8 @@ export interface Floater {
   x: number; y: number; z: number; text: string; color: string; age: number;
   /** A damage or heal number in the game's style (src/game/feedback.ts), and its random pick. */
   style?: NumberStyle; seed?: number;
+  /** A particle label (src/game/feedback.ts labelPose): its outline, size, wrap width and drift. */
+  label?: LabelStyle;
 }
 
 type Phase = "start" | "fire" | "end";
@@ -305,6 +313,8 @@ export class World implements LogicHost {
    */
   gateDisplay: { themes: string[]; active: boolean } | null = null;
   onOpenShop: ((keeper: string, portrait: { ref: any; idle: any } | null) => void) | null = null;
+  /** The knight used an alchemy machine (its actor name). */
+  onOpenCrafter: ((machine: string) => void) | null = null;
   /** The knight talked to a townsperson: its actor name, the StartConversation action and its entity. */
   onConversation: ((actor: string, action: any, source: Entity) => void) | null = null;
   /** The knight walked into a scene exit: its tags, the scene it leads to and the portal tag there. */
@@ -406,6 +416,8 @@ export class World implements LogicHost {
    * true when paid. Unset, the floor's crowns pay at the exchange's rate.
    */
   spendEnergy: ((n: number) => boolean) | null = null;
+  /** An item picked up on the floor (the chat's loot message): its config name and count. */
+  onLoot: ((item: string, count: number) => void) | null = null;
   /** Prism beams drawn (model instances along each segment). */
   private beamItems: { instance: ModelInstance; matrix: Mat4 }[] = [];
   private beamGen = 0;
@@ -581,9 +593,23 @@ export class World implements LogicHost {
   }
 
   /** The knight's body model as worn (armour and helmet, no weapon), for the HUD portrait. */
-  portraitRef(): any {
+  /**
+   * The knight's portrait with an item tried on (the shop's Preview, cL's preview equipment):
+   * an armour or helmet in its place; null for items the portrait does not show.
+   */
+  previewRef(item: string): any {
+    const cfg = this.data.resolveSync("config/item.dat", { name: item }, "item");
+    const k = String(cfg?.$class ?? "").split("$").pop();
+    if (!cfg?.model || (k !== "Armor" && k !== "Helm")) return null;
+    return this.portraitRef({ [k === "Helm" ? "Helmet" : "Armor"]: cfg.model });
+  }
+
+  portraitRef(over: Record<string, any> = {}): any {
     const args: [string, any][] = [["Colorization", this.color]];
-    for (const a of this.knight?.armor ?? []) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
+    for (const a of this.knight?.armor ?? []) {
+      const slot = a.slot === "helmet" ? "Helmet" : "Armor";
+      args.push([slot, this.colored(over[slot] ?? a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
+    }
     return { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
   }
@@ -831,6 +857,10 @@ export class World implements LogicHost {
         this.onOpenShop?.(source.name, model?.name ? { ref: model, idle } : null);
         return true;
       }
+      case "OpenCrafter":
+        // an alchemy machine (CraftActionConfig$OpenCrafter): the crafting window
+        if (activator === this.knightEntity) this.onOpenCrafter?.(source.name);
+        return true;
       case "NextFloor":
         this.finishLevel();
         return true;
@@ -934,6 +964,41 @@ export class World implements LogicHost {
   /** Spawn tables have tiers by depth (1 to 8, 9 to 17, 18 and below). */
   /** The Clockworks tier of the current depth (tier 2 starts at Moorcroft Manor, depth 8). */
   private tier() { return this.depth >= 18 ? 3 : this.depth >= 8 ? 2 : 1; }
+
+  /** The prize wheel's pools here: a material by depth weight, a pickup from the tier's table. */
+  prizeSource(): PrizeSource {
+    const ctx = { depth: this.depth, tier: this.tier(), difficulty: this.difficulty };
+    return {
+      depth: this.depth,
+      material: () => this.economy?.autoItem("MATERIAL", "Materials", ctx) ?? null,
+      pickup: () => {
+        const r = this.tables?.evaluate({ name: `Treasure/Pickups/Pickups ${ctx.tier}` }, ctx) ?? [];
+        const it = r.find(x => x.item?.name && this.pocketItem(String(x.item.name)));
+        return it ? String(it.item.name) : null;
+      },
+    };
+  }
+
+  /**
+   * The prize wheel's hearts and pickups, given on the spot: a heart heals by its Heal action
+   * (40 a pip, Full Health all), a pickup goes to the pocket when it fits (the wiki: it never
+   * replaces what is there). Crowns and materials are banked by the game.
+   */
+  awardPrize(p: Prize): boolean {
+    const k = this.knight;
+    if (p.kind === "heart") {
+      const it = this.data.resolveSync("config/item.dat", { name: p.item }, "item");
+      const heal = Number(it?.action?.current ?? 40);
+      if (!k.dead) k.health = Math.min(k.maxHealth, k.health + heal);
+      return true;
+    }
+    if (p.kind === "pickup") {
+      let ok = false;
+      for (let i = 0; i < p.count; i++) ok = this.pocketAdd(p.item) || ok;
+      return ok;
+    }
+    return false;
+  }
 
   /**
    * Tags a drop's source carries: a monster's family (its config folder, Monster/Slime/...,
@@ -1184,7 +1249,13 @@ export class World implements LogicHost {
     const num = (...keys: string[]) => { for (const k of keys) if (typeof item?.[k] === "number") return item[k]; return null; };
     // coins and embers are worth their denomination in the valued tables (Treasure/Crowns/Value/Base)
     const coin = this.tables?.coinValue(p.entity.name) ?? 0;
-    if (/Health|Heart/i.test(name)) this.healKnight(num("health", "amount") ?? this.knight.maxHealth * 0.25);
+    if (/Health|Heart/i.test(name)) {
+      // a heart at full health: "Health At Max!" over the knight (effect.dat Player/Max Health,
+      // fx_item_fail.dat's Max Health label half a unit up)
+      const k = this.knight;
+      if (k.health >= k.maxHealth) void this.spawnEffect(MAX_HEALTH_FX, compose([k.x, k.y, k.z + 0.5], [0, 0, 0, 1], 1), 2, k);
+      else this.healKnight(num("health", "amount") ?? this.knight.maxHealth * 0.25);
+    }
     else if (/Crown|Slime Coin/i.test(name)) {
       const v = coin || num("value", "amount", "crowns") || 1;
       this.loot.crowns += v;
@@ -1195,7 +1266,7 @@ export class World implements LogicHost {
       this.floaters.push({ x: p.x, y: p.y, z: p.z + 1, text: `+${v} heat`, color: "#ff9a4d", age: 0 });
     } else if (ref) this.awardItem(ref, p.x, p.y);
     // boost orbs are instant buffs (not modelled), not items to bank
-    else if (!/\/Orbs\//.test(name)) this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
+    else if (!/\/Orbs\//.test(name)) { this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1); this.onLoot?.(name, 1); }
   }
 
   /** The item config for a pocket item (capsule or vial), or null for anything else. */
@@ -1250,6 +1321,7 @@ export class World implements LogicHost {
     const label = itemName(name);
     if (this.pocketItem(name)) {
       if (this.pocketAdd(name)) {
+        this.onLoot?.(name, 1);
         const slot = this.pocket.findIndex(p => p[0] === name);
         if (!this.acquire(name, 1, slot)) this.floaters.push({ x, y, z, text: label, color: "#9ff0c0", age: 0 });
       }
@@ -1262,16 +1334,19 @@ export class World implements LogicHost {
     const dep = info?.category === "deposit" ? eco!.deposit(name) : null;
     if (dep) {
       this.loot.materials.set(dep.mineral, (this.loot.materials.get(dep.mineral) ?? 0) + dep.count);
+      this.onLoot?.(dep.mineral, dep.count);
       if (!this.acquire(dep.mineral, dep.count)) this.floaters.push({ x, y, z, text: `+${dep.count} ${itemName(dep.mineral)}`, color: "#e0a8ff", age: 0 });
       return;
     }
     if (eco && info && (info.heatable || info.category === "trinket")) {
       const variants = eco.rollVariants(name);
       this.loot.items.push({ name, variants });
+      this.onLoot?.(name, 1);
       if (!this.acquire(name)) this.floaters.push({ x, y, z, text: eco.displayName(name, { heat: 0, level: 1, variants }), color: "#ffe9a0", age: 0 });
       return;
     }
     this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
+    this.onLoot?.(name, 1);
     if (!this.acquire(name)) this.floaters.push({ x, y, z, text: label, color: "#c9e6ff", age: 0 });
   }
 
@@ -1587,7 +1662,7 @@ export class World implements LogicHost {
     for (const f of this.floaters) f.age += dt;
     for (let i = this.floaters.length - 1; i >= 0; i--) {
       const f = this.floaters[i];
-      if (f.age > (f.style ? numberLength(f.style) : 1.2)) this.floaters.splice(i, 1);
+      if (f.age > (f.style ? numberLength(f.style) : f.label ? f.label.life : 1.2)) this.floaters.splice(i, 1);
     }
     // struck actors' colour flash
     this.knight.instance.tint = hitFlash((this.clock - this.knight.flashAt) * 1000);
@@ -2612,8 +2687,13 @@ export class World implements LogicHost {
     const near = this.props.filter(p => p !== carried && Math.hypot(p.x - fx, p.y - fy) < 1.6)
       .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y));
     const door = near.find(p => p.kind === "door" && !p.open);
+    // the server's ActionDesc.Shop for what opens goods (a shop, an alchemy machine, the
+    // exchange): "Press ATTACK to browse vendor goods", as the client shows at both
+    const vendor = (p: Prop | Monster) => p.entity?.handlers.some(h => h.kind === "Interaction"
+      && (/\$(OpenShop|OpenCrafter|OpenExchange)$/.test(String(h.cfg.action?.$class ?? "")) || (h.cfg.action?.actions ?? []).some((a: any) => /\$(OpenShop|OpenExchange)$/.test(String(a?.$class ?? "")))
+        || (h.cfg.action == null && /Spiral Quartermaster$/.test(p.entity?.name ?? "")))) ?? false;
     const target = (p: Prop | Monster, cfg: any, fallback: string) =>
-      ({ hint: actionHint(cfg?.actionDesc, fallback), desc: this.describe(p.entity?.name ?? "", cfg) });
+      ({ hint: actionHint(cfg?.actionDesc, vendor(p) ? "m.shop" : fallback), desc: this.describe(p.entity?.name ?? "", cfg) });
     if (door && /\$Energy$/.test(door.cfg.actionDesc?.$class ?? "") && !carried) return target(door, door.cfg, "m.energy");
     if (door && carried?.cfg.actionableSignal && carried.cfg.actionableSignal === door.cfg.actionableSignal) return target(door, door.cfg, "m.unlock");
     if (carried) return null;
@@ -2629,6 +2709,28 @@ export class World implements LogicHost {
   /** The knight stands on the exit elevator, waiting for it to go (the party status the client shows m.elevator for). */
   get onElevator(): boolean { return this.props.some(p => p.kind === "elevator" && p.standTime > 0) && !this.finished; }
 
+  /**
+   * The names over the townsfolk and machines (client/sprite/g, the NameLabel): an actor whose
+   * sprite is a named one (ProjectXActorSpriteConfig Named, Stranger, NamedStatefulEntry) or a
+   * named placeable (ProjectXPlaceableConfig$Named) shows character/label.dat at its
+   * nameOffset above its root, with its description's name and title.
+   */
+  nameplates(): { x: number; y: number; z: number; name: string; title: string; icon: string | null }[] {
+    const out: { x: number; y: number; z: number; name: string; title: string; icon: string | null }[] = [];
+    const add = (name: string, cfg: any, holder: any, x: number, y: number, z: number, scale: number) => {
+      if (typeof holder?.nameOffset !== "number" || !holder.description) return;
+      const d = this.describe(name, cfg);
+      if (d?.name) out.push({ x, y, z: z + holder.nameOffset * scale, name: d.name, title: d.title, icon: d.nameIcon ?? null });
+    };
+    for (const m of this.monsters) {
+      if (m.state === "dying" || !m.entity?.name) continue;
+      const cfg = this.npcs.get(m)?.cfg ?? (m.passive ? this.data.resolveSync("config/actor.dat", { name: m.entity.name }, "actor") : null);
+      if (cfg) add(m.entity.name, cfg, cfg.sprite, m.x, m.y, m.z, m.scale);
+    }
+    for (const p of this.props) if (p.entity?.name && /\$Named$/.test(String(p.cfg?.$class ?? ""))) add(p.entity.name, p.cfg, p.cfg, p.x, p.y, p.z, 1);
+    return out;
+  }
+
   /** A thing's DescriptionConfig for the target panel, loaded in the background on first ask. */
   private describe(name: string, cfg: any): import("../ui/hud").HudDescription | null {
     if (!name) return null;
@@ -2639,7 +2741,7 @@ export class World implements LogicHost {
         .then(d => {
           if (!d || !d.dname) return;
           const tr = (key: string) => key ? (key.startsWith("~") ? key.slice(1) : message(d.bundle, key) || key) : "";
-          this.actionDescs.set(name, { key: name, name: tr(d.dname), title: tr(d.title), info: tr(d.description), icon: d.icon });
+          this.actionDescs.set(name, { key: name, name: tr(d.dname), title: tr(d.title), info: tr(d.description), icon: d.icon, nameIcon: d.nameIcon });
         }).catch(() => undefined);
     }
     return this.actionDescs.get(name) ?? null;
@@ -3215,10 +3317,36 @@ export class World implements LogicHost {
   private async spawnEffect(ref: any, matrix: Mat4, life: number, follow?: Actor) {
     const model = await this.loader.loadRef(ref).catch(() => null);
     if (!model) return;
+    this.startLabels(model, matrix);
     this.startScripts(model, matrix, life, follow);
     if (model.script) return;
     const instance = await this.instantiate(model);
     this.effects.push({ instance, matrix, life, follow });
+  }
+
+  /**
+   * Text labels in particle effects (debuff_name.dat's "FIRE!", fx_item_fail.dat's "Health At
+   * Max!"): a meta particle layer whose model is a component billboard of a label in the
+   * particles bundle. They are drawn by the HUD as floaters on the layer's path.
+   */
+  private startLabels(model: LoadedModel, matrix: Mat4, depth = 0) {
+    if (depth > 6) return;
+    for (const l of model.particles ?? []) {
+      const ref = l.modelRef;
+      if (!LABEL_MODELS.test(String(ref?.name ?? ""))) continue;
+      const args = new Map<string, any>((ref.arguments?.entries ?? []) as [string, any][]);
+      const key = String(args.get("Text") ?? "");
+      const text = key && hasMessage("particles", key) ? message("particles", key) : key.replace(/^m\./, "").toUpperCase();
+      if (!text) continue;
+      const rgb = (c: any, d: string) => c && typeof c === "object" ? `rgb(${[c.r ?? 1, c.g ?? 1, c.b ?? 1].map((v: number) => Math.round(v * 255)).join(",")})` : d;
+      const item = /itemfail/.test(ref.name);
+      const dir = l.shoot([0, 0, 0]);
+      const t = l.transform;
+      const label: LabelStyle = { color: rgb(args.get("Color"), "#fff"), outline: rgb(args.get("Outline"), "#000"),
+        size: item ? 16 : 22, outlineSize: 8, width: item ? 120 : 160, rise: dir[2] < 0 ? -1 : 1, life: l.lifespan() || 2 };
+      this.floaters.push({ x: matrix[12] + t[12], y: matrix[13] + t[13], z: matrix[14] + t[14], text, color: label.color, age: 0, label });
+    }
+    for (const a of model.attachments) this.startLabels(a.model, matrix, depth + 1);
   }
 
   /**
