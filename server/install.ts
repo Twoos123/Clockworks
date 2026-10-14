@@ -231,10 +231,12 @@ async function buildIndex(archive: string): Promise<[string, string][]> {
 export function installMiddleware(dir: () => string | null, archive = archiveDir()) {
   let listing: string[] | null = null;
   const walk = (d: string, prefix: string, out: string[]) => {
-    for (const name of readdirSync(d)) {
-      const p = join(d, name);
-      if (statSync(p).isDirectory()) walk(p, prefix + name + "/", out);
-      else out.push(prefix + name);
+    // directory entries carry their type, so only links need a stat (statting each of ~16k
+    // files took over a second on Windows)
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory() || (e.isSymbolicLink() && statSync(p).isDirectory())) walk(p, prefix + e.name + "/", out);
+      else out.push(prefix + e.name);
     }
     return out;
   };
