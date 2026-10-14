@@ -310,6 +310,19 @@ export class World implements LogicHost {
    * array is the save's own, so what is picked up or used stays with the knight.
    */
   pocket: [string, number][] = [];
+  /**
+   * Items gained, for the HUD's item-acquire icons (client hud/t): each item's icon, how many,
+   * and its pocket slot when it went to the quickbar. The HUD takes them off the front.
+   */
+  readonly acquired: { icon: string; colorizations: unknown[]; count: number; slot: number | null }[] = [];
+
+  /** Queues an item's acquire icon; false when the item has no icon (a floater is shown instead). */
+  private acquire(name: string, count = 1, slot: number | null = null): boolean {
+    const icon = this.economy?.info(name)?.icon;
+    if (!icon?.file) return false;
+    this.acquired.push({ icon: icon.file, colorizations: icon.colorizations ?? [], count, slot });
+    return true;
+  }
   /** The equipped vitapod for the HUD: its icon and capsule count. */
   vitapod: { icon: any; count: number } | null = null;
   /** Actions waiting on an item's action delay. */
@@ -1182,7 +1195,10 @@ export class World implements LogicHost {
     const z = this.collision.groundZ(x, y) + 1;
     const label = itemName(name);
     if (this.pocketItem(name)) {
-      if (this.pocketAdd(name)) this.floaters.push({ x, y, z, text: label, color: "#9ff0c0", age: 0 });
+      if (this.pocketAdd(name)) {
+        const slot = this.pocket.findIndex(p => p[0] === name);
+        if (!this.acquire(name, 1, slot)) this.floaters.push({ x, y, z, text: label, color: "#9ff0c0", age: 0 });
+      }
       return;
     }
     // dungeon vitapod drops ("Always Better") heal a pip per level on the spot
@@ -1192,17 +1208,17 @@ export class World implements LogicHost {
     const dep = info?.category === "deposit" ? eco!.deposit(name) : null;
     if (dep) {
       this.loot.materials.set(dep.mineral, (this.loot.materials.get(dep.mineral) ?? 0) + dep.count);
-      this.floaters.push({ x, y, z, text: `+${dep.count} ${itemName(dep.mineral)}`, color: "#e0a8ff", age: 0 });
+      if (!this.acquire(dep.mineral, dep.count)) this.floaters.push({ x, y, z, text: `+${dep.count} ${itemName(dep.mineral)}`, color: "#e0a8ff", age: 0 });
       return;
     }
     if (eco && info && (info.heatable || info.category === "trinket")) {
       const variants = eco.rollVariants(name);
       this.loot.items.push({ name, variants });
-      this.floaters.push({ x, y, z, text: eco.displayName(name, { heat: 0, level: 1, variants }), color: "#ffe9a0", age: 0 });
+      if (!this.acquire(name)) this.floaters.push({ x, y, z, text: eco.displayName(name, { heat: 0, level: 1, variants }), color: "#ffe9a0", age: 0 });
       return;
     }
     this.loot.materials.set(name, (this.loot.materials.get(name) ?? 0) + 1);
-    this.floaters.push({ x, y, z, text: label, color: "#c9e6ff", age: 0 });
+    if (!this.acquire(name)) this.floaters.push({ x, y, z, text: label, color: "#c9e6ff", age: 0 });
   }
 
   /** A hit on a prop from a knight (by 2) or a hazard, bullet or blast (by 1). */
@@ -2386,7 +2402,8 @@ export class World implements LogicHost {
     const name = monsterName(t.m.def, (t.m.entity?.name ?? "").split("/").pop()!.replace(/\s+\d+(\.\d+)?$/, ""));
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(t.m.entity?.name ?? "")?.[1]?.toLowerCase() ?? "";
     const key = ((t.m as any).hudKey ??= ++this.hudKeys);
-    return { key: key + name, name, health: t.m.health, maxHealth: t.m.maxHealth, family: fam, model: t.m.def.model, idle: t.m.def.idle ?? null };
+    return { key: key + name, name, health: t.m.health, maxHealth: t.m.maxHealth, family: fam, model: t.m.def.model, idle: t.m.def.idle ?? null,
+      icon: t.m.def.descIcon ?? null, weakness: t.m.def.weakness ?? "NORMAL", attack: t.m.def.attackType ?? "NORMAL" };
   }
 
   private damageMonster(m: Monster, amounts: Amounts, knockback: Knock, fx: number, fy: number) {

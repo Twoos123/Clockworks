@@ -11,6 +11,7 @@
 // themselves come from the game's servers, so the choices here are our own, seeded per day.
 
 import { rng } from "../gen/layout";
+import { lockNext, STRATA as REAL_STRATA, type RealGate, type RealLevel } from "./gatemap";
 import { firstKey, levelText, monsterName } from "./text";
 
 export const FAMILIES = ["Beast", "Construct", "Fiend", "Gremlin", "Slime", "Undead"] as const;
@@ -152,9 +153,16 @@ export interface Floor {
    * a boss stratum's stages. Played from the level archive when it holds it.
    */
   levelKey?: string;
+  /** A real gate's floor: the level this depth's elevator led to, and its place on the wheel. */
+  level?: RealLevel;
+  wedge?: number;
 }
 
-export interface Gate { id: string; name: string; seed: number; strata: Stratum[]; emblem: string }
+export interface Gate {
+  id: string; name: string; seed: number; strata: Stratum[]; emblem: string;
+  /** A real gate (src/game/gatemap.ts): its wheels, levels and colour. */
+  real?: RealGate;
+}
 
 const STRATA: [number, number, number][] = [[1, 1, 3], [1, 5, 7], [2, 9, 12], [2, 14, 17], [3, 19, 22], [3, 24, 28]];
 /** The Arcade's gate emblems (rsrc/ui/icon/gate/<emblem>.png); a gate is named for its emblem. */
@@ -190,8 +198,58 @@ export function arcadeGates(day = Math.floor(Date.now() / 86400000)): Gate[] {
   return [0, 1, 2, 3].map(i => makeGate((day * 4 + i) * 2654435761 >>> 0, i, first + i * 3));
 }
 
+/** A real gate's stratum theme: the file's theme, a status the port has no monsters for as its nearest family. */
+function realTheme(t: string | undefined): StratumTheme {
+  const k = (t ?? "").toLowerCase();
+  const all = [...FAMILIES, ...ELEMENTS] as StratumTheme[];
+  return all.find(x => x.toLowerCase() === k) ?? (k === "sleep" ? "Slime" : k === "curse" ? "Undead" : k === "stun" ? "Construct" : "Construct");
+}
+
+/** A gate of the Arcade from its real data: strata with the file's themes, their styles and bosses read off their levels. */
+export function realGate(rg: RealGate): Gate {
+  const strata: Stratum[] = REAL_STRATA.map(([tier, first, last], i) => {
+    const levels = rg.wheels.slice(first, last + 1).flatMap(w => w.options);
+    const boss = levels.find(l => l.kind === "boss")?.boss ?? null;
+    // the stratum's style: its most common level style
+    const counts = new Map<string, number>();
+    for (const l of levels) if (l.style) counts.set(l.style, (counts.get(l.style) ?? 0) + 1);
+    const key = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "tunnels";
+    const style = STYLES.find(s => s.key === key) ?? STYLES[0];
+    return { index: i + 1, tier, theme: realTheme(rg.themes[i]), style, boss, first, last };
+  });
+  const seed = Number(rg.entry.date) >>> 0;
+  return { id: `gate:${rg.entry.date}_${rg.entry.colour}_${rg.entry.symbol}`, name: rg.name, seed, strata, emblem: rg.entry.symbol, real: rg };
+}
+
+/** A real gate's floor at a depth, for the wedge (level) its elevator leads to. */
+export function realFloor(g: Gate, depth: number, wedge: number): Floor {
+  const rg = g.real!, w = rg.wheels[depth];
+  const lv = w.options[Math.min(Math.max(0, wedge), w.options.length - 1)];
+  const tier = depth >= 18 ? 3 : depth >= 8 ? 2 : 1;
+  const stratum = g.strata.find(x => depth >= x.first && depth <= x.last) ?? null;
+  const base = { depth, tier, stratum, name: lv.title, ...(lv.subtitle ? { zone: lv.subtitle } : {}), level: lv, wedge, tileset: "" };
+  switch (lv.kind) {
+    case "lobby": return { ...base, kind: "lobby" };
+    case "terminal": return { ...base, kind: "terminal" };
+    case "town": return { ...base, kind: "subtown" };
+    case "core": return { ...base, kind: "core" };
+  }
+  const style = STYLES.find(s => s.key === lv.style);
+  const tileset = lv.boss ? BOSSES[lv.boss].tileset : lv.element ? ELEMENT_TILESETS[lv.element] : style?.tileset ?? "clockworks";
+  if (lv.kind === "boss") return { ...base, kind: "boss", tileset, levelKey: lv.key };
+  return { ...base, kind: "level", tileset: lv.kind === "vault" ? "prize-vault" : tileset, levelKey: lv.key,
+    ...(lv.kind === "vault" ? { special: "vault" as const } : {}) };
+}
+
 /** Every floor of a gate, indexed by depth (0 to 29). */
-export function gateFloors(g: Gate): Floor[] {
+export function gateFloors(g: Gate, t = Date.now()): Floor[] {
+  if (g.real) {
+    // the levels the elevators lead to now (randomised depths decided by the gate's seed)
+    const rand = rng(g.seed ^ 0x5bd1e995);
+    const out: Floor[] = [realFloor(g, 0, 0)];
+    for (let d = 0; d < 29; d++) out.push(realFloor(g, d + 1, lockNext(g.real, d, out[d].wedge ?? 0, t, rand)));
+    return out;
+  }
   const floors: Floor[] = [];
   const tierOf = (d: number) => (d >= 18 ? 3 : d >= 8 ? 2 : 1);
   for (let d = 0; d <= 29; d++) {

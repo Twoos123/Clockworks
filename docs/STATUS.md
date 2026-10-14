@@ -16,19 +16,31 @@ A single-player loop runs in the browser, built from the install's own data:
 3. **Runs.** Enter the Clockworks from town. Each cached combat level is followed by a
    newly generated floor of its theme, one depth per floor. The Core's elevator returns to
    Haven; "go deeper" past the end keeps generating floors.
-4. **Gate floors on the game's own levels** (`src/game/archive.ts`). Each floor of a gate is
+4. **The real gates** (`src/game/gatemap.ts`, `server/gates.ts`, docs/research/gatemap.md).
+   The Arcade's gates are the game's own, from the community Gate Map
+   (gatemap.knightlauncher.com), fetched by the local server and cached in
+   `%LOCALAPPDATA%\clyde-web\gates` (never in the repository): today's four, and any older
+   gate since 2019. Each depth has its real level options and each stratum its real theme.
+   The options rotate in real time as the client's `GateSummary` turns them (velocity, wedge
+   lengths, start); the next depth's level is locked in when the knight steps on the elevator
+   and shown on the elevator screen. Without the site or the cache, the gates are generated as
+   before. The Gate Map window (Arcade control panels, the minimap's map button) is the
+   client's map: turning rows of coloured level icons, rotation spacers, the path and the next
+   level in the client's line colours, emblems in the gate's colours, a stratum totem and a
+   rotation timer.
+5. **Gate floors on the game's own levels** (`src/game/archive.ts`). Each floor of a gate is
    an archived level of its stratum's style and theme when the player's archive has one (the
    Clockwork Tunnels by family and status area, Wolver Dens, Candlestick Keeps, Graveyards,
    Devilish Drudgery, Lichenous Lairs, Compounds, Battle Arenas, and the fixed sets: Jigsaw
    Valley, Aurora Isles, Starlight Cradle, Concrete Jungle, Dark City, Scarlet Fortress); a
    boss stratum's floors are its stages (Terrilous Trail, Roarsterous Ruins, the Snarbolax's
    lair...); terminals, Moorcroft Manor, Emberlight and the Core are their archived scenes.
-5. **Floors from the game's prefab rooms** (`src/gen/prefabs.ts`, `src/gen/assemble.ts`,
+6. **Floors from the game's prefab rooms** (`src/gen/prefabs.ts`, `src/gen/assemble.ts`,
    docs/research/prefab-generator.md). The floors the servers generated and the client cached
    name each prefab they were built from; the rooms are cut out of them at their corridors and
    joined anew at matching openings (start, rooms, airlock, rooms, exit, dead ends on every
    other opening), with their own wiring, spawners, treasure and lighting.
-6. **Generated floors** (`src/gen`), for styles with no captured prefab floors and special floors.
+7. **Generated floors** (`src/gen`), for styles with no captured prefab floors and special floors.
    - The level editor's brush libraries ship empty, so the auto-tiling is learned from the
      theme's cached levels: which tile, rotation and elevation sits in which neighbourhood.
    - Layouts are rooms joined by corridors three cells wide.
@@ -36,23 +48,23 @@ A single-player loop runs in the browser, built from the install's own data:
      Activate" area, "Single Spawn" markers with spawn tables from the sources, and treasure
      boxes.
    - The start platform, exit elevator and lighting globals come from the source levels.
-7. **Levels play by their own wiring.**
+8. **Levels play by their own wiring.**
    - Spawners and trigger areas wake waves.
    - Clearing a wave opens or closes gates.
    - Buttons and platforms send signals.
    - Gold keys unlock gold gates.
    - Monsters drop crowns, heat and items.
    - The exit elevator ends the floor.
-8. **Knockouts.** A knocked-out knight can revive for crowns (25 per depth) or give up and
+9. **Knockouts.** A knocked-out knight can revive for crowns (25 per depth) or give up and
    ride back to Haven with nothing from the floor.
-9. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
+10. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
    deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
    boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
-10. **Crafting.** The game's forge (`ui/forge`, K): recipes from `config/recipe.dat` turn
+11. **Crafting.** The game's forge (`ui/forge`, K): recipes from `config/recipe.dat` turn
    materials, crowns and a levelled base item into the next item, with the forging animation
    played by the interface's own scripts. Shops use the game's vendor and cart windows
    (`ui/shop`).
-11. **Saving.** The browser keeps:
+12. **Saving.** The browser keeps:
    - loadout, owned items and colour;
    - banked crowns, heat and materials;
    - weapon heat and the pocket;
@@ -81,7 +93,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
 | Dungeon objects (`src/game/objects.ts`) | Crystal and ghost block chains, timed explosives, prism puzzles, gun, rocket and fire blocks, status floor traps, healing totems, heal pads, mortar shells, barricades, prisoner cages with freed companion knights, energy gates and crates (paid in crowns) |
 | Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions (themed floors at their rank's depth, ending in their boss), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
-| HUD | The game's own `hud_v2` interfaces: status panel with 3D portrait, health and shield, debuffs, quickbar, minimap, hit flash, low-health frame |
+| HUD | The game's own `hud_v2` interfaces, driven as the client drives them (docs/research/ui-audit-hud.md): status panel with 3D portrait, trailing health and shield bars, floor-heat meter, debuffs; quickbar with sprite skills and pockets; weapon switcher; target panel; minimap; hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
 | Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
 | Ready Room | `rsrc/world/readyroom/scene.dat` with the arsenal open; the knight changes into a new loadout when it closes |

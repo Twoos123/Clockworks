@@ -21,15 +21,17 @@ import { GameData } from "./game/data";
 import { TitleScreen } from "./ui/title";
 import { Outfit } from "./game/outfit";
 import { LoadingScreen, loadingInfo } from "./ui/loading";
-import { ElevatorScreen } from "./ui/elevator";
+import { ElevatorScreen, type HeatReport, type HeatRow } from "./ui/elevator";
 import { GateBoard } from "./ui/gates";
+import { GateSource } from "./game/gatesource";
+import { lockNext } from "./game/gatemap";
 import { RunSummaryScreen } from "./ui/runsummary";
 import { MusicPlayer } from "./game/musicplayer";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
 import { ACTIONS, commandKeys, keyName, loadSettings, saveSettings, type Action, type Settings } from "./ui/settings";
-import { loadMessages, messages, text } from "./i18n";
+import { hasMessage, loadMessages, message, messages, text } from "./i18n";
 import { itemName, levelText } from "./game/text";
 import { OptionsScreen } from "./ui/options";
 import { ReviveScreen } from "./ui/revive";
@@ -39,7 +41,7 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { arcadeGates, bossName, BOSSES, gateFloors, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { bossName, BOSSES, gateFloors, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { LevelArchive } from "./game/archive";
 import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
@@ -472,6 +474,7 @@ class Viewer {
         return (c, g, x, y, ww, h) => v.draw(c, g, x, y, ww, h);
       });
       this.elevator.onShow = () => this.music.stinger("elevator");
+      this.elevator.onSound = f => this.uiSound(f);
     }
     return { loading: this.loadingScreen, elevator: this.elevator };
   }
@@ -795,8 +798,17 @@ class Viewer {
     const heatView = new PortraitView(this.renderer, this.loader, undefined, null);
     const ringView = new PortraitView(this.renderer, this.loader, undefined, null);
     let targetView: { key: string; view: PortraitView } | null = null;
+    const acquireViews = new Map<string, PortraitView>();
     this.gameHud = new GameHud(this.gui, { view: (c, g, x, y, w, h) => {
-      if (c.viewOwner === "target") {
+      if (c.viewOwner?.startsWith("acquire:")) {
+        // each item-acquire icon plays its own 3D animation
+        let v = acquireViews.get(c.viewOwner);
+        if (!v) {
+          acquireViews.set(c.viewOwner, v = new PortraitView(this.renderer, this.loader, undefined, null));
+          if (acquireViews.size > 12) acquireViews.delete(acquireViews.keys().next().value!);
+        }
+        v.draw(c, g, x, y, w, h);
+      } else if (c.viewOwner === "target") {
         const t = world.hudTarget();
         if (!t) return;
         if (targetView?.key !== t.key) targetView = { key: t.key, view: new PortraitView(this.renderer, this.loader, undefined, t.idle) };
@@ -944,7 +956,9 @@ class Viewer {
   /** The minimap's label: the depth in the Clockworks, or the town's name. */
   private floorLabel(): string {
     if (!this.scene) return "";
-    return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase()) : `Depth ${this.run.depth}`;
+    return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase())
+      // the dungeon minimap names the depth as the client does (the dungeon bundle's m.depth)
+      : hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", this.run.depth) : `Depth ${this.run.depth}`;
   }
 
   private itemScreens: GameScreens | null = null;
@@ -1048,6 +1062,8 @@ class Viewer {
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
       case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
       case "button_missions": void this.missions().toggle(); break;
+      // the minimap's map button: the Gate Map, on the gate of the run when in one
+      case "button_map": this.openGates(); break;
       case "button_supplydepot": void this.openShop("Supply Depot"); break;
       default: break;
     }
@@ -1282,6 +1298,33 @@ class Viewer {
     return notes;
   }
 
+  /**
+   * The floor's heat report (client EndOfLevelWindow), worked out before the heat is banked: the
+   * floor's heat shared evenly between the equipped items that can take it, each row's progress
+   * toward its next level before and after; items at the top level are listed with no gain.
+   */
+  private heatReport(raw: number): HeatReport | null {
+    const eco = this.eco ?? this.world?.economy ?? null;
+    if (!eco || raw <= 0) return null;
+    const items = eco.heatedItems(this.save);
+    if (!items.length) return null;
+    const total = eco.heatGain(this.save, raw);
+    const each = total / items.length;
+    const row = (name: string, gain: number): HeatRow => {
+      const state = this.save.gear[name] ?? { heat: 0, level: 1, variants: [] };
+      const before = eco.heatProgress(this.save, name);
+      const trial = { ...this.save, gear: { ...this.save.gear, [name]: { ...state, variants: [...(state.variants ?? [])], heat: state.heat + gain } } };
+      eco.levelUp(trial, name);
+      const levelUp = trial.gear[name].level > state.level;
+      const icon = eco.info(name)?.icon;
+      return { name: eco.displayName(name, state), icon: icon?.file ?? "ui/icon/inventory/blank.png", colorizations: icon?.colorizations ?? [],
+        level: state.level, before, after: levelUp ? 1 : eco.heatProgress(trial, name), levelUp };
+    };
+    const l = this.save.loadout;
+    const maxed = [...new Set([...l.weapons, l.shield, l.armor, l.helmet])].filter(n => n && !items.includes(n) && this.save.owned.includes(n) && eco.info(n)?.heatable);
+    return { total: Math.round(total), rows: [...items.map(n => row(n, each)), ...maxed.map(n => row(n, 0))] };
+  }
+
   /** The knight reached the exit elevator: offer the next floor. */
   private floorCleared() {
     if (!this.world) return;
@@ -1297,8 +1340,9 @@ class Viewer {
       });
       return;
     }
-    // bank what the floor gave
+    // bank what the floor gave (the heat report is read first, from the items' heat before)
     const l = this.world.loot;
+    const heat = this.heatReport(l.heat);
     const notes = this.bankLoot(l);
     this.save.bestDepth = Math.max(this.save.bestDepth, this.run.depth);
     recordKills(this.save, this.world.killCount);
@@ -1314,12 +1358,15 @@ class Viewer {
     const tally = `${l.crowns} crowns, ${l.heat} heat`;
     const { elevator } = this.screens();
     if (this.gate) {
-      // in a gate: on to the next depth, or ride back up to Haven with the loot banked
+      // in a gate: on to the next depth, or ride back up to Haven with the loot banked; on a real
+      // gate the next depth's level is locked in as the knight steps on the elevator
+      const d = this.run.depth, here0 = this.floors[d];
+      if (this.gate.real && d < 29) this.floors[d + 1] = realFloor(this.gate, d + 1, lockNext(this.gate.real, d, here0?.wedge ?? 0, Date.now()));
       const next = this.floors[this.run.depth + 1];
       void elevator.show({
         title: `Depth ${this.run.depth} cleared`,
         next: next ? loadingInfo(next.name, next, this.gate.name) : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally,
+        tally, heat,
         advance: { label: next ? "Advance" : "Ride Up", run: () => void this.descend() },
         quit: next ? { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } } : null,
       });
@@ -1333,7 +1380,7 @@ class Viewer {
       void elevator.show({
         title: nl ? `Depth ${this.run.depth} cleared` : "Back to Haven",
         next: nl ? { ...loadingInfo(nl.name, null), depth: `DEPTH ${this.run.depth + 1}` } : deeper ? { title: "Deeper", zone: "A new floor below the Core", depth: `DEPTH ${this.run.depth + 1}` } : { title: "Haven", zone: "Home sweet Home", depth: "" },
-        tally,
+        tally, heat,
         advance: { label: nl || deeper ? "Advance" : "Ride Up", run: () => void this.descend(deeper) },
         quit: deeper ? { run: () => void this.descend() } : null,
       });
@@ -1480,15 +1527,23 @@ class Viewer {
   // ------------------------------------------------------------------ the Arcade and its gates
 
   private gateBoard_: GateBoard | null = null;
+  /** The Arcade's real gates (src/game/gatesource.ts), generated ones when they cannot be had. */
+  private readonly gateSource = new GateSource();
   /** The Arcade's gate board (the game's adventure board, src/ui/gates.ts). */
   get gateBoard(): GateBoard {
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     return this.gateBoard_ ??= new GateBoard(this.gui, {
       sound: f => this.uiSound(f),
       closed: () => { this.paused = false; this.canvas.focus(); },
-      gates: () => arcadeGates(),
+      gates: older => this.gateSource.choices(older),
+      gate: e => this.gateSource.gate(e),
+      offline: () => this.gateSource.offline,
+      run: () => this.gate?.real ? { gate: this.gate, depth: this.run.depth, wedges: this.floors.slice(0, this.run.depth + 1).map(f => f?.wedge ?? 0) } : null,
       progress: () => progressOf(this.save),
-      enter: g => void this.enterGate(g),
+      enter: g => {
+        if (this.gate) { notice("Finish this run, or return to Haven, before entering another gate."); return; }
+        void this.enterGate(g);
+      },
       arena: () => void this.enterArena(),
       missions: () => void this.missions().open(),
     });
@@ -1500,7 +1555,7 @@ class Viewer {
    */
   private openGates() {
     this.paused = !!this.world;
-    void this.gateBoard.open();
+    void this.gateBoard.openOn(this.gate);
   }
 
   /** Starts a gate at depth 1. */
@@ -1509,6 +1564,8 @@ class Viewer {
     this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
     this.usedScenes.clear();
     this.floors = floors;
+    // a real gate: the first depth's level is the one the Arcade's elevator leads to now
+    if (g.real) this.floors[1] = realFloor(g, 1, lockNext(g.real, 0, 0, Date.now()));
     this.arenaMode = false;
     // the descent starts above the first floor (a mission's floors start deeper)
     this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
@@ -1552,6 +1609,7 @@ class Viewer {
     }
     const s = f.stratum!;
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
+    if (f.level) return this.realFloorScene(f, seed);
     // a boss stratum's own stage (the boss's lair on its last floor)
     if (f.levelKey) {
       const real = a.level(f.levelKey);
@@ -1582,6 +1640,38 @@ class Viewer {
     const id = f.kind === "boss" ? `gen:${theme}:${seed}:${s.boss}` : `gen:${theme}:${seed}`;
     this.genTables.set(id, stratumTables(s.theme, rng(seed)));
     this.genNames.set(id, f.kind === "boss" ? f.name : `${f.name} · ${s.theme}`); // no parentheses: TOWN matches "("
+    if (f.special) this.genStyles.set(id, f.special);
+    return { id, name: `${f.name} · depth ${f.depth}` };
+  }
+  /**
+   * A real gate's level (src/game/gatemap.ts): the game's own from the archive (its fixed
+   * revision, or one of the floors of it the servers generated and the client cached); else a
+   * floor assembled from the captured prefab rooms of its style and status; else the older
+   * generator in its style's tiles, with the level's monster family.
+   */
+  private realFloorScene(f: Floor, seed: number): { id: string; name: string } | null {
+    const lv = f.level!, a = this.archive, s = f.stratum;
+    const copies = a.copies(lv.key);
+    if (copies.length) {
+      const fresh = copies.filter(c => !this.usedScenes.has(c.id));
+      const pick = (fresh.length ? fresh : copies)[Math.floor(rng(seed)() * (fresh.length || copies.length))];
+      this.usedScenes.add(pick.id);
+      return pick;
+    }
+    const family = lv.family ?? (s?.theme as any) ?? "Construct";
+    const tables = stratumTables(lv.family ?? s?.theme ?? "Construct", rng(seed));
+    const theme = genTheme(f.tileset || "clockworks");
+    const label = `${f.name}${f.zone ? " " + f.zone : ""}`;
+    if (lv.kind === "level" && lv.style && a.prefabSources(lv.style, null, true).length) {
+      const id = `gen:pf-${lv.style}-${lv.element ? lv.element.toLowerCase() : "none"}:${seed}`;
+      this.genFallback.set(id, theme);
+      this.genTables.set(id, tables);
+      this.genNames.set(id, `${label} · ${family}`);
+      return { id, name: `${f.name} · depth ${f.depth}` };
+    }
+    const id = f.kind === "boss" && lv.boss ? `gen:${theme}:${seed}:${lv.boss}` : `gen:${theme}:${seed}`;
+    this.genTables.set(id, tables);
+    this.genNames.set(id, f.kind === "boss" ? f.name : `${label} · ${family}`);
     if (f.special) this.genStyles.set(id, f.special);
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
@@ -1674,7 +1764,7 @@ class Viewer {
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
       this.achieve(recordDepth(this.save, f.depth));
-      this.bossFloor = f.kind === "boss" ? f.stratum!.boss : null;
+      this.bossFloor = f.kind === "boss" ? f.level?.boss ?? f.stratum!.boss : null;
       await this.selectScene(sc.id);
       await this.startPlaying();
       if (this.bossFloor) this.spawnBoss(this.bossFloor);
@@ -2048,7 +2138,11 @@ class Viewer {
         if (this.world && this.hud) {
           const gh = this.gameHud;
           gh?.minimap.setWorld(this.world);
-          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)) }, dt);
+          gh?.update({ ...hudState(this.world, knightName(this.save), this.floorLabel()), ...this.hudContext(), rank: rankLabel(progressOf(this.save)),
+            dungeon: !!this.scene && !TOWN.test(this.scene.name),
+            pocketKeys: (["item1", "item2", "item3", "item4"] as const).map(a => keyName(this.bound(a))) }, dt);
+          // items the knight gained come up as the HUD's acquire icons
+          while (this.world.acquired.length) { const a = this.world.acquired.shift()!; gh?.acquire(a); }
           // (the HUD hides while the knight talks, as the game's conversation dialog hides it)
           this.hud.draw(this.world, proj, view, gh && !this.talking ? (g, cw, ch) => gh.draw(g, cw, ch) : undefined);
         }

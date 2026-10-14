@@ -124,6 +124,7 @@ Read closely: damage and defence, depth scales, bonus values, level and variant 
 status configs and codes, difficulty, actor and attack config defaults, impulses, the
 dungeoneer advancer (attacks, dodge, shield, its input rules), the knight and monster sprites'
 hit feedback, the scene controllers' input and camera, heat series and the end-of-level report.
-Skimmed: projectile and orbital advancers, sprites, spawn tables, forging. Not looked at:
-UI, chat, guilds, trading, PvP, missions beyond their keys. Not in the client at all: AI,
+Skimmed: projectile and orbital advancers, sprites, spawn tables, forging. The HUD classes
+(`client/hud`, `dungeon/client`) are audited in ui-audit-hud.md. Not looked at:
+other UI, chat, guilds, trading, PvP, missions beyond their keys. Not in the client at all: AI,
 boss logic, damage application, status rolls, drops.

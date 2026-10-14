@@ -98,6 +98,22 @@ function floatFunctionVar(v: any, def: number): () => (t: number) => number {
       const m = floatVar(v.middle, () => 0)(), i = floatVar(v.in, () => 0.25)(), o = floatVar(v.out, () => 0.25)();
       return t => (t < i ? lerp(s, m, t / i) : t <= 1 - o ? m : lerp(e, m, (1 - t) / o));
     }
+    if (k === "VariableMultipoint") {
+      // as Multipoint: each middle point's offset adds to the last, all sampled per particle
+      const pts: { t: number; v: number }[] = [{ t: 0, v: s }];
+      let acc = 0;
+      for (const p of v.middle ?? []) {
+        acc += floatVar(p.offset, () => 0.25)();
+        pts.push({ t: acc, v: floatVar(p.value, () => 0)() });
+      }
+      pts.push({ t: 1, v: e });
+      return t => {
+        for (let i = 1; i < pts.length; i++) {
+          if (t <= pts[i].t) { const a = pts[i - 1], b = pts[i]; return lerp(a.v, b.v, b.t > a.t ? (t - a.t) / (b.t - a.t) : 0); }
+        }
+        return pts[pts.length - 1].v;
+      };
+    }
     return () => s;
   };
 }
