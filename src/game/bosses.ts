@@ -917,7 +917,8 @@ export class VanadukeFight extends BossFight {
     for (const [x, y] of spots) this.pots.push({ at: [x, y], e: this.spawn(WATER_POT, x, y), t: 0 });
     // the game's own throne room seats him on its marker ("Vanaduke Start", whose swap to the
     // first stage is server code)
-    const seated = this.real ? this.actors(/Vanaduke\/Vanaduke Start$/)[0] : null;
+    // (the Shadow Lair's: Vanaduke/Ultimate/Ultimate Vanaduke Start)
+    const seated = this.real ? this.actors(/Vanaduke\/(?:Ultimate\/Ultimate )?Vanaduke Start$/)[0] : null;
     if (seated) this.w.logic.vanish(seated);
     this.startStep(0, seated?.x ?? this.cx, seated?.y ?? this.cy + 3);
     this.w.say(this.cx, this.cy, "Lord Vanaduke!", "#ff9a5c");
