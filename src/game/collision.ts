@@ -76,6 +76,21 @@ export function rayDownZ(v: ArrayLike<number>, x: number, y: number): number {
   return u * v[2] + w * v[5] + (1 - u - w) * v[8];
 }
 
+/**
+ * Where something moving in a straight line from (ax, ay), a free point, to (bx, by), a
+ * blocked one, first meets what blocks it: the last free point, bisected `steps` times. A
+ * bullet stepped into a wall goes off at the wall's face, so its impact is not drawn inside it.
+ */
+export function contactPoint(ax: number, ay: number, bx: number, by: number, blocked: (x: number, y: number) => boolean, steps = 10): [number, number] {
+  if (blocked(ax, ay)) return [ax, ay];
+  let lo = 0, hi = 1;
+  for (let i = 0; i < steps; i++) {
+    const t = (lo + hi) / 2;
+    if (blocked(ax + (bx - ax) * t, ay + (by - ay) * t)) hi = t; else lo = t;
+  }
+  return [ax + (bx - ax) * lo, ay + (by - ay) * lo];
+}
+
 export class CollisionMap {
   readonly cells = new Map<number, CellInfo>();
   readonly props: PropShape[] = [];

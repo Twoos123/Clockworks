@@ -69,3 +69,50 @@ test("a fired Blaster bullet's instance ages each tick and its particles are vis
   assert.ok(live > 0, "it has particles");
   assert.ok(alpha(e) > 0.05, `they are visible (${alpha(e)})`);
 });
+
+test("a projectile stepped into a wall goes off at the wall's face", async () => {
+  const { contactPoint } = await import("../src/game/collision.ts");
+  // a wall from x = 2.3 on
+  const wall = (x: number) => x >= 2.3;
+  const [x, y] = contactPoint(2, 1, 2.6, 1, x => wall(x));
+  assert.ok(x < 2.3 && x > 2.29, `at the face (${x})`);
+  assert.equal(y, 1);
+  // already against it: stays where it was
+  assert.deepEqual(contactPoint(2.4, 0, 2.6, 0, x => wall(x)), [2.4, 0]);
+});
+
+test("on the install: projectiles' impacts are their sprites' whole transients, sound and turn included",
+  { skip: !existsSync(join(SK_RSRC, "config", "actor.dat")) }, async () => {
+  const { GameData } = await import("../src/game/data.ts");
+  const { nodeLoader } = await import("../tools/audit/nodevfs.ts");
+  const { getArg } = await import("../src/config/params.ts");
+  const loader = nodeLoader();
+  const data = new GameData(loader);
+  await data.preload("config/item.dat", "config/actor.dat", "config/attack.dat", "config/fire_action.dat");
+  const shotOf = async (weapon: string) => {
+    const w = (await data.weapon(weapon))!;
+    return (await data.projectile(w.attacks[0].fires.find(f => f.spawn)!.spawn!.actor))!;
+  };
+  // the Blaster's bullet: hitting a wall or a monster plays its destruction transient, the
+  // scripted hit (particles turned to face back the way it came, and the hit sound)
+  const b = await shotOf("Weapon/Handgun/Blaster");
+  assert.equal(b.hitFx?.name, "model/scripted/transient_sound.dat");
+  assert.equal((getArg(b.hitFx, "Transient") as any)?.name, "particle/bullet/hit_hard.dat");
+  assert.equal((getArg(b.hitFx, "Sounder") as any)?.name, "Custom/Weapons/Bullet, Blaster hit");
+  const m: any = await loader.loadRef(b.hitFx);
+  const kinds = (m?.script?.actions ?? []).map((a: any) => String(a.action.$class).split("$").pop());
+  assert.ok(kinds.includes("SpawnTransient") && kinds.includes("PlaySound"), kinds.join());
+  // running out of range plays its fizzle instead
+  assert.ok(b.fizzleFx?.name, "a fizzle transient");
+  assert.notDeepEqual(b.fizzleFx, b.hitFx);
+  // a disk and a bomb have theirs too
+  // (a mixer's core carries none: only a sound as it appears; its satellites do)
+  const core = await shotOf("Weapon/Handgun/Fiery Diskgun");
+  assert.equal(core.kind, "Agent");
+  assert.equal(core.hitFx, null);
+  const sat = (await data.projectile(core.children[0]))!;
+  assert.ok(sat.hitFx?.name, `the satellite's destruction transient (${sat.name})`);
+  const w = (await data.weapon("Weapon/Bomb/Blast Bomb"))!;
+  const bomb = (await data.projectile(w.chargedAttack!.fires.find(f => f.spawn)!.spawn!.actor))!;
+  assert.ok(bomb.hitFx?.name, "the bomb's blast transient");
+});

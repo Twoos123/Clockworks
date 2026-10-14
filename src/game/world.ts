@@ -9,7 +9,7 @@ import { compose, multiply, readTransform, type Mat4, type Vec3 } from "../math"
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
-import type { CollisionMap } from "./collision";
+import { contactPoint, type CollisionMap } from "./collision";
 import { dealt, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
@@ -311,9 +311,10 @@ class Projectile {
   bursts = 0;
   constructor(readonly def: ProjectileDef, public instance: ModelInstance | null, readonly team: Team,
     public x: number, public y: number, public z: number, public heading: number, readonly ctx: DepthContext) {}
-  matrix(): Mat4 {
-    const a = this.heading;
-    return compose([this.x, this.y, this.z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], 1);
+  /** The sprite's transform: turned a quarter past its heading, as Tudey's actor sprites are. */
+  matrix(z = this.z): Mat4 {
+    const a = this.heading + Math.PI / 2;
+    return compose([this.x, this.y, z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], 1);
   }
 }
 
@@ -2717,7 +2718,14 @@ export class World implements LogicHost {
       if (d.kind === "Agent") {
         p.x += Math.cos(p.heading) * d.speed * h;
         p.y += Math.sin(p.heading) * d.speed * h;
-        if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false) || p.age * 1000 >= d.fuse) p.done = true;
+        // a core that meets a wall or flies its time is removed (with its destruction transient,
+        // where it has one; the mixers' cores carry only a sound as they appear)
+        const wall = this.hitsWall(p);
+        if (wall || p.age * 1000 >= d.fuse) {
+          if (wall) this.toWallFace(p, px, py);
+          p.done = true;
+          if (d.hitFx) this.spawnEffect(d.hitFx, p.matrix(), 2);
+        }
         continue;
       }
       const o = p.orbit!;
@@ -2733,15 +2741,25 @@ export class World implements LogicHost {
       if (end === "lost") { this.detonate(p, true); break; }
       if (end === "fizzle") {
         p.done = true;
-        if (d.fizzleFx) this.spawnEffect(d.fizzleFx, compose([p.x, p.y, p.z], [0, 0, 0, 1], 1), 1);
+        if (d.fizzleFx) this.spawnEffect(d.fizzleFx, p.matrix(), 2);
         break;
       }
       // a satellite with no collision mask (a charged mixer's middle ring) touches nothing
       if (!d.collisionMask) continue;
       if (this.projectileTarget(p)) this.detonate(p, true);
       else if (p.team === "monster" && this.boss?.bullet?.(p.x, p.y, p.heading, p.owner)) this.detonate(p, true);
-      else if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false)) this.detonate(p, true);
+      else if (this.hitsWall(p)) { this.toWallFace(p, px, py); this.detonate(p, true); }
     }
+  }
+
+  /** A projectile touches a wall (tile flags 1 and 128 in its mask; pits, flag 2, are flown over). */
+  private hitsWall(p: Projectile, x = p.x, y = p.y): boolean {
+    return this.collision.collides(x, y, p.def.radius * 0.5, (p.def.collisionMask & 0x81) || 1, false);
+  }
+
+  /** Puts a projectile that stepped from (px, py) into a wall back at the wall's face. */
+  private toWallFace(p: Projectile, px: number, py: number) {
+    [p.x, p.y] = contactPoint(px, py, p.x, p.y, (x, y) => this.hitsWall(p, x, y));
   }
 
   private updateProjectiles(dt: number) {
@@ -2754,19 +2772,22 @@ export class World implements LogicHost {
       else if (d.kind === "Bullet") {
         const steps = Math.max(1, Math.ceil((d.speed * dt) / Math.max(0.1, d.radius)));
         for (let i = 0; i < steps && !p.done; i++) {
+          const px = p.x, py = p.y;
           p.x += (Math.cos(p.heading) * d.speed * dt) / steps;
           p.y += (Math.sin(p.heading) * d.speed * dt) / steps;
           // a trail bullet passes through what it meets; its bursts do the striking
           const hit = !d.trail && this.projectileTarget(p);
           if (hit) this.detonate(p, true);
           else if (p.team === "monster" && this.boss?.bullet?.(p.x, p.y, p.heading, p.owner)) this.detonate(p, true);
-          // walls only (tile flag 1 and 128 in the bullet's mask); pits (flag 2) are flown over
-          else if (this.collision.collides(p.x, p.y, d.radius * 0.5, (d.collisionMask & 0x81) || 1, false)) this.detonate(p, true);
+          // a wall: the bullet goes off at its face (its destruction transient, as on a hit)
+          else if (this.hitsWall(p)) { this.toWallFace(p, px, py); this.detonate(p, true); }
         }
         if (d.trail && !p.done) this.leaveBursts(p, d.trail);
         if (!p.done && p.age * 1000 >= d.fuse) {
           p.done = true;
-          if (d.fizzleFx) this.spawnEffect(d.fizzleFx, compose([p.x, p.y, p.z], [0, 0, 0, 1], 1), 1);
+          // run out: the fizzle transient where the sprite is (the client's bullet sprite
+          // plays it for a fizzled bullet, its destruction transient otherwise)
+          if (d.fizzleFx) this.spawnEffect(d.fizzleFx, p.matrix(), 2);
         }
       } else if (p.age * 1000 >= d.fuse) this.detonate(p, false);
     }
@@ -2815,14 +2836,15 @@ export class World implements LogicHost {
       }
     }
     if (d.harmless) {
-      if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, this.collision.groundZ(p.x, p.y)], [0, 0, 0, 1], 1), 2);
+      if (d.hitFx) this.spawnEffect(d.hitFx, p.matrix(this.collision.groundZ(p.x, p.y)), 2);
       return;
     }
     // a disk on its way home strikes with its return damage
     const back = !!p.orbit?.returning && !!d.returnDamage;
     const amounts = this.amounts(back ? d.returnDamage : d.damage, p.ctx);
     const knockback = back ? d.returnKnockback ?? 0 : d.knockback;
-    if (d.hitFx) this.spawnEffect(d.hitFx, compose([p.x, p.y, bullet ? p.z : this.collision.groundZ(p.x, p.y)], [0, 0, Math.sin(p.heading / 2), Math.cos(p.heading / 2)], 1), 2);
+    // the destruction transient at the sprite's transform (a bullet where it flies, a bomb on the ground)
+    if (d.hitFx) this.spawnEffect(d.hitFx, p.matrix(bullet ? p.z : this.collision.groundZ(p.x, p.y)), 2);
     if (p.team === "knight" || p.team === "hazard") {
       for (const m of this.monsters) {
         if (m.state === "dying" || m.state === "spawning" || Math.hypot(m.x - p.x, m.y - p.y) > r + m.radius) continue;

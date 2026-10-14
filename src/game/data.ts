@@ -593,7 +593,6 @@ export class GameData {
     const det = acts.find(a => /^DamageRegion/.test(kind(a))) ?? null;
     const trail = k === "Bullet" && !p.detonationAction ? burstTrail(p, full!.ref, full!.base) : null;
     const region = det?.region?.shape;
-    const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : null);
     return {
       name: ref?.name ?? "", kind: k, model: p.sprite?.model ?? p.model ?? null,
       // Bullet: Mobile speed 6, fuse 1100, no offset or height; Bomb: fuse 2000
@@ -607,8 +606,10 @@ export class GameData {
       actions: acts.filter(a => a !== det && a?.$class),
       regionRadius: region?.radius ?? (k === "Bomb" ? 2 : 0.5),
       knockback: readKnock(det?.impulseDealt),
-      hitFx: transient(p.sprite?.destructionTransient),
-      fizzleFx: transient(p.sprite?.fizzleTransient),
+      // the sprite's own transients, whole (model/scripted/transient_sound.dat: the particles
+      // turned and scaled by its Transform, and the hit sound), played at the sprite's transform
+      hitFx: p.sprite?.destructionTransient ?? null,
+      fizzleFx: p.sprite?.fizzleTransient ?? null,
       children: [], startActions: [],
     };
   }
@@ -652,7 +653,6 @@ function findActorRef(o: any, depth = 0, isActor?: (name: string) => boolean): a
  * its startup (the satellites a mixer core spawns, and its sounds).
  */
 export function orbitalDef(name: string, p: any, k: string): ProjectileDef {
-  const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : null);
   const handlers: any[] = p.handlers ?? [];
   const shut = shutdownParts(handlers.find(h => kind(h) === "Shutdown")?.action);
   const children: any[] = [], startActions: any[] = [];
@@ -680,8 +680,8 @@ export function orbitalDef(name: string, p: any, k: string): ProjectileDef {
     actions: shut.other,
     regionRadius: region(shut.out),
     knockback: readKnock(shut.out?.impulseDealt),
-    hitFx: transient(sprite.destructionTransient),
-    fizzleFx: transient(sprite.fizzleTransient),
+    hitFx: sprite.destructionTransient ?? null,
+    fizzleFx: sprite.fizzleTransient ?? null,
     orbit: agent ? undefined : readOrbit(p, k),
     returnDamage: shut.back?.damage ?? null,
     returnKnockback: readKnock(shut.back?.impulseDealt),
