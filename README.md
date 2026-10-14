@@ -53,7 +53,7 @@ installer's folders, or `SK_DIR` if you set it) and opens the game in your brows
 everything on `localhost` only.
 
 **Controls:** WASD to move, left click to attack (hold to charge), right click to shield,
-Shift + right click or Space to dash, 1-3 or Tab to switch weapons, 4-7 for pocket items,
+Shift + right click to dash, 1-3 or Space to switch weapons, 4-7 for pocket items,
 R/T/G for battle sprite skills, F to interact, Q/E to turn the camera, Esc for options. The
 menus use the game's own keys: I arsenal, P equipment, L loadouts, U crafting, M missions,
 B map, F1 help, F6 social, F7 news, \` to lock the HUD and = to zoom. Every key can be rebound

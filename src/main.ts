@@ -789,7 +789,8 @@ class Viewer {
     world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
     world.pocket = this.save.pocket;
     await this.outfit.dress(world);
-    await world.start(spawn, this.save.loadout);
+    // towns and the Rescue Camp are safe places: the knight walks them unarmed
+    await world.start(spawn, this.save.loadout, TOWN.test(this.scene.name));
     if (arrival && !this.places.spawn(this.scene.id)) world.knight.heading = arrival.heading;
     this.eco ??= world.economy;
     this.outfit.hotkeys = (["sprite1", "sprite2", "sprite3"] as const).map(a => keyName(this.bound(a)));

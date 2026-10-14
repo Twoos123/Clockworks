@@ -572,10 +572,14 @@ export class World implements LogicHost {
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
   }
 
-  async start(at: [number, number], gear: GearLoadout = DEFAULT_LOADOUT) {
+  /**
+   * Starts the knight at a place with the loadout. `unarmed`: a safe place (towns, the Rescue
+   * Camp): the knight carries no weapons, as in the game, and the attack button only acts.
+   */
+  async start(at: [number, number], gear: GearLoadout = DEFAULT_LOADOUT, unarmed = false) {
     await this.data.depth.ready();
     const shield = await this.data.shield(gear.shield || STARTER_SHIELD);
-    const weapons = (await Promise.all((gear.weapons.length ? gear.weapons : STARTER_WEAPONS).map(n => this.data.weapon(n))))
+    const weapons = unarmed ? [] : (await Promise.all((gear.weapons.length ? gear.weapons : STARTER_WEAPONS).map(n => this.data.weapon(n))))
       .filter((w): w is WeaponDef => !!w);
     // armour and helmet: the equipped items, else the proto parts (the body model's defaults)
     const armorNames = [gear.armor || STARTER_ARMOR[0], gear.helmet || STARTER_ARMOR[1]];

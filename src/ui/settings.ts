@@ -10,7 +10,8 @@ export const ACTIONS = {
   down: { label: "Move down", key: "s" },
   left: { label: "Move left", key: "a" },
   right: { label: "Move right", key: "d" },
-  dash: { label: "Dash (also Shift + right click)", key: " " },
+  // the client binds DASH to Shift + right click only (the mouse handler); a key is optional
+  dash: { label: "Dash (also Shift + right click)", key: "" },
   interact: { label: "Pick up / use", key: "f" },
   weapon1: { label: "Weapon 1", key: "1" },
   weapon2: { label: "Weapon 2", key: "2" },
@@ -22,7 +23,8 @@ export const ACTIONS = {
   sprite1: { label: "Sprite skill 1", key: "r" },
   sprite2: { label: "Sprite skill 2", key: "t" },
   sprite3: { label: "Sprite skill 3", key: "g" },
-  cycle: { label: "Next weapon", key: "tab" },
+  // the client binds NEXT_WEAPON to Space (Command: key 32)
+  cycle: { label: "Next weapon", key: " " },
   // the HUD's menu commands on the client's default keys (Command.COMMON_KEYS); the corner
   // menus' hotkey badges show what is bound here
   arsenal: { label: "Arsenal", key: "i" },
@@ -133,11 +135,12 @@ export function loadSettings(): Settings {
 }
 
 /**
- * Saved keys over the defaults. Keys still on this port's old defaults (Forge K, Help H) move to
- * the client's (U, F1), and actions that are gone (the old Backpack on B) are dropped.
+ * Saved keys over the defaults. Keys still on this port's old defaults (Forge K, Help H, Dash
+ * Space, Next weapon Tab) move to the client's (U, F1, Shift + right click only, Space), and actions that are gone (the
+ * old Backpack on B) are dropped.
  */
 export function migrateKeys(defaults: Record<Action, string>, saved: Record<string, string>): Record<Action, string> {
-  const OLD: Partial<Record<Action, string>> = { forge: "k", help: "h" };
+  const OLD: Partial<Record<Action, string>> = { forge: "k", help: "h", dash: " ", cycle: "tab" };
   const keys = { ...defaults };
   for (const [a, k] of Object.entries(saved)) {
     if (!(a in defaults)) continue;
