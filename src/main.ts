@@ -33,6 +33,7 @@ import { GateSource } from "./game/gatesource";
 import { lockNext } from "./game/gatemap";
 import { RunSummaryScreen } from "./ui/runsummary";
 import { MusicPlayer } from "./game/musicplayer";
+import { spawnsMusic } from "./game/musicstack";
 
 /** The game app (title screen, no asset browser); the asset viewer is at #viewer (and #dev=1 for tests). */
 const GAME = !/viewer|dev=1/.test(location.hash);
@@ -968,7 +969,10 @@ class Viewer {
     // the floor's music (src/game/music.ts: gate floors by kind, theme and style, else the scene's own) and ambient loops
     this.played = true;
     this.screens();
+    // (an archived level's own music global wins over the table; its own scripted music, a
+    // boss lair's fight among it, over our fight track)
     this.music.enter({ scene: this.scene.name, sceneMusic: this.environment.music, world, arena: !!world.arena, boss: this.bossFloor,
+      archived: !GEN.test(this.scene.id), scriptsMusic: spawnsMusic(this.scene.logic),
       floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null });
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
     this.world = world;
