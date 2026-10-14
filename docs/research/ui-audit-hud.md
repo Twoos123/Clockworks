@@ -106,7 +106,7 @@ separate audit. Damage numbers, hitstop and hurt reactions belong to the combat-
 
 | What the client does | What we did | Status |
 |---|---|---|
-| Panels slide when folded or unfolded over 0.2 s (CubicOutOvershoot opening, CubicIn closing). Both corner menus fold together, and the state is saved (`menu_panels_out`) | Fold is instant, and the menus fold separately when the window is narrow | flagged |
+| Panels slide when folded or unfolded over 0.2 s (CubicOutOvershoot opening, CubicIn closing). Both corner menus fold together, and the state is saved (`menu_panels_out`) | Fold was instant, and the menus folded separately when the window was narrow | fixed (`fold` and `updateSlides` in `hud.ts`) |
 | A folded panel's handle shows `ui/icon/notice.png` when there is news, with tooltips `m.activities_tip` and `m.objectives_tip` | None | flagged |
 | Menu hotkeys come from the bound commands, truncated to 3 characters. `button_menu` has none | Fixed letters | flagged (main.ts handles a few keys directly) |
 | Objectives hang 166 px down the right edge, and the activities panel 6 px below them | Placed under the minimap's height + 8 | fixed |
@@ -131,7 +131,7 @@ separate audit. Damage numbers, hitstop and hurt reactions belong to the combat-
 | The next-level window counts down from 10 (`m.countdown`, "in 10 seconds...") and then advances on its own | No countdown; the label held our loot tally | fixed (the tally moved to the window's spare line) |
 | `labelQuit` is `m.leaveparty_return` with the town's name | Our own sentence | fixed |
 | After a choice: `Clicked-Advance` plus `HideQuit-Solo`, or `Clicked-Quit`; then the stripe's `FadeOut` | It closes at once | flagged |
-| The heat report: `title_heat.dat` and `heat_list.dat` slide in from the right. The floor's heat is counted over 3 s (`sound/feedback/heat_score.ogg`) and shared between the heatable items, then the loot cards and the bonus wheel follow. `fanfare_elevator_1.ogg` plays when the floor asks for it | No report | flagged (the largest remaining gap) |
+| The heat report: `title_heat.dat` and `heat_list.dat` slide in from the right. The floor's heat is counted over 3 s (`sound/feedback/heat_score.ogg`) and shared between the heatable items, then the loot cards and the bonus wheel follow. `fanfare_elevator_1.ogg` plays when the floor asks for it | There was no report | fixed (`src/ui/elevator.ts`) |
 | The arrival title (`title_nextfloor[-ubs/-wht].dat`) shows Gate Name, Zone Name and Depth Counter | Has its own screen | flagged (not compared in detail) |
 
 ## Help notices (`client/ar`, `dungeon/client/h`)
@@ -144,7 +144,7 @@ separate audit. Damage numbers, hitstop and hurt reactions belong to the combat-
 
 | Class | What it does | Status |
 |---|---|---|
-| `client/hud/t` (item acquire) | Each item gained flies a 3D icon (`ui/scripted/dynamic/item_acquire.dat`, with Icon, Colorizations and ItemCount). Pocket items go beside their quickbar slot; other items go 125 px in from the top-right corner. The icons are queued 300 ms apart and removed after 2 s | flagged (we show a floating text label instead) |
+| `client/hud/t` (item acquire) | Each item gained flies a 3D icon (`ui/scripted/dynamic/item_acquire.dat`, with Icon, Colorizations and ItemCount). Pocket items go 1.5 slot widths left of their quickbar slot; other items go 125 px in from the right edge and 15 px up from the bottom. The icons are queued 300 ms apart and removed after 2 s | fixed (`AcquireEntry` in `hud.ts`; a floating text label was shown before) |
 | `client/hud/n` (`interface_toosmall.dat`) | Warns when the window is under 1024 × 600, for 20 s | flagged |
 | `client/hud/r` (`ui/energy/interface_collapse.dat`) | Energy widget | n/a |
 | `dungeon/client/an` (clock timer) | `interface_clocktimer.dat` as mm:ss. The colour is `default`, then `warning`, then `suddendeath` under the thresholds, with a blip under 4 s | n/a (party timers and PvP) |
