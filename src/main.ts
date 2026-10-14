@@ -1003,7 +1003,8 @@ class Viewer {
       data: () => this.world?.data ?? new GameData(this.loader),
       save: () => this.save, sound: f => this.uiSound(f),
       write: () => { if (this.world) this.world.pocket = this.save.pocket; writeSave(this.save); this.achieve(); },
-      paused: on => { this.paused = on && !!this.world; if (!on) this.canvas.focus(); },
+      // the mission board's arsenal toggle opens the arsenal over the board, which keeps the game paused
+      paused: on => { this.paused = (on || !!this.missionBoard?.isOpen) && !!this.world; if (!on && !this.missionBoard?.isOpen) this.canvas.focus(); },
       arsenalClosed: () => { this.places.arsenalClosed(); this.achieve(); },
       outfit: () => this.outfit,
       // the equipment window's knight preview, the battle sprite page's sprite, the vendor's keeper
@@ -1122,6 +1123,10 @@ class Viewer {
     return this.missionBoard ??= new MissionBoard({
       data: this.world?.data ?? new GameData(this.loader), gui: this.gui,
       save: () => this.save, write: () => writeSave(this.save), sound: f => this.uiSound(f),
+      stream: (f, gain) => this.ensureAudio().playStream(f, gain, 2),
+      toggleArsenal: () => this.toggleArsenal(),
+      arsenalOpen: () => !!this.itemScreens?.arsenal.isOpen,
+      openForge: () => { if (!this.itemScreens?.forge.isOpen) void this.toggleArsenal("craft"); },
       pause: on => { this.paused = on && !!this.world; },
       startRun: (g, floors) => void this.enterGate(g, floors),
       openGates: () => this.openGates(),
