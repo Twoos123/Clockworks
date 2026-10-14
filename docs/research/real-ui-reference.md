@@ -350,3 +350,43 @@ From a 215-second recording; frames are in `.scratch/vid4` (one every 2 seconds,
   - "You have obtained Material (Bronze Bolt)."
   - "You have obtained Rarity (Warm Fire Crystal)."
 - **Haven activities:** Ready Room, Missions, Guild Halls, Coliseum, Party Finder, Supply Depot.
+
+## Mission board, mission lobby and loadout menus
+
+From an 83-second recording; frames are in `.scratch/vid6` (one every 2 seconds, git-ignored).
+
+- **Loadouts (L):**
+  - Clicking a loadout pops up a menu titled with its name ("Vana"): Equip Loadout, Unmark PvP,
+    Remove Loadout.
+  - The window docks at the right edge on its own when the arsenal is closed.
+- **Mission board (M):**
+  - **Header:** "MISSIONS", with "Prestige: 11,995" and "Rank: 10-3" at the top right and the
+    red close button.
+  - **Rank bar:** a cyan bar with the rank title ("VANGUARD") and a star badge at the left.
+  - **Tabs:** RANK, PRESTIGE, EXPANSION and ARCADE (big icon tabs).
+  - **Cards:** one row, each card labelled "RANK 10-2" with a lock or completed badge in its
+    corner; the selected card is outlined gold. Arrows scroll the row.
+  - **Under the cards:** the mission's name and description, and a gold objective line ("Prepare
+    for the worst and journey to the Core"). Below that, REWARDS: Prestige 150, Spark of Life,
+    "Eternal Orb of Alchemy ★5".
+  - **CONFIGURE YOUR PARTY (right):**
+    - Join Party, Create Public Party, Create Private Party and Play Solo buttons.
+    - A difficulty selector, "◀ Normal ▶".
+    - The big START button.
+  - **Featured Items (docked left of the board):** two Supply Depot sale cards (item art, star
+    rank, energy price such as ⊙3,363, "SALE", "2 hours left"), the Energy line (⊙00038), and
+    "Show Full Supply Depot".
+  - **First opening:** the intro page with the four category columns and empty panes (see the
+    mission board notes earlier).
+- **Mission lobby** (Dreams and Nightmares):
+  - The arrival banner sits at the bottom centre: "Dreams and Nightmares" in big gold, with
+    "Mission Lobby" under it.
+  - A "CURRENT OBJECTIVE:" panel docks under the minimap ("Prepare for the worst and journey to
+    the Core").
+  - The lobby has an Alchemy Machine, a vendor with the shopping cart, and the exit elevator.
+  - The knight is armed and the dungeon HUD shows.
+- **Elevator:** the whole HUD hides. Only the "Advancing to:" card shows ("Dreams and
+  Nightmares", "The Path is Revealed", "DEPTH 24", "in 09 seconds..."), with ADVANCE NOW and
+  QUIT EXPEDITION ("Leave the party and return to Haven.").
+- **Quitting the expedition:** a "REPORT" window shows the knight, then comes the loading screen
+  back to Haven.
