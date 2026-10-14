@@ -22,7 +22,7 @@
 // emblem is its symbol (ui/icon/gate/<symbol>.png) in its colour. The colours of the fixed sets
 // and the gate colours are offsets read off icons the game drew.
 
-import { BOSSES, type BossKey, type Family } from "./clockworks";
+import { BOSSES, floorIcon, type BossKey, type Family, type Floor } from "./clockworks";
 import { levelText } from "./text";
 
 export type Element = "Fire" | "Freeze" | "Poison" | "Shock";
@@ -220,6 +220,34 @@ const STAGE: Record<string, [BossKey, Record<string, string>]> = {
 const BOSS_CODE: Record<string, BossKey> = { snarb: "snarbolax", jk: "jelly", rt: "twins", vana: "vanaduke" };
 const BOSS_COLOURS: Record<BossKey, string> = { snarbolax: "gww", jelly: "rjp", twins: "imf", vanaduke: "scarlet" };
 const STAGE_ICON: Record<string, string> = { gww: "woods", rjp: "castle", imf: "munitions", fsc: "castle" };
+
+/** A map icon (ui/icon/map/<icon>.png) in one of the fixed colour sets ("haven", "brown", "gww"...). */
+export const specialIcon = (icon: string, set: string): { file: string; colorizations: any[] } =>
+  ({ file: `ui/icon/map/${icon}.png`, colorizations: SPECIAL[set] ?? SPECIAL.brown });
+
+/** A boss's own level icon, as the gate map draws its lair. */
+export const bossIcon = (boss: BossKey) => specialIcon("boss", BOSS_COLOURS[boss] ?? "scarlet");
+
+/** A boss's stage icon (the woods, castle or munitions of the stages before its lair). */
+export function bossStageIcon(boss: BossKey): { file: string; colorizations: any[] } {
+  const k = Object.keys(STAGE).find(k => STAGE[k][0] === boss);
+  return k ? specialIcon(STAGE_ICON[k], k) : bossIcon(boss);
+}
+
+/**
+ * A floor as the gate map shows it: a real gate's level, else a generated floor's (its style's
+ * icon in its stratum's family and element colours; the fixed depths' terminals and towns).
+ */
+export function floorMapLevel(f: Floor): RealLevel {
+  if (f.level) return f.level;
+  const s = f.stratum;
+  const fam = s && ["Beast", "Construct", "Fiend", "Gremlin", "Slime", "Undead"].includes(s.theme) ? s.theme as Family : null;
+  const el = s && ["Fire", "Freeze", "Poison", "Shock"].includes(s.theme) ? s.theme as Element : null;
+  const kind = f.kind === "subtown" ? "town" : f.kind;
+  if (kind === "lobby" || kind === "terminal" || kind === "town" || kind === "core") return fixedLevel(f.depth);
+  return { code: "", key: f.levelKey ?? "", title: f.name, subtitle: f.zone ?? "", icon: floorIcon(f), colorizations: themeColours(el, fam),
+    kind: kind === "boss" ? "boss" : "level", style: s?.style.key ?? null, family: fam, element: el, ...(kind === "boss" && s?.boss ? { boss: s.boss } : {}) };
+}
 
 /** A level's names from the dungeon bundle ("Set|Level"), else ours. */
 function named(key: string, title: string, subtitle: string): { title: string; subtitle: string } {

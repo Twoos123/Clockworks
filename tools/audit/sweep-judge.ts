@@ -183,7 +183,8 @@ export function judgeMonster(r: MonsterRecord): string[] {
   if ((r.speed ?? 0) > 0 && !r.move) p.push("moves but has no movement animation");
   if (!r.passive) {
     const f = r.forced;
-    if (f && !f.hits.length && !f.projectiles.length) p.push(`attack ${f.name}: no hit and no projectile`);
+    // an "attack" that is only a state change (a Glop Drop's Idle, a spawner's pause) strikes nothing by design
+    if (f && !f.hits.length && !f.projectiles.length && !/(^|[\/, ])Idle$/i.test(f.name)) p.push(`attack ${f.name}: no hit and no projectile`);
     if (f && f.hits.length && f.hits.every(h => h.dealt <= 0)) p.push(`attack ${f.name}: zero damage`);
     if (f) p.push(...failedEffects(f.effects).map(e => `attack ${f.name}: ${e}`));
     if (r.live && !r.live.attacked) p.push("never attacks (left to its own behaviour)");
