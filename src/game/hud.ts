@@ -2,7 +2,8 @@
 // health bars, floating damage numbers and a defeated screen.
 
 import { multiply, type Mat4 } from "../math";
-import type { World } from "./world";
+import type { Floater, World } from "./world";
+import { NUMBER_FONTS, numberPose } from "./feedback";
 
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D;
@@ -12,6 +13,49 @@ export class Hud {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext("2d")!;
+  }
+
+  /**
+   * A damage or heal number as the game draws it (fx_damagenumber.dat's billboarded labels):
+   * the style's font and outline, popping in and falling on the layer's path, drawn over
+   * everything (its depth test is ALWAYS).
+   */
+  private drawNumber(g: CanvasRenderingContext2D, f: Floater, project: (x: number, y: number, z: number) => [number, number] | null) {
+    const pose = numberPose(f.style!, f.age, f.seed);
+    if (!pose || pose.scale <= 0.01) return;
+    const x = f.x + pose.dx, y = f.y + pose.dy, z = f.z + pose.dz;
+    const p = project(x, y, z);
+    if (!p) return;
+    const st = NUMBER_FONTS[f.style!];
+    // the label's billboard: 0.01 world units a GUI pixel (ComponentBillboardConfig's scale)
+    // times the particle's size
+    const px = this.unitPx(x, y, z) * 0.01 * st.size * pose.scale;
+    if (px < 2) return;
+    g.save();
+    g.translate(p[0], p[1]);
+    if (pose.turn) g.rotate(-pose.turn);
+    g.font = `${st.italic ? "italic " : ""}${st.bold ? "bold " : ""}${px.toFixed(1)}px "Arial Black", "Arial", sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.lineJoin = "round";
+    g.lineWidth = px * (st.outlineSize / st.size);
+    g.strokeStyle = st.outline;
+    g.strokeText(f.text, 0, 0);
+    g.fillStyle = st.color;
+    g.fillText(f.text, 0, 0);
+    g.restore();
+  }
+
+  private unitPx: (x: number, y: number, z: number) => number = () => 0;
+  /** Loads a game image for the HUD's billboards (set by the app). */
+  image: ((file: string) => Promise<{ source: CanvasImageSource; width: number; height: number } | null>) | null = null;
+  private images = new Map<string, { source: CanvasImageSource; width: number; height: number } | null>();
+  private img(file: string) {
+    if (!this.images.has(file)) {
+      this.images.set(file, null);
+      void this.image?.(file).then(i => this.images.set(file, i));
+    }
+    return this.images.get(file) ?? null;
   }
 
   clear() {
@@ -35,6 +79,12 @@ export class Hud {
       if (cwv <= 0.01) return null;
       return [(cx / cwv * 0.5 + 0.5) * cw, (1 - (cy / cwv * 0.5 + 0.5)) * ch];
     };
+    // screen pixels per world unit for a billboard at a point (one unit along the camera's right)
+    const unitPx = (x: number, y: number, z: number) => {
+      const a = project(x, y, z), b = project(x + view[0], y + view[4], z + view[8]);
+      return a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0;
+    };
+    this.unitPx = unitPx;
 
     // monster health bars
     for (const m of this.options.healthBars ? world.liveMonsters : []) {
@@ -52,6 +102,7 @@ export class Hud {
     g.textAlign = "center";
     g.font = "bold 18px system-ui, sans-serif";
     for (const f of this.options.damageNumbers ? world.floaters : []) {
+      if (f.style) { this.drawNumber(g, f, project); continue; }
       const p = project(f.x, f.y, f.z + f.age * 1.2);
       if (!p) continue;
       g.globalAlpha = Math.max(0, 1 - f.age / 1.2);
@@ -65,15 +116,22 @@ export class Hud {
 
     const k = world.knight;
 
-    // charge meter above the knight
-    if (k.charge !== null && k.weapon) {
-      const p = project(k.x, k.y, k.z + 2.1);
-      if (p) {
-        const frac = Math.min(1, (k.charge * 1000) / k.weapon.chargeTime);
-        g.fillStyle = "rgba(0,0,0,0.6)";
-        g.fillRect(p[0] - 31, p[1] - 1, 62, 9);
-        g.fillStyle = frac >= 1 ? (Math.floor(performance.now() / 120) % 2 ? "#ffe066" : "#fff6c2") : "#8ec5ff";
-        g.fillRect(p[0] - 30, p[1], 60 * frac, 7);
+    // the charge bar (character/charge_transformed.dat): a 100 x 20 billboard at 0.015 units a
+    // pixel, 0.667 below the knight's root, at half opacity, filling with the charge; it gives
+    // way to the charge-complete effect once full
+    const progress = world.chargeProgress();
+    if (progress !== null && progress <= 1) {
+      const p = project(k.x, k.y, k.z - 0.667), u = unitPx(k.x, k.y, k.z - 0.667);
+      if (p && u > 0) {
+        const bw = 100 * 0.015 * u, bh = 20 * 0.015 * u, x0 = p[0] - bw / 2, y0 = p[1] - bh / 2;
+        g.save();
+        g.globalAlpha = 0.5;
+        const back = this.img("ui/health/chargemeter_empty.png"), fill = this.img("ui/health/chargemeter.png");
+        if (back) g.drawImage(back.source, x0, y0, bw, bh); else { g.fillStyle = "rgb(41,50,57)"; g.fillRect(x0, y0, bw, bh); }
+        const fw = Math.max(0, Math.min(1, progress));
+        if (fill && fw > 0) g.drawImage(fill.source, 0, 0, fill.width * fw, fill.height, x0, y0, bw * fw, bh);
+        else if (fw > 0) { g.fillStyle = "rgb(250,183,61)"; g.fillRect(x0, y0, bw * fw, bh); }
+        g.restore();
       }
     }
     g.textAlign = "left";

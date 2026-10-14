@@ -63,7 +63,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Area | What is in |
 |---|---|
 | Rendering | Every model and cached scene; library materials (two texture units), colours, lights (scene directional plus point, spot and directional influences, nearest eight per object), fog, particles, animation, scripted models, actor shadows, projected decals (shade under roofs and trees) |
-| Knight | Gear from the arsenal, personal colour, idle, run, hurt, death, dash; keyboard and mouse or gamepad |
+| Knight | Gear from the arsenal, personal colour, idle, walk and run sets, hurt, death, dash; keyboard and mouse (WASD or the mouse-move scheme) or gamepad; controls and timing from the client's own prediction (src/game/knight.ts: combos, charging, reloads, shield, bash, dodge, flinches, facing, auto-target) |
 | Weapons | Swords (combos with lunges, charge), guns (clips, reload, charge shots, auto-aim), bombs (charge, fuse, blast), from item and attack data |
 | Shield | Health, regeneration, breaking, shield bash from the shield's own attack |
 | Damage | Depth-scaled damage, health and defence from `config/depth_scale.dat`; four damage types; status conditions |
@@ -133,7 +133,8 @@ A single-player loop runs in the browser, built from the install's own data:
    and defence formula, bonus steps and caps, knight health (200), the heat series and its
    split between items, status chance and power levels and each condition's defaults,
    knockback impulses, attack timing, the dash, shield regeneration, config class defaults,
-   monster and boss health, trap cycles.
+   monster and boss health, trap cycles; the knight's controls and their timing, the camera,
+   and hit feedback (flash, shake, damage numbers, hit particles, charge effects).
 9. **Still ours.** The client runs no game logic (it is server code): monster AI, the boss
    directors' sequencing (bell range, Vanaduke's wet time), how power and resistance turn into
    a status's duration and chance, freeze breaking, invulnerability windows, forging levels.
@@ -150,7 +151,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Model files loaded in the browser | 5,816 of 5,816, no failures |
 | Cached scenes loaded | 12 of 12, zero unresolved references |
 | A full run, Haven to Terminal Core and back | passes (automated) |
-| Unit tests | 93 of 93 |
+| Unit tests | 150 of 150 |
 
 ## Decisions for you
 

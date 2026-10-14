@@ -15,11 +15,12 @@ export interface HelpHost extends ScreenHost {
 }
 
 const MOUSE: [string, string][] = [
-  ["Attack (click again to combo)", "Left click"],
+  ["Attack (press again during a swing to combo)", "Left click"],
   ["Charge an attack", "Hold left click, release when full"],
   ["Raise the shield", "Right click"],
-  ["Shield bash", "Left click while shielding"],
+  ["Shield bash (full shield)", "Shift + left click"],
   ["Dash", "Shift + right click"],
+  ["Closer camera (towns)", "="],
   ["Options", "Esc"],
 ];
 

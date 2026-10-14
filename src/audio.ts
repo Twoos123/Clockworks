@@ -166,7 +166,31 @@ export class AudioSystem {
     return Math.max(cfg.minGain ?? 0, Math.min(cfg.maxGain ?? 1, g));
   }
 
-  private async clip(file: string | undefined, gain: number, pitch: number, loop: boolean, cfg: any, pos: Vec3 | null, delay: number, ambient = false) {
+  /**
+   * Plays a clip sounder until the returned function stops it (a weapon's charging hum and its
+   * looping "ready" tone).
+   */
+  hold(ref: any, pos: Vec3 | null = null): () => void {
+    let stopped = false;
+    const sources: AudioBufferSourceNode[] = [];
+    if (this.ctx && !this.muted && ref) {
+      void this.resolve(ref).then(cfg => {
+        if (!cfg || stopped) return;
+        const k = kind(cfg);
+        if (k === "Clip" || k === "VariableClip") {
+          void this.clip(cfg.file, variable(cfg.gain, 1), variable(cfg.pitch, 1), !!cfg.loop, cfg, pos, 0, false,
+            s => { if (stopped) { try { s.stop(); } catch { /* not started */ } } else sources.push(s); });
+        }
+      });
+    }
+    return () => {
+      stopped = true;
+      for (const s of sources.splice(0)) { try { s.stop(); } catch { /* already stopped */ } }
+    };
+  }
+
+  private async clip(file: string | undefined, gain: number, pitch: number, loop: boolean, cfg: any, pos: Vec3 | null, delay: number, ambient = false,
+    onSource?: (s: AudioBufferSourceNode) => void) {
     if (!file || !this.ctx || !this.sfx) return;
     const att = this.attenuation(cfg, pos);
     if (att * gain < 0.01) return;
@@ -183,9 +207,10 @@ export class AudioSystem {
     g.gain.value = Math.min(2, gain * att);
     src.connect(g).connect(this.sfx);
     src.start(this.ctx.currentTime + delay);
-    // a looping clip from a one-shot trigger would never stop; cap it unless it is ambience
+    // a looping clip from a one-shot trigger would never stop; cap it unless it is ambience or held
     if (ambient) this.loops.push(src);
-    else if (loop) src.stop(this.ctx.currentTime + delay + 8);
+    else if (loop && !onSource) src.stop(this.ctx.currentTime + delay + 8);
+    onSource?.(src);
   }
 
   /** A UI feedback sound (StyleConfig feedbackSound files such as sound/feedback/ui_confirm.ogg). */

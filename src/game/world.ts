@@ -25,6 +25,8 @@ import { StatusConditions, type ActiveStatus } from "./status";
 import { itemName, monsterName } from "./text";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
+import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
+import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
@@ -41,6 +43,9 @@ export const STARTER_WEAPONS = ["Weapon/Sword/Proto Sword", "Weapon/Handgun/Prot
 const STARTER_SHIELD = "Gear/Shield/Proto Shield";
 const STARTER_ARMOR = ["Gear/Armor/Parts/Proto (Base)", "Gear/Helm/Parts/Proto (Base)"];
 /** The body model's default armour and helmet (character/pc/model.dat's own arguments). */
+/** A ConfigReference with arguments. */
+const argRef = (name: string, entries: [string, any][]) => ({ $class: "com.threerings.config.ConfigReference", name,
+  arguments: { $map: "com.threerings.config.ArgumentMap", entries } });
 const gearRef = (name: string) => ({ $class: "com.threerings.config.ConfigReference", name,
   arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Colorization", 257], ["Variant", "grey"]] } });
 const DEFAULT_GEAR = { armor: gearRef("item/gear/armor/doublebelt/model.dat"), helmet: gearRef("item/gear/helm/pith/model.dat") };
@@ -74,9 +79,15 @@ export interface KnightInput {
   interact?: boolean;
   /** The dash key went down this frame. */
   dash?: boolean;
+  /** The shield bash key went down this frame. */
+  bash?: boolean;
 }
 
-export interface Floater { x: number; y: number; z: number; text: string; color: string; age: number }
+export interface Floater {
+  x: number; y: number; z: number; text: string; color: string; age: number;
+  /** A damage or heal number in the game's style (src/game/feedback.ts), and its random pick. */
+  style?: NumberStyle; seed?: number;
+}
 
 type Phase = "start" | "fire" | "end";
 /** Hazard bullets (gun blocks, rocket blocks) strike the knight, monsters and blocks alike. */
@@ -105,6 +116,8 @@ abstract class Actor {
   defense: Amounts | null = null;
   /** Active status conditions (fire, freeze, shock...). */
   statuses: ActiveStatus[] = [];
+  /** When it was last struck (world clock, seconds), for its colour flash. */
+  flashAt = -1e9;
   abstract radius: number;
   abstract get team(): Team;
   constructor(public instance: ModelInstance, readonly scale = 1) {}
@@ -127,18 +140,21 @@ export interface Loadout { def: WeaponDef; instance: ModelInstance }
 export class Knight extends Actor {
   get team(): Team { return "knight"; }
   radius = KNIGHT_RADIUS;
-  chain = 0;
-  buffered = false;
+  /** The client's control rules: the activity, the combo's chain count, the dodge cooldown. */
+  control = new KnightControl();
+  /** The action button as the controller last saw it, and when it last changed (ms). */
+  attackFlag = false;
+  attackChanged = -1e9;
+  /** The monster auto-targeting picked this frame. */
+  target: Monster | null = null;
+  /** A weapon switch waiting for the knight to be idle or shielding. */
+  pendingSlot: number | null = null;
   invulnerable = 0;
   hurtTime = 0;
   /** Seconds since the last attack started, for a gun's chain cooldown. */
   sinceAttack = 0;
-  /** Seconds until a new combo may start (the finished attack's rearm time). */
-  rearm = 0;
   weapons: Loadout[] = [];
   slot = 0;
-  /** Attacks used from the current weapon's chain (a gun's clip). */
-  chainUsed = 0;
   shield: ShieldDef | null = null;
   armor: ArmorDef[] = [];
   /** Bonuses from armour, helmet, shield and trinkets. */
@@ -157,8 +173,6 @@ export class Knight extends Actor {
   dashCooldown = 0;
   /** Mid-dash (the lunge carries the knight). */
   dashing = false;
-  /** Seconds left staggering from a major hit (no moving or attacking). */
-  stagger = 0;
   /** Health lost recently, shown on the HUD as a damage segment that drains away. */
   recentDamage = 0;
   sinceDamage = 1e9;
@@ -313,8 +327,31 @@ export class World implements LogicHost {
   depth: number;
   difficulty: Difficulty;
   readonly audio: AudioSystem | null;
-  /** Camera shake strength from ShakeCamera actions, decaying. */
-  shake = 0;
+  /** Camera shakes under way (ShakeCamera actions): each one's spec, strength and start (clock seconds). */
+  private shakes: { spec: ShakeSpec; scale: number; at: number }[] = [];
+  /** The camera's offset from the shakes under way (world units), as Clyde's camera offsets add up. */
+  cameraShake(): [number, number, number] {
+    const o: [number, number, number] = [0, 0, 0];
+    for (const s of this.shakes) {
+      const d = shakeOffset(s.spec, s.scale, this.clock - s.at);
+      o[0] += d[0]; o[1] += d[1]; o[2] += d[2];
+    }
+    return o;
+  }
+  /** Starts a ShakeCamera felt by its distance from the camera's target (the knight, 1 up). */
+  private addShake(action: any, x: number, y: number, z: number) {
+    const spec = readShake(action), k = this.knight;
+    const scale = k ? shakeScale(spec, Math.hypot(x - k.x, y - k.y, z - (k.z + 1))) : 1;
+    if (scale > 0) this.shakes.push({ spec, scale, at: this.clock });
+  }
+  /** A damage or heal number over an actor in the game's style (fx_damagenumber.dat). */
+  private numberAt(a: Actor, text: string, style: NumberStyle, color: string) {
+    // the layer's launch point, anywhere within its placer around its offset
+    const l = NUMBER_LAYERS[style];
+    const r = l.spread * Math.cbrt(Math.random()), th = Math.random() * Math.PI * 2, ph = Math.acos(2 * Math.random() - 1);
+    this.floaters.push({ x: a.x + l.offset[0] + r * Math.sin(ph) * Math.cos(th), y: a.y + l.offset[1] + r * Math.sin(ph) * Math.sin(th),
+      z: a.z + l.offset[2] + r * Math.cos(ph), text, color, age: 0, style, seed: Math.random() });
+  }
   /** Dungeon objects: crystals, ghost blocks, explosives, prisms, gun blocks, cages (objects.ts). */
   readonly objects: DungeonObjects;
   /**
@@ -348,7 +385,7 @@ export class World implements LogicHost {
         at.x = x; at.y = y; at.rotation = source.rotation;
         at.fixedShape = { k: "circle", x, y, r };
         this.logic.execute(action, at, source);
-        this.shake = Math.max(this.shake, 0.25);
+        this.addShake({ amplitude: { x: 0, y: 0, z: 0.25 }, duration: 0.6, innerRadius: 4, outerRadius: 12 }, x, y, this.collision.groundZ(x, y));
       },
       spawn: (ref, x, y, rot, source) => { this.logic.spawn(ref, x, y, rot, source, source); },
       heal: n => this.healKnight(n),
@@ -535,7 +572,7 @@ export class World implements LogicHost {
     knight.z = this.collision.groundZ(at[0], at[1]);
     this.knight = knight;
     await Promise.all([
-      this.preload("character/pc/idle.dat", "character/pc/hurt_soft.dat", "character/pc/hurt_hard.dat",
+      this.preload("character/pc/idle.dat", "character/pc/hurt_soft.dat", "character/pc/hurt_hard.dat", "character/pc/hurt_recover.dat",
         ...["forward", "backward", "left", "right"].flatMap(d => [`character/pc/run_${d}.dat`, `character/pc/walk_${d}.dat`]),
         ...["001", "002", "003", "004", "005"].map(n => `character/pc/idle/default/${n}.dat`),
         "character/pc/dead.dat", "character/pc/death.dat", "character/pc/blend_shield.dat", "character/pc/shield_hit.dat", ...Object.values(CHARGE_ANIMS)),
@@ -544,6 +581,12 @@ export class World implements LogicHost {
       this.preload("character/pc/dodge/dodge_fire.dat", "character/pc/dodge/dodge_end.dat"),
     ]);
     this.play(knight, "character/pc/idle.dat");
+    // the hit feedback models, loaded ahead so the first hit shows (and shakes) at once
+    for (const kind of ["Crap", "Normal", "Effective"]) for (const size of ["Small", "Medium", "Large"]) {
+      void this.loader.loadRef(argRef("particle/fx_gethit_monster-scaled.dat", [["variant", `${kind} (${size})`]])).catch(() => null);
+    }
+    void this.loader.loadRef(argRef("particle/fx_gethit_player.dat", [["Color", "Red"]])).catch(() => null);
+    for (const name of ["particle/charging.dat", "particle/charging_ready.dat"]) void this.loader.loadRef({ name }).catch(() => null);
     await this.startLogic();
   }
 
@@ -736,7 +779,7 @@ export class World implements LogicHost {
             if (m.state === "dying" || m.passive || m.ally || Math.hypot(m.x - fs.x, m.y - fs.y) > fs.r + m.radius || m.health >= m.maxHealth) continue;
             const h = Math.max(1, Math.min(amount, m.maxHealth * 0.1));
             m.health = Math.min(m.maxHealth, m.health + h);
-            this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.4, text: `+${Math.round(h)}`, color: "#7bd88f", age: 0 });
+            this.numberAt(m, `+${Math.round(h)}`, "Heal", "#7bd88f");
           }
           return true;
         }
@@ -1455,7 +1498,6 @@ export class World implements LogicHost {
     this.separate();
     this.updateProjectiles(dt);
     this.runEvents();
-    this.shake = Math.max(0, this.shake - dt * 2);
     for (const e of this.effects) {
       e.life -= dt;
       e.instance?.advance(dt);
@@ -1468,7 +1510,14 @@ export class World implements LogicHost {
     }
     for (let i = this.effects.length - 1; i >= 0; i--) if (this.effects[i].life <= 0) this.effects.splice(i, 1);
     for (const f of this.floaters) f.age += dt;
-    for (let i = this.floaters.length - 1; i >= 0; i--) if (this.floaters[i].age > 1.2) this.floaters.splice(i, 1);
+    for (let i = this.floaters.length - 1; i >= 0; i--) {
+      const f = this.floaters[i];
+      if (f.age > (f.style ? numberLength(f.style) : 1.2)) this.floaters.splice(i, 1);
+    }
+    // struck actors' colour flash
+    this.knight.instance.tint = hitFlash((this.clock - this.knight.flashAt) * 1000);
+    for (const m of this.monsters) m.instance.tint = hitFlash((this.clock - m.flashAt) * 1000);
+    for (let i = this.shakes.length - 1; i >= 0; i--) if (this.clock - this.shakes[i].at >= this.shakes[i].spec.duration) this.shakes.splice(i, 1);
     for (let i = this.monsters.length - 1; i >= 0; i--) {
       const m = this.monsters[i];
       if (m.state === "dying" && m.stateTime > this.deathLength(m)) this.monsters.splice(i, 1);
@@ -1510,48 +1559,83 @@ export class World implements LogicHost {
     a.impulse = { dx, dy, t: 0, dur };
   }
 
-  /** Switches to a carried weapon: the knight model with that weapon takes over. */
+  /**
+   * Switches to a carried weapon: the knight model with that weapon takes over. The client
+   * applies a switch only while the knight is idle or shielding; one asked for meanwhile
+   * waits (Dungeoneer advancer: the weapon index is read when `Np()` or defending).
+   */
   private switchWeapon(slot: number) {
     const k = this.knight;
-    if (slot === k.slot || !k.weapons[slot] || k.attack || k.charge !== null) return;
+    if (slot === k.slot || !k.weapons[slot]) { k.pendingSlot = null; return; }
+    if (!k.control.canSwitch()) { k.pendingSlot = slot; return; }
+    k.pendingSlot = null;
     const next = k.weapons[slot];
     next.instance.time = k.instance.time;
+    next.instance.overlay = k.instance.overlay;
     k.instance = next.instance;
     k.slot = slot;
-    k.chain = 0;
-    k.chainUsed = 0;
-    k.buffered = false;
-    k.rearm = 0.2;
-    this.play(k, "character/pc/idle.dat");
+    if (!k.shielding) this.play(k, "character/pc/idle.dat");
   }
 
-  /** The aim angle, snapped to a monster in the weapon's targeting cone when there is one. */
-  /** Guns and bombs turn toward monsters near the aim (the options menu can turn it off). */
+  /** Auto-targeting (the options menu can turn it off; the client's own preference, on by default). */
   autoAimOn = true;
 
-  private autoAim(aimAngle: number): number {
+  /**
+   * The client's auto-target (`dungeon/util/b`): the nearest monster whose shape meets the
+   * triangle from the knight out `targetingDist` at `targetingAngle / 2` either side of its
+   * facing. Swords, guns and bombs all have one (3 units, 90 degrees by default).
+   */
+  private findTarget(): Monster | null {
     const k = this.knight, w = k.weapon;
-    if (!this.autoAimOn || !w || w.targetingDist <= 0) return aimAngle;
-    const cone = (w.targetingAngle * Math.PI) / 180;
-    let best: number | null = null, bestDist = Infinity;
+    if (!this.autoAimOn || !w) return null;
+    let best: Monster | null = null, bestD = Infinity;
     for (const m of this.monsters) {
-      if (m.state === "dying" || m.state === "spawning") continue;
-      const dx = m.x - k.x, dy = m.y - k.y, d = Math.hypot(dx, dy);
-      if (d > w.targetingDist + m.radius || d >= bestDist) continue;
-      const ang = Math.atan2(dy, dx);
-      if (Math.abs(Math.atan2(Math.sin(ang - aimAngle), Math.cos(ang - aimAngle))) > cone) continue;
-      best = ang; bestDist = d;
+      if (m.state === "dying" || m.state === "spawning" || m.passive || m.ally) continue;
+      if (!inTargetWedge(k.x, k.y, k.heading, w.targetingDist, w.targetingAngle, m.x, m.y, m.radius)) continue;
+      const d = (m.x - k.x) ** 2 + (m.y - k.y) ** 2;
+      if (d < bestD) { best = m; bestD = d; }
     }
-    return best ?? aimAngle;
+    return best;
+  }
+
+  /** The controller's view of the weapon in hand and the shield. */
+  private knightRules(): WeaponRules {
+    const k = this.knight, w = k.weapon;
+    const speed = this.attackRate(k);
+    const own = this.weaponBonus.get(w?.name ?? "")?.charge ?? 0;
+    return {
+      attacks: Math.min(8, w?.attacks.length ?? 0),
+      charges: !!w?.chargedAttack && !!w?.incompleteChargedAttack,
+      // Dungeoneer Rr: the charge time less the capped charge bonuses
+      chargeTime: Math.trunc((w?.chargeTime ?? 2000) * (1 - capValue("CHARGE", forWeapon(k.bonuses.charge, w?.kind) + own))),
+      maxChain: w?.maxChain ?? 0, chainCooldown: w?.chainCooldown ?? 0, cycles: w?.cycles ?? true,
+      cooldown: !!w?.cooldownAttack, bash: !!k.shield?.bash, shield: !!k.shield,
+      timing: slot => {
+        const d = this.slotDef(slot);
+        return d ? attackTiming(d, speed, slot !== "bash" && (w?.moves ?? true)) : null;
+      },
+    };
+  }
+
+  private slotDef(slot: AttackSlot): AttackDef | null {
+    const k = this.knight, w = k.weapon;
+    if (slot === "bash") return k.shield?.bash ?? null;
+    if (slot === "charged") return w?.chargedAttack ?? null;
+    if (slot === "incomplete") return w?.incompleteChargedAttack ?? null;
+    if (slot === "cooldown") return w?.cooldownAttack ?? null;
+    return w?.attacks[slot] ?? null;
   }
 
   /**
-   * Knight controls, after Spiral Knights: click to attack (clicks during an attack chain
-   * the next one), keep holding to charge and release when full for the weapon's charge
-   * attack, hold the shield button to defend, 1 to 3 to switch weapons. Swords root the
-   * knight and lunge with each swing; guns and bombs fire from the upper body while the
-   * knight walks at the weapon's attacking speed. A gun's chain is its clip: when it runs
-   * out, the cooldown attack (the reload) plays.
+   * Knight controls as the client predicts them (src/game/knight.ts): the knight always faces
+   * the pointer (when its activity lets it turn); a press starts an attack, and a press made
+   * during a swing chains the next step at the swing's rearm if the button is still down;
+   * holding through a swing charges from its rearm, and the release gives the charged attack
+   * when full (else the next step). Swords root the knight for the whole swing; guns and bombs
+   * fire on the move at the weapon's attacking speed. A gun's last shot in its clip starts the
+   * reload at its rearm. The shield goes up when idle or once an attack has rearmed; the bash
+   * (Shift + left click) needs a full shield; the dodge (Shift + right click) cannot break an
+   * attack or a charge.
    */
   private updateKnight(dt: number, input: KnightInput) {
     const k = this.knight;
@@ -1563,129 +1647,75 @@ export class World implements LogicHost {
     this.updateShieldHealth(dt);
     k.sinceDamage += dt;
     if (k.sinceDamage > 0.6) k.recentDamage = Math.max(0, k.recentDamage - dt * 60);
-    k.rearm -= dt;
     k.dashCooldown -= dt;
-    if (k.dead) { k.instance.overlay = null; this.setShieldEffect(false); return; }
+    const now = this.clock * 1000;
+    const c = k.control;
+    if (k.dead) { k.instance.overlay = null; this.setShieldEffect(false); this.endKnightActivity(); c.reset(now); return; }
     this.applyKnockback(k, dt, KNIGHT_MASK);
-    if (k.stagger > 0) { k.stagger -= dt; k.shielding = false; this.setShieldEffect(false); return; }
     if (this.tickStatuses(k, dt)) {
-      // frozen, asleep or mid-spasm: no moving or attacking
-      k.shielding = false;
-      this.setShieldEffect(false);
+      // frozen, asleep or mid-spasm: no moving, turning or acting
+      this.endKnightActivity();
+      c.reset(now);
       if (k.hurtTime <= 0) this.play(k, "character/pc/idle.dat");
       return;
     }
     if (input.weaponSlot != null) this.switchWeapon(input.weaponSlot);
 
+    // the action flag and when it last changed (ProjectXInputFrame `_actionChanged`); a click
+    // shorter than a frame still reads as down for the frame it began
+    const held = input.attackHeld || input.attackDown;
+    if (held !== k.attackFlag) { k.attackFlag = held; k.attackChanged = now; }
+    else if (input.attackDown) k.attackChanged = now;
+    const ci: ControlInput = { attack: held, attackChanged: k.attackChanged, defend: input.shield, bash: !!input.bash, dodge: !!input.dash };
+    const status: ControlStatus = {
+      move: true, rotate: true, attack: true,
+      defend: !!k.shield && k.shieldBroken <= 0,
+      fullShield: !!k.shield && k.shieldBroken <= 0 && Math.round(k.shieldHealth) >= Math.round(k.shieldMax),
+    };
+    const rules = this.knightRules();
     const weapon = k.weapon;
-    const aimAngle = this.autoAim(input.aim ? Math.atan2(input.aim[1] - k.y, input.aim[0] - k.x) : k.heading);
-    // a gun's partly used clip restores after a pause
-    if (weapon && weapon.chainCooldown > 0 && !k.attack && k.chainUsed > 0 && k.sinceAttack * 1000 > weapon.chainCooldown + 300) k.chainUsed = 0;
+    this.applyControl(c.update(now, ci, rules, status), now);
 
-    // shield: only when not attacking or charging
-    k.shielding = input.shield && !k.attack && k.charge === null && !!k.shield;
-    this.setShieldEffect(k.shielding);
-
-    // shield bash: attack with the shield up and a full bar; it costs half the bar
-    // (the client allows a bash only at full shield health; it costs bashHealthPct of it)
-    if (input.attackDown && k.shielding && k.shield?.bash && k.shieldBroken <= 0 && Math.round(k.shieldHealth) >= Math.round(k.shieldMax)) {
-      k.shieldHealth -= k.shieldMax * (k.shield.bash.bashHealthPct ?? 0.5);
-      k.sinceShieldHit = 0;
-      k.shielding = false;
-      this.setShieldEffect(false);
-      k.heading = aimAngle;
-      this.startAttack(k, k.shield.bash);
-      input = { ...input, attackDown: false };
-    }
-    // dash: a quick dodge along the movement direction (or facing), briefly untouchable
-    if (input.dash && !k.attack && k.charge === null && k.dashCooldown <= 0) {
-      const [mx0, my0] = input.move;
-      // a moving knight dashes the way it moves, a standing one the way it faces
-      const dir = Math.hypot(mx0, my0) > 0.01 ? Math.atan2(my0, mx0) : k.heading;
-      k.heading = dir;
-      k.dashCooldown = DASH.cooldown;
-      if (k.shielding) { k.shielding = false; this.setShieldEffect(false); }
-      k.impulse = null;
-      this.addImpulse(k, Math.cos(dir) * DASH.distance, Math.sin(dir) * DASH.distance, DASH.time / Math.max(0.05, this.statusSpeed(k)));
-      this.play(k, "character/pc/dodge/dodge_fire.dat", { loop: false, blend: 0.04 });
-      void this.spawnEffect({ name: "character/pc/dodge/part_dodge_fire.dat" }, k.matrix(), 1, k);
-      k.hurtTime = DASH.time;
-      k.dashing = true;
-      return;
-    }
-    if (k.dashing) {
-      if (k.impulse) return;
-      // landing: the end pose, and a moment the monsters cannot touch the knight
-      k.dashing = false;
-      k.invulnerable = Math.max(k.invulnerable, DASH.guard);
-      this.play(k, "character/pc/dodge/dodge_end.dat", { loop: false, blend: 0.05 });
-      k.hurtTime = 0.15;
-    }
-    // attack input: bombs (charge-only weapons) start charging on the press
-    if (input.attackDown && !k.shielding) {
-      if (!k.attack && k.charge === null && k.rearm <= 0) {
-        if (weapon && !weapon.attacks.length && weapon.chargedAttack) k.charge = 0;
-        else this.knightAttack(0, aimAngle);
-      } else if (k.attack) k.buffered = true;
-    }
-
-    this.applyLunge(k, dt, KNIGHT_MASK);
-    if (k.attack) {
-      if (k.attack.overlay) k.turnToward(aimAngle, 20, dt);
-      this.advanceAttack(k, dt, () => {
-        if (!k.buffered) return false;
-        if (weapon && weapon.maxChain > 0 && k.chainUsed >= weapon.maxChain) return false;
-        const next = (k.chain + 1) % Math.max(1, k.attacks.length);
-        if (next === 0 && weapon?.kind === "Sword") return false;
-        this.knightAttack(next, aimAngle);
-        return true;
-      });
-      if (!k.attack) this.afterAttack(k, input);
-    } else if (k.charge !== null) {
-      k.turnToward(aimAngle, 18, dt);
-      if (input.attackHeld) {
-        k.charge += dt;
-        this.overlay(k, CHARGE_ANIMS[weapon?.kind ?? "Other"], true);
-      } else {
-        const own = this.weaponBonus.get(weapon?.name ?? "")?.charge ?? 0;
-        const full = k.charge * 1000 >= Math.trunc((weapon?.chargeTime ?? 2000) * (1 - capValue("CHARGE", forWeapon(k.bonuses.charge, weapon?.kind) + own)));
-        k.charge = null;
-        k.instance.overlay = null;
-        const def = full ? weapon?.chargedAttack : weapon?.incompleteChargedAttack;
-        if (def) { k.heading = aimAngle; k.sinceAttack = 0; this.startAttack(k, def, this.overlayAttacks(weapon)); }
-      }
-    }
-
-    // swords: no walking during a swing; the swing's own lunge moves the knight. After the
-    // clear window (or any time in an interruptable follow-through) moving cancels it.
-    // Guns and bombs walk at the weapon's attacking speed.
+    // facing: the pointer's direction (TudeySceneController's rotation) whenever the activity
+    // allows turning; a blended attack before its rearm keeps to its target
     const [mx, my] = input.move;
     const len = Math.hypot(mx, my);
-    // Dungeoneer speed: status x (1 + capped speed bonus) x the weapon's charging speed or
-    // the shield's (1 + defending speed)
-    let factor = (k.charge !== null ? weapon?.chargingSpeed ?? 1 : k.shielding ? 1 + (k.shield?.defendingSpeed ?? 0) : 1) * this.statusSpeed(k) * (1 + capValue("SPEED", k.bonuses.speed));
-    if (k.attack) {
-      const at = k.attack;
-      if (at.overlay) factor *= weapon?.attackingSpeed ?? 1;
-      else {
-        const canCancel = at.phase === "end" && (at.def.interruptable || at.t * 1000 >= at.def.clear);
-        if (!(canCancel && len > 0.01)) return;
-        k.attack = null;
-        k.chain = 0;
-      }
+    const moving = len > 0.01;
+    if (c.allowsRotation(now)) {
+      const t = k.target;
+      if (c.isAttack() && !c.rearmed(now) && t && t.state !== "dying") k.heading = Math.atan2(t.y - k.y, t.x - k.x);
+      else if (input.aim) k.heading = Math.atan2(input.aim[1] - k.y, input.aim[0] - k.x);
+      else if (moving) k.heading = Math.atan2(my, mx);
     }
-    const facing = k.attack || k.charge !== null || k.shielding;
-    if (len > 0.01 && factor > 0.01) {
-      this.move(k, (mx / len) * KNIGHT_SPEED * factor * dt, (my / len) * KNIGHT_SPEED * factor * dt, KNIGHT_MASK);
-      if (!facing) k.turnToward(Math.atan2(my, mx), 16, dt);
-      else if (!k.attack) k.turnToward(aimAngle, 12, dt);
-      this.playMovement(k, Math.atan2(my, mx), KNIGHT_SPEED * factor);
-    } else {
-      if (k.shielding) k.turnToward(aimAngle, 12, dt);
-      if (k.hurtTime <= 0) this.playIdle(k);
-    }
+    // auto-target (`Sc`): picked each frame in the wedge ahead, not while walking for weapons
+    // that target only standing still
+    k.target = weapon && (weapon.targetingMoving || !moving) ? this.findTarget() : null;
 
-    // upper body: shield pose when defending, nothing otherwise
+    this.applyControl(c.act(now, ci, rules, DASH.cooldown * 1000, status), now, input);
+    if (k.pendingSlot != null) this.switchWeapon(k.pendingSlot);
+
+    // the activity under way
+    const act = c.activity;
+    if (k.attack) this.advanceAttack(k, dt, false);
+    if (act.kind === "charge") {
+      k.charge = (now - act.started) / 1000;
+      this.overlay(k, CHARGE_ANIMS[weapon?.kind ?? "Other"], true);
+      this.updateChargeFx(now - act.started > rules.chargeTime);
+    }
+    k.shielding = act.kind === "defend";
+    this.setShieldEffect(k.shielding || act.kind === "shieldHit");
+
+    // walking: the Dungeoneer's speed (status x capped speed bonus x the activity's factor)
+    const factor = c.speedFactor({ chargingSpeed: weapon?.chargingSpeed ?? 1, attackingSpeed: weapon?.attackingSpeed ?? 1 }, k.shield?.defendingSpeed ?? 0)
+      * this.statusSpeed(k) * (1 + capValue("SPEED", k.bonuses.speed));
+    const whole = (k.attack && !k.attack.overlay) || act.kind === "dodge" || act.kind === "hurtHard" || act.kind === "recover" || act.kind === "shieldHit";
+    if (moving && c.allowsMovement() && factor > 0.01) {
+      const sp = KNIGHT_SPEED * factor;
+      this.move(k, (mx / len) * sp * dt, (my / len) * sp * dt, KNIGHT_MASK);
+      if (!whole) this.playMovement(k, Math.atan2(my, mx), sp);
+    } else if (!whole && k.hurtTime <= 0 && act.kind !== "attack") this.playIdle(k);
+
+    // upper body: the shield pose while defending
     if (!k.attack && k.charge === null) {
       const o = k.instance.overlay;
       const hit = o?.clip.path === "character/pc/shield_hit.dat" && !k.instance.overlayFinished;
@@ -1695,14 +1725,144 @@ export class World implements LogicHost {
   }
 
   /**
-   * The knight's QuadMovement: forward, backward, left or right by the move direction
-   * relative to facing, walking (speed 1) or running (speed 6) by actual speed.
+   * The charge's own effects (the knight sprite's charge activity): particle/charging.dat with
+   * the charging sound for the weapon's charge time (the 2, 3 or 5 second clip), then, once
+   * held past the charge time, particle/charging_ready.dat with the completion chime and the
+   * looping ready hum.
+   */
+  private chargeFx: { full: boolean; effect: Effect | null; stops: (() => void)[]; gen: number } | null = null;
+  private chargeGen = 0;
+  private updateChargeFx(full: boolean) {
+    const k = this.knight, fx = this.chargeFx;
+    if (fx && fx.full === full) return;
+    this.endChargeFx();
+    const gen = ++this.chargeGen;
+    const pos: Vec3 = [k.x, k.y, k.z];
+    const clip = (file: string, gain: number, looping = false) => argRef(looping ? "Clip/Looping (Gain)" : "Clip/Default (Gain)",
+      [["File", file], ["Gain", gain], ["Range", "Medium"]]);
+    const stops: (() => void)[] = [];
+    if (!full) {
+      const secs = Math.trunc(this.knightRules().chargeTime / 1000);
+      const len = secs <= 2 ? 2 : secs <= 3 ? 3 : 5;
+      if (this.audio) stops.push(this.audio.hold(clip(`sound/effect/weapon/charging_${len}second_mono_01.ogg`, 1), pos));
+    } else {
+      this.audio?.play(clip("sound/effect/weapon/charge_complete_01.ogg", 0.3), pos);
+      if (this.audio) stops.push(this.audio.hold(clip("sound/effect/weapon/charging_idle_01.ogg", 1, true), pos));
+    }
+    this.chargeFx = { full, effect: null, stops, gen };
+    void this.attachEffect({ name: full ? "particle/charging_ready.dat" : "particle/charging.dat" }, k).then(e => {
+      if (!e) return;
+      if (this.chargeFx?.gen === gen) this.chargeFx.effect = e;
+      else e.life = 0;
+    });
+  }
+  private endChargeFx() {
+    const fx = this.chargeFx;
+    if (!fx) return;
+    this.chargeFx = null;
+    if (fx.effect) fx.effect.life = 0;
+    for (const s of fx.stops) s();
+  }
+
+  /** A transient model kept on an actor until its effect's life is set to 0. */
+  private async attachEffect(ref: any, follow: Actor): Promise<Effect | null> {
+    const model = await this.loader.loadRef(ref).catch(() => null);
+    if (!model) return null;
+    const e: Effect = { instance: await this.instantiate(model), matrix: follow.matrix(), life: 1e9, follow };
+    this.effects.push(e);
+    return e;
+  }
+
+  /** How far the knight's charge is (0 to 1 at the charge time, more when held past it), or null when not charging. */
+  chargeProgress(): number | null {
+    const a = this.knight?.control.activity;
+    if (!a || a.kind !== "charge") return null;
+    return (this.clock * 1000 - a.started) / Math.max(1, this.knightRules().chargeTime);
+  }
+
+  /** Stops whatever the knight was playing for its activity (an attack, a charge, the shield). */
+  private endKnightActivity() {
+    const k = this.knight;
+    this.endChargeFx();
+    if (k.attack) {
+      if (k.attack.overlay) k.instance.overlay = null;
+      this.weaponAnim(k, "ks_default", true);
+    }
+    k.attack = null;
+    if (k.charge !== null) k.instance.overlay = null;
+    k.charge = null;
+    if (k.shielding) { k.shielding = false; this.setShieldEffect(false); }
+  }
+
+  /** Plays what the controller started this frame, each from the moment it began. */
+  private applyControl(events: ControlEvent[], now: number, input?: KnightInput) {
+    const k = this.knight;
+    for (const e of events) {
+      const late = Math.max(0, now - e.at) / 1000;
+      if (e.type === "idle") {
+        const wasDodge = k.dashing;
+        this.endKnightActivity();
+        if (wasDodge) {
+          // the landing: the end pose, and a moment the monsters cannot touch the knight (ours)
+          k.dashing = false;
+          k.invulnerable = Math.max(k.invulnerable, DASH.guard);
+          this.play(k, "character/pc/dodge/dodge_end.dat", { loop: false, blend: 0.05 });
+          k.hurtTime = 0.15;
+        }
+      } else if (e.type === "attack") {
+        const def = this.slotDef(e.slot);
+        this.endKnightActivity();
+        if (!def) continue;
+        if (e.slot === "bash") {
+          // the bash costs bashHealthPct of the shield (its cost is server code; the client needs it full)
+          k.shieldHealth -= k.shieldMax * (k.shield?.bash?.bashHealthPct ?? 0.5);
+          k.sinceShieldHit = 0;
+        } else if (e.slot !== "cooldown") {
+          // an attack faces its target (`eO`)
+          const t = k.target;
+          if (t && t.state !== "dying") k.heading = Math.atan2(t.y - k.y, t.x - k.x);
+        }
+        k.sinceAttack = 0;
+        const timing = k.control.activity.timing;
+        this.startAttack(k, def, !!timing?.moves);
+        if (late > 0 && k.attack) this.advanceAttack(k, late, false);
+      } else if (e.type === "charge") {
+        this.endKnightActivity();
+        k.charge = late;
+        this.overlay(k, CHARGE_ANIMS[k.weapon?.kind ?? "Other"], true);
+      } else if (e.type === "defend") {
+        this.endKnightActivity();
+        k.shielding = true;
+        this.setShieldEffect(true);
+      } else if (e.type === "recover") {
+        this.play(k, "character/pc/hurt_recover.dat", { loop: false, blend: 0.05 });
+        k.hurtTime = 0.4 - late;
+      } else if (e.type === "dodge") {
+        // a quick dodge along the movement direction, or the facing (`Se`); the knight keeps
+        // facing where it faced
+        this.endKnightActivity();
+        const [mx0, my0] = input?.move ?? [0, 0];
+        const dir = Math.hypot(mx0, my0) > 0.01 ? Math.atan2(my0, mx0) : k.heading;
+        k.dashCooldown = DASH.cooldown;
+        k.impulse = null;
+        this.addImpulse(k, Math.cos(dir) * DASH.distance, Math.sin(dir) * DASH.distance, DASH.time / Math.max(0.05, this.statusSpeed(k)));
+        this.play(k, "character/pc/dodge/dodge_fire.dat", { loop: false, blend: 0.04 });
+        void this.spawnEffect({ name: "character/pc/dodge/part_dodge_fire.dat" }, k.matrix(), 1, k);
+        k.hurtTime = DASH.time;
+        k.dashing = true;
+      }
+    }
+  }
+
+  /**
+   * The knight's QuadMovement (Character/PC/Default): walking at speed 1 or running at speed
+   * 6, whichever is nearer the actual speed, played at speed / that; forward, left, backward or
+   * right by the movement direction against the facing, the side ones taking a little more than
+   * their quarter (ActorSprite `getMovement`).
    */
   private playMovement(k: Knight, dir: number, speed: number) {
-    const rel = Math.atan2(Math.sin(dir - k.heading), Math.cos(dir - k.heading));
-    const side = Math.abs(rel) < Math.PI / 4 ? "forward" : Math.abs(rel) > (3 * Math.PI) / 4 ? "backward" : rel > 0 ? "left" : "right";
-    const run = speed > 3.5;
-    this.play(k, `character/pc/${run ? "run" : "walk"}_${side}.dat`, { speed: Math.max(0.4, speed / (run ? KNIGHT_SPEED : 2)) });
+    const m = quadMovement(dir, k.heading, speed);
+    this.play(k, `character/pc/${m.set}_${m.side}.dat`, { speed: m.rate });
   }
 
   /** Weighted idle variations (Character/PC/Default idles): mostly 001, now and then another. */
@@ -1718,35 +1878,6 @@ export class World implements LogicHost {
     }
     if (path.startsWith("character/pc/idle/default/") && !k.instance.finished) return;
     this.play(k, "character/pc/idle/default/001.dat", { loop: true, blend: 0.2 });
-  }
-
-  /** Weapons with an attacking speed fire from the upper body while the knight walks. */
-  private overlayAttacks(w: WeaponDef | null) { return w?.attackingSpeed != null; }
-
-  /** After an attack ends: a spent gun reloads; holding the button starts a charge. */
-  private afterAttack(k: Knight, input: KnightInput) {
-    const w = k.weapon;
-    if (!w) return;
-    if (w.maxChain > 0 && k.chainUsed >= w.maxChain && w.cooldownAttack) {
-      k.chainUsed = 0;
-      k.chain = 0;
-      this.startAttack(k, w.cooldownAttack, this.overlayAttacks(w));
-      return;
-    }
-    if (input.attackHeld && w.chargedAttack && !k.buffered) k.charge = 0;
-  }
-
-  private knightAttack(index: number, aimAngle: number) {
-    const k = this.knight, w = k.weapon;
-    if (!k.attacks.length || !w) return;
-    k.chain = index;
-    k.buffered = false;
-    k.heading = aimAngle;
-    k.sinceAttack = 0;
-    // only weapons with a cooldown attack (guns) carry their chain count between combos
-    if (index === 0 && !w.cooldownAttack) k.chainUsed = 0;
-    k.chainUsed++;
-    this.startAttack(k, k.attacks[index], this.overlayAttacks(w));
   }
 
   /**
@@ -1767,11 +1898,23 @@ export class World implements LogicHost {
   }
 
   private shieldFx: Effect | null = null;
+  /** The bubble's "Power" in quarters of the shield's health (the knight sprite's `bio`). */
+  private shieldPower = -1;
+  /**
+   * The shield bubble while defending: the shield's effect with "Power" set to its health in
+   * quarters (25, 50, 75, 100), remade when the quarter changes, as the knight sprite does.
+   */
   private setShieldEffect(on: boolean) {
     const k = this.knight;
+    const level = k.shield ? Math.round(4 * Math.max(0, k.shieldHealth) / Math.max(1, k.shieldMax)) : 4;
+    if (on && this.shieldFx && level !== this.shieldPower) { this.shieldFx.life = 0; this.shieldFx = null; }
     if (on && !this.shieldFx && k.shield?.effect && !this.shieldLoading) {
       this.shieldLoading = true;
-      this.loader.loadRef(k.shield.effect).then(async m => {
+      this.shieldPower = level;
+      const base = k.shield.effect;
+      const entries = ((base.arguments?.entries ?? []) as [string, any][]).filter(([n]) => n !== "Power");
+      const ref = { ...base, arguments: { $map: "com.threerings.config.ArgumentMap", entries: [...entries, ["Power", String(level * 25)]] } };
+      this.loader.loadRef(ref).then(async m => {
         if (m && this.knight.shielding) {
           this.shieldFx = { instance: await this.instantiate(m), matrix: k.matrix(), life: 1e9, follow: k };
           this.effects.push(this.shieldFx);
@@ -1838,10 +1981,10 @@ export class World implements LogicHost {
   /**
    * Steps an attacker through the AttackConfig's timing: it lands (fires) `land / startSpeed`
    * after it starts, is rearmed `rearm / fireSpeed` after that, and clears `clear /
-   * endSpeed` later, all faster with attack speed. `chain` may start the next attack in a
-   * combo once it has rearmed.
+   * endSpeed` later, all faster with attack speed. A monster's attack ends there; the
+   * knight's ends when its controller says so (`ends` false), which keeps the same times.
    */
-  private advanceAttack(a: Actor, dt: number, chain?: () => boolean) {
+  private advanceAttack(a: Actor, dt: number, ends = true) {
     const at = a.attack!;
     dt *= this.attackRate(a);
     at.t += dt;
@@ -1861,21 +2004,12 @@ export class World implements LogicHost {
       if (at.t * 1000 >= d.land / d.startSpeed) this.enterFire(a);
     } else if (at.phase === "fire") {
       if (at.t * 1000 >= d.rearm / d.fireSpeed) {
-        if (chain?.()) return;
         at.phase = "end";
         at.t = 0;
         if (d.end) this.animate(a, d.end, d.endSpeed);
       }
-    } else if (at.phase === "end") {
-      if (chain?.()) return;
-      if (at.t * 1000 >= d.clear / d.endSpeed) {
-        a.attack = null;
-        if (a === this.knight) {
-          this.weaponAnim(this.knight, "ks_default", true);
-          this.knight.chain = 0;
-          if (at.overlay) this.knight.instance.overlay = null;
-        }
-      }
+    } else if (at.phase === "end" && ends && at.t * 1000 >= d.clear / d.endSpeed) {
+      a.attack = null;
     }
   }
 
@@ -2285,7 +2419,12 @@ export class World implements LogicHost {
       if (m.def.react) this.play(m, m.def.react, { loop: false, blend: 0.05 });
     }
     m.health -= dmg;
-    this.floaters.push({ x: m.x, y: m.y, z: m.z + 1.2, text: String(dmg), color: TYPE_COLORS[mainType(amounts)], age: 0 });
+    // the client's hit feedback: the hit particle for how the hit performed (with its camera
+    // shake), the damage number in that style, and a red flash
+    const perf = performanceOf(dmg, Math.max(1, Math.round(dealt(amounts, null, bonus))), m.maxHealth);
+    this.numberAt(m, "-" + dmg, numberStyle(perf), TYPE_COLORS[mainType(amounts)]);
+    m.flashAt = this.clock;
+    void this.spawnEffect(argRef("particle/fx_gethit_monster-scaled.dat", [["variant", performanceVariant(perf)]]), compose([m.x, m.y, m.z], [0, 0, 0, 1], 1), 1);
     this.knock(m, fx, fy, knockback);
     if (m.def.hitFx) this.spawnEffect(m.def.hitFx, compose([m.x, m.y, m.z + 0.5], [0, 0, 0, 1], 1), 0.8);
     if (m.health <= 0) {
@@ -2316,13 +2455,17 @@ export class World implements LogicHost {
   private damageKnight(amounts: Amounts, knockback: Knock, fx: number, fy: number) {
     const k = this.knight;
     if (k.invulnerable > 0 || k.dead) return;
-    // a raised shield takes hits from every direction until it breaks
-    if (k.shielding && k.shieldBroken <= 0 && k.shield) {
+    const now = this.clock * 1000, c = k.control;
+    // a raised shield (or one recoiling from a hit) takes hits from every direction until it breaks
+    if ((k.shielding || c.activity.kind === "shieldHit") && k.shieldBroken <= 0 && k.shield) {
       const sdmg = Math.max(1, Math.round(dealt(amounts, k.shieldDefense)));
       k.shieldHealth -= sdmg;
       k.sinceShieldHit = 0;
       this.knock(k, fx, fy, knockback, 0.3);
       k.invulnerable = 0.25;
+      // the shield's recoil (activity 277: 411 ms, no walking), then back up if still held
+      this.endKnightActivity();
+      c.hurt("shieldHit", now);
       this.overlay(k, "character/pc/shield_hit.dat");
       if (k.shieldHealth > 0) return;
       k.shieldHealth = 0;
@@ -2339,21 +2482,50 @@ export class World implements LogicHost {
     k.recentDamage += before - k.health;
     k.sinceDamage = 0;
     k.invulnerable = 0.5;
-    this.floaters.push({ x: k.x, y: k.y, z: k.z + 1.5, text: String(dmg), color: "#ff6b6b", age: 0 });
+    this.knightHitFeedback(amounts, dmg);
     this.knock(k, fx, fy, knockback);
     if (k.health <= 0) {
       this.knockOut();
-    } else if ((amounts as any).major && this.clip("character/pc/hurt_hard.dat")) {
-      // a major hit staggers the whole body, interrupting an attack or a charge
-      k.attack = null;
-      k.charge = null;
+      return;
+    }
+    // the hit reactions the client plays (the server picks them): a heavy hit knocks the
+    // knight down (275, no walking) and it gets up (276, 400 ms); any other hit is a flinch
+    // (274, 500 ms) that walks but cannot attack, shield or dodge. Either breaks off an
+    // attack or a charge.
+    this.endKnightActivity();
+    k.dashing = false;
+    const hard = (amounts as any).major ? this.clip("character/pc/hurt_hard.dat") : null;
+    if (hard) {
       k.instance.overlay = null;
       this.play(k, "character/pc/hurt_hard.dat", { loop: false, blend: 0.05 });
-      k.stagger = k.hurtTime = k.instance.duration;
-    } else if (!k.attack) {
-      k.hurtTime = 0.35;
-      k.charge = null;
+      const len = hard.frames.length > 1 ? (hard.frames.length - 1) / hard.rate : 0.5;
+      k.hurtTime = len;
+      c.hurt("hurtHard", now, len * 1000);
+    } else {
+      k.hurtTime = 0.5;
       this.overlay(k, "character/pc/hurt_soft.dat");
+      c.hurt("hurt", now);
+    }
+  }
+
+  /**
+   * The knight's side of a hit (the knight sprite): its hit transient (fx_gethit_player, red),
+   * a red flash, and hearts bursting out per damage type in that type's colour
+   * (fx_damagenumber-pc.dat) instead of a number.
+   */
+  private knightHitFeedback(amounts: Amounts, dmg: number) {
+    const k = this.knight;
+    k.flashAt = this.clock;
+    void this.spawnEffect(argRef("particle/fx_gethit_player.dat", [["Color", "Red"]]), k.matrix(), 1.2, k);
+    let raw = 0;
+    for (const t of DAMAGE_TYPES) raw += Math.max(0, amounts[t]);
+    raw += Math.max(0, amounts.UNBLOCKABLE ?? 0);
+    if (raw <= 0) return;
+    for (const t of [...DAMAGE_TYPES, "UNBLOCKABLE"] as const) {
+      const a = Math.max(0, (amounts as any)[t] ?? 0);
+      if (a <= 0) continue;
+      void this.spawnEffect(argRef("particle/fx_damagenumber-pc.dat", [["number", heartCount(dmg * a / raw)], ["type", HEART_TYPES[t] ?? "Normal"]]),
+        k.matrix(), 1.5, k);
     }
   }
 
@@ -2408,7 +2580,7 @@ export class World implements LogicHost {
     for (const s of m.statuses) amount *= s.def.heal;
     const before = m.health;
     m.health = Math.min(m.maxHealth, m.health + amount);
-    if (m.health > before) this.floaters.push({ x: m.x, y: m.y, z: m.z + 2, text: `+${Math.round(m.health - before)}`, color: "#7bd88f", age: 0 });
+    if (m.health > before) this.numberAt(m, `+${Math.round(m.health - before)}`, "Heal", "#7bd88f");
   }
 
   /** Deals a DamageConfig to the knight from a point (beams and hazards a director runs). */
@@ -2785,11 +2957,7 @@ export class World implements LogicHost {
       case "PlaySound":
         this.audio?.play(action.sounder, [matrix[12], matrix[13], matrix[14]]);
         break;
-      case "ShakeCamera": {
-        const d = Math.hypot(matrix[12] - this.knight.x, matrix[13] - this.knight.y);
-        this.shake = Math.max(this.shake, (action.amplitude ?? 0.3) / (1 + d * 0.3));
-        break;
-      }
+      case "ShakeCamera": this.addShake(action, matrix[12], matrix[13], matrix[14]); break;
       case "Compound": for (const a of action.actions ?? []) this.modelAction(a, matrix, follow, depth + 1); break;
       case "Random": {
         const list: any[] = action.actions ?? [];
