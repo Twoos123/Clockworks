@@ -200,6 +200,13 @@ const QUEUE_ORDER: Record<string, number> = {
 const queueRank = (m: { queue: string; subQueue?: string }) =>
   (QUEUE_ORDER[m.queue] ?? 2) * 10 + (m.subQueue ? QUEUE_ORDER[m.subQueue] ?? 2 : 0);
 /**
+ * Mesh draw order: by queue, then by the material's enqueuer priority (RenderQueue keeps one
+ * batch list per priority and renders them in rising order), keeping the collection order
+ * otherwise (the sort is stable).
+ */
+export const drawOrder = (a: { queue: string; subQueue?: string; priority?: number }, b: { queue: string; subQueue?: string; priority?: number }) =>
+  queueRank(a) - queueRank(b) || (a.priority ?? 0) - (b.priority ?? 0);
+/**
  * The skybox render queues (config/render_queue.dat, RenderQueueConfig.Skybox): drawn first,
  * by priority, each with its field of view scaled and the depth buffer cleared afterwards.
  */
@@ -341,6 +348,8 @@ export class ModelInstance {
    * the client flashes a struck actor red, fading to white).
    */
   tint: Tint = null;
+  /** False leaves this instance and its attachments undrawn (a debugging aid). */
+  visible = true;
   readonly parts: GpuPart[] = [];
   readonly children: { node: string; transform: Mat4; instance: ModelInstance }[] = [];
   /** Node name -> local transform (bind pose). */
@@ -1281,6 +1290,7 @@ export class Renderer {
     // models below it (armour inside compound/conditional wrappers on a knight)
     const collect = (inst: ModelInstance, placement: Mat4, skel: { inst: ModelInstance; placement: Mat4 } | null = null, parentTint: Tint = null,
       filter: QueueFilter = undefined) => {
+      if (!inst.visible) return;
       inst.update(frame);
       const tint = inst.tint ?? parentTint;
       if (inst.model.light && !this.skyboxPass) lights.push(placeLight(inst.model.light, placement));
@@ -1360,7 +1370,7 @@ export class Renderer {
     let total = 0;
     for (const b of batches) total += b.matrices.length;
     if (this.instanceData.length < total * 16) this.instanceData = new Float32Array(total * 16 * 2);
-    const order = batches.sort((a, b) => queueRank(a.gp.part.material) - queueRank(b.gp.part.material));
+    const order = batches.sort((a, b) => drawOrder(a.gp.part.material, b.gp.part.material));
     const offsets: number[] = [];
     let at = 0;
     for (const b of order) {

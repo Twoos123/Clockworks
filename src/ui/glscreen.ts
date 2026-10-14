@@ -18,7 +18,7 @@
 import { invert, multiply, compose, readTransform, type Mat4 } from "../math";
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer, SkyboxItem } from "../render/renderer";
-import { VIEWER_ENVIRONMENT, type Environment } from "../environment";
+import { UNLIT_VIEW_ENVIRONMENT, type Environment } from "../environment";
 import { buildInterface, dispatch, layout, pack, render, resetInput, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { buildUi, uiRef } from "./screen";
 import { ScriptRunner } from "./script";
@@ -109,8 +109,11 @@ export abstract class GlScreen {
   protected viewModel(_c: Component, vm: any, _index: number): any { return vm?.model ?? null; }
   /** The animation a view's first model idles with, when its config starts none. */
   protected viewIdle(_c: Component): string | null { return null; }
-  /** The lights a view's models are drawn under. */
-  protected viewEnv(_c: Component): Environment { return VIEWER_ENVIRONMENT; }
+  /**
+   * The lights a view's models are drawn under: none, as in Clyde (a RenderableView's models are
+   * in no scene, so only passes with a light override of their own are lit).
+   */
+  protected viewEnv(_c: Component): Environment { return UNLIT_VIEW_ENVIRONMENT; }
 
   async show() {
     this.shown = true;
@@ -276,6 +279,39 @@ export abstract class GlScreen {
     if (!this.overlay) return false;
     this.overlay = null;
     return true;
+  }
+
+  /** Every view's loaded model instances, in tree order (a debugging aid). */
+  viewInstances(): ModelInstance[] {
+    const out: ModelInstance[] = [];
+    if (this.root) walk(this.root, c => { for (const m of this.views.get(c)?.models ?? []) out.push(m.instance); });
+    return out;
+  }
+
+  /**
+   * A console handle on the screen's views (window.__title in development): `instance(v)` is
+   * view v's first model; `attachments(v)` lists its attachments by index with their model
+   * paths and nodes; `hide(i, v)` / `show(i, v)` toggle one attachment (-1: the model's own
+   * parts and all), `parts(v)` lists the model's own mesh parts with their material, queue and
+   * priority.
+   */
+  debugHandle() {
+    const at = (v = 0) => this.viewInstances()[v] ?? null;
+    const set = (i: number, v: number, on: boolean) => {
+      const inst = at(v);
+      const target = i < 0 ? inst : inst?.children[i]?.instance;
+      if (target) target.visible = on;
+      return !!target;
+    };
+    return {
+      screen: this,
+      instances: () => this.viewInstances(),
+      instance: at,
+      attachments: (v = 0) => (at(v)?.children ?? []).map((c, i) => ({ i, node: c.node, model: c.instance.model.path, visible: c.instance.visible })),
+      parts: (v = 0) => (at(v)?.parts ?? []).map(p => ({ node: p.part.node, material: p.part.material.name, queue: p.part.material.queue, priority: p.part.material.priority ?? 0 })),
+      hide: (i: number, v = 0) => set(i, v, false),
+      show: (i: number, v = 0) => set(i, v, true),
+    };
   }
 
   /** A view's first model, once loaded. */

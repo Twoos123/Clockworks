@@ -171,6 +171,8 @@ export class PickScreen extends GlScreen {
 
   protected viewEnv(c: Component): Environment {
     const i = this.cardUis.findIndex(card => card.find("preview") === c);
+    // the backdrop (the Cradle) draws as any view does; the knights are lit, the hovered one brighter
+    if (i < 0) return super.viewEnv(c);
     return i === this.hovered ? VIEWER_ENVIRONMENT : DIM;
   }
 

@@ -72,6 +72,12 @@ export interface ResolvedMaterial {
   queue: string;
   /** For a GroupedEnqueuer, the queue its passes take inside the group (Opaque, Transparent). */
   subQueue?: string;
+  /**
+   * The enqueuer's priority (TechniqueConfig.NormalEnqueuer.priority): a queue keeps a list of
+   * batches per priority and renders the lists in rising priority, so a lower one draws first
+   * whatever its depth (the Cradle's glow decals, at -1, go behind the planet).
+   */
+  priority?: number;
   passes: PassState[];
   /** True when the material came from the library rather than a fallback. */
   resolved: boolean;
@@ -156,9 +162,12 @@ export class ConfigLibrary {
     const passes: PassState[] = leaves.flatMap(e => (e.passes ?? []).map((p: any) => this.pass(p, local)));
     const grouped = enqueuer?.$class?.endsWith("$GroupedEnqueuer");
     const inner = leaves[0]?.queue ?? "Opaque";
+    // a grouped enqueuer's group batch goes into its queue at the default priority; the
+    // others enqueue at their (first) leaf's
+    const priority = grouped ? 0 : enqueuerPriority(leaves[0]);
     return grouped
-      ? { name: ref.name, queue: enqueuer.queue ?? "Opaque", subQueue: inner, passes, resolved: true }
-      : { name: ref.name, queue: enqueuer?.$class?.endsWith("$CompoundEnqueuer") ? inner : enqueuer?.queue ?? "Opaque", passes, resolved: true };
+      ? { name: ref.name, queue: enqueuer.queue ?? "Opaque", subQueue: inner, priority: enqueuerPriority(leaves[0]), passes, resolved: true }
+      : { name: ref.name, queue: enqueuer?.$class?.endsWith("$CompoundEnqueuer") ? inner : enqueuer?.queue ?? "Opaque", priority, passes, resolved: true };
   }
 
   private pass(p: any, local?: LocalConfigs): PassState {
@@ -268,6 +277,12 @@ export class ConfigLibrary {
     const direct = getArg(ref, "File");
     return typeof direct === "string" ? direct : null;
   }
+}
+
+/** An enqueuer's priority: a number, or a parameter's string ("-1") once arguments are applied. */
+function enqueuerPriority(e: any): number {
+  const n = Number(e?.priority ?? 0);
+  return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
 /** Mirrors ModelConfig.Imported's default material: textured, lit, opaque. */

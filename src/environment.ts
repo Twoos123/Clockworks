@@ -77,6 +77,14 @@ export const VIEWER_ENVIRONMENT: Environment = {
   camera: null,
 };
 
+/**
+ * A RenderableView's models without lights: Clyde resolves a pass's "lightState" through the
+ * model's scope, and a model outside a scene has none, so PassConfig falls back to
+ * LightState.DISABLED; only passes with a light-state override of their own are lit. A full
+ * ambient and no lights draws the other passes at their texture and vertex colours.
+ */
+export const UNLIT_VIEW_ENVIRONMENT: Environment = { ...VIEWER_ENVIRONMENT, ambient: [1, 1, 1], lights: [] };
+
 const rgb = (c: any, d: Rgb = [0, 0, 0]): Rgb => (c ? [c.r ?? 0, c.g ?? 0, c.b ?? 0] : d);
 
 export function readFog(state: any): Fog | null {

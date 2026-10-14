@@ -571,6 +571,7 @@ class Viewer {
     if (!this.title) {
       this.title = new TitleScreen(this.gui, this.renderer, this.loader, "titleScreen");
       this.title.sound = f => this.uiSound(f);
+      if (import.meta.env.DEV) (window as any).__title = this.title.debugHandle();
       this.title.actions = {
         play: () => { this.uiSound("sound/feedback/ui_confirm.ogg"); this.logOn(); },
         options: () => void this.openOptions(),
@@ -692,6 +693,7 @@ class Viewer {
     if (!this.prologue) {
       this.prologue = new PrologueScreen(this.gui, this.renderer, this.loader, "prologueScreen");
       this.prologue.sound = f => this.uiSound(f);
+      if (import.meta.env.DEV) (window as any).__prologue = this.prologue.debugHandle();
       // the prologue's scripts follow its score's playback (dK starts both together)
       this.prologue.clock = () => this.music.prologueTime();
       this.prologue.onDone = () => {
