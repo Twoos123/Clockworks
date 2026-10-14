@@ -90,6 +90,11 @@ export class LevelArchive {
       const had = this.byName.get(n);
       if (!had || Number(had.id) < id) this.byName.set(n, s);
     }
+    for (const s of scenes) {
+      if (Number(s.id) < INSTANCE_IDS) continue;
+      const n = s.name.toLowerCase(), list = this.instances.get(n);
+      if (list) list.push(s); else this.instances.set(n, [s]);
+    }
     const seen = new Set<string>();
     for (const s of scenes) {
       const cap = Number(s.id) >= INSTANCE_IDS ? classifyCapture(s.name) : null;
@@ -133,6 +138,17 @@ export class LevelArchive {
 
   /** The newest revision of the game's level with a dungeon bundle key ("m.terminal_1"). */
   level(key: string): { id: string; name: string } | null { return this.scene(keyScene(key)); }
+
+  /**
+   * Every archived copy of the game's level with a dungeon bundle key: its newest fixed revision,
+   * and each floor of it the servers generated and the client cached ("m.ct_beast": every
+   * captured Wild Path).
+   */
+  copies(key: string): { id: string; name: string }[] {
+    const n = keyScene(key).toLowerCase(), fixed = this.byName.get(n);
+    return [...(fixed ? [fixed] : []), ...(this.instances.get(n) ?? [])];
+  }
+  private instances = new Map<string, { id: string; name: string }[]>();
 
   /** Styles with at least one archived level. */
   styles(): Set<string> { return new Set(this.levels.map(l => l.style)); }

@@ -135,18 +135,23 @@ export function activeGates(list: GateEntry[], now = Date.now()): GateEntry[] {
 // ---------------------------------------------------------------------------- colours
 
 const CC = "com.threerings.opengl.renderer.config.ColorizationConfig";
-/** A colour print of the colour pository (theme-family is class 8, theme-status class 9). */
-const normal = (print: number) => ({ $class: `${CC}$Normal`, colorization: print });
-const FIELD = { r: 1, g: 0, b: 0, a: 1 }, GLYPH = { r: 1, g: 0, b: 1, a: 1 };
-/** A colourisation of one zone (the red field or the magenta glyph) by HSV offsets. */
-const custom = (src: typeof FIELD, h: number, s: number, v: number) => ({
-  $class: `${CC}$FullyCustom`, source: src, range: { hue: 0.03, saturation: 1, value: 1 }, offsets: { hue: h, saturation: s, value: v },
+/**
+ * One zone's colourisation, as the map icon style (ui/adventureboard/parts/map_levelicon.dat,
+ * style "Icon") takes it: HSV offsets of colour class 3 (item_2, the red field: "Color (Back)")
+ * or class 2 (item_1, the magenta glyph: "Color (Icon)").
+ */
+const FIELD = 3, GLYPH = 2;
+const custom = (clazz: number, h: number, s: number, v: number) => ({
+  $class: `${CC}$CustomOffsets`, clazz, offsets: { $class: `${CC}$Triplet`, hue: h, saturation: s, value: v },
 });
-const STATUS_PRINT: Record<string, number> = { none: 2305, Fire: 2306, Freeze: 2307, Poison: 2308, Shock: 2309 };
-const FAMILY_PRINT: Record<string, number> = { none: 2049, Beast: 2050, Undead: 2051, Slime: 2052, Construct: 2053, Fiend: 2054, Gremlin: 2055 };
-/** The level icon's field by status and glyph by family. */
-export const themeColours = (element: Element | null, family: Family | null) =>
-  [normal(STATUS_PRINT[element ?? "none"]), normal(FAMILY_PRINT[family ?? "none"])];
+/** The colour pository's theme-status and theme-family colours (classes 9 and 8), as offsets. */
+const STATUS: Record<string, [number, number, number]> = { none: [0, -1, -0.67], Fire: [0.065, 0, -0.53], Freeze: [0.567, -0.415, -0.375],
+  Poison: [0.4, 0, -0.67], Shock: [0.5, 1, -0.53] };
+const FAMILY: Record<string, [number, number, number]> = { none: [0, -1, -0.25], Beast: [0.277, -0.36, -0.055], Slime: [0.08, -0.36, -0.055],
+  Fiend: [-0.192, -0.166, -0.22], Undead: [-0.229, -0.675, -0.167], Gremlin: [0.235, -0.245, -0.055], Construct: [0.275, -0.789, -0.401] };
+const statusField = (e: Element | null) => custom(FIELD, ...STATUS[e ?? "none"]);
+/** The level icon's field by status and glyph by family: [glyph, field], as the style lists them. */
+export const themeColours = (element: Element | null, family: Family | null) => [custom(GLYPH, ...FAMILY[family ?? "none"]), statusField(element)];
 
 /** The fixed sets' and special levels' colours: [field hue, value], [glyph hue, saturation, value]. */
 const DARK = (h: number) => custom(FIELD, h, 0, -0.671);
@@ -263,11 +268,11 @@ export function decodeLevel(code: string): RealLevel | null {
       return lv("m.treasure_vault_1", "Treasure Trove", "", "treasure", SPECIAL.tv, "vault", null, null, null);
     case "pv": {
       const e = el(w[1]);
-      return lv(`m.tvault_${THEMED(e)}`, "Treasure Vault", "", "treasure", [normal(STATUS_PRINT[e ?? "none"]), SPECIAL.tv[1]], "vault", null, null, e);
+      return lv(`m.tvault_${THEMED(e)}`, "Treasure Vault", "", "treasure", [SPECIAL.tv[1], statusField(e)], "vault", null, null, e);
     }
     case "starlight": {
       const k = STARLIGHT[w[1]];
-      return k ? lv(`m.starlight_cradle_${k}`, "Starlight Cradle", english(k, ""), "island", [SLEEP_FIELD, SPECIAL.starlight[1]], "level", "cradle", "Slime", null) : null;
+      return k ? lv(`m.starlight_cradle_${k}`, "Starlight Cradle", english(k, ""), "island", [SPECIAL.starlight[1], SLEEP_FIELD], "level", "cradle", "Slime", null) : null;
     }
     case "starlight_boss": return lv("m.starlight_cradle_miniboss", "Starlight Cradle", "Torporal Titan", "miniboss", SPECIAL.starlight, "miniboss", "cradle", "Slime", null);
     case "darkcity": {
@@ -450,7 +455,7 @@ export function wedgeWorld(w: Wheel, i: number, t: number): number {
  * The level the elevator from (depth, wedge) leads to at a time, and how many seconds until it
  * changes: null for a randomised next depth (decided when the elevator is taken).
  */
-export function nextLevel(g: RealGate, depth: number, wedge: number, t: number): { wedge: number; seconds: number } | null {
+export function nextLevel(g: RealGate, depth: number, wedge: number, t: number): { wedge: number; seconds: number; after?: number } | null {
   const a = g.wheels[depth], b = g.wheels[depth + 1];
   if (!a || !b) return null;
   if (b.random) return null;
@@ -464,7 +469,8 @@ export function nextLevel(g: RealGate, depth: number, wedge: number, t: number):
   let cum = 0;
   for (let k = 0; k < i; k++) cum += b.lengths[k];
   const left = rate > 0 ? cum + b.lengths[i] - p : p - cum;
-  return { wedge: i, seconds: Math.max(0, left / Math.abs(rate)) };
+  // `after`: the step to the wedge that comes next (+1 or -1)
+  return { wedge: i, seconds: Math.max(0, left / Math.abs(rate)), after: rate > 0 ? 1 : -1 };
 }
 
 /** The wedges a run would take from a depth's wedge onward, now: -1 at randomised depths. */

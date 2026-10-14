@@ -246,7 +246,9 @@ export class GameHud {
     for (const tag of ["middle", "left"]) { const m = ui.find(tag); if (m) m.visible = !folded; }
   }
 
-  private panels() { return [this.menuLeft, this.menuRight, this.activities, this.objective].filter((x): x is Component => !!x); }
+  private panels() {
+    return [this.menuLeft, this.menuRight, this.activities, this.objective, this.options.minimap ? this.minimapUi : null].filter((x): x is Component => !!x);
+  }
 
   /**
    * The mouse at canvas point (x, y): lights the button under it, and on `click` returns that

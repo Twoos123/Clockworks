@@ -30,7 +30,8 @@ test("level codes decode to the game's level keys, icons and colours", () => {
   const t = decodeLevel("tunnel beast freeze")!;
   assert.equal(t.key, "m.cc_beast");
   assert.equal(t.icon, "clockwork");
-  assert.deepEqual(t.colorizations.map(c => c.colorization), [2307, 2050]);
+  // the glyph in the beast colour (class 2), the field in the freeze colour (class 3)
+  assert.deepEqual(t.colorizations.map(c => [c.clazz, c.offsets.hue]), [[2, 0.277], [3, 0.567]]);
   assert.equal(decodeLevel("compound gremlin freeze slime")!.key, "m.fc_slime_minis");
   assert.equal(decodeLevel("csk x")!.key, "m.candlestick_keep_vanilla");
   assert.equal(decodeLevel("scarlet gg")!.key, "m.scarlet_fortress_grim_gallery");
