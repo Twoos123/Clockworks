@@ -98,6 +98,11 @@ export interface LoadedModel {
    * (placed by the node's rest transform). Attachments keep their own; see floorTriangles.
    */
   collision?: Float32Array;
+  /**
+   * The articulated nodes whose collision meshes are in `collision` (an animation moving one
+   * moves the floor: the start platform's "collision" node).
+   */
+  collisionNodes?: string[];
 }
 
 /** Appends a CollisionMesh's triangles (its BVH leaves), transformed by `m` when given. */
@@ -122,15 +127,20 @@ function collisionTriangles(mesh: any, m: Mat4 | null, out: number[]) {
 }
 
 /** Articulated mesh nodes' collision meshes, each placed by its node's rest transform. */
-function nodeCollision(n: any, parent: Mat4, out: number[], depth = 0) {
-  if (!n || depth > 64) return;
+function nodeCollision(n: any, parent: Mat4, out: number[], depth = 0, names: string[] = []): string[] {
+  if (!n || depth > 64) return names;
   const m = multiply(parent, toMatrix(readTransform(n.transform)));
-  if (n.collision) collisionTriangles(n.collision, m, out);
-  for (const c of n.children ?? []) nodeCollision(c, m, out, depth + 1);
+  if (n.collision) {
+    const before = out.length;
+    collisionTriangles(n.collision, m, out);
+    if (out.length > before && n.name) names.push(n.name);
+  }
+  for (const c of n.children ?? []) nodeCollision(c, m, out, depth + 1, names);
+  return names;
 }
 
 /** A node's rest-pose transform in model space (identity when the node is not found). */
-function nodeMatrix(root: NodeDef | undefined, name: string): Mat4 {
+export function nodeMatrix(root: NodeDef | undefined, name: string): Mat4 {
   if (!root || !name) return identity();
   const find = (n: NodeDef, parent: Mat4): Mat4 | null => {
     const m = multiply(parent, toMatrix(n.transform));
@@ -505,8 +515,11 @@ export class ModelLoader {
         const entries: [unknown, any][] = impl.meshes.entries;
         collisionTriangles((entries.find(([k]) => k === impl.model) ?? entries[0])?.[1]?.collision, null, tris);
       } else collisionTriangles(impl.meshes?.collision, null, tris);
-      if (impl.root) nodeCollision(impl.root, identity(), tris);
+      const own = tris.length;
+      const nodes = impl.root ? nodeCollision(impl.root, identity(), tris) : [];
       if (tris.length) model.collision = new Float32Array(tris);
+      // (only when the nodes hold all of it: a lift moves every triangle of the model's floor)
+      if (nodes.length && !own) model.collisionNodes = nodes;
     }
 
     for (const a of impl.attachments ?? []) {

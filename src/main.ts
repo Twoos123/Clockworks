@@ -1,5 +1,6 @@
 import { lookAt, perspective, type Vec3 } from "./math";
-import { loadAnimation, ModelLoader, type LoadedModel } from "./model";
+import { loadAnimation, ModelLoader, nodeMatrix, type LoadedModel } from "./model";
+import type { FloorLift } from "./game/collision";
 import { Renderer, type ModelInstance, type SkyboxItem } from "./render/renderer";
 import { SceneLoader, sceneName, type LoadedScene } from "./scene";
 import { ColorPository } from "./colors";
@@ -258,7 +259,7 @@ class Viewer {
   private readonly renderer: Renderer;
   private readonly canvas = $<HTMLCanvasElement>("canvas");
   private instance: ModelInstance | null = null;
-  private sceneItems: { instance: ModelInstance; matrix: Mat4 }[] | null = null;
+  private sceneItems: { instance: ModelInstance; matrix: Mat4; lift?: FloorLift }[] | null = null;
   private environment: Environment = VIEWER_ENVIRONMENT;
   private scene: LoadedScene | null = null;
   private world: World | null = null;
@@ -725,6 +726,21 @@ class Viewer {
     if (namedKnights(gameRoster()).length) void this.showPick(); else void this.enterTitle();
   }
 
+  /**
+   * Moving floors follow their sprites' animations: the collision node's height over its rest
+   * pose (the start platform's grate, 3.27 up as Arrive begins, at rest once it has played).
+   */
+  private updateLifts() {
+    for (const it of this.sceneItems ?? []) {
+      const lift = it.lift;
+      if (!lift) continue;
+      const inst = it.instance;
+      inst.update();
+      lift.dz = inst.clip && inst.world.has(lift.node)
+        ? (inst.nodeMatrix(lift.node)[14] - nodeMatrix(inst.model.root, lift.node)[14]) * it.matrix[10] : 0;
+    }
+  }
+
   private instanceOf(model: LoadedModel): Promise<ModelInstance> {
     let p = this.instances.get(model);
     if (!p) {
@@ -878,7 +894,8 @@ class Viewer {
       const scene = special ? await this.sceneLoader.loadRoot(id, special, progress)
         : GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), progress);
       loading?.progress(0.8);
-      const items = await Promise.all(scene.objects.map(async o => ({ instance: await this.instanceOf(o.model), matrix: o.matrix })));
+      const items = await Promise.all(scene.objects.map(async (o): Promise<{ instance: ModelInstance; matrix: Mat4; lift?: FloorLift }> =>
+        ({ instance: await this.instanceOf(o.model), matrix: o.matrix, lift: o.lift })));
       loading?.progress(0.9);
       // a level's tiered globals (lights, fog, skies: "Variant" Tier1-3) follow the depth it is
       // played at, as the game's server sets them; an archived floor keeps the tier it was captured in
@@ -956,8 +973,6 @@ class Viewer {
     const spawn = this.places.spawn(this.scene.id) ?? this.scene.collision.findSpawn(rx, ry, 1 / 3, 43);
     if (!spawn) { this.status("No walkable floor found in this scene.", true); return; }
     this.status("Spawning a knight...");
-    // one-shot scene animations (the start elevator arriving) play from the top as the knight arrives
-    for (const it of this.sceneItems ?? []) if (it.instance.clip && !it.instance.clip.loop) it.instance.time = 0;
     this.audio ??= new AudioSystem(this.vfs, this.loader);
     this.audio.unlock();
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
@@ -1025,6 +1040,14 @@ class Viewer {
       archived: !GEN.test(this.scene.id), scriptsMusic: spawnsMusic(this.scene.logic),
       floor: this.gate && this.run.depth > 0 ? this.floors[this.run.depth] ?? null : null });
     for (const a of this.environment.ambience ?? []) this.audio.ambient(a);
+    // one-shot scene animations play from the top as the knight appears: the client's sprites
+    // start their automatic animations on their first tick (ArticulatedModel.tick), and the
+    // scene ticks with no time while the loading window is up (TudeySceneView.tick), so the
+    // start platform's Arrive plays as play begins, the knight riding its grate down
+    // (back from the Ready Room the level carries on as it was)
+    if (!resume) for (const it of this.sceneItems ?? []) if (it.instance.clip && !it.instance.clip.loop) it.instance.time = 0;
+    this.updateLifts();
+    world.knight.z = this.scene.collision.groundZ(world.knight.x, world.knight.y);
     this.world = world;
     this.hud ??= new Hud($<HTMLCanvasElement>("hudCanvas"));
     this.hud.chat = this.chat;
@@ -2984,6 +3007,7 @@ class Viewer {
         if (this.instance) this.instance.time += dt;
         // shared instances appear in several placements; advance each clock once per frame
         for (const it of this.sceneItems ?? []) it.instance.time += dt / (this.shares.get(it.instance) ?? 1);
+        this.updateLifts();
       }
       // time played as this knight (the knight select card's "Played"), saved with its save
       if (this.world && !this.paused && this.save.knight) this.save.played = (this.save.played ?? 0) + dt;

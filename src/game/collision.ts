@@ -3,6 +3,7 @@
 // anything whose flags intersect its collision mask. Floors give the ground height.
 
 import { readTransform, type Mat4 } from "../math";
+import { intersects, shapeBounds, type Shape } from "./shapes";
 
 export interface CellInfo {
   flags: number;
@@ -49,8 +50,16 @@ export function forTileCells(impl: any, x: number, y: number, rotation: number, 
   }
 }
 
+/**
+ * A floor whose collision mesh moves up and down with its sprite's animation: an articulated
+ * model's collision node animated by a clip (the start platform's Arrive brings its
+ * "collision" node down from 3.27 units up to rest). `dz` is the node's height over its rest
+ * pose, in world units, kept current by whoever plays the animation.
+ */
+export interface FloorLift { node: string; dz: number }
+
 /** A floor collision triangle in world space (v1 v2 v3) with its sprite's floor flags. */
-interface FloorTri { v: Float32Array; flags: number }
+interface FloorTri { v: Float32Array; flags: number; lift?: FloorLift }
 
 /**
  * Where a vertical line through (x, y) crosses triangle v (world space, 9 floats), or -Infinity
@@ -284,7 +293,7 @@ export class CollisionMap {
    * a tile or placeable whose floorFlags are set (TileConfig/PlaceableConfig floorFlags,
    * default 0x01). TudeySceneView.getFloorZ casts a ray straight down onto these.
    */
-  addFloor(tris: ArrayLike<number>, matrix: Mat4, floorFlags = 1) {
+  addFloor(tris: ArrayLike<number>, matrix: Mat4, floorFlags = 1, lift?: FloorLift) {
     if (!floorFlags || tris.length < 9) return;
     const m = matrix;
     // a mirroring placement flips the winding the ray test culls by (it runs in model space)
@@ -301,7 +310,7 @@ export class CollisionMap {
       // Triangle.getIntersection only takes faces whose front looks along -ray (up, here)
       const nz = ((w[3] - w[0]) * (w[7] - w[1]) - (w[4] - w[1]) * (w[6] - w[0])) * sign;
       if (nz <= 1e-9) continue;
-      const tri: FloorTri = { v: w, flags: floorFlags };
+      const tri: FloorTri = { v: w, flags: floorFlags, lift };
       const x0 = Math.floor(Math.min(w[0], w[3], w[6])), x1 = Math.floor(Math.max(w[0], w[3], w[6]));
       const y0 = Math.floor(Math.min(w[1], w[4], w[7])), y1 = Math.floor(Math.max(w[1], w[4], w[7]));
       if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) continue;
@@ -322,18 +331,50 @@ export class CollisionMap {
    * (TudeySceneModel.getFloorZ), else `defvalue`.
    */
   floorZ(x: number, y: number, mask = 0xff, defvalue = 0): number {
+    const hit = this.floorHit(x, y, mask);
+    if (hit) return hit.z;
+    const c = this.cell(Math.floor(x), Math.floor(y));
+    return c && isFinite(c.z) ? c.z : defvalue;
+  }
+
+  /** The floor mesh face a downward ray through (x, y) meets first, and its height (null: none). */
+  private floorHit(x: number, y: number, mask = 0xff): { z: number; lift?: FloorLift } | null {
     const list = this.floors.get(CollisionMap.key(Math.floor(x), Math.floor(y)));
-    let best = -Infinity;
+    let best = -Infinity, lift: FloorLift | undefined;
     if (list) {
       for (const t of list) {
         if ((t.flags & mask) === 0) continue;
-        const z = rayDownZ(t.v, x, y);
-        if (z > best) best = z;
+        const z = rayDownZ(t.v, x, y) + (t.lift?.dz ?? 0);
+        if (z > best) { best = z; lift = t.lift; }
       }
     }
-    if (best > -Infinity) return best;
-    const c = this.cell(Math.floor(x), Math.floor(y));
-    return c && isFinite(c.z) ? c.z : defvalue;
+    return best > -Infinity ? { z: best, lift } : null;
+  }
+
+  /** The moving floor under (x, y) while it is off its rest pose (actors on it ride it). */
+  liftAt(x: number, y: number, mask = 0xff): FloorLift | null {
+    const lift = this.floorHit(x, y, mask)?.lift;
+    return lift && lift.dz !== 0 ? lift : null;
+  }
+
+  /**
+   * A floor-tile placeable (PlaceableConfig.Original.floorTile, the start platform): its shape
+   * is floor where no tile is, at the placeable's elevation, as TudeySceneModel.getFloorZ
+   * falls back to the floor placeables' elevations (FloorPlaceableFilter) where no tile lies.
+   * Cells whose centres the shape covers become walkable; it adds no collision flags.
+   */
+  addFloorPlaceable(shape: Shape, z: number) {
+    const [x0, y0, x1, y1] = shapeBounds(shape);
+    for (let y = Math.floor(y0); y <= Math.floor(y1); y++) {
+      for (let x = Math.floor(x0); x <= Math.floor(x1); x++) {
+        if (!intersects(shape, { k: "point", x: x + 0.5, y: y + 0.5 })) continue;
+        const k = CollisionMap.key(x, y);
+        const c = this.cells.get(k) ?? { flags: 0, floor: false, z: -Infinity };
+        // a tile's floor keeps its own elevation (the placeables only stand in where none is)
+        if (!c.floor) { c.floor = true; c.z = z; }
+        this.cells.set(k, c);
+      }
+    }
   }
 
   /** Ground height under (x, y): the floor the client stands actors and effects on. */

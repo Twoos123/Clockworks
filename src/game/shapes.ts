@@ -10,6 +10,22 @@ export type Shape =
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 
+/** A shape's axis-aligned bounds: [minX, minY, maxX, maxY]. */
+export function shapeBounds(s: Shape): [number, number, number, number] {
+  switch (s.k) {
+    case "point": return [s.x, s.y, s.x, s.y];
+    case "circle": return [s.x - s.r, s.y - s.r, s.x + s.r, s.y + s.r];
+    case "poly": {
+      const xs = s.pts.map(p => p[0]), ys = s.pts.map(p => p[1]);
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    }
+    case "multi": {
+      const b = s.shapes.map(shapeBounds);
+      return [Math.min(...b.map(v => v[0])), Math.min(...b.map(v => v[1])), Math.max(...b.map(v => v[2])), Math.max(...b.map(v => v[3]))];
+    }
+  }
+}
+
 /** A ShapeConfig placed at (x, y) with rotation `rot` (radians) and uniform scale. */
 export function shapeFromConfig(cfg: any, x: number, y: number, rot: number, scale = 1, depth = 0): Shape | null {
   if (!cfg || depth > 6) return null;
