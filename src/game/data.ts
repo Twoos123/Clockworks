@@ -273,6 +273,12 @@ export interface ProjectileDef {
   children: any[];
   /** Other startup actions (sounds, sparks). */
   startActions: any[];
+  /**
+   * A bullet that strikes nothing itself but leaves a trail of bombs behind it (the sword
+   * brandishes' Burst Bullet): the bomb it spawns, with the bullet's arguments passed on, and
+   * how many and how often.
+   */
+  trail?: { actor: any; count: number; interval: number };
   /** Orbitals: played where it appears (a disk's whoosh, a core's shot sound). */
   creationFx?: any;
 }
@@ -376,6 +382,11 @@ export class GameData {
 
   /** Follows Derived implementations (and DerivedConfig bases) applying arguments. */
   async resolve(file: string, ref: any, field: string): Promise<any | null> {
+    return (await this.resolveFull(file, ref, field))?.impl ?? null;
+  }
+
+  /** resolve(), also giving the last reference followed and its (unargued) config. */
+  async resolveFull(file: string, ref: any, field: string): Promise<{ impl: any; ref: any; base: any } | null> {
     const lib = await this.library(file);
     for (let i = 0; i < 12 && ref?.name; i++) {
       const base = lib.get(ref.name);
@@ -384,7 +395,7 @@ export class GameData {
       if (cfg.$class?.endsWith("DerivedConfig")) { ref = cfg.base; continue; }
       const impl = cfg.implementation;
       if (impl?.$class?.endsWith("$Derived") && impl[field]) { ref = impl[field]; continue; }
-      return impl ?? cfg;
+      return { impl: impl ?? cfg, ref, base };
     }
     return null;
   }
@@ -420,6 +431,12 @@ export class GameData {
       }
       // "Base/Default" fire actions run an action of their own (a heal bomb, a raised corpse)
       const act = getArg(fire, "Action") as any;
+      // ...or strike a region around the attacker (an ice cube's roundhouse): a melee hit
+      const strike = !spawn && !shapeArg ? regionStrike(act) : null;
+      if (strike) {
+        fires.push({ delay, damage: strike.damage ?? null, shape: strike.shape, knockback: readKnock(strike.impulseDealt), spawn: null, name: fire.name });
+        continue;
+      }
       if (!spawn && !shapeArg && act?.$class && /ActionConfig\$/.test(String(act.$class))) {
         fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name, action: act });
         continue;
@@ -494,7 +511,8 @@ export class GameData {
       attackType: desc?.damage ?? "NORMAL",
       model: sprite.model,
       scale: sprite.scale ?? 1,
-      radius: m.shape?.radius ?? 0.5,
+      // the Circle default (1) is the Jelly Green Giant's: twice a jelly cube's 0.4 at 0.8 scale
+      radius: actorRadius(m.shape),
       // ActorConfig Mobile speed and Monster targetedSpeed both default to 6
       speed: m.speed ?? 6,
       targetedSpeed: m.targetedSpeed ?? 6,
@@ -567,17 +585,21 @@ export class GameData {
 
   /** A bullet or bomb actor, with the spawning attack's arguments applied. */
   async projectile(ref: any): Promise<ProjectileDef | null> {
-    const p = await this.resolve("config/actor.dat", ref, "actor");
+    const full = await this.resolveFull("config/actor.dat", ref, "actor");
+    const p = full?.impl ?? null;
     const k = kind(p);
     if (/^(Orbital|RelativeOrbital|OrbitalBullet|CompoundOrbitalBullet|Agent)$/.test(k)) return orbitalDef(ref?.name ?? "", p, k);
     if (k !== "Bullet" && k !== "Bomb") return null;
     // the detonation: its damage region (a Compound may hold one beside other actions), and
     // whatever else it does (a lichen bomb spawns its colony, a marker activates monsters)
     const flat = (a: any, d = 0): any[] => !a || d > 6 ? [] : kind(a) === "Compound" ? (a.actions ?? []).flatMap((x: any) => flat(x, d + 1)) : [a];
-    const acts = flat(p.detonationAction);
+    // a bomb without a detonation action goes off through its Timer handler (the shard bombs'
+    // blast); the shards that handler spawns are left out (they would spawn on the monsters' side)
+    const timer = !p.detonationAction && k === "Bomb" ? (p.handlers ?? []).find((h: any) => kind(h) === "Timer")?.action : null;
+    const acts = flat(p.detonationAction ?? timer).filter(a => !(timer && /^(Delayed|Spawn)/.test(kind(a))));
     const det = acts.find(a => /^DamageRegion/.test(kind(a))) ?? null;
+    const trail = k === "Bullet" && !p.detonationAction ? burstTrail(p, full!.ref, full!.base) : null;
     const region = det?.region?.shape;
-    const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : null);
     return {
       name: ref?.name ?? "", kind: k, model: p.sprite?.model ?? p.model ?? null,
       // Bullet: Mobile speed 6, fuse 1100, no offset or height; Bomb: fuse 2000
@@ -586,12 +608,15 @@ export class GameData {
       offset: [p.offset?.x ?? 0, p.offset?.y ?? 0], height: p.height ?? 0,
       collisionMask: p.collisionMask ?? 1,
       damage: det?.damage ?? null,
-      harmless: !!p.detonationAction && !det,
+      harmless: (!!p.detonationAction || !!timer || !!trail) && !det,
+      trail: trail ?? undefined,
       actions: acts.filter(a => a !== det && a?.$class),
       regionRadius: region?.radius ?? (k === "Bomb" ? 2 : 0.5),
       knockback: readKnock(det?.impulseDealt),
-      hitFx: transient(p.sprite?.destructionTransient),
-      fizzleFx: transient(p.sprite?.fizzleTransient),
+      // the sprite's own transients, whole (model/scripted/transient_sound.dat: the particles
+      // turned and scaled by its Transform, and the hit sound), played at the sprite's transform
+      hitFx: p.sprite?.destructionTransient ?? null,
+      fizzleFx: p.sprite?.fizzleTransient ?? null,
       children: [], startActions: [],
     };
   }
@@ -635,7 +660,6 @@ function findActorRef(o: any, depth = 0, isActor?: (name: string) => boolean): a
  * its startup (the satellites a mixer core spawns, and its sounds).
  */
 export function orbitalDef(name: string, p: any, k: string): ProjectileDef {
-  const transient = (t: any) => (getArg(t, "Transient") as any) ?? (t?.name?.endsWith(".dat") ? t : null);
   const handlers: any[] = p.handlers ?? [];
   const shut = shutdownParts(handlers.find(h => kind(h) === "Shutdown")?.action);
   const children: any[] = [], startActions: any[] = [];
@@ -663,8 +687,8 @@ export function orbitalDef(name: string, p: any, k: string): ProjectileDef {
     actions: shut.other,
     regionRadius: region(shut.out),
     knockback: readKnock(shut.out?.impulseDealt),
-    hitFx: transient(sprite.destructionTransient),
-    fizzleFx: transient(sprite.fizzleTransient),
+    hitFx: sprite.destructionTransient ?? null,
+    fizzleFx: sprite.fizzleTransient ?? null,
     orbit: agent ? undefined : readOrbit(p, k),
     returnDamage: shut.back?.damage ?? null,
     returnKnockback: readKnock(shut.back?.impulseDealt),
@@ -722,6 +746,31 @@ function refOf(r: any): any {
   return r?.name?.endsWith(".dat") ? r : undefined;
 }
 
+/**
+ * The region strike a fire action's action makes, if it is one: a DamageRegion(FromPoint)
+ * whose region a parameter gave a shape ("Damage Region": Small, Medium, Large), around the
+ * attacker at its translation. A Conditional whose (server-side) condition the export
+ * stripped takes its else branch, as Logic.execute does with Clyde's default condition: the
+ * ice cube's roundhouse ("Jelly Roundhouse (Ice)") strikes with its "Damage Frozen".
+ */
+export function regionStrike(action: any, depth = 0): { damage: any; shape: DamageShape; impulseDealt: any } | null {
+  if (!action || depth > 4) return null;
+  const k = kind(action);
+  if (k === "Conditional") return action.condition == null ? regionStrike(action.elseAction, depth + 1) : null;
+  if (!/^DamageRegion(FromPoint)?$/.test(k) || action.target) return null;
+  const shape = action.region?.shape;
+  if (!shape) return null;
+  const t = action.translation ?? {};
+  return { damage: action.damage ?? null, impulseDealt: action.impulseDealt,
+    shape: readShape({ shape, transform: { translation: { x: t.x ?? 0, y: t.y ?? 0 } } }) };
+}
+
+/** An actor's collision radius: ShapeConfig.Circle's default radius is 1. */
+function actorRadius(shape: any): number {
+  if (kind(shape) === "Circle") return shape.radius ?? 1;
+  return shape?.radius ?? 0.5;
+}
+
 function readShape(s: any): DamageShape {
   const t = s?.transform?.translation;
   const inner = s?.shape ?? s;
@@ -730,4 +779,40 @@ function readShape(s: any): DamageShape {
   if (k === "Rectangle") return { ...base, halfLength: (inner.width ?? 1) / 2, halfWidth: (inner.height ?? 1) / 2 };
   if (k === "Circle") return { ...base, radius: inner.radius ?? 1 };
   return base;
+}
+
+/**
+ * How often a burst bullet leaves a burst, in ms. Its Timer handler's interval is server data
+ * the client export strips; one burst per 150 ms at the bullet's speed of 10 spaces them about
+ * 1.5 units apart, the width of a medium burst (radius 1). Ours.
+ */
+export const BURST_INTERVAL = 150;
+
+/**
+ * The trail a bullet leaves through its Timer handler's SpawnActor (Bullet/Sword/Burst
+ * Bullet spawns Bullet/Sword/Parts/Burst Trail, a bomb with a one-millisecond fuse). The
+ * export strips the handler down to that spawn, so the bullet's parameters, whose paths
+ * named the spawn's arguments ("...actor[\"Damage\"]"), are matched by those argument names:
+ * the bullet's Damage, Color and Burst Scale become the burst's Damage, Color and Scale.
+ * "Burst Count" (the stripped repeat's count) is how many bursts it leaves.
+ */
+export function burstTrail(p: any, ref: any, base: any): { actor: any; count: number; interval: number } | null {
+  const find = (a: any, d = 0): any => {
+    if (!a?.$class || d > 6) return null;
+    if (/^Spawn(Transformed)?Actor$/.test(kind(a)) && a.actor?.name) return a.actor;
+    return find(a.action, d + 1) ?? (a.actions ?? []).map((x: any) => find(x, d + 1)).find(Boolean) ?? null;
+  };
+  const spawn = (p.handlers ?? []).filter((h: any) => kind(h) === "Timer").map((h: any) => find(h.action)).find(Boolean);
+  if (!spawn) return null;
+  const entries: [unknown, unknown][] = [...(spawn.arguments?.entries ?? [])];
+  const set = (k: string, v: unknown) => { const i = entries.findIndex(([n]) => n === k); if (i >= 0) entries[i] = [k, v]; else entries.push([k, v]); };
+  let count = 1;
+  for (const prm of (base?.parameters ?? []) as any[]) {
+    const v = getArg(ref, prm.name);
+    if (v === undefined) continue;
+    const to = (prm.paths ?? []).map((s: string) => /\.actor\["([^"]+)"\]$/.exec(s)?.[1]).find(Boolean);
+    if (to) set(to, v);
+    else if (/Count$/.test(prm.name)) count = Math.max(1, Math.trunc(Number(v)) || 1);
+  }
+  return { actor: { ...spawn, arguments: { ...(spawn.arguments ?? { $map: "com.threerings.config.ArgumentMap" }), entries } }, count, interval: BURST_INTERVAL };
 }
