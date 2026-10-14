@@ -95,7 +95,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
 | Dungeon objects (`src/game/objects.ts`) | Crystal and ghost block chains, timed explosives, prism puzzles, gun, rocket and fire blocks, status floor traps, healing totems, heal pads, mortar shells, barricades, prisoner cages with freed companion knights, energy gates and crates (paid in crowns) |
-| Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions (themed floors at their rank's depth, ending in their boss), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
+| Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions on their own floors in order (`src/game/missionfloors.ts`: the wiki's floor lists and depths, each floor its archived level by its scene key, generated in its key's style and status when the archive lacks it; boss floors run the boss director; their own lobbies), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
 | HUD | The game's own `hud_v2` interfaces, driven as the client drives them (docs/research/ui-audit-hud.md): status panel with 3D portrait, trailing health and shield bars, floor-heat meter, debuffs; quickbar with sprite skills and pockets; weapon switcher; target panel; minimap; hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
 | Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
@@ -138,8 +138,9 @@ A single-player loop runs in the browser, built from the install's own data:
    runs it, written from the configs and the wiki's fight descriptions. On the real levels it
    uses their markers (the Jelly's mini spawn points, the Snarbolax's warps, the Twins' lanes
    and toggle walls, Vanaduke's seat and sprite wells).
-6. **Guilds and PvP.** Missions are in (below), but their own levels and dialogue are
-   server data: dungeon missions play as themed generated floors, briefings show our summary.
+6. **Guilds and PvP.** Missions play their own levels where the archive has them; their
+   dialogue is server data (briefings show the bundle's text or our summary). Shadow Lairs open from
+   the depth-23 terminal's lair elevators of a gate with that boss (no Shadow Key needed here).
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).
 
 **Fidelity**

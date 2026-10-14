@@ -41,11 +41,13 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { BOSSES, gateFloors, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { bossName, BOSSES, gateFloors, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { LevelArchive } from "./game/archive";
 import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
-import { rankLabel, tierLock } from "./game/missions";
+import { lairRun, missionRun, rankLabel, tierLock } from "./game/missions";
+import { LAIR_GATES } from "./game/missionfloors";
+import type { Prop } from "./game/props";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
 import { currentNotice, initNotices } from "./ui/notice";
 import {
@@ -746,10 +748,12 @@ class Viewer {
     this.audio ??= new AudioSystem(this.vfs, this.loader);
     this.audio.unlock();
     const world = new World(this.loader, this.renderer, this.scene, this.scene.collision,
-      { audio: this.audio, depth: this.run.depth, arena: this.arenaMode && !TOWN.test(this.scene.name) });
+      { audio: this.audio, depth: this.scaleDepth(), arena: this.arenaMode && !TOWN.test(this.scene.name) });
     world.onArenaCheckpoint = wave => this.arenaCheckpoint(wave);
     this.itemScreens?.closeAll();
     world.onNextFloor = () => this.floorCleared();
+    // the terminal's Shadow Lair elevators lead to their lairs (the depth-23 terminal of a gate with that boss)
+    world.elevatorAllowed = p => this.lairElevator(p);
     world.exitLocked = this.bossFloor ? () => this.bossAlive() : null;
     world.onOpenShop = (keeper, portrait) => void this.openShop(keeper, portrait);
     world.onConversation = (actor, action, source) => void this.openConversation(actor, action, source);
@@ -978,7 +982,13 @@ class Viewer {
     if (!this.scene) return "";
     return TOWN.test(this.scene.name) ? this.scene.name.replace(/\w/g, c => c.toUpperCase())
       // the dungeon minimap names the depth as the client does (the dungeon bundle's m.depth)
-      : hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", this.run.depth) : `Depth ${this.run.depth}`;
+      : hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", this.scaleDepth()) : `Depth ${this.scaleDepth()}`;
+  }
+
+  /** The depth the floor is played at: its place in the run, or its own (a Shadow Lair's Logical Floor 26). */
+  private scaleDepth(): number {
+    const f = this.gate ? this.floors[this.run.depth] : null;
+    return f?.scaleDepth ?? this.run.depth;
   }
 
   private itemScreens: GameScreens | null = null;
@@ -1442,6 +1452,17 @@ class Viewer {
     this.runTotals.notes.push(...notes);
     const tally = `${l.crowns} crowns, ${l.heat} heat`;
     const { elevator } = this.screens();
+    // a terminal's Shadow Lair elevator: down into that boss's Shadow Lair
+    const lair = this.gate ? LAIR_GATES[String(this.world.exitElevator?.args["Push Gate"] ?? "")] : undefined;
+    if (lair && /Shadow Lair/.test(this.world.exitElevator?.entity.name ?? "")) {
+      const run = lairRun(lair, this.save.runs), first = run.floors.find(Boolean)!;
+      void elevator.show({
+        title: `Depth ${this.run.depth} cleared`, next: loadingInfo(first.name, first, run.gate.name), tally, heat,
+        advance: { label: "Advance", run: () => { this.elevator?.hide(); void this.enterGate(run.gate, run.floors, true); } },
+        quit: { run: () => { this.paused = false; this.gate = null; void this.returnToHaven(); } },
+      });
+      return;
+    }
     if (this.gate) {
       // in a gate: on to the next depth, or ride back up to Haven with the loot banked; on a real
       // gate the next depth's level is locked in as the knight steps on the elevator
@@ -1457,7 +1478,7 @@ class Viewer {
       });
       // an Arcade stratum cleared counts for prestige gate missions of its theme
       const here = this.floors[this.run.depth], s = here?.stratum;
-      if (s && here.depth === s.last && !this.gate.id.startsWith("mission:")) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
+      if (s && here.depth === s.last && !/^(mission|lair):/.test(this.gate.id)) { const b = this.missions(); void b.load().then(() => b.stratumCleared(s.theme)); }
     } else {
       const nl = this.nextLevel();
       // past the Core the Clockworks go on: cycle the levels again, deeper
@@ -1645,9 +1666,10 @@ class Viewer {
   }
 
   /** Starts a gate at depth 1. */
-  private async enterGate(g: Gate, floors = gateFloors(g)) {
+  private async enterGate(g: Gate, floors = gateFloors(g), keepTotals = false) {
     this.gate = g;
-    this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
+    if (keepTotals) this.runTotals.gate = g.name;
+    else this.runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: g.name, notes: [] };
     this.usedScenes.clear();
     this.floors = floors;
     // a real gate: the first depth's level is the one the Arcade's elevator leads to now
@@ -1655,11 +1677,13 @@ class Viewer {
     this.arenaMode = false;
     // the descent starts above the first floor (a mission's floors start deeper)
     this.run = { depth: Math.max(0, floors.findIndex(f => f && f.depth > 0) - 1), health: null, floors: 0 };
-    if (!g.id.startsWith("mission:")) recordRunStart(this.save, this.run.depth);
+    if (!/^(mission|lair):/.test(g.id)) recordRunStart(this.save, this.run.depth);
     // a mission starts in the Mission Lobby (the client's LOBBY level: knights gear up, then
-    // its elevator takes them down), when the level archive has it
+    // its elevator takes them down), or its own lobby (Base Camp, Ancient Grove...), when the
+    // level archive has it; some missions have none (the Hall of Heroes, the Lab, a Shadow Lair)
     // (the archive holds several revisions: the newest scene id, not an instance's huge one)
-    const lobby = g.id.startsWith("mission:") ? this.sceneList.filter(s => /^mission lobby$/i.test(s.name) && Number(s.id) < 1e6)
+    const own = g.lobby ? this.archive.level(`m.${g.lobby}`) : null;
+    const lobby = g.id.startsWith("mission:") && g.lobby !== null ? own ?? this.sceneList.filter(s => /^mission lobby$/i.test(s.name) && Number(s.id) < 1e6)
       .sort((a, b) => Number(b.id) - Number(a.id))[0] ?? null : null;
     if (lobby) {
       this.inLobby = true;
@@ -1696,6 +1720,7 @@ class Viewer {
     const s = f.stratum!;
     const seed = ((this.gate?.seed ?? 1) * 31 + f.depth * 977 + this.save.runs * 7919) >>> 0;
     if (f.level) return this.realFloorScene(f, seed);
+    if (f.mission) return this.missionFloorScene(f, seed);
     // a boss stratum's own stage (the boss's lair on its last floor)
     if (f.levelKey) {
       const real = a.level(f.levelKey);
@@ -1761,15 +1786,93 @@ class Viewer {
     if (f.special) this.genStyles.set(id, f.special);
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
+  /**
+   * A mission's own floor (src/game/missionfloors.ts): its level from the archive (its fixed
+   * revision, or a floor of it the servers generated and the client cached; one of the keys the
+   * floor rotates between); else a floor in the style its key names, assembled from the captured
+   * prefab rooms of that style and status or generated in its tiles, with the floor's monsters;
+   * a boss floor without its level is the boss's generated arena.
+   */
+  private missionFloorScene(f: Floor, seed: number): { id: string; name: string } {
+    const ms = f.mission!, a = this.archive, s = f.stratum;
+    const copies = ms.keys.flatMap(k => a.copies(`m.${k}`));
+    if (copies.length) {
+      const fresh = copies.filter(c => !this.usedScenes.has(c.id));
+      const pool = fresh.length ? fresh : copies;
+      const pick = pool[Math.floor(rng(seed)() * pool.length)];
+      this.usedScenes.add(pick.id);
+      return pick;
+    }
+    const theme = genTheme(f.tileset || "clockworks");
+    const tables = stratumTables(ms.element ?? ms.family, rng(seed));
+    const label = `${f.name}${f.zone ? " " + f.zone : ""}`;
+    if (f.kind === "boss" && s?.boss) {
+      const id = `gen:${theme}:${seed}:${s.boss}`;
+      this.genTables.set(id, tables);
+      this.genNames.set(id, f.name);
+      return { id, name: `${f.name} · depth ${f.depth}` };
+    }
+    if (a.prefabSources(ms.style, null, true).length) {
+      const id = `gen:pf-${ms.style}-${ms.element ? ms.element.toLowerCase() : "none"}:${seed}`;
+      this.genFallback.set(id, theme);
+      this.genTables.set(id, stratumTables(ms.family, rng(seed)));
+      this.genNames.set(id, `${label} · ${ms.family}`);
+      return { id, name: `${f.name} · depth ${f.depth}` };
+    }
+    const id = `gen:${theme}:${seed}`;
+    this.genTables.set(id, tables);
+    this.genNames.set(id, `${label} · ${ms.family}`);
+    return { id, name: `${f.name} · depth ${f.depth}` };
+  }
+
+  /**
+   * Whether an elevator the knight stands on runs: a terminal's Shadow Lair elevators (one per
+   * boss, by their "Push Gate") only from the depth-23 terminal of a gate with that boss. (The
+   * game also wants a Shadow Key; there are none here.)
+   */
+  private lairElevator(p: Prop): boolean {
+    if (!/Shadow Lair/.test(p.entity.name)) return true;
+    const key = LAIR_GATES[String(p.args["Push Gate"] ?? "")];
+    const f = this.gate ? this.floors[this.run.depth] : null;
+    const open = !!key && !!f && f.kind === "terminal" && f.depth === 23 && !!this.gate?.strata.some(s => s.boss === key);
+    if (!open && this.world && Date.now() - this.lairNotice > 4000) {
+      this.lairNotice = Date.now();
+      const k = this.world.knight;
+      this.world.say(k.x, k.y, key ? `Sealed: the Shadow Lair of a gate with ${bossName(key)}, from the depth-23 terminal` : "Sealed", "#c9a6ff");
+    }
+    return open;
+  }
+  private lairNotice = 0;
+
+  /** Development: plays a boss's Shadow Lair from its first floor (window.__viewer.testLair("twins")). */
+  async testLair(key: BossKey) {
+    this.stopPlaying();
+    const run = lairRun(key, this.save.runs);
+    await this.enterGate(run.gate, run.floors);
+  }
+
+  /** Development: starts a mission's run by its id (window.__viewer.testMission("alien_ooze")), its floors as the board would play them. */
+  async testMission(id: string) {
+    const b = this.missions();
+    await b.load();
+    const m = b.missionById(id);
+    if (!m) return null;
+    this.stopPlaying();
+    const run = missionRun(m, this.save.runs);
+    b.track(m);
+    await this.enterGate(run.gate, run.floors);
+    return run.floors.filter(Boolean).map(f => `${f.depth} ${f.name}${f.zone ? ": " + f.zone : ""} [${f.mission?.keys.join("/") ?? ""}]`);
+  }
+
   private usedScenes = new Set<string>();
   /** In the Mission Lobby before a mission's first floor. */
   private inLobby = false;
 
   /** A boss floor: the boss's fight director runs its arena; the exit stays shut until it is won. */
-  private spawnBoss(key: BossKey) {
+  private spawnBoss(key: BossKey, ultimate = false) {
     // on the game's own boss level the level's logic brings the boss on, and the director
     // runs the parts of the fight that are server code; on a generated arena it runs it all
-    if (this.world && this.scene) startBossFight(key, this.world, !GEN.test(this.scene.id));
+    if (this.world && this.scene) startBossFight(key, this.world, !GEN.test(this.scene.id), ultimate);
   }
 
   /** The boss of this floor is still standing. */
@@ -1844,16 +1947,16 @@ class Viewer {
         return;
       }
       // deeper tiers need rank (missions take the knight to their own depth)
-      const lock = this.gate.id.startsWith("mission:") ? null : tierLock(f.tier, progressOf(this.save));
+      const lock = /^(mission|lair):/.test(this.gate.id) ? null : tierLock(f.tier, progressOf(this.save));
       if (lock) { this.gate = null; await this.returnToHaven(); notice(lock); return; }
       const sc = this.floorScene(f);
       if (!sc) { this.status(`No scene for ${f.name}`, true); return; }
       this.run.depth = f.depth;
-      this.achieve(recordDepth(this.save, f.depth));
+      this.achieve(recordDepth(this.save, f.scaleDepth ?? f.depth));
       this.bossFloor = f.kind === "boss" ? f.level?.boss ?? f.stratum!.boss : null;
       await this.selectScene(sc.id);
       await this.startPlaying();
-      if (this.bossFloor) this.spawnBoss(this.bossFloor);
+      if (this.bossFloor) this.spawnBoss(this.bossFloor, !!f.mission?.ultimate);
       // terminals and subtowns are safe floors: the knight is healed on arrival
       if ((f.kind === "terminal" || f.kind === "subtown" || f.kind === "core") && this.world) {
         this.world.knight.health = this.world.knight.maxHealth;

@@ -132,6 +132,12 @@ export class MissionBoard {
     this.finish(m);
   }
 
+  /** @internal Development: a mission by its id. */
+  missionById(id: string): Mission | null { return this.missions.find(m => m.id === id) ?? null; }
+
+  /** A run started for this mission outside the board (development): its completion is reported by runFinished. */
+  track(m: Mission) { this.active = m; }
+
   /** A run was abandoned (back to Haven before the last floor). */
   runAbandoned() { this.active = null; }
 
