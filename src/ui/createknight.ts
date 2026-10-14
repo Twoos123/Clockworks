@@ -193,17 +193,24 @@ export class CreateKnight extends FloatScreen {
     });
     const naming = this.opened > this.steps.length;
     if (this.nameWindow) {
+      // the name window stays open with its field once reached (the client only dims its
+      // header while another window is reopened); its highlight sits beside it, not over it
       this.nameWindow.visible = naming;
       const content = this.nameWindow.find("content");
-      if (content) content.visible = this.active === this.steps.length;
+      if (content) content.visible = naming;
+      for (const c of [this.nameWindow.find("namefield"), content?.children[0]]) if (c) c.visible = true;
       const b = this.nameWindow.find("expandbutton");
-      if (b) b.visible = naming && this.active !== this.steps.length;
+      if (b) b.visible = false;
     }
     const next = ui.find("button_next"), start = ui.find("button_start");
     if (next) next.visible = !naming;
     if (start) start.visible = naming;
-    if (naming && this.active === this.steps.length) setTimeout(() => this.focusName(), 0);
+    // the field takes the keyboard as soon as it has been drawn (tick)
+    if (naming && this.active === this.steps.length) this.wantFocus = true;
   }
+
+  /** The name field should take the keyboard once it is on the screen. */
+  private wantFocus = false;
 
   constructor(ctx: GuiContext, private readonly hooks_: CreateHooks) {
     super(ctx, "createCanvas");
@@ -404,6 +411,10 @@ export class CreateKnight extends FloatScreen {
   protected tick() {
     const f = this.root?.find("namefield");
     if (!f) return;
+    if (this.wantFocus && f.screen && f.screen.width > 0) {
+      this.wantFocus = false;
+      this.focusName();
+    }
     if (f.focused) this.nameFocused = true;
     else if (this.nameFocused) {
       if (document.activeElement?.id === "canvas") this.focusName();

@@ -1088,7 +1088,8 @@ class Viewer {
     }, 0);
   }
 
-  private stopPlaying() {
+  /** Ends play in the scene; `keepMusic` (the same scene again, a new look) lets the music play on. */
+  private stopPlaying(keepMusic = false) {
     if (!this.world) return;
     // the time played so far goes into the knight's save
     if (this.save.knight) writeSave(this.save);
@@ -1097,7 +1098,7 @@ class Viewer {
     this.world = null;
     this.gameHud = null;
     this.music.leave();
-    this.audio?.stopMusic(1);
+    if (!keepMusic) this.audio?.stopMusic(1);
     this.audio?.stopAmbience();
     this.hud?.clear();
     this.knockedOut = false;
@@ -1485,7 +1486,8 @@ class Viewer {
       sound: f => this.uiSound(f),
       sceneList: () => this.sceneList,
       go: async (id, at) => { this.stopPlaying(); await this.selectScene(id); this.resumeAt = at ?? null; await this.startPlaying(); },
-      restart: async () => { this.stopPlaying(); await this.startPlaying(); },
+      // (a new look on the same stage: the music plays on, client S only re-dresses its knight)
+      restart: async () => { this.stopPlaying(true); await this.startPlaying(); },
       world: () => this.world,
       camera: (az, el, dist) => { this.az = az; this.el = el; this.dist = dist * this.options_.zoom; this.fov = 0.75; this.cam = null; },
       // a stage's camera holds its CameraConfig exactly (its fog is set for that distance)
