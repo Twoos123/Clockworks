@@ -913,6 +913,16 @@ export class World implements LogicHost {
     }
   }
 
+  /** Whether an action freezes, puts to sleep or stuns its activator (an ApplyStatus with no target). */
+  disablesSelf(action: any, depth = 0): boolean {
+    if (!action || depth > 6) return false;
+    const k = String(action.$class ?? "").split("$").pop();
+    if (k === "Compound") return ((action.actions ?? []) as any[]).some(a => this.disablesSelf(a, depth + 1));
+    if (k !== "ApplyStatus" || action.target || !this.conditions) return false;
+    const kind = this.conditions.get(action.condition ?? action.statusCondition, this.ctx(0))?.def.kind;
+    return kind === "Freeze" || kind === "Sleep" || kind === "Stun";
+  }
+
   /** Spiral Knights' own actions (DungeonActionConfig and friends). */
   gameAction(cfg: any, source: Entity, activator: Entity | null, logic: Logic): boolean | undefined {
     const k = String(cfg.$class ?? "").split("$").pop();
@@ -3357,7 +3367,7 @@ export class World implements LogicHost {
     const info: MonsterInfo = {
       name, attacks: def.slots.map(a => a?.name ?? ""), speed: def.speed, targetedSpeed: def.targetedSpeed,
       melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a ? Math.max(0, this.reach(a) - m.radius) : 0)),
-      script, args: behaviorArgs(m.ref ?? { name }, lookup),
+      script, args: behaviorArgs(m.ref ?? { name }, lookup), radius: m.radius,
     };
     let cfg: Behavior = monsterBehavior(info);
     // allies (freed companions, energy turrets) fight monsters near the knight, else follow it

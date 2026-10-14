@@ -55,7 +55,10 @@ for (const name of [...lib.keys()].sort()) {
   const names = def.slots.map(a => a?.name ?? "");
   const behavior = monsterBehavior({
     name, attacks: names, speed: def.speed, targetedSpeed: def.targetedSpeed,
-    melee: def.slots.map(a => !!a?.shape && !a.spawn), reach: def.slots.map(a => (a?.shape ? a.shape.forward + a.shape.halfLength : 6)), script, args,
+    melee: def.slots.map(a => !!a?.shape && !a.spawn),
+    // as World.brainOf: the hit's reach (World.reach) less the monster's radius, edge to edge
+    reach: def.slots.map(a => (a?.shape ? Math.max(0, a.shape.forward + Math.max(a.shape.halfLength, a.shape.radius) * 0.8 - def.radius) : 6)),
+    script, args, radius: def.radius,
   });
   const shown = Object.entries(args).filter(([, v]) => v === null || typeof v !== "object");
   console.log([name.replace("Character/NPC/Monster/", ""),
