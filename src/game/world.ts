@@ -1007,13 +1007,14 @@ export class World implements LogicHost {
     if (kind === "door") p.open = !!cfg.open;
     if (kind === "switch" && cfg.collisionMask === 0 && (cfg.handlers ?? []).some((h: any) => /\$Damage$/.test(h?.$class ?? ""))) p.strikable = true;
     if (kind === "block") {
-      // no block config sets health, so the closed code's default applies: counted here in
-      // hits (treasure boxes and mineral nodes take a few, crates one)
+      // no block config sets health, so it is counted in hits as the wiki's Exploration and
+      // Mineral pages give them: stone blocks, mineral deposits and anti-vehicle hedgehogs 3,
+      // empty rockets 2, everything else (treasure boxes, plain blocks, barbed hedgehogs,
+      // breakable tombstones, crystals) 1
       const cls = String(cfg.$class).split("$").pop();
-      // (stone blocks give their hits: a mortar shell's 2)
-      p.health = p.maxHealth = cfg.health ?? cfg.hits ?? (/Treasure|Mineral|Gathering|Stone/.test(e.name) ? 3 : 1);
+      p.health = p.maxHealth = cfg.health ?? cfg.hits ?? blockHits(e.name);
       p.hits = cfg.health === undefined;
-      p.breakable = !/Unbreakable|Hedgehog|Echo/i.test(e.name) && cls !== "DamageMirrorBlock";
+      p.breakable = !/Unbreakable|Echo/i.test(e.name) && cls !== "DamageMirrorBlock";
     }
     if (kind === "trap") {
       // the intersection handler fires "Traps and Hazards/Trap, floor" with the plate's size;
@@ -3308,3 +3309,10 @@ function clipKey(p: string | any): string {
 
 
 export type { LoadedModel, Vec3 };
+
+/** Hits a block takes to break, by its config name (wiki: Exploration, Mineral). */
+export function blockHits(name: string): number {
+  if (/Block\/Stone|Mineral|Gathering|Anti-vehicle Hedgehog|Ice Barrier/i.test(name)) return 3;
+  if (/Empty Rocket/i.test(name)) return 2;
+  return 1;
+}
