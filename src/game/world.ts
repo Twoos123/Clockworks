@@ -28,6 +28,8 @@ import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
 import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
+import { actionHint } from "./action";
+import { message } from "../i18n";
 
 // Character/PC/Default: speed 5, circle radius 1/3, collision mask 43
 const KNIGHT_SPEED = 5, KNIGHT_RADIUS = 1 / 3, KNIGHT_MASK = 43;
@@ -1497,6 +1499,11 @@ export class World implements LogicHost {
 
   update(dt: number, input: KnightInput) {
     this.clock += dt;
+    // the action button acts while the knight has something to act on and is not mid-attack
+    // (Knight.Nu: an action description, and an activity that allows it): "Press ATTACK to..."
+    if (input.attackDown && !this.ride && !this.knight.attack && !this.knight.dead && this.actionTarget()) {
+      input = { ...input, attackDown: false, attackHeld: false, interact: true };
+    }
     if (this.ride) this.updateRide(dt); else this.updateKnight(dt, input);
     this.companion?.update(dt);
     for (const m of this.monsters) this.updateMonster(m, dt);
@@ -1604,9 +1611,14 @@ export class World implements LogicHost {
   private findTarget(): Monster | null {
     const k = this.knight, w = k.weapon;
     if (!this.autoAimOn || !w) return null;
+    const fair = (m: Monster) => m.state !== "dying" && m.state !== "spawning" && !m.passive && !m.ally;
+    // the target held stays while it is within twice the wedge's angle (dungeon/util/i.Sc)
+    const held = k.target;
+    if (held && fair(held) && this.monsters.includes(held)
+      && inTargetWedge(k.x, k.y, k.heading, w.targetingDist, w.targetingAngle * 2, held.x, held.y, held.radius)) return held;
     let best: Monster | null = null, bestD = Infinity;
     for (const m of this.monsters) {
-      if (m.state === "dying" || m.state === "spawning" || m.passive || m.ally) continue;
+      if (!fair(m)) continue;
       if (!inTargetWedge(k.x, k.y, k.heading, w.targetingDist, w.targetingAngle, m.x, m.y, m.radius)) continue;
       const d = (m.x - k.x) ** 2 + (m.y - k.y) ** 2;
       if (d < bestD) { best = m; bestD = d; }
@@ -2390,26 +2402,76 @@ export class World implements LogicHost {
     this.addImpulse(target, ((target.x - fx) / d) * dist, ((target.y - fy) / d) * dist, kn.duration / 1000);
   }
 
-  /** The monster last struck and when (seconds of world time), for the HUD's target panel. */
-  private lastStruck: { m: Monster; at: number } | null = null;
   private clock = 0;
   private hudKeys = 0;
 
-  /** The target panel's monster: the last one struck, while alive and for a few seconds after. */
+  /**
+   * The target panel's monster: the knight's current target (the knight sprite's PO(): the
+   * auto-target picked in the wedge ahead), none while the knight is down or has something
+   * to act on.
+   */
   hudTarget(): import("../ui/hud").HudTarget | null {
-    const t = this.lastStruck;
-    if (!t || this.clock - t.at > 6 || (t.m.state === "dying" && this.clock - t.at > 1.5)) return null;
-    const name = monsterName(t.m.def, (t.m.entity?.name ?? "").split("/").pop()!.replace(/\s+\d+(\.\d+)?$/, ""));
-    const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(t.m.entity?.name ?? "")?.[1]?.toLowerCase() ?? "";
-    const key = ((t.m as any).hudKey ??= ++this.hudKeys);
-    return { key: key + name, name, health: t.m.health, maxHealth: t.m.maxHealth, family: fam, model: t.m.def.model, idle: t.m.def.idle ?? null,
-      icon: t.m.def.descIcon ?? null, weakness: t.m.def.weakness ?? "NORMAL", attack: t.m.def.attackType ?? "NORMAL" };
+    const k = this.knight, m = k?.target;
+    if (!m || k.dead || this.actionTarget()) return null;
+    const name = monsterName(m.def, (m.entity?.name ?? "").split("/").pop()!.replace(/\s+\d+(\.\d+)?$/, ""));
+    const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(m.entity?.name ?? "")?.[1]?.toLowerCase() ?? "";
+    const key = ((m as any).hudKey ??= ++this.hudKeys);
+    return { key: key + name, name, health: m.health, maxHealth: m.maxHealth, family: fam, model: m.def.model, idle: m.def.idle ?? null,
+      icon: m.def.descIcon ?? null, weakness: m.def.weakness ?? "NORMAL", attack: m.def.attackType ?? "NORMAL" };
+  }
+
+  /** Descriptions of things the knight can act on, by actor name (loaded once; null for none). */
+  private actionDescs = new Map<string, import("../ui/hud").HudDescription | null>();
+
+  /**
+   * What the knight can act on now (the server's Knight action description and description):
+   * the thing the action key would use, its helptips hint (ActionDesc.LD) and its
+   * DescriptionConfig for the target panel. Null while carrying something or with nothing near.
+   */
+  actionTarget(): { hint: string; desc: import("../ui/hud").HudDescription | null } | null {
+    const k = this.knight;
+    if (!k || k.dead) return null;
+    const carried = this.props.find(p => p.carried);
+    const fx = k.x + Math.cos(k.heading) * 0.7, fy = k.y + Math.sin(k.heading) * 0.7;
+    const near = this.props.filter(p => p !== carried && Math.hypot(p.x - fx, p.y - fy) < 1.6)
+      .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y));
+    const door = near.find(p => p.kind === "door" && !p.open);
+    const target = (p: Prop | Monster, cfg: any, fallback: string) =>
+      ({ hint: actionHint(cfg?.actionDesc, fallback), desc: this.describe(p.entity?.name ?? "", cfg) });
+    if (door && /\$Energy$/.test(door.cfg.actionDesc?.$class ?? "") && !carried) return target(door, door.cfg, "m.energy");
+    if (door && carried?.cfg.actionableSignal && carried.cfg.actionableSignal === door.cfg.actionableSignal) return target(door, door.cfg, "m.unlock");
+    if (carried) return null;
+    if (this.props.some(p => p.kind === "lift" && Math.hypot(p.x - k.x, p.y - k.y) < 1.2)) return { hint: "m.lift", desc: null };
+    const prop = near.find(p => p.entity.handlers.some(h => h.kind === "Interaction"));
+    if (prop) return target(prop, prop.cfg, "m.interact");
+    const npc = this.monsters.filter(m => m.passive && m.entity?.handlers.some(h => h.kind === "Interaction") && Math.hypot(m.x - fx, m.y - fy) < 1.8)
+      .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y))[0];
+    if (npc?.entity) return target(npc, this.data.resolveSync("config/actor.dat", { name: npc.entity.name }, "actor"), "m.talk");
+    return null;
+  }
+
+  /** The knight stands on the exit elevator, waiting for it to go (the party status the client shows m.elevator for). */
+  get onElevator(): boolean { return this.props.some(p => p.kind === "elevator" && p.standTime > 0) && !this.finished; }
+
+  /** A thing's DescriptionConfig for the target panel, loaded in the background on first ask. */
+  private describe(name: string, cfg: any): import("../ui/hud").HudDescription | null {
+    if (!name) return null;
+    if (!this.actionDescs.has(name)) {
+      this.actionDescs.set(name, null);
+      const ref = cfg?.description ?? cfg?.sprite?.description ?? null;
+      void ((ref ? this.data.description(ref) : this.data.actorDescription(name)) as Promise<any>)
+        .then(d => {
+          if (!d || !d.dname) return;
+          const tr = (key: string) => key ? (key.startsWith("~") ? key.slice(1) : message(d.bundle, key) || key) : "";
+          this.actionDescs.set(name, { key: name, name: tr(d.dname), title: tr(d.title), info: tr(d.description), icon: d.icon });
+        }).catch(() => undefined);
+    }
+    return this.actionDescs.get(name) ?? null;
   }
 
   private damageMonster(m: Monster, amounts: Amounts, knockback: Knock, fx: number, fy: number) {
     // allies are immortal companions here (the game's rest and recover when worn down)
     if (m.passive || m.ally) return;
-    this.lastStruck = { m, at: this.clock };
     // the summed damage bonus: the attacker's pool plus its tag bonuses for this monster's
     // tags (its family, fam_slime, from its folder when the config gives none); capped in dealt
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(m.entity?.name ?? "")?.[1]?.toLowerCase();
@@ -2564,6 +2626,16 @@ export class World implements LogicHost {
     k.health = k.maxHealth;
     k.invulnerable = 2;
     this.play(k, "character/pc/idle.dat");
+  }
+
+  /**
+   * The Spark of Life's ENERGY BLAST (dungeon bundle m.revive_desc): the game's Bomb/Revive/Revive
+   * actor at the knight's feet, its lifestorm wind-up and blast, damaging, stunning and
+   * throwing back the monsters around (radius 4 by its default option).
+   */
+  energyBlast() {
+    const k = this.knight;
+    void this.spawnProjectileAt({ name: "Bomb/Revive/Revive" }, k.x, k.y, k.heading, "knight", this.attackerCtx(k));
   }
 
   // ---------------------------------------------------------------- for boss directors

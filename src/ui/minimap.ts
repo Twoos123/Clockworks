@@ -7,7 +7,7 @@
 //   in its personal colour, half transparent, turned to its heading), the MinimapIcon entities
 //   (0.75 size; past 69 pixels pinned to the edge, shrinking to 0.25 over 690 pixels, then gone)
 //   and the monsters (ui/minimap/monster.png, only within 69 pixels);
-// - the overlay (the map button, the map_overlay preference) draws the same map over the whole
+// - the overlay (the map button; the HUD keeps the map_overlay preference) draws the same map over the whole
 //   screen at 4.5 pixels a unit and half opacity, with the knight and the entity icons at full size;
 // - Clockworks levels reveal the map in discs around where the knight has been; other places show
 //   the map around every reached cell.
@@ -15,7 +15,7 @@
 import type { World } from "../game/world";
 import type { LoadedScene } from "../scene";
 import { Exploration, LevelMap } from "../game/levelmap";
-import type { Component, GuiContext, GuiImage } from "./gui";
+import type { GuiContext, GuiImage } from "./gui";
 
 /** Minimap pixels per world unit (Minimap.a.Kf). */
 const SCALE = 3;
@@ -29,7 +29,6 @@ const FADE = 690;
 const MASK = "ui/hud_v2/images/minimap/mask.png", MASK_SIZE = 160;
 /** The self marker's colour print in towns (AbstractMapComponent: 264); dungeons use the knight's colour. */
 const TOWN_SELF_COLOR = 264;
-const OVERLAY_PREF = "map_overlay";
 
 /** Map colours (the map component's colour set: floor, blocked, reached). */
 const FLOOR = [74, 112, 120], BLOCKED = [107, 176, 186], REACHED = [21, 51, 74];
@@ -37,8 +36,6 @@ const FLOOR = [74, 112, 120], BLOCKED = [107, 176, 186], REACHED = [21, 51, 74];
 export interface MinimapPlace {
   /** Clockworks levels reveal the map as the knight explores (MapType.DISCOVER). */
   discover: boolean;
-  /** The zoom button shows where the camera can zoom (towns, guild halls, arenas). */
-  zoom: boolean;
   /** Dungeon markers: the knight in its personal colour, and monsters. */
   dungeon: boolean;
 }
@@ -52,11 +49,7 @@ export class Minimap {
   private dirty = true;
   private layer: OffscreenCanvas | null = null;
   private icons = new Map<string, GuiImage | null>();
-  private place: MinimapPlace = { discover: false, zoom: false, dungeon: false };
-  /** The map overlay (the map button), kept as the client's map_overlay preference. */
-  overlay = readPref();
-  /** The camera's zoom state, for the zoom button. */
-  zoomed = false;
+  private place: MinimapPlace = { discover: false, dungeon: false };
 
   constructor(private readonly gui: GuiContext) {}
 
@@ -75,24 +68,6 @@ export class Minimap {
     map.flood();
     const b = map.bounds();
     this.explored = !b ? null : place.discover ? new Exploration(b.minX, b.minY, b.maxX, b.maxY) : Exploration.around(map);
-  }
-
-  /** Toggles the map overlay (TOGGLE_MAP). */
-  toggleOverlay() {
-    this.overlay = !this.overlay;
-    try { localStorage.setItem(OVERLAY_PREF, this.overlay ? "1" : "0"); } catch { /* storage unavailable */ }
-  }
-
-  /** The minimap interface's buttons: zoom only where the camera zooms, both showing their state. */
-  bind(ui: Component) {
-    const spacer = ui.find("spacer_zoom");
-    if (spacer) spacer.visible = this.place.zoom;
-    const zoom = ui.find("button_zoom");
-    if (zoom) zoom.selected = this.zoomed;
-    const map = ui.find("button_map");
-    if (map) map.selected = this.overlay;
-    const lock = ui.find("button_lockhud");
-    if (lock) { lock.enabled = false; lock.hoverable = false; }
   }
 
   private icon(file: string, colorization?: number): GuiImage | null {
@@ -221,7 +196,7 @@ export class Minimap {
   /** The map overlay over the whole screen (cw x ch), under the HUD. */
   drawOverlay(g: CanvasRenderingContext2D, cw: number, ch: number) {
     const world = this.world;
-    if (!this.overlay || !world?.knight) return;
+    if (!world?.knight) return;
     this.explore(world);
     const k = world.knight, cx = cw / 2, cy = ch / 2;
     const tex = this.paint();
@@ -237,6 +212,3 @@ export class Minimap {
   }
 }
 
-function readPref(): boolean {
-  try { return localStorage.getItem(OVERLAY_PREF) === "1"; } catch { return false; }
-}

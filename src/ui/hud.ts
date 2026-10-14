@@ -9,9 +9,11 @@
 import { CONFIG_REF } from "../config/params";
 import { message, text } from "../i18n";
 import type { World } from "../game/world";
-import { restyle, buildInterface, hitTest, pack, render, type Component, type GuiContext, type RenderHooks } from "./gui";
+import { restyle, buildInterface, buildComponentConfig, hitTest, pack, render, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { ScriptRunner } from "./script";
 import { Minimap } from "./minimap";
+import { buildUi, type TipSpec } from "./screen";
+import { prestigeIcon } from "../game/missions";
 
 const STATUS = "ui/hud_v2/interface_status.dat";
 const QUICKBAR = "ui/hud_v2/interface_quickbar.dat";
@@ -32,19 +34,23 @@ const LABELS: Record<string, [string, string]> = {
   button_readyroom: ["b.to_readyroom", "Ready Room"], button_guildhall: ["b.to_guildhall", "Go to Guild Hall"],
   button_furni: ["b.furni", "Furnishings"], button_missions: ["m.missions_item", "Missions"], button_supplydepot: ["m.supply_depot", "Supply Depot"],
 };
-/** Menu buttons and the keys shown on their badges. */
-const MENU_KEYS: Record<string, string> = {
-  button_menu: "esc", button_help: "H", button_social: "G", button_feed: "N", button_mail: "M", button_gear: "C", button_loadout: "I", button_forge: "K", button_arsenal: "B",
-};
-/** Parts with nothing behind them in single player (PvP, parties, trades, mail, news). */
+/** The corner menus' buttons (client hud/y and hud/P), whose hotkey badges show their bound command. */
+const MENU_BUTTONS = ["button_menu", "button_help", "button_social", "button_feed", "button_mail", "button_gear", "button_loadout", "button_arsenal", "button_forge"];
+/**
+ * Activities the client shows only for online features (hud/a.bv): the account button, other
+ * guilds' halls, the Coliseum and its spectating, the party finder, and the trade, party
+ * invite and party found notifications with their divider.
+ */
 const HIDDEN = ["button_spare", "button_visithalls", "container_pvp", "button_pvp_spectate", "container_partyfinder",
-  "button_traderequest", "button_partyinvite", "button_partyfound", "panel_div", "notes_div"];
+  "button_traderequest", "button_partyinvite", "button_partyfound", "notes_div"];
 
 /** The monster the knight is fighting, for the target panel. */
 export interface HudTarget {
   key: string; name: string; health: number; maxHealth: number; family: string; model: any; idle: any;
   /** The description's family icon, and the damage types it is weak to and deals (DescriptionConfig.Monster). */
   icon?: string | null; weakness?: string; attack?: string;
+  /** A non-monster description (DescriptionConfig.Descriptive): its title and text instead of a health bar. */
+  desc?: { title: string; info: string };
 }
 
 /** The low-health frame shows while the trailing health is under this fraction of the maximum (client status panel). */
@@ -103,10 +109,34 @@ export interface HudState {
   rank?: string;
   /** The knight's personal colour (a colorization id) for the portrait's backdrop. */
   color?: number;
+  /** The key bound to each corner menu button's command, as the game names it ("" for none). */
+  menuKeys?: Record<string, string>;
+  /** Keys of the minimap buttons' commands for their tooltips (keyboard keys only). */
+  commandKeys?: { zoom?: string; map?: string; hudLock?: string };
+  /** An unread letter: the mail button's notice, and the left menu's handle notice while folded. */
+  mailNews?: boolean;
+  /** The scene's camera has a closer zoom (towns and the guild hall show the zoom button). */
+  zoomable?: boolean;
+  /** The camera is at its closer zoom (the zoom button selected). */
+  zoomed?: boolean;
+  /** The knight's prestige (from completed prestige missions): the rank icon. */
+  prestige?: number;
+  /** Activities visibility: in the guild hall (furnishings, no "Go to Guild Hall"), in the Ready Room. */
+  place?: { guildHall: boolean; readyRoom: boolean; hall: boolean };
+  /** What the knight can act on now: the action hint (helptips key) and its description for the target panel. */
+  action?: { hint: string | null; desc: HudDescription | null } | null;
+  /** A battle sprite is out (the status panel's pet portrait). */
+  pet?: boolean;
+  /** The pocket and vitapod items' tooltips (the quickbar slots' item tooltips). */
+  pocketTips?: (TipSpec | null)[];
 }
 
-/** What the status panel is built for: its heat meter's level and the portrait's colour. */
-const statusKey = (s: HudState) => `${heatLevel(s.heat)}|${s.color ?? ""}`;
+/** A DescriptionConfig shown in the target panel (a townsperson, shop or item the knight can act on). */
+export interface HudDescription { key: string; name: string; title: string; info: string; icon: string | null }
+
+/** What the status panel is built for: its heat meter's level, the portrait's colour and the prestige icon. */
+const statusKey = (s: HudState) => `${heatLevel(s.heat)}|${s.color ?? ""}|${prestigeIcon(s.prestige ?? 0)}`;
+
 
 /** An item gained, for its acquire icon: the icon image, colorizations, count and pocket slot. */
 export interface AcquireEntry { icon: string; colorizations: unknown[]; count: number; slot: number | null }
@@ -115,6 +145,13 @@ const ACQUIRE = "ui/scripted/dynamic/item_acquire.dat";
 
 /** Where the corner menus' open or folded state is kept. */
 const MENU_PREF = "clyde-web.menu_panels_out";
+/** The objective panel's open or folded state (ProjectXPrefs show_objectives). */
+const OBJECTIVES_PREF = "clyde-web.show_objectives";
+/** The HUD lock (ProjectXPrefs hud_lock), and the map overlay (map_overlay). */
+const LOCK_PREF = "clyde-web.hud_lock";
+const MAP_PREF = "clyde-web.map_overlay";
+const getPref = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
+const setPref = (k: string, v: boolean) => { try { localStorage.setItem(k, v ? "1" : "0"); } catch { /* storage unavailable */ } };
 /** Clyde's Easing CubicIn and CubicOutOvershoot (overshoot 1.70158, about 10 percent). */
 const cubicIn = (t: number) => t * t * t;
 const cubicOutOvershoot = (t: number) => { const o = 1.70158; t -= 1; return t * t * ((o + 1) * t + o) + 1; };
@@ -261,6 +298,8 @@ export class GameHud {
       if (ui) {
         const blocking = this.blocking ?? false;
         await this.applyBlocking(ui, blocking);
+        await this.bindPortrait(ui, state);
+        this.lockApplied = null;
         this.status = ui; this.built = key; this.heartVariant = ""; this.diffStyle.clear(); this.blocking = blocking;
       }
     } finally { this.building = false; }
@@ -291,6 +330,21 @@ export class GameHud {
     this.diffStyle.clear();
   }
 
+  /**
+   * The portrait (hud/F.Km, Kn): the rank icon is the prestige rank's icon (none below 5000
+   * prestige), in the personal colour; the elliptical rim is the personal menu's button.
+   */
+  private async bindPortrait(ui: Component, s: HudState) {
+    const p = ui.find("portrait_player");
+    const rim = p?.find("rim_button");
+    if (rim) rim.tooltip = text("projectx", "m.personal_menu", "Personal Menu");
+    const icon = p?.find("rank_icon");
+    if (!icon) return;
+    const file = prestigeIcon(s.prestige ?? 0);
+    icon.icon = file ? await this.ctx.image(file, s.color !== undefined
+      ? [{ $class: "com.threerings.opengl.renderer.config.ColorizationConfig$Normal", colorization: s.color }] : undefined) : null;
+  }
+
   private async recolor(part: Component | null, variant: string, colorization: number) {
     if (!part) return;
     await Promise.all(["health", "health1", "health2", "health_difference", "health_difference1", "health_difference2", "health_backing"].map(tag => {
@@ -316,7 +370,11 @@ export class GameHud {
       if (slot) slot.visible = false;
     });
     this.spriteSlots = slots.filter((s): s is Component => !!s);
+    // the vitapod slot's button takes no hover (dungeon/client/at): no tooltip
+    const vr = ui.find("vitaslot")?.find("slot_ring");
+    if (vr) vr.hoverable = false;
     this.quickbar = ui;
+    this.lockApplied = null;
   }
 
   private menuLeft: Component | null = null;
@@ -329,8 +387,54 @@ export class GameHud {
   /** The target panel fading out after its target is gone (seconds left). */
   private targetFade = 0;
   private folded = new Map<Component, boolean>();
-  /** Panels the player folded or unfolded by hand (left alone by the automatic folding). */
-  private manual = new Set<Component>();
+  /**
+   * The HUD lock (dungeon HUD only, TOGGLE_HUD_LOCK and the minimap's lock button; kept as
+   * ProjectXPrefs hud_lock): the menus and quickbar take no clicks and their buttons disable,
+   * the activities and objectives fold, the minimap's zoom and map buttons and the portrait's
+   * rim disable.
+   */
+  private lockPref = getPref(LOCK_PREF) === "1";
+  get locked() { return this.dungeon && this.lockPref; }
+  private lockApplied: boolean | null = null;
+
+  toggleLock() {
+    if (!this.dungeon) return;
+    this.lockPref = !this.lockPref;
+    setPref(LOCK_PREF, this.lockPref);
+  }
+
+  /** The map overlay (client hud/z in map/client/c's full-screen window), kept as ProjectXPrefs map_overlay. */
+  mapOverlay = getPref(MAP_PREF) === "1";
+  toggleMap() { this.mapOverlay = !this.mapOverlay; setPref(MAP_PREF, this.mapOverlay); }
+
+  /** Applies the lock to the panels when it changes (dungeon/client/i.OU). */
+  private applyLock() {
+    const locked = this.locked;
+    if (locked === this.lockApplied) return;
+    this.lockApplied = locked;
+    for (const ui of [this.menuLeft, this.menuRight, this.activities, this.objective]) {
+      if (!ui) continue;
+      const walk = (c: Component) => { if (c.kind === "button") c.enabled = !locked; c.children.forEach(walk); };
+      walk(ui);
+    }
+    // the activities and objectives fold under the lock (hud/a.aC, hud/E.aC)
+    if (locked) for (const ui of [this.activities, this.objective]) if (ui && !this.folded.get(ui)) this.fold(ui, true);
+    const mm = this.minimapUi;
+    for (const tag of ["button_zoom", "button_map"]) { const b = mm?.find(tag); if (b) { b.enabled = !locked; b.hoverable = !locked; } }
+    const lock = mm?.find("button_lockhud");
+    if (lock) { lock.selected = locked; lock.enabled = this.dungeon; lock.hoverable = this.dungeon; }
+    const rim = this.status?.find("rim_button");
+    if (rim) { rim.enabled = !locked; rim.hoverable = !locked; }
+    // the quickbar's slots take the disabled button style (dungeon/client/ah and at)
+    if (this.quickbar) {
+      for (const tag of ["slot0", "slot1", "slot2", "slot3"]) {
+        const ring = this.quickbar.find(tag)?.find("slot_ring");
+        if (ring) void restyle(this.ctx, ring, "Hud/Quickbar/Button" + (locked ? ":Disabled" : ""));
+      }
+      const vr = this.quickbar.find("vitaslot")?.find("slot_ring");
+      if (vr) void restyle(this.ctx, vr, "Hud/Quickbar/Vitaslot/Button" + (locked ? ":Disabled" : ""));
+    }
+  }
   private townBuilt: boolean | null = null;
   private hovered: Component | null = null;
   /** Display options: the minimap, and the damage effects (the red flash when hit and the low-health frame). */
@@ -347,10 +451,6 @@ export class GameHud {
     ]);
     for (const ui of [l, r, a]) {
       if (!ui) continue;
-      for (const [tag, key] of Object.entries(MENU_KEYS)) {
-        const hk = ui.find(tag)?.find("hotkey");
-        if (hk) { hk.text = key; hk.visible = key !== "esc"; }
-      }
       for (const tag of HIDDEN) { const b = ui.find(tag); if (b) b.visible = false; }
     }
     if (a) {
@@ -360,10 +460,10 @@ export class GameHud {
     if (o) { const t = o.find("label_title"); if (t) t.text = text("projectx", "m.current_objective", "Current Objective"); }
     if (c) { const v = findKind(c, "view"); if (v) v.viewOwner = "cooldown"; }
     this.menuLeft = l; this.menuRight = r; this.activities = a; this.objective = o; this.cooldown = c;
-    // the corner menus open or folded as the player left them (the client's menu_panels_out)
-    let out: string | null = null;
-    try { out = localStorage.getItem(MENU_PREF); } catch { /* storage unavailable */ }
-    if (out !== null) for (const m of [l, r]) if (m) { this.manual.add(m); this.fold(m, out === "0", false); }
+    // the corner menus open or folded as the player left them (ProjectXPrefs menu_panels_out,
+    // open by default); the objectives as show_objectives left them (open by default)
+    for (const m of [l, r]) if (m) this.fold(m, getPref(MENU_PREF) === "0", false);
+    if (o) this.fold(o, getPref(OBJECTIVES_PREF) === "0", false);
     // load the target panel's images and fonts now, so the first monster struck shows at once
     void buildInterface(this.ctx, ref(TARGET, { Name: "", "Dungeon UI": true, Model: null, Rank: "", Background: "Full" }));
   }
@@ -380,6 +480,13 @@ export class GameHud {
     for (const tag of ["health_difference", "model", "status_icon", "container_debuffs", "label_title", "label_information"]) {
       const c = ui.find(tag); if (c) c.visible = false;
     }
+    // a description that is not a monster's shows its title and text, and no health (hud/q.JV)
+    if (t.desc) {
+      const set = (tag: string, v: string) => { const c = ui.find(tag); if (c) { c.text = v; c.visible = true; } };
+      set("label_title", t.desc.title);
+      set("label_information", t.desc.info);
+      const hb = ui.find("health_ui"); if (hb) hb.visible = false;
+    }
     const backdrop = ui.find("backdrop");
     if (backdrop) backdrop.styles = [null, null, null];
     const size = (tag: string, w: number, h: number) => { const c = ui.find(tag); if (c) c.preferredSize = { width: w, height: h }; };
@@ -394,13 +501,14 @@ export class GameHud {
     if (fam && icon) jobs.push(restyle(this.ctx, fam, "Family_Icon", { File: icon }));
     const weak = (t.weakness ?? "NORMAL").toUpperCase();
     const wbox = ui.find("container_weakness"), wlabel = ui.find("label_weakness");
-    if (wbox) wbox.visible = weak !== "NORMAL" && weak !== "UNBLOCKABLE";
+    if (wbox) wbox.visible = !t.desc && weak !== "NORMAL" && weak !== "UNBLOCKABLE";
     if (wlabel && wbox?.visible) {
       wlabel.text = text("item", "m." + weak.toLowerCase(), weak.charAt(0) + weak.slice(1).toLowerCase());
       jobs.push(restyle(this.ctx, wlabel, "Hud/Status/Mini/Weakness Label", { Color: weak.toLowerCase() }));
     }
     const atk = ui.find("icon_attack");
-    if (atk) {
+    if (atk && t.desc) atk.visible = false;
+    else if (atk) {
       atk.visible = true;
       jobs.push(restyle(this.ctx, atk, "Hud/Status/Mini/Debuff_Icon", { File: `ui/icon/stats/attack_${(t.attack ?? "NORMAL").toLowerCase()}.png` }));
     }
@@ -446,8 +554,27 @@ export class GameHud {
   /** The panel's x offset while it slides or sits folded. */
   private dx(ui: Component) { return this.offsets.get(ui) ?? 0; }
 
+  /** The panels taking the pointer, top first: the status panel (its rim button), the minimap, the menus, the quickbar. */
   private panels() {
-    return [this.menuLeft, this.menuRight, this.activities, this.objective, this.options.minimap ? this.minimapUi : null].filter((x): x is Component => !!x);
+    return [this.status, this.options.minimap ? this.minimapUi : null, this.menuLeft, this.menuRight, this.activities,
+      this.objective?.visible ? this.objective : null, this.dungeon ? this.quickbar : null].filter((x): x is Component => !!x);
+  }
+
+  /** The button under (x, y) and the panel it is in, as the client's hit testing finds it. */
+  private hitAt(x: number, y: number): { hit: Component; owner: Component } | null {
+    for (const ui of this.panels()) {
+      // a locked HUD's menus take no pointer at all (hud/M.getHitComponent); the quickbar neither
+      if (this.locked && ui !== this.minimapUi && ui !== this.status) continue;
+      const h = hitTest(ui, x, y, c => c.kind === "button" && (ui !== this.status || c.tag === "rim_button") && c.visible && c.hoverable && (c.enabled || c.tag === "button_lockhud"));
+      if (!h) continue;
+      // the portrait's rim is an ellipse (hud/K.contains)
+      if (h.tag === "rim_button" && h.screen) {
+        const r = h.screen, dx = (x - r.x - r.width / 2) / (r.width / 2), dy = (y - r.y - r.height / 2) / (r.height / 2);
+        if (dx * dx + dy * dy >= 1) continue;
+      }
+      return { hit: h, owner: ui };
+    }
+    return null;
   }
 
   /**
@@ -455,25 +582,29 @@ export class GameHud {
    * button's tag ("button_loadout", "button_missions"...). Panel handles fold their panel.
    */
   pointer(x: number, y: number, click: boolean): string | null {
-    const isButton = (c: Component) => c.kind === "button";
-    let hit: Component | null = null, owner: Component | null = null;
-    for (const ui of this.panels()) {
-      const h = hitTest(ui, x, y, isButton);
-      if (h) { hit = h; owner = ui; break; }
-    }
+    this.mouse = { x, y };
+    if (this.popupPointer(x, y, click)) return click ? "menu" : null;
+    const found = this.hitAt(x, y);
+    const hit = found?.hit ?? null, owner = found?.owner ?? null;
+    this.mouse = { x, y };
     if (this.hovered !== hit) {
       if (this.hovered) this.hovered.hover = false;
       if (hit) hit.hover = true;
       this.hovered = hit;
+      this.hoverStart = performance.now();
     }
     if (!click || !hit || !owner) return null;
+    this.hoverStart = Infinity;
+    if (owner === this.quickbar) return null;
     if (hit.tag === "handle") {
-      const folded = !this.folded.get(owner);
+      const open = !!this.folded.get(owner);
       const menus = owner === this.menuLeft || owner === this.menuRight ? [this.menuLeft, this.menuRight] : [owner];
-      for (const m of menus) if (m) { this.manual.add(m); this.fold(m, folded); }
-      if (menus.length > 1) try { localStorage.setItem(MENU_PREF, folded ? "0" : "1"); } catch { /* storage unavailable */ }
+      for (const m of menus) if (m) this.fold(m, !open);
+      if (menus.length > 1) setPref(MENU_PREF, open);
+      if (owner === this.objective) setPref(OBJECTIVES_PREF, open);
       return "handle";
     }
+    if (hit.tag === "rim_button") return this.status?.find("portrait_pet")?.find("rim_button") === hit ? "pet_portrait" : "personal_menu";
     // a menu item's tag sits on its interface host; the clickable part is the inner button
     if (hit.tag === "button") return findHost(owner, hit)?.tag ?? null;
     return hit.tag || null;
@@ -481,8 +612,14 @@ export class GameHud {
 
   /** True when (x, y) is over a HUD button (clicks there do not attack). */
   covers(x: number, y: number): boolean {
-    return this.panels().some(ui => !!hitTest(ui, x, y, c => c.kind === "button"));
+    if (this.popup) return true;
+    const h = this.hitAt(x, y);
+    return !!h && h.owner !== this.quickbar;
   }
+
+  /** The pointer over the HUD and how long the hovered button has been under it (for tooltips). */
+  private mouse: { x: number; y: number } | null = null;
+  private hoverStart = 0;
 
   private runner(ui: Component) {
     let r = this.runners.get(ui);
@@ -554,22 +691,17 @@ export class GameHud {
     if (this.quickbar) this.bindQuickbar(this.quickbar, state);
     const label = this.minimapUi?.find("floorlabel");
     if (label) label.text = state.floor;
-    if (this.minimapUi) this.minimap.bind(this.minimapUi);
-    // the activities panel is open in towns and folded in the Clockworks
+    // the activities panel opens in towns and folds in the Clockworks (hud/a.wasAdded: as the
+    // player left it in the same kind of place, else open outside dungeons)
     if (this.activities && this.townBuilt !== state.town) {
       this.townBuilt = state.town;
       this.fold(this.activities, !state.town);
-      const b = this.activities.find("button_haven");
-      if (b) b.text = state.town ? "The Arcade" : message("projectx", "b.to_town", "Haven");
     }
-    if (this.objective) {
-      const list = this.objective.find("objectives");
-      if (list) {
-        state.objectives.forEach((line, i) => { const row = list.children[i]; if (row) { row.text = "- " + line; row.visible = true; } });
-        for (let i = state.objectives.length; i < list.children.length; i++) list.children[i].visible = false;
-      }
-      this.objective.visible = state.objectives.length > 0;
-    }
+    if (this.activities) this.bindActivities(this.activities, state);
+    if (this.objective) this.bindObjectives(this.objective, state.objectives);
+    this.bindMenus(state);
+    this.bindMinimap(state);
+    this.applyLock();
     if (this.cooldown) {
       // the client shows the dodge cooldown's seconds rounded, while any is left
       this.cooldown.visible = state.dungeon && state.dashCooldown > 0;
@@ -589,8 +721,14 @@ export class GameHud {
       this.bindSwitch(state.weapons, sel);
       if ((this.switcherTime -= dt) <= 0) this.switcher.visible = false;
     }
-    // the target panel: the monster most recently struck, with its health
-    const t = state.target;
+    // the help notice's text (helptips)
+    const hint = state.action?.hint ?? null;
+    this.hintText = hint ? message("helptips", hint) || null : null;
+    // the target panel (dungeon/client/g): what the knight can act on (a townsperson, shop or
+    // item's description) before the knight's target monster with its health
+    const d = state.action?.desc ?? null;
+    const t: HudTarget | null = d ? { key: "desc:" + d.key, name: d.name, health: 0, maxHealth: 0, family: "", model: null, idle: null,
+      icon: d.icon, desc: { title: d.title, info: d.info } } : state.target;
     if (!t) {
       if (this.target && this.targetKey) { this.targetKey = ""; this.targetFade = 0.3; }
       if (this.target && this.targetFade > 0) {
@@ -601,7 +739,7 @@ export class GameHud {
     } else {
       if (t.key !== this.targetKey) { this.target = null; void this.rebuildTarget(t); }
       const frac = Math.max(0, t.health) / Math.max(1, t.maxHealth);
-      const hb = this.target?.find("health_ui") ?? null;
+      const hb = t.desc ? null : this.target?.find("health_ui") ?? null;
       if (hb) {
         hb.visible = frac > 0;
         const fill = hb.find("health");
@@ -631,6 +769,117 @@ export class GameHud {
   }
 
   private lowFade = 0;
+
+  /** The notice icon (ui/icon/notice.png) for folded handles with news. */
+  private noticeIcon: Component["icon"] = null;
+  private noticeLoading = false;
+  private notice() {
+    if (!this.noticeIcon && !this.noticeLoading) {
+      this.noticeLoading = true;
+      void this.ctx.image("ui/icon/notice.png").then(im => { this.noticeIcon = im; });
+    }
+    return this.noticeIcon;
+  }
+
+  /** A panel's handle (hud/M: the first handle whose parent shows). */
+  private handle(ui: Component): Component | null {
+    let found: Component | null = null;
+    const walk = (c: Component, parentVisible: boolean) => {
+      if (found) return;
+      if (c.tag === "handle" && parentVisible) { found = c; return; }
+      for (const k of c.children) walk(k, c.visible);
+    };
+    walk(ui, true);
+    return found;
+  }
+
+  /**
+   * hud/M.JR: a folded panel's handle carries the notice icon while there is news, and the
+   * activities and objectives handles their tooltips (m.activities_tip, m.objectives_tip) while folded.
+   */
+  private bindHandle(ui: Component, news: boolean, tipKey: string | null) {
+    const h = this.handle(ui);
+    if (!h) return;
+    const folded = !!this.folded.get(ui);
+    h.selected = !folded;
+    h.icon = news && folded ? this.notice() : null;
+    h.tooltip = tipKey && folded ? text("projectx", tipKey, tipKey === "m.activities_tip" ? "Activities" : "Objectives") : "";
+  }
+
+  /** Corner menus (hud/L.b and hud/y, hud/P): bound keys on the badges, cut to 3 characters; the mail notice. */
+  private bindMenus(s: HudState) {
+    for (const ui of [this.menuLeft, this.menuRight]) {
+      if (!ui) continue;
+      for (const tag of MENU_BUTTONS) {
+        const host = ui.find(tag);
+        if (!host) continue;
+        const hk = host.find("hotkey");
+        const key = tag === "button_menu" ? "" : (s.menuKeys?.[tag] ?? "").slice(0, 3);
+        if (hk) { hk.text = key; hk.visible = key !== ""; }
+        const n = host.find("notice");
+        if (n) n.visible = tag === "button_mail" && !!s.mailNews;
+      }
+    }
+    if (this.menuLeft) this.bindHandle(this.menuLeft, !!s.mailNews, null);
+    if (this.menuRight) this.bindHandle(this.menuRight, false, null);
+  }
+
+  /** The activities' visibility rules (hud/a.bv) for single play. */
+  private bindActivities(a: Component, s: HudState) {
+    const show = (tag: string, on: boolean) => { const c = a.find(tag); if (c) c.visible = on; return on; };
+    const p = s.place ?? { guildHall: false, readyRoom: false, hall: false };
+    const haven = a.find("button_haven");
+    if (haven) haven.text = message("projectx", "b.to_town", "Haven");
+    // "Go to Haven" outside the home town; the Ready Room outside it; the guild's hall outside it
+    const go = [show("button_haven", !s.town), show("button_readyroom", !p.readyRoom), show("button_guildhall", p.hall && !p.guildHall)];
+    show("go_div", go.some(Boolean));
+    // furnishings only where the hall's design mode runs; missions always (MissionPanel.isEnabled)
+    const furni = show("button_furni", p.guildHall);
+    const missions = show("button_missions", true);
+    show("panel_div", furni || missions);
+    this.bindHandle(a, false, "m.activities_tip");
+  }
+
+  /** The objective panel (hud/E.by): a "- text" line per objective, hidden without any, unfolding when new ones arrive. */
+  private lastObjectives: string | null = null;
+  private bindObjectives(o: Component, lines: string[]) {
+    const key = lines.join("\n");
+    if (key !== this.lastObjectives) {
+      const fresh = lines.some(l => !(this.lastObjectives ?? "").split("\n").includes(l));
+      this.lastObjectives = key;
+      const list = o.find("objectives");
+      if (list) {
+        lines.forEach((line, i) => { const row = list.children[i]; if (row) { row.text = "- " + line; row.visible = true; } });
+        for (let i = lines.length; i < list.children.length; i++) list.children[i].visible = false;
+      }
+      o.visible = lines.length > 0;
+      if (fresh && lines.length) {
+        if (this.locked) this.objectiveNews = true;
+        else if (this.folded.get(o)) this.fold(o, false);
+      }
+    }
+    if (!this.folded.get(o)) this.objectiveNews = false;
+    this.bindHandle(o, this.objectiveNews, "m.objectives_tip");
+  }
+  private objectiveNews = false;
+
+  /** The minimap's buttons (hud/Minimap and the dungeon's W): zoom where the camera has one, the map overlay, the lock. */
+  private bindMinimap(s: HudState) {
+    const mm = this.minimapUi;
+    if (!mm) return;
+    const tip = (name: string, fallback: string, key?: string) => {
+      const t = text("projectx", name, fallback);
+      return key ? message("projectx", "i.hotkey", t, key) || `${t} (${key})` : t;
+    };
+    const zoomBox = mm.find("spacer_zoom");
+    if (zoomBox) zoomBox.visible = !!s.zoomable;
+    const zoom = mm.find("button_zoom");
+    if (zoom) { zoom.selected = !!s.zoomed; zoom.tooltip = tip("m.toggle_zoom", "Toggle Zoom", s.commandKeys?.zoom); }
+    const map = mm.find("button_map");
+    if (map) { map.selected = this.mapOverlay; map.tooltip = tip("m.toggle_map", "Toggle Map", s.commandKeys?.map); }
+    const lock = mm.find("button_lockhud");
+    if (lock) lock.tooltip = this.dungeon ? tip("m.toggle_hud_lock", "Toggle Hud Lock", s.commandKeys?.hudLock) : "";
+  }
 
   private bindStatus(ui: Component, s: HudState, dt: number) {
     // the bars trail their values: a hit leaves a damage segment, a heal a heal segment
@@ -674,6 +923,9 @@ export class GameHud {
       const icon = ui.find("shield");
       if (icon) icon.enabled = this.sh.trail > 0;
     }
+    // the pet portrait shows the battle sprite while one is out (hud/F.Ko)
+    const pet = ui.find("portrait_pet");
+    if (pet) { pet.visible = !!s.pet; const v = pet.find("model"); if (v) v.viewOwner = "pet"; }
     const rank = s.rank ? ui.find("rank_label") : null;
     if (rank) rank.text = s.rank!;
     // the heat meter: the floor's heat, in the dungeon HUD; it pulses as heat comes in
@@ -713,6 +965,10 @@ export class GameHud {
   }
 
   private bindQuickbar(ui: Component, s: HudState) {
+    // the event slot (dungeon/client/t) shows only while the floor has an event item; there are none here
+    const ev = ui.find("eventslot");
+    if (ev) ev.visible = false;
+    this.pocketTips = s.pocketTips ?? [];
     // pocket slots: the carried consumables, their counts and their keys
     for (const [i, tag] of ["slot0", "slot1", "slot2", "slot3", "vitaslot", "eventslot"].entries()) {
       const slot = ui.find(tag);
@@ -751,8 +1007,6 @@ export class GameHud {
 
   /** Draws the HUD into a canvas sized cw x ch CSS pixels. */
   draw(g: CanvasRenderingContext2D, cw: number, ch: number) {
-    // the map overlay is a window under the HUD
-    this.minimap.drawOverlay(g, cw, ch);
     // full-screen frames sit under the panels
     const fullScreen = (ui: Component | null, tags: string[]) => {
       if (!ui) return;
@@ -760,6 +1014,8 @@ export class GameHud {
       pack(ui);
       render(ui, g, 0, ch, this.hooks);
     };
+    // the map overlay (ProjectXPrefs map_overlay) under the HUD
+    if (this.mapOverlay) this.minimap.drawOverlay(g, cw, ch);
     if (this.low !== "off") fullScreen(this.lowHealth, ["frame_red", "frame_border"]);
     if (this.hitFlash && this.runners.get(this.hitFlash)?.busy) fullScreen(this.hitFlash, ["frame_red"]);
     if (this.status) {
@@ -788,25 +1044,18 @@ export class GameHud {
       const ss = pack(this.switcher);
       render(this.switcher, g, Math.round((cw - ss.width) / 2), Math.round((ch + ss.height) / 2), this.hooks);
     }
-    // corner menus fold to their handles when the window is too narrow for them beside the
-    // quickbar (unless the player has opened or folded them by hand)
-    if (this.menuLeft && this.menuRight) {
-      const qw = qb?.width ?? 0, wide = (m: Component) => pack(m).width;
-      const needed = qw + 2 * Math.max(wide(this.menuLeft), wide(this.menuRight)) + 16;
-      const auto = cw < needed;
-      for (const m of [this.menuLeft, this.menuRight]) if (!this.manual.has(m) && !!this.folded.get(m) !== auto) this.fold(m, auto);
-    }
     // corner menus: the left one in the lower-left corner, the right one in the lower-right
     if (this.menuLeft) { pack(this.menuLeft); render(this.menuLeft, g, this.dx(this.menuLeft), ch, this.hooks); }
     if (this.menuRight) { const s = pack(this.menuRight); render(this.menuRight, g, cw - s.width + this.dx(this.menuRight), ch, this.hooks); }
     // the objective panel hangs 166 pixels down the right edge, the activities 6 pixels under it
+    // (hud/E.Kk: under a folded objective panel the activities hang 6 pixels below its handle)
     let y = 166;
     for (const ui of [this.objective, this.activities]) {
       if (!ui?.visible) continue;
       const s = pack(ui);
-      y += s.height;
-      render(ui, g, cw - s.width + this.dx(ui), y, this.hooks);
-      y += 6;
+      render(ui, g, cw - s.width + this.dx(ui), y + s.height, this.hooks);
+      const h = this.folded.get(ui) ? this.handle(ui)?.height ?? s.height : s.height;
+      y += h + 6;
     }
     // item-acquire icons: beside their quickbar slot, or in from the lower-right corner
     for (const a of this.acquireShown) {
@@ -817,7 +1066,155 @@ export class GameHud {
     }
     // the target panel hangs from the top, 200 pixels in from the right edge
     if (this.target) { const s = pack(this.target); render(this.target, g, cw - 200 - s.width, s.height, this.hooks); }
+    this.drawHint(g, cw);
+    this.drawPopup(g, cw, ch);
+    if (!this.popup) this.drawTooltip(g, cw, ch);
   }
+
+  // ------------------------------------------------------------------ personal menu
+
+  /** The open popup menu (client cr, a PopupMenu at the mouse) and where it hangs. */
+  private popup: { ui: Component; x: number; y: number; run: (action: string) => void } | null = null;
+
+  /**
+   * Opens a popup menu at (x, y) (client ui/E): a Menu/PlayerTitle title, Menu/SubTitle
+   * section labels and Default/MenuItem items in a Default/PopupMenu.
+   */
+  async openMenu(x: number, y: number, title: string, entries: ({ label: string; action: string } | { header: string })[], run: (action: string) => void) {
+    const style = (name: string) => ({ $class: CONFIG_REF, name });
+    const kids = [{ component: { $class: COMPONENT + "Label", text: "~" + title, style: style("Menu/PlayerTitle") } },
+      ...entries.map(e => "header" in e
+        ? { component: { $class: COMPONENT + "Label", text: "~" + e.header, style: style("Menu/SubTitle") } }
+        : { component: { $class: COMPONENT + "Button", text: "~" + e.label, action: e.action, style: style("Default/MenuItem") } })];
+    const ui = await buildComponentConfig(this.ctx, { $class: COMPONENT + "Container", style: style("Default/PopupMenu"),
+      layout: { $class: "LayoutConfig$VerticalGroup", policy: { name: "STRETCH" }, justification: { name: "TOP" }, offAxisPolicy: { name: "STRETCH" }, gap: 0, children: kids } });
+    this.popup = { ui, x, y, run };
+  }
+
+  get menuOpen() { return !!this.popup; }
+
+  /** A press while the menu is open: an item runs its action, anywhere else closes the menu. True when taken. */
+  private popupPointer(x: number, y: number, click: boolean): boolean {
+    const p = this.popup;
+    if (!p) return false;
+    const hit = hitTest(p.ui, x, y, c => c.kind === "button");
+    if (this.hovered !== hit) { if (this.hovered) this.hovered.hover = false; if (hit) hit.hover = true; this.hovered = hit; }
+    if (click) {
+      this.popup = null;
+      if (hit?.action) p.run(hit.action);
+    }
+    return true;
+  }
+
+  private drawPopup(g: CanvasRenderingContext2D, cw: number, ch: number) {
+    const p = this.popup;
+    if (!p) return;
+    const s = pack(p.ui);
+    // PopupMenu.popup: at the mouse, kept on the screen
+    const x = Math.max(0, Math.min(cw - s.width, p.x)), top = Math.max(0, Math.min(ch - s.height, p.y));
+    render(p.ui, g, Math.round(x), Math.round(top + s.height), this.hooks);
+  }
+
+  // ------------------------------------------------------------------ help notice
+
+  /**
+   * The help notice (client ar, dungeon/client/h): a 600 pixel Default/TooltipWindow label at
+   * the top centre, 120 pixels down, with the knight's action hint from the helptips bundle
+   * (m.talk, m.shop, m.interact...), and in dungeons m.elevator while the knight waits on the
+   * elevator. Hidden while a window is open over the game.
+   */
+  private hintLabel: Component | null = null;
+  private hintBuilding = false;
+  hintText: string | null = null;
+
+  private drawHint(g: CanvasRenderingContext2D, cw: number) {
+    if (!this.hintText) return;
+    if (!this.hintLabel) {
+      if (!this.hintBuilding) {
+        this.hintBuilding = true;
+        void buildComponentConfig(this.ctx, { $class: COMPONENT + "Label", text: "", preferredWidth: 600, style: { $class: CONFIG_REF, name: "Default/TooltipWindow" } })
+          .then(c => { this.hintLabel = c; });
+      }
+      return;
+    }
+    const l = this.hintLabel;
+    l.text = this.hintText;
+    l.preferredWidth = 600;
+    const s = pack(l);
+    render(l, g, Math.round((cw - s.width) / 2), 120 + s.height, this.hooks);
+  }
+
+  // ------------------------------------------------------------------ tooltips
+
+  /** Built tooltip windows by text (Default/TooltipWindow around a label) or item tooltip spec. */
+  private tips = new Map<string, Component | null>();
+  private tipFor(key: string, build: () => Promise<Component | null>): Component | null {
+    if (!this.tips.has(key)) {
+      if (this.tips.size > 100) this.tips.clear();
+      this.tips.set(key, null);
+      void build().then(c => { this.tips.set(key, c); }).catch(() => undefined);
+    }
+    return this.tips.get(key) ?? null;
+  }
+
+  /** Clyde's Root tooltip: after the pointer rests 1 s (0.1 s on item slots), above the component or by the mouse. */
+  private drawTooltip(g: CanvasRenderingContext2D, cw: number, ch: number) {
+    const c = this.hovered, m = this.mouse;
+    if (!c || !m || !c.screen) return;
+    const slot = this.slotTip(c);
+    if ((performance.now() - this.hoverStart) / 1000 < (slot !== undefined ? 0.1 : 1)) return;
+    let tip: Component | null = null;
+    if (slot) {
+      // ItemConfig's tooltip in a Default/Window (item/client/M.a)
+      const key = "item:" + JSON.stringify(slot, (k, v) => (k === "$outer" ? undefined : v));
+      tip = this.tipFor(key, () => buildItemTip(this.ctx, slot));
+    } else if (slot === undefined && c.tooltip) {
+      const text = c.tooltip, style = c.tooltipStyle;
+      tip = this.tipFor("text:" + text + "|" + (style?.name ?? ""), () => buildTextTip(this.ctx, text, style));
+    }
+    if (!tip) return;
+    const s = pack(tip);
+    let x: number, bottom: number;
+    if (c.tooltipMouse) { x = m.x - s.width / 2; bottom = m.y - 10; }
+    else { x = c.screen.x + (c.screen.width - s.width) / 2; bottom = c.screen.y - 10; }
+    x = Math.max(5, Math.min(x, cw - s.width - 5));
+    bottom = Math.max(s.height + 5, Math.min(bottom, ch));
+    render(tip, g, Math.round(x), Math.round(bottom), this.hooks);
+  }
+
+  /** The item tooltip for a quickbar slot's button (null when the slot is empty), or undefined for other components. */
+  private slotTip(c: Component): TipSpec | null | undefined {
+    if (c.tag !== "slot_ring" || !this.quickbar) return undefined;
+    for (let i = 0; i < 4; i++) if (this.quickbar.find("slot" + i)?.find("slot_ring") === c) return this.pocketTips[i] ?? null;
+    return null;
+  }
+  private pocketTips: (TipSpec | null)[] = [];
+}
+
+const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
+const vgroupLayout = { $class: "LayoutConfig$Border", horizontalGap: 0, verticalGap: 0, children: [] as any[] };
+
+/** Clyde's default tooltip: a label (with the component's tooltip style) in a Default/TooltipWindow window. */
+async function buildTextTip(ctx: GuiContext, text: string, style: any): Promise<Component | null> {
+  const label = { $class: COMPONENT + "Label", text: "~" + text, ...(style ? { style } : {}) };
+  return buildComponentConfig(ctx, { $class: COMPONENT + "Container", style: { $class: CONFIG_REF, name: "Default/TooltipWindow" },
+    layout: { ...vgroupLayout, children: [{ component: label }] } });
+}
+
+/** An item tooltip (the game's tooltip interface for the item) in a Default/Window, as the quickbar's slots show it. */
+async function buildItemTip(ctx: GuiContext, spec: TipSpec): Promise<Component | null> {
+  const ui = await buildUi(ctx, spec.ref);
+  if (!ui) return null;
+  const view = ui.find("renderview");
+  if (view) view.visible = false;
+  for (const [tag, t] of Object.entries(spec.texts ?? {})) { const c = ui.find(tag); if (c) c.text = t; }
+  const pills = ui.find("tooltip_pills");
+  if (pills) pills.visible = false;
+  const win = await buildComponentConfig(ctx, { $class: COMPONENT + "Container", style: { $class: CONFIG_REF, name: "Default/Window" },
+    layout: { ...vgroupLayout, children: [] } });
+  ui.constraints = {};
+  win.children = [ui];
+  return win;
 }
 
 /** The vitapod's percentage (the client's): the lower of current and trailing health, at least 1% while alive. */

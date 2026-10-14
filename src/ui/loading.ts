@@ -10,7 +10,7 @@
 // bundle's level names (src/game/clockworks.ts).
 
 import { CONFIG_REF } from "../config/params";
-import { messages } from "../i18n";
+import { hasMessage, message, messages } from "../i18n";
 import { buildInterface, layout, type Component, type GuiContext } from "./gui";
 import { OverlayScreen } from "./overlay";
 import { bossName, type Floor } from "../game/clockworks";
@@ -84,9 +84,20 @@ export interface LoadingInfo {
   depth: string;
   /** A ui/loading/images picture. */
   image: string;
+  /**
+   * A Clockworks floor's title band (dungeon/client/O.EU): title_nextfloor.dat, or its
+   * "-ubs" (shadow) or "-wht" (core) variant, replacing the interface's own; absent for towns.
+   */
+  band?: "" | "-ubs" | "-wht";
 }
 
 const IMAGES = "ui/loading/images/";
+
+/** LevelPartyObject.ch for shadow, core and hidden-depth floors: m.depth with m.unk_depth ("DEPTH ???"). */
+function unknownDepth(): string {
+  const unk = hasMessage("dungeon", "m.unk_depth") ? message("dungeon", "m.unk_depth") : "???";
+  return hasMessage("dungeon", "m.depth") ? message("dungeon", "m.depth", unk) : `DEPTH ${unk}`;
+}
 
 /** What the loading screen shows for a destination: a gate floor, or a cached scene by name. */
 export function loadingInfo(name: string, floor: Floor | null, gateName?: string): LoadingInfo {
@@ -94,16 +105,21 @@ export function loadingInfo(name: string, floor: Floor | null, gateName?: string
     const s = floor.stratum;
     const depth = depthText(floor.depth);
     const zone = floor.zone;
+    const band = { band: "" as const };
     switch (floor.kind) {
-      case "terminal": case "core": return { title: floor.name, zone: zone ?? gateName ?? "The Clockworks", depth, image: IMAGES + "default.jpg" };
+      // the Core is LevelPartyObject's CORE floor type: the white band and an unknown depth ("DEPTH ???")
+      case "core": return { title: floor.name, zone: zone ?? gateName ?? "The Clockworks", depth: unknownDepth(), image: IMAGES + "default.jpg", band: "-wht" };
+      // the Arcade's lobby has no depth (NO_DEPTH)
+      case "lobby": return { title: floor.name, zone: zone ?? gateName ?? "The Clockworks", depth: "", image: IMAGES + "default.jpg", ...band };
+      case "terminal": return { title: floor.name, zone: zone ?? gateName ?? "The Clockworks", depth, image: IMAGES + "default.jpg", ...band };
       case "subtown": return { title: floor.name, zone: zone ?? (floor.depth === 8 ? "Tier 2 begins" : "Tier 3 begins"), depth,
-        image: IMAGES + (floor.depth === 18 ? "emberlight.jpg" : "moorcroft.jpg") };
+        image: IMAGES + (floor.depth === 18 ? "emberlight.jpg" : "moorcroft.jpg"), ...band };
       case "boss": {
         const img = s?.boss === "snarbolax" ? "wildwoods.jpg" : s?.boss === "twins" ? "imf.jpg" : "default.jpg";
-        return { title: floor.name, zone: zone ?? (s?.boss ? `Lair of ${bossName(s.boss)}` : "Boss"), depth, image: IMAGES + img };
+        return { title: floor.name, zone: zone ?? (s?.boss ? `Lair of ${bossName(s.boss)}` : "Boss"), depth, image: IMAGES + img, ...band };
       }
       default: return { title: floor.name, zone: zone ?? (s ? `${s.theme} Stratum ${s.index} - Tier ${s.tier}` : (gateName ?? "")), depth,
-        image: IMAGES + "default.jpg" };
+        image: IMAGES + "default.jpg", ...band };
     }
   }
   const n = name.toLowerCase();
@@ -153,6 +169,7 @@ export class LoadingScreen extends OverlayScreen {
     await this.build();
     const ui = this.ui;
     if (!ui) return;
+    await this.band(ui, info);
     const set = (tag: string, text: string) => { const c = ui.find(tag); if (c) { c.text = text; c.visible = text !== "" || tag !== "depth"; } };
     set("gate", info.title);
     set("zonename", info.zone);
@@ -167,6 +184,32 @@ export class LoadingScreen extends OverlayScreen {
     const root = ui.children[0];
     const s = root?.styles[0];
     if (s?.background && picture) root.styles[0] = { ...s, background: { ...s.background, image: picture } };
+  }
+
+  /** The interface's own title band, kept for towns. */
+  private ownBand: Component | null = null;
+  private bands = new Map<string, Component | null>();
+
+  /**
+   * dungeon/client/O.EU: a Clockworks floor's band is title_nextfloor.dat (or its shadow or
+   * core variant) with its own defaults, replacing the interface's "nextFloor"; towns keep it.
+   */
+  private async band(ui: Component, info: LoadingInfo) {
+    const holder = findParent(ui, c => c.tag === "nextFloor");
+    if (!holder) return;
+    const i = holder.children.findIndex(c => c.tag === "nextFloor");
+    const old = holder.children[i];
+    this.ownBand ??= old;
+    let next: Component | null = this.ownBand;
+    if (info.band !== undefined) {
+      if (!this.bands.has(info.band)) {
+        const built = await buildInterface(this.ctx, { $class: CONFIG_REF, name: `ui/report/parts/title_nextfloor${info.band}.dat` }).catch(() => null);
+        if (built) built.tag = "nextFloor";
+        this.bands.set(info.band, built);
+      }
+      next = this.bands.get(info.band) ?? this.ownBand;
+    }
+    if (next && next !== old) { next.constraints = old.constraints; holder.children[i] = next; }
   }
 
   /** Loading progress, 0 to 1. */
@@ -212,4 +255,11 @@ export class LoadingScreen extends OverlayScreen {
     layout(ui);
     return [{ ui, x: 0, y: Math.round(h) }];
   }
+}
+
+/** The component whose children include one matching `test`. */
+function findParent(c: Component, test: (c: Component) => boolean): Component | null {
+  if (c.children.some(test)) return c;
+  for (const k of c.children) { const r = findParent(k, test); if (r) return r; }
+  return null;
 }

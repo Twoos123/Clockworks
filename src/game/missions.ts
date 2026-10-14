@@ -511,3 +511,10 @@ function summarize(m: Mission): string {
     }
   }
 }
+
+/** ProjectXCodes.PrestigeRank: the least prestige for each rank and its icon (none for rank 0). */
+const PRESTIGE_RANKS: [number, string][] = [[45000, "prank_005"], [25000, "prank_004"], [15000, "prank_003"], [10000, "prank_002"], [5000, "prank_001"]];
+export function prestigeIcon(prestige: number): string | null {
+  const r = PRESTIGE_RANKS.find(([min]) => prestige >= min);
+  return r ? `ui/icon/prestige/${r[1]}.png` : null;
+}

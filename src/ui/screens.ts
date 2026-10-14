@@ -87,11 +87,11 @@ export class GameScreens {
   }
 
   get forge() {
-    return this.forge_ ??= new ForgeScreen(this.host.gui, { ...this.base(), changed: () => this.host.write() });
+    return this.forge_ ??= new ForgeScreen(this.host.gui, { ...this.base(), changed: () => this.host.write(), outfit: this.host.outfit });
   }
 
   get backpack() {
-    return this.backpack_ ??= new BackpackScreen(this.host.gui, { ...this.base(), write: () => this.host.write() });
+    return this.backpack_ ??= new BackpackScreen(this.host.gui, { ...this.base(), write: () => this.host.write(), outfit: this.host.outfit });
   }
 
   get shop() {
