@@ -159,6 +159,20 @@ export class ItemList {
     if (n && crowns !== null) n.text = crowns.toLocaleString("en-US");
   }
 
+  /**
+   * The arsenal's energy module (ui/energy/interface.dat): the knight's energy, or hidden
+   * (null). Its crystal's view model is not drawn.
+   */
+  setEnergy(energy: number | null) {
+    const w = this.root.find("energywidget");
+    if (!w) return;
+    w.visible = energy !== null;
+    const n = w.find("crystalenergy");
+    if (n && energy !== null) n.text = energy.toLocaleString("en-US");
+    const level = w.find("level");
+    if (level) level.visible = false;
+  }
+
   /** A notice under the list (the alert line), or none; a press on it calls `onClick`. */
   setNotice(text: string, onClick?: () => void) {
     const n = this.root.find("notice");

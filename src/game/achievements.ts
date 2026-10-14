@@ -198,6 +198,11 @@ export function recordHaven(s: AchievementSource, now = Date.now()): Achievement
   return (["REACHED_RESCUE_CAMP", "REACHED_HAVEN"] as const).filter(t => unlock(s, t, now));
 }
 
+/** The knight arrived in the Rescue Camp (after the crash site, when the archive has the camp). */
+export function recordRescueCamp(s: AchievementSource, now = Date.now()): AchievementType[] {
+  return (["REACHED_RESCUE_CAMP"] as const).filter(t => unlock(s, t, now));
+}
+
 /** An item was crafted (alchemized) at a star rating. */
 export function recordCraft(s: AchievementSource, rarity: number) {
   bump(s, "itemsCrafted");

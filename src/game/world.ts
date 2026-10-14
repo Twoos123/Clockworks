@@ -16,7 +16,8 @@ import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Diffic
 import { addItemBonuses, capValue, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
 import { Prop, propKind, trapState } from "./props";
-import { BEAM_MODELS, DungeonObjects, ENERGY_CROWNS, isAlly, isCaptive, standInModel, type BeamResult } from "./objects";
+import { BEAM_MODELS, DungeonObjects, isAlly, isCaptive, standInModel, type BeamResult } from "./objects";
+import { ENERGY_CROWNS } from "./energy";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
 import { DEFAULT_LOADOUT, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
@@ -378,10 +379,10 @@ export class World implements LogicHost {
   /** Dungeon objects: crystals, ghost blocks, explosives, prisms, gun blocks, cages (objects.ts). */
   readonly objects: DungeonObjects;
   /**
-   * Pays crowns from the bank for energy uses (energy gates, crates); true when paid. Unset,
-   * the floor's crowns pay.
+   * Pays an energy use (energy gates, crates) from the knight's energy (src/game/energy.ts);
+   * true when paid. Unset, the floor's crowns pay at the exchange's rate.
    */
-  spendCrowns: ((n: number) => boolean) | null = null;
+  spendEnergy: ((n: number) => boolean) | null = null;
   /** Prism beams drawn (model instances along each segment). */
   private beamItems: { instance: ModelInstance; matrix: Mat4 }[] = [];
   private beamGen = 0;
@@ -444,12 +445,12 @@ export class World implements LogicHost {
     if (gen === this.beamGen) this.beamItems = items;
   }
 
-  /** Pays for an energy use in crowns (ENERGY_CROWNS each); a floater says when it cannot. */
+  /** Pays for an energy use; a floater says what it took, or that it could not. */
   private payEnergy(amount: number): boolean {
-    const cost = Math.max(0, Math.round(amount * ENERGY_CROWNS));
-    const k = this.knight;
-    const paid = this.spendCrowns ? this.spendCrowns(cost) : this.loot.crowns >= cost && ((this.loot.crowns -= cost), true);
-    this.floaters.push({ x: k.x, y: k.y, z: k.z + 2, text: paid ? `-${cost} cr (energy)` : `Needs ${cost} crowns`, color: paid ? "#9fd8ff" : "#ff9a9a", age: 0 });
+    const n = Math.max(0, Math.round(amount));
+    const k = this.knight, cost = n * ENERGY_CROWNS;
+    const paid = this.spendEnergy ? this.spendEnergy(n) : this.loot.crowns >= cost && ((this.loot.crowns -= cost), true);
+    this.floaters.push({ x: k.x, y: k.y, z: k.z + 2, text: paid ? `-${n} energy` : `Needs ${n} energy`, color: paid ? "#9fd8ff" : "#ff9a9a", age: 0 });
     return paid;
   }
 
@@ -812,7 +813,7 @@ export class World implements LogicHost {
         return true;
       }
       case "UseEnergy": {
-        // energy is not modelled: crowns pay instead (ENERGY_CROWNS a point)
+        // the knight's energy pays (mist first; a shortfall bought with crowns at the exchange)
         if (!this.payEnergy(cfg.amount ?? cfg.actionDesc?.amount ?? 5)) return false;
         return cfg.action ? logic.execute(cfg.action, source, activator) : true;
       }
@@ -1339,7 +1340,7 @@ export class World implements LogicHost {
       .sort((a, b) => Math.hypot(a.x - k.x, a.y - k.y) - Math.hypot(b.x - k.x, b.y - k.y));
     const door = near.find(p => p.kind === "door" && !p.open);
     if (door && /\$Energy$/.test(door.cfg.actionDesc?.$class ?? "") && !carried) {
-      // an energy gate opens for its energy (paid in crowns here)
+      // an energy gate opens for its energy
       if (this.payEnergy(door.cfg.actionDesc.amount ?? 5)) this.propSignal(door, "open");
       return;
     }

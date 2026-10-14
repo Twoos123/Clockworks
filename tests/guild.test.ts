@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  bagStore, buyFurniture, cachedPlacements, commitCart, furniEntry, furnitureCatalogue, guildOf, hallRoot, nextRotation, place, snap, transfer, unplace,
+  bagStore, buyFurniture, cachedPlacements, commitCart, furniCost, furniEntry, furnitureCatalogue, guildOf, hallRoot, nextRotation, place, snap, transfer, unplace,
 } from "../src/game/guild.ts";
 import { loadSave } from "../src/game/save.ts";
 import { starterGear, validName } from "../src/ui/createknight.ts";
@@ -87,6 +87,28 @@ test("the catalogue keeps FurniConfig items and skips their parts", () => {
   };
   const list = furnitureCatalogue(Object.keys(impls), n => impls[n]);
   assert.deepEqual(list.map(e => [e.name, e.category, e.rarity]), [["Furni/Chair/A", "Chair", 2]]);
+});
+
+test("furniture costs its item_property.dat price by star; knight statues cost energy", () => {
+  const impls: Record<string, any> = {
+    "Furni/Chair/A": { $class: "x.FurniConfig$Prop", model: {}, rarity: 2, itemProp: { name: "Furni/Furni Common" } },
+    "Furni/Statue/K": { $class: "x.FurniConfig$KnightStatue", model: {}, rarity: 0, itemProp: { name: "Furni/Knight Statue Small" } },
+    "Furni/Prize/P": { $class: "x.FurniConfig$Prop", model: {}, rarity: -1 },
+  };
+  const props: Record<string, any[]> = {
+    "Furni/Furni Common": [{ buyPrice: 4250 }, { buyPrice: 10980 }, { buyPrice: 20515 }],
+    "Furni/Knight Statue Small": [{ depotCost: 15000 }],
+  };
+  const list = furnitureCatalogue(Object.keys(impls), n => impls[n], p => props[p] ?? null);
+  const by = Object.fromEntries(list.map(e => [e.name, furniCost(e)]));
+  assert.deepEqual(by["Furni/Chair/A"], { crowns: 20515 });
+  assert.deepEqual(by["Furni/Statue/K"], { energy: 15000 });
+  assert.deepEqual(by["Furni/Prize/P"], { crowns: 2000 });
+  const s = fresh();
+  s.crowns = 30000;
+  assert.ok(buyFurniture(s, "Furni/Chair/A", 2, by["Furni/Chair/A"]));
+  assert.equal(s.crowns, 30000 - 20515);
+  assert.ok(!buyFurniture(s, "Furni/Statue/K", 0, by["Furni/Statue/K"]), "a new knight's mist tank holds 100");
 });
 
 test("knight creation offers the Spiral starter styles and checks names", () => {

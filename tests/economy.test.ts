@@ -88,8 +88,12 @@ test("weapons and armour level 1-10 with heat; level tables give damage, charge,
 
 test("shops: keepers sell their kinds within the star range; buying, recipes and selling", { skip: !have }, async () => {
   const e = await economy();
+  // Haven's swords: the wiki's list (src/game/vendors.ts), zero to three stars
   const swords = e.catalogue("Shop/Haven/Swords", { maxRarity: 5 });
-  assert.ok(swords.length > 10 && swords.every(s => s.category === "sword" && s.rarity >= 1 && s.rarity <= 5));
+  assert.ok(swords.length > 10 && swords.every(s => s.category === "sword" && s.rarity >= 0 && s.rarity <= 3));
+  // a keeper without a wiki list sells every item of its kind in its star range
+  const any = e.catalogue("Shop/Elsewhere/Swords", { maxRarity: 5 });
+  assert.ok(any.length > swords.length && any.every(s => s.category === "sword" && s.rarity >= 1 && s.rarity <= 5));
   const basil = e.catalogue("Shop/Traveler/Terminal Tier 1", { tier: 1, seed: 3 });
   assert.ok(basil.length > 0 && basil.length <= 12 && basil.every(s => s.category === "recipe" && s.rarity <= 2));
   assert.deepEqual(basil, e.catalogue("Shop/Traveler/Terminal Tier 1", { tier: 1, seed: 3 }));
@@ -123,6 +127,8 @@ test("crafting costs what the recipe says and needs the recipe, materials and th
   assert.deepEqual(e.lineage("Weapon/Sword/Leviathan Blade"), ["Weapon/Sword/Calibur", "Weapon/Sword/Tempered Calibur", "Weapon/Sword/Ascended Calibur", "Weapon/Sword/Leviathan Blade"]);
   const w = wallet({ crowns: 5000, owned: ["Weapon/Sword/Calibur"], loadout: { weapons: ["Weapon/Sword/Calibur"], shield: "", armor: "", helmet: "", trinkets: [], vitapod: "" } });
   for (const [m, n] of tempered.materials) w.materials[m] = n;
+  // and three Advanced Orbs of Alchemy (tests/energy.test.ts has the energy side)
+  w.materials["Rarity/Orb of Alchemy/Advanced"] = 3;
   assert.ok(!e.canCraft(w, tempered), "the recipe must be learned first");
   w.recipes.push(tempered.name);
   assert.ok(e.canCraft(w, tempered), e.missing(w, tempered).join());

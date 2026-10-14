@@ -13,7 +13,8 @@ import { PortraitView } from "./ui/portrait";
 import { AudioSystem } from "./audio";
 import { Gamepads } from "./gamepad";
 import { catalogue } from "./game/items";
-import { knightName, loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import { energyOf, knightName, loadSave, shopTier, writeSave, type SaveData } from "./game/save";
+import { energyNow, exchangeCost, payEnergy, SPARK_COST } from "./game/energy";
 import { ECONOMY_FILES, Economy } from "./game/economy";
 import { Places } from "./ui/places";
 import { GameScreens } from "./ui/screens";
@@ -51,7 +52,7 @@ import type { Prop } from "./game/props";
 import { MissionBoard, notice, progressOf } from "./ui/missions";
 import { currentNotice, initNotices } from "./ui/notice";
 import {
-  ACHIEVEMENTS, evaluate as evaluateAchievements, recordBoss, recordDepth, recordHaven, recordKills, recordPocketUse, recordRevive,
+  ACHIEVEMENTS, evaluate as evaluateAchievements, recordBoss, recordDepth, recordHaven, recordKills, recordPocketUse, recordRescueCamp, recordRevive,
   recordRunEnd, recordRunStart, type AchievementType,
 } from "./game/achievements";
 import { UplinkScreen, mailbox } from "./ui/uplink";
@@ -64,7 +65,9 @@ import { readConversation } from "./game/conversation";
 import { ConversationScreen } from "./ui/conversation";
 
 /** Towns and lobbies: no monsters, and the run starts or ends here. */
-const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site/i;
+const TOWN = /haven|bazaar|lobby|^hall|ready room|crash site|rescue camp/i;
+/** The Rescue Camp's scenes (the archive's "rescue camp central", "rescue camp state 1"...). */
+const RESCUE_CAMP = /^rescue camp/i;
 /**
  * The order a run takes through the cached levels, after the Clockworks: a stratum of
  * Jigsaw Valley, the terminal rest stop, deeper levels, then the Core terminal whose
@@ -771,13 +774,12 @@ class Viewer {
     // town exits lead to their scenes (src/game/portals.ts); the Arcade, which the scenes cache
     // lacks, brings up its gate board
     world.onPortal = (tags, sceneId, portal, more) => this.walkOut({ tags, sceneId, portal, ...more });
-    // energy uses (energy gates, crates) are paid in crowns: the floor's first, then the bank's
-    world.spendCrowns = n => {
-      const l = world.loot, fromFloor = Math.min(l.crowns, n);
-      if (fromFloor + this.save.crowns < n) return false;
-      l.crowns -= fromFloor;
-      this.save.crowns -= n - fromFloor;
-      return true;
+    // energy uses (energy gates, crates) take the knight's energy, mist first; a shortfall is
+    // bought at the exchange with crowns, the floor's first, then the bank's
+    world.spendEnergy = n => {
+      const paid = payEnergy(energyOf(this.save), n, c => this.payCrowns(c));
+      if (paid) writeSave(this.save);
+      return paid;
     };
     world.color = this.save.color;
     world.gear = this.save.gear;
@@ -1150,7 +1152,8 @@ class Viewer {
       case "button_arsenal": void this.ensureScreens().toggleBackpack(); break;
       case "button_forge": void this.toggleArsenal("craft"); break;
       // in town the first activity leads to the Arcade's gates; below, it rides back to Haven
-      case "button_haven": if (this.hudContext().town && !this.gate) this.openGates(); else void this.returnToHaven(); break;
+      // (the Rescue Camp's leads to Haven: the elevator its story repairs)
+      case "button_haven": if (this.hudContext().town && !this.gate && !RESCUE_CAMP.test(this.scene?.name ?? "")) this.openGates(); else void this.returnToHaven(); break;
       case "button_missions": void this.missions().toggle(); break;
       // the minimap's buttons: the map overlay (ProjectXPrefs map_overlay), the camera zoom and the HUD lock
       case "button_map": this.gameHud?.toggleMap(); break;
@@ -1193,7 +1196,10 @@ class Viewer {
     });
     places.onCreated = () => {
       this.run = { depth: 1, health: null, floors: 0 };
-      const haven = this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
+      // a new knight goes on from the crash site to the Rescue Camp (Pod Town) when the archive
+      // has it, as in the game; else straight to Haven
+      const camp = this.sceneList.find(s => /^rescue camp central$/i.test(s.name));
+      const haven = camp ?? this.sceneList.find(s => /haven town square/i.test(s.name)) ?? this.sceneList.find(s => TOWN.test(s.name));
       if (haven) void (async () => { this.stopPlaying(); await this.selectScene(haven.id); await this.startPlaying(); })();
     };
     return places;
@@ -1357,8 +1363,9 @@ class Viewer {
     const tier = f && f.depth > 0 ? f.tier : 0;
     const maxRarity = f ? Math.max(shopTier(this.save), tierStars(f.tier)) : shopTier(this.save);
     const kp = eco.keeper(keeper, { tier, maxRarity });
-    // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth
-    const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000) });
+    // Basil's stock changes each visit (catalogCycle INSTANCE): seeded by the gate and depth;
+    // Haven's Strangers draw the random part of their wiki lists per knight and day
+    const stock = eco.catalogue(kp, { seed: (this.gate?.seed ?? 0) + this.run.depth * 7919 + Math.floor(Date.now() / 86400000), player: knightName(this.save) });
     // the keeper's name and title line from its description config, in the shop bundle
     const desc = await (this.world?.data ?? new GameData(this.loader)).actorDescription(keeper).catch(() => null);
     await this.ensureScreens().openShop(text("shop", desc?.dname, kp.title), stock, kp.maxRarity, portrait, text("shop", desc?.title, ""));
@@ -1530,7 +1537,15 @@ class Viewer {
     });
   }
 
-  /** Crowns a revive costs: more the deeper the knight is (towns are free). */
+  /** Pays crowns: the floor's loot first, then the bank's; false (nothing paid) when short. */
+  private payCrowns(n: number): boolean {
+    const l = this.world?.loot, fromFloor = Math.min(l?.crowns ?? 0, n);
+    if (fromFloor + this.save.crowns < n) return false;
+    if (l) l.crowns -= fromFloor;
+    this.save.crowns -= n - fromFloor;
+    return true;
+  }
+
   private reviveScreen: ReviveScreen | null = null;
 
   /** The knockout window: use a Spark of Life, or buy one with crowns. */
@@ -1540,7 +1555,11 @@ class Viewer {
     this.reviveScreen ??= new ReviveScreen(this.gui, $<HTMLCanvasElement>("reviveCanvas"), {
       sparks: () => this.save.sparks ?? 3,
       price: () => this.reviveCost(),
-      crowns: () => this.save.crowns,
+      energy: () => energyNow(energyOf(this.save)),
+      canBuy: () => {
+        const short = Math.max(0, this.reviveCost() - energyNow(energyOf(this.save)));
+        return short === 0 || (this.world?.loot.crowns ?? 0) + this.save.crowns >= exchangeCost(short);
+      },
       use: () => {
         const n = this.save.sparks ?? 3;
         if (n <= 0 || !this.world) return false;
@@ -1555,9 +1574,8 @@ class Viewer {
         return true;
       },
       buy: () => {
-        const cost = this.reviveCost();
-        if (this.save.crowns < cost) return false;
-        this.save.crowns -= cost;
+        // a spark for energy (the exchange buys any shortfall with crowns)
+        if (!payEnergy(energyOf(this.save), this.reviveCost(), c => this.payCrowns(c))) return false;
         this.save.sparks = (this.save.sparks ?? 3) + 1;
         writeSave(this.save);
         return true;
@@ -1596,6 +1614,7 @@ class Viewer {
     const got = [...earned, ...evaluateAchievements(this.save, n => eco?.info(n) ?? null)];
     // the knight made it to Haven (after creation)
     if (this.save.knight && /haven/i.test(this.scene?.name ?? "")) got.push(...recordHaven(this.save));
+    if (this.save.knight && RESCUE_CAMP.test(this.scene?.name ?? "")) got.push(...recordRescueCamp(this.save));
     writeSave(this.save);
     for (const t of got) {
       const d = ACHIEVEMENTS.find(a => a.type === t);
@@ -1603,7 +1622,11 @@ class Viewer {
     }
   }
 
-  private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : 25 * Math.max(1, this.run.depth); }
+  /**
+   * Energy a Spark of Life costs in the knockout window: the client's dungeonSparkOfLifeCost
+   * default, the same at every depth (the wiki's 50; towns are free).
+   */
+  private reviveCost() { return TOWN.test(this.scene?.name ?? "") ? 0 : SPARK_COST; }
 
   /** The run summary on arrival in Haven (the game's mission-complete window). */
   private summaryScreen: RunSummaryScreen | null = null;

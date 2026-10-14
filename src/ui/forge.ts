@@ -7,7 +7,8 @@
 //   natural, by name or by stars, the picked pill staying pressed. With none learned it says
 //   so; a notice offers the recipes the knight could still learn.
 // - The ingredients (craft/a/s on ui/recipes/interface_ingredients.dat): the item's name,
-//   the materials (ui/recipes/parts/material), the special ingredient (the base item,
+//   the materials (ui/recipes/parts/material) and the three orbs of alchemy of the recipe's
+//   star (bought for energy as it is made when the knight holds none), the special ingredient (the base item,
 //   ui/recipes/parts/special), "Items must be unequipped" when the base item is worn, the
 //   crowns (dimmed when short) and Transmute, enabled when everything is at hand.
 // - Transmuting (craft/a/G on ui/recipes/interface_success.dat): "You have created..." or
@@ -19,7 +20,8 @@ import type { GameData } from "../game/data";
 import type { Economy, Recipe } from "../game/economy";
 import { catalogue, CATEGORIES, isEquipped, itemLabel, toggleEquip } from "../game/items";
 import { itemStats, pillDamage } from "../game/itemstats";
-import type { SaveData } from "../game/save";
+import { energyOf, type SaveData } from "../game/save";
+import { energyNow } from "../game/energy";
 import type { Outfit } from "../game/outfit";
 import { InventoryPanel } from "./backpack";
 import { message, text } from "../i18n";
@@ -167,9 +169,13 @@ export class ForgeScreen extends GuiScreen {
     const crowns = set("cost_crowns", r.crowns.toLocaleString("en-US"));
     if (crowns) crowns.enabled = save.crowns >= r.crowns;
     // the materials
-    const mats = await Promise.all(r.materials.map(([n, k]) => {
-      const have = save.materials[n] ?? 0, info = eco.info(n);
-      const args = { Name: itemLabel(n), "Amount Have": String(have), "Amount Needed": String(k), Ready: have >= k,
+    // the orbs of alchemy (three of the recipe's star) after them: the knight's own, else a
+    // pack bought for energy as the craft is made (src/game/economy.ts orbEnergy)
+    const orbEnergy = eco.orbEnergy(save, r), energy = energyNow(energyOf(save));
+    const mats = await Promise.all([...r.materials, ...(r.orbs ? [r.orbs] : [])].map(([n, k]) => {
+      const have = save.materials[n] ?? 0, info = eco.info(n), orb = n === r.orbs?.[0];
+      const name = orb && orbEnergy > 0 ? `${itemLabel(n)} (or ${orbEnergy} energy; you have ${energy})` : itemLabel(n);
+      const args = { Name: name, "Amount Have": String(have), "Amount Needed": String(k), Ready: have >= k || (orb && energy >= orbEnergy),
         Icon: info?.icon?.file ?? "ui/icon/inventory/blank.png", Colorization: info?.icon?.colorizations ?? [] };
       return this.part(JSON.stringify(args, (kk, v) => (kk === "$outer" ? undefined : v)), uiRef(MATERIAL, args)).then(c => {
         // "find this material" opens the gates that drop it (a market of gates this port lacks): a blank of its size

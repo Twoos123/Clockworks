@@ -8,7 +8,9 @@
 //   their worth, a click taking one back out; the total, signed and red when the cart costs
 //   crowns ("-1,000") or plain when it earns them ("+250"); the shop bundle's warnings
 //   (already learned, cart full, cannot be sold); Empty Cart and Checkout, enabled while the
-//   cart holds something.
+//   cart holds something. At the Supply Depot the energy goods are priced in energy (the
+//   tag's Energy currency), the cart's energy row totals them, and the Get Energy panel
+//   (ui/exchange/mini_getenergy.dat) trades crowns for 100 energy at the exchange.
 // - The knight's arsenal beside them (shop/client/a's ArsenalPanel): its gear and materials;
 //   a click puts one in the cart to sell, the pill counting down what is left.
 //
@@ -17,7 +19,8 @@
 import type { Economy } from "../game/economy";
 import { catalogue, CATEGORIES, isEquipped, itemLabel } from "../game/items";
 import { itemStats, pillDamage } from "../game/itemstats";
-import type { SaveData } from "../game/save";
+import { energyOf, type SaveData } from "../game/save";
+import { buyEnergy, energyNow, EXCHANGE_CROWNS, EXCHANGE_ENERGY } from "../game/energy";
 import { text } from "../i18n";
 import { messageText, restyle, type Component } from "./gui";
 import { itemPreview, itemTip, ItemList, type ListEntry, type ListGroup } from "./itemlist";
@@ -31,11 +34,11 @@ export interface ShopHost extends ScreenHost {
   data(): import("../game/data").GameData;
 }
 
-/** One thing a shop sells. */
-export interface StockItem { name: string; price: number; rarity: number }
+/** One thing a shop sells, for crowns or (the Supply Depot's goods) energy. */
+export interface StockItem { name: string; price: number; rarity: number; currency?: "energy"; pack?: number }
 
 /** A cart line: goods bought, or the knight's things sold, and how many. */
-interface Line { name: string; price: number; rarity: number; sell: boolean; count: number }
+interface Line { name: string; price: number; rarity: number; sell: boolean; count: number; currency?: "energy" }
 
 const TAG = "ui/shop/slot_tag/interface.dat";
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -134,8 +137,20 @@ export class ShopScreen extends GuiScreen {
     this.on(cart, "dismiss", () => this.close());
     this.on(cart, "empty_cart", () => { this.cart = []; this.message = ""; this.host.sound("sound/feedback/ui_merchant_trade_remove.ogg"); void this.refresh(); });
     this.on(cart, "confirm_cart", () => this.checkout());
-    // buying crowns or energy is the game's store
-    for (const tag of ["mini_getcrowns", "mini_getenergy"]) { const c = cart.find(tag); if (c) c.visible = false; }
+    // buying crowns was the game's store (real money): hidden; the Get Energy panel is the
+    // exchange's instant buy, 100 energy for crowns (src/game/energy.ts), shown at the depot
+    const crownsPanel = cart.find("mini_getcrowns");
+    if (crownsPanel) crownsPanel.visible = false;
+    const trade = cart.find("mini_getenergy")?.find("trade");
+    if (trade) trade.onAction = () => {
+      const save = this.shop.save();
+      if (buyEnergy(save, energyOf(save))) {
+        this.message = `Bought ${EXCHANGE_ENERGY} energy for ${fmt(EXCHANGE_CROWNS)} crowns.`;
+        this.host.sound("sound/feedback/merchant_transaction.ogg");
+        this.shop.changed();
+      } else this.status("m.not_enough_crowns", `The exchange asks ${fmt(EXCHANGE_CROWNS)} crowns for ${EXCHANGE_ENERGY} energy.`);
+      void this.refresh();
+    };
     // the keeper's portrait: its own model in the portrait's RenderableView
     const view = cart.find("portrait_vendor");
     if (view) view.view = { ...(view.view ?? {}) };
@@ -160,13 +175,17 @@ export class ShopScreen extends GuiScreen {
     return p;
   }
 
-  private slotArgs(name: string, mode: "Normal" | "Buy" | "Sell", price: number, count = 1) {
-    return { Occupied: "True", "Item Name": itemLabel(name), "Item Price": fmt(price), Mode: mode, Currency: "Crowns", Sale: false,
+  private slotArgs(name: string, mode: "Normal" | "Buy" | "Sell", price: number, count = 1, energy = false) {
+    return { Occupied: "True", "Item Name": itemLabel(name), "Item Price": fmt(price), Mode: mode, Currency: energy ? "Energy" : "Crowns", Sale: false,
       Locked: "Hidden", "Item Count": count > 1 ? String(count) : "" };
   }
 
-  /** The cart's worth: sales add, purchases take away (shop/client/m). */
-  private total() { return this.cart.reduce((n, e) => n + (e.sell ? 1 : -1) * e.price * e.count, 0); }
+  /** The cart's worth in crowns: sales add, purchases take away (shop/client/m). */
+  private total() { return this.cart.reduce((n, e) => n + (e.currency ? 0 : (e.sell ? 1 : -1) * e.price * e.count), 0); }
+  /** The energy the cart's depot goods cost. */
+  private energyTotal() { return this.cart.reduce((n, e) => n + (e.currency ? e.price * e.count : 0), 0); }
+  /** Whether this shop sells energy goods (the Supply Depot). */
+  private depot() { return this.stock.some(s => s.currency === "energy"); }
 
   /** What the knight holds of an item, and what is still free to sell. */
   private held(name: string): number {
@@ -211,10 +230,11 @@ export class ShopScreen extends GuiScreen {
         void this.refresh();
         return;
       }
-      const single = !!r || (it?.category !== "pickup" && it?.category !== "material" && it?.category !== "mineral");
+      // the depot's energy goods stack (amplifier days add up, sparks and orbs pile)
+      const single = !stock.currency && (!!r || (it?.category !== "pickup" && it?.category !== "material" && it?.category !== "mineral"));
       if (single && save.owned.includes(name)) { this.message = `${itemLabel(name)} is already in your arsenal.`; this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.refresh(); return; }
       if (single && line) { if (r) this.status("m.cart_recipe_adjusted", "You will only need one of these recipes!"); void this.refresh(); return; }
-      line ??= this.push({ name, price: stock.price, rarity: stock.rarity, sell, count: 0 });
+      line ??= this.push({ name, price: stock.price, rarity: stock.rarity, sell, count: 0, currency: stock.currency });
       line.count = Math.min(MAX_QUANTITY, line.count + (single ? 1 : qty));
     }
     this.host.sound("sound/feedback/ui_merchant_trade_add.ogg");
@@ -238,10 +258,19 @@ export class ShopScreen extends GuiScreen {
     const save = this.shop.save(), eco = this.eco!;
     if (!this.cart.length) return;
     if (save.crowns + this.total() < 0) { this.message = "Not enough crowns for everything in the cart."; this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.refresh(); return; }
+    const energy = energyOf(save);
+    if (energyNow(energy) < this.energyTotal()) {
+      this.message = `The cart costs ${fmt(this.energyTotal())} energy; you have ${fmt(energyNow(energy))}. Get Energy trades crowns for it.`;
+      this.host.sound("sound/feedback/ui_dismiss.ogg"); void this.refresh(); return;
+    }
     // sales first, so their crowns pay for the purchases
     for (const e of this.cart.filter(x => x.sell)) eco.sell(save, e.name, e.count);
     const failed: string[] = [];
-    for (const e of this.cart.filter(x => !x.sell)) for (let k = 0; k < e.count; k++) if (!eco.buy(save, e.name, e.price)) { failed.push(itemLabel(e.name)); break; }
+    const goods = eco.depotGoods();
+    for (const e of this.cart.filter(x => !x.sell)) for (let k = 0; k < e.count; k++) {
+      const good = e.currency ? goods.find(g => g.name === e.name) : null;
+      if (good ? !eco.buyDepot(save, good) : !eco.buy(save, e.name, e.price)) { failed.push(itemLabel(e.name)); break; }
+    }
     this.cart = [];
     this.shop.changed();
     this.message = failed.length ? `Could not take ${failed.join(", ")}.` : "";
@@ -256,7 +285,11 @@ export class ShopScreen extends GuiScreen {
 
   private tip(name: string, rarity: number) {
     const it = this.eco!.info(name), cat = CATEGORIES.find(k => k.eco === it?.category);
-    return itemTip({ label: itemLabel(name), type: cat?.label.replace(/s$/, "") ?? messageText(this.groupOf(name).key, "item"), rarity, flavor: "",
+    // the depot's energy goods say what a purchase brings
+    const good = this.stock.find(s => s.name === name && s.currency);
+    const days = good ? this.eco!.amplifierDays(name) : 0;
+    const lines = good ? [days ? `Doubles heat for ${days} days.` : `${good.pack ?? 1} for ${fmt(good.price)} energy.`] : undefined;
+    return itemTip({ label: itemLabel(name), type: cat?.label.replace(/s$/, "") ?? messageText(this.groupOf(name).key, "item"), rarity, flavor: "", lines,
       item: name, kind: it?.category ?? "item", plain: !it?.heatable, level: it?.heatable ? 1 : undefined,
       stats: itemStats(this.shop.data(), this.eco!, name, 1), model: itemPreview(this.shop.data(), name, this.shop.save().color) });
   }
@@ -274,10 +307,20 @@ export class ShopScreen extends GuiScreen {
     const groups: ListGroup[] = GROUPS.map(g => ({ id: g.key, label: messageText(g.key, "item"), icon: g.icon, entries: this.stock
       .filter(s => this.groupOf(s.name) === g)
       .map(s => ({ key: s.name, label: itemLabel(s.name), rarity: s.rarity, price: s.price, icon: eco.info(s.name)?.icon ?? null,
-        ui: uiRef(TAG, this.slotArgs(s.name, "Normal", s.price)), tip: this.tip(s.name, s.rarity) } satisfies ListEntry)) }));
+        ui: uiRef(TAG, this.slotArgs(s.name, "Normal", s.price, s.pack ?? 1, !!s.currency)), tip: this.tip(s.name, s.rarity) } satisfies ListEntry)) }));
     await v.setGroups(groups);
     // the knight's arsenal: gear not worn and materials, counting down what the cart takes
     a.setInfo(text("craft", "m.arsenal", "ARSENAL"), "", "", save.crowns);
+    a.setEnergy(energyNow(energyOf(save)));
+    // the exchange's Get Energy panel at the depot: its price is the exchange's rate
+    const mini = cartUi.find("mini_getenergy");
+    if (mini) {
+      mini.visible = this.depot();
+      const c = mini.find("crowns");
+      if (c) c.text = fmt(EXCHANGE_CROWNS);
+      const t = mini.find("trade");
+      if (t) t.enabled = save.crowns >= EXCHANGE_CROWNS;
+    }
     const entries = (cats: string[]) => [
       ...save.owned.filter(n => cats.includes(eco.info(n)?.category ?? "")),
       ...Object.keys(save.materials).filter(n => (save.materials[n] ?? 0) > 0 && cats.includes(eco.info(n)?.category ?? "")),
@@ -293,7 +336,7 @@ export class ShopScreen extends GuiScreen {
     // the cart
     const list = cartUi.find("list_cart");
     if (list) {
-      const rows = await Promise.all(this.cart.map((e, i) => this.tag(`cart${i}:${e.sell}:${e.name}`, this.slotArgs(e.name, e.sell ? "Sell" : "Buy", e.price * e.count, e.count))));
+      const rows = await Promise.all(this.cart.map((e, i) => this.tag(`cart${i}:${e.sell}:${e.name}`, this.slotArgs(e.name, e.sell ? "Sell" : "Buy", e.price * e.count, e.count, !!e.currency))));
       list.children = rows.filter((r): r is Component => !!r).map((r, i) => {
         r.constraints = null;
         const ring = r.find("slot_ring"), e = this.cart[i];
@@ -304,11 +347,14 @@ export class ShopScreen extends GuiScreen {
     }
     // the total: signed, red while the cart costs crowns; the energy row belongs to energy shops
     const totals = cartUi.find("total_cont_cart");
-    const total = this.total();
+    const total = this.total(), energyTotal = this.energyTotal();
     for (const [i, rowc] of (totals?.children ?? []).entries()) {
-      if (i > 0) { rowc.visible = false; continue; }
+      // the second row is the energy total (total_row.dat, m.energy): shown at the depot
+      if (i > 1 || (i === 1 && !this.depot())) { rowc.visible = false; continue; }
+      rowc.visible = true;
       const t = rowc.find("total_cart");
       if (!t) continue;
+      if (i === 1) { t.text = energyTotal ? "-" + fmt(energyTotal) : "0"; continue; }
       t.text = (total > 0 ? "+" : "") + fmt(total);
       const style = total < 0 ? "TotalLabel_money_neg" : "TotalLabel_money";
       if (t.styleRef?.name !== style) {

@@ -320,10 +320,9 @@ export class MissionBoard {
     const p = this.progress;
     if (tab === "rank") return "Complete every mission of your subrank to rank up. Tier 2 of the Clockworks needs rank 4 (Knight), tier 3 rank 6 (Defender).";
     if (tab === "operations") return "Operations from the game's expansion pack, one per Clockworks tier (tier 2 needs rank 4, tier 3 rank 6).";
-    const events = this.missions.filter(m => m.cls === "Prestige" && m.event).length;
     return p.rank < 3
       ? "Prestige missions open at rank 3. Each runs on its own day of a schedule from the game's data; done missions open again on their next day."
-      : `This week's prestige missions for rank ${p.rank}, from the game's schedules: each is open on its day. ${events} event missions are left out (events are run by the game's servers).`;
+      : `This week's prestige missions for rank ${p.rank}, from the game's schedules: each is open on its day. The game's event missions (Dark Harvest, Winterfest, the Anniversary and the rest) are always on here.`;
   }
 
   /** @internal The reward items a mission's tables can give. */

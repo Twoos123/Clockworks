@@ -1,6 +1,6 @@
 # Status
 
-Last updated 2026-10-13. Measured against a Steam install updated 2026-10-07.
+Last updated 2026-10-14. Measured against a Steam install updated 2026-10-07.
 
 ## Where the game is
 
@@ -57,8 +57,9 @@ A single-player loop runs in the browser, built from the install's own data:
    - Gold keys unlock gold gates.
    - Monsters drop crowns, heat and items.
    - The exit elevator ends the floor.
-9. **Knockouts.** A knocked-out knight can revive for crowns (25 per depth) or give up and
-   ride back to Haven with nothing from the floor.
+9. **Knockouts.** A knocked-out knight uses a Spark of Life (a new knight has three), buys
+   one for 50 energy (the client's `dungeonSparkOfLifeCost` default; any shortfall bought
+   with crowns at the exchange), or gives up and rides back to Haven with nothing from the floor.
 10. **Arena.** Waves from the game's single-family spawn tables on a cached level, getting
    deeper as they go, with a checkpoint every fifth wave to bank loot. Every tenth wave is a
    boss or mini-boss (Royal Jelly with its phases, Alpha Wolver, Mega Knight, Scorcher).
@@ -84,7 +85,8 @@ A single-player loop runs in the browser, built from the install's own data:
 | Damage | Depth-scaled damage, health and defence from `config/depth_scale.dat`; four damage types; status conditions |
 | Status conditions | Fire, freeze, shock, poison, curse, sleep and stun, with the game's effects and HUD icons |
 | Heat and levels | Equipped weapons, shields, armour and helmets absorb a floor's heat and level 1 to 10 (`item_property.dat` heat by star); level bonuses from `level_table.dat`: damage and charge time on weapons, defence and heart pips on gear |
-| Economy (`src/game/economy.ts`) | Prices and sell prices from `item_property.dat`; Haven keepers, Basil (recipes, per visit) and the Supply Depot (capsules and vials the treasure tables give); selling back; recipes are bought before crafting; crafting costs `recipe_property.dat` crowns, the recipe's materials and the base item at its level; unique variants rolled from `variant_table.dat` on crafted and found gear, stored per item, shown in names and applied |
+| Economy (`src/game/economy.ts`) | Prices and sell prices from `item_property.dat`; Haven's Strangers stock the wiki's lists (`src/game/vendors.ts`: Quillion, Ricasso, Greave, Kragen and Vatel's recipes; zero and one star always, a random few two and three star goods per knight per day, turning at midnight Pacific), Basil (recipes, per visit) and the Supply Depot (capsules and vials the treasure tables give, and its energy goods); selling back; recipes are bought before crafting; crafting costs `recipe_property.dat` crowns, the recipe's materials, three orbs of alchemy of its star (or their pack's energy) and the base item at its level; unique variants rolled from `variant_table.dat` on crafted and found gear, stored per item, shown in names and applied |
+| Energy (`src/game/energy.ts`) | The old free Mist Energy tank (100, refilling over 22 hours) and Crystal Energy from the exchange (100 for 6,500 crowns, the client's Get Energy panel), spent mist first; the arsenal's energy module; the Supply Depot's energy goods at their `depotCost` (heat amplifier 800 / 1,600 / 5,000 for 2 / 7 / 30 days, ten Sparks of Life 200, orbs of alchemy 10 to 800 a pack of three); revives, crafting, energy gates and crates, and the knight statues in the furniture shop pay energy |
 | Drops | Materials by depth weight (`item_depth_weight.dat`) and the monster's family tags; rare gear drops; mineral deposits (1, 2, 4 or 6 minerals); crowns and heat by depth on the tables' per-tier curves, coins and embers worth their denominations |
 | Monsters | Data-driven spawns, tiers by depth, loot; Tudey's behaviour engine (Clyde's BehaviorLogic, AgentLogic, ScriptLogic and Pathfinder) with Spiral Knights' Targeting behaviours and target actions rebuilt from the client's config classes; each family's behaviour from its attack list and the wiki (docs/research/monster-ai.md); Blastcores run their surviving behaviour scripts |
 | Treasure and blocks | Breakable blocks break after a few hits; treasure boxes spill crowns and items from their damage action |
@@ -94,8 +96,9 @@ A single-player loop runs in the browser, built from the install's own data:
 | UI sounds | The game's style feedback sounds on the arsenal, shops, crafting and run menus |
 | Level logic | Tudey handlers, actions, targets, conditions and expressions (`src/game/logic.ts`) |
 | Props | Doors, switches, blocks, carried keys, pickups, elevators, townsfolk |
-| Dungeon objects (`src/game/objects.ts`) | Crystal and ghost block chains, timed explosives, prism puzzles, gun, rocket and fire blocks, status floor traps, healing totems, heal pads, mortar shells, barricades, prisoner cages with freed companion knights, energy gates and crates (paid in crowns) |
-| Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions on their own floors in order (`src/game/missionfloors.ts`: the wiki's floor lists and depths, each floor its archived level by its scene key, generated in its key's style and status when the archive lacks it; boss floors run the boss director; their own lobbies), briefings, exchanges, prestige gate missions on their scheduled days; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
+| Dungeon objects (`src/game/objects.ts`) | Crystal and ghost block chains, timed explosives, prism puzzles, gun, rocket and fire blocks, status floor traps, healing totems, heal pads, mortar shells, barricades, prisoner cages with freed companion knights, energy gates and crates (paid in energy) |
+| Missions | 238 of the game's missions from `config/mission.dat`: a board from the HUD's Missions activity with card images, rewards (their spawn tables) and prestige; dungeon missions on their own floors in order (`src/game/missionfloors.ts`: the wiki's floor lists and depths, each floor its archived level by its scene key, generated in its key's style and status when the archive lacks it; boss floors run the boss director; their own lobbies), briefings, exchanges, prestige gate missions on their scheduled days; event missions (Dark Harvest, Winterfest, Anniversary, Black Kat, Apocrea, Tortodrone) always on, by their rank ranges and day schedules; rank 1-1 to 10-2 in the save, shown on the HUD; tier 2 needs rank 4, tier 3 rank 6 |
+| Rescue Camp | A new knight goes on from the crash site to the archived Rescue Camp (Pod Town) when the archive has it: a town with its townsfolk and their conversations (`Character/NPC/Rescue Camp/...`, config/conversation.dat), its General Goods shop, the REACHED_RESCUE_CAMP achievement; the HUD's first activity rides on to Haven |
 | HUD | The game's own `hud_v2` interfaces, driven as the client drives them (docs/research/ui-audit-hud.md): status panel with 3D portrait, trailing health and shield bars, floor-heat meter, debuffs; quickbar with sprite skills and pockets; weapon switcher; target panel; minimap; hit flash, low-health frame |
 | Audio | Sounder configs through Web Audio, scene music and ambience, animation sounds |
 | Guild | Your own hall (the cached hall without its owners' furniture); furniture mode places, moves, rotates (45 degree steps) and stores any of the 250 furniture items from `config/item.dat`, bought with crowns by rarity; guild vault for materials and crowns; guild name and emblem (gate heraldry) |
@@ -112,21 +115,41 @@ A single-player loop runs in the browser, built from the install's own data:
    tiling. Generated floors have the cached levels' puzzles (gold keys, switch gates,
    block walls, spike runs, secret treasure rooms) and special floors (treasure vaults,
    danger rooms, arenas) and dungeon objects (crystal gates, explosives, prism gates, trap runs,
-   rescue cages, healing totems, gun blocks): see docs/research/generated-features.md. Rescue
-   camps themselves (their townsfolk and missions) are missing.
+   rescue cages, healing totems, gun blocks): see docs/research/generated-features.md. The
+   Rescue Camp is its archived town (Pod Town) with its own townsfolk and conversations, and
+   its missions are the board's rank 1 missions; its tutorial states ("Before Night Falls",
+   "Light in the Darkness") and its Training Grounds gate area are not wired (the tutorial's
+   objectives, memories and the camp's attack are server logic).
 2. **Text.** The game's message bundles are read from the install's projectx-config.jar
    (src/i18n.ts). Text the game makes on its servers, and things this port invents (some
    generated level styles, run summaries, notices, our settings rows), are still our English.
-3. **Shop catalogues** are server-side (`config/catalog.dat` ships empty). Prices are the
-   game's own (`item_property.dat`); each keeper sells every item of its kind in the star
-   range its place allows, and Basil picks twelve recipes per visit.
+3. **Shop catalogues** are server-side (`config/catalog.dat` and `config/depot_catalog.dat`
+   ship empty). Prices are the game's own (`item_property.dat`). Haven's Strangers stock the
+   wiki's per-vendor lists (src/game/vendors.ts); how many random goods they show a day the
+   wiki does not say (ours: four of each star's list, six recipes of each star), and Kragen's
+   trinkets and vitapods are not on his page (kept: every one in the progress's star range).
+   Other keepers sell every item of their kind in their place's star range; Basil picks twelve
+   recipes per visit. The Supply Depot sells only the energy goods with a use here.
+   Guild halls: the cached hall and its layout are as before (the archive's many halls are
+   other players'); furniture now costs its `item_property.dat` price by star (Furni Common,
+   Uncommon, Rare...; knight statues their `depotCost` in energy), event prizes our tuning.
 
 **Systems**
 
-4. **Energy.** Revives cost crowns rather than energy. The heat amplifier (an Energy item)
-   is modelled (`save.heatAmplifier`, double heat) but cannot be bought. Minerals carry no
+4. **Energy** (src/game/energy.ts) was server state; there is no real-money Crystal Energy
+   here. The single-player source is the game's own pre-2013 Mist Energy: a tank of 100 that
+   refills over 22 hours (press and forum accounts; the client still names it, t.mist_tip),
+   plus the exchange's instant buy at the client's Get Energy panel figure (100 for 6,500
+   crowns; the real exchange was a player market). Mist is spent first. Revives: the wiki and
+   the client's server defaults give a flat 50 energy per spark bought on the spot; the rising
+   cost of the old energy revives (10, 20, 40... per run, before 2013-07-30) is only in
+   forum posts and is not modelled, nor is the wiki's free revive per floor (no client text
+   or UI for it). Crafting takes three orbs of alchemy of the recipe's star or their pack's
+   depot price (the post-2013 rule; old energy-only crafting costs are not documented).
+   Elevators are free (the old 10 mist per elevator was removed in 2013). Minerals carry no
    energy in the data; they bank as materials and sell for nothing (their uses, sprite food
-   and gate themes, are not modelled).
+   and gate themes, are not modelled). Guild formation (500 energy, 50,000 crowns) is not
+   charged: the single-player guild exists from the start.
 5. **Boss levels.** The four Clockworks bosses fight on their own archived levels: the level's
    platforms, triggers and doors bring the boss on and open the way out, and a director
    (`src/game/bosses.ts`) takes up the boss the level spawned. Without the level, a generated arena:
@@ -139,7 +162,9 @@ A single-player loop runs in the browser, built from the install's own data:
    uses their markers (the Jelly's mini spawn points, the Snarbolax's warps, the Twins' lanes
    and toggle walls, Vanaduke's seat and sprite wells).
 6. **Guilds and PvP.** Missions play their own levels where the archive has them; their
-   dialogue is server data (briefings show the bundle's text or our summary). Shadow Lairs open from
+   dialogue is server data (briefings show the bundle's text or our summary). Event missions
+   ran on the servers' event calendar, whose dates moved every year and are not in the data
+   (`config/event.dat` holds names only): here every event is always on. Shadow Lairs open from
    the depth-23 terminal's lair elevators of a gate with that boss (no Shadow Key needed here).
 7. **Health and treasure numbers.** Block health is not in the data (counted in hits here).
 
@@ -167,7 +192,7 @@ A single-player loop runs in the browser, built from the install's own data:
 | Model files loaded in the browser | 5,816 of 5,816, no failures |
 | Cached scenes loaded | 12 of 12, zero unresolved references |
 | A full run, Haven to Terminal Core and back | passes (automated) |
-| Unit tests | 157 of 157 |
+| Unit tests | 209 of 209 |
 
 ## Decisions for you
 

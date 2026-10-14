@@ -44,8 +44,6 @@ export type ObjectKind = "starlink" | "starlinkFixed" | "ghost" | "timed" | "pri
 export const BLAST_RADIUS = 1.5;
 /** A prism laser's length (Block/Prism/Laser/Prism Laser `length`). */
 export const BEAM_LENGTH = 10;
-/** Crowns paid for one point of energy (energy is not modelled; STATUS.md). */
-export const ENERGY_CROWNS = 50;
 /** Seconds before a fuse actor whose delay was lost ends. */
 export const FUSE_ACTOR_DELAY = 1.5;
 
