@@ -106,10 +106,13 @@ export class ShopScreen extends GuiScreen {
     v.sorts = ["price", "name"];
     v.sort = "price";
     v.clicks = this.clicks;
+    v.menu = (e, t, c) => void this.popupMenu(e, t, c);
     v.onRow = (e, c) => { const ring = c.find("slot_ring"); if (ring) this.socketIcons.set(ring, this.eco?.info(e.key)?.icon ?? null); };
     v.onPick = e => this.add(e.key, false);
     const a = this.arsenal = new ItemList(this.ctx, right, this.tips, sound);
     a.clicks = this.clicks;
+    a.sorts = ["natural", "name", "stars", "level"];
+    a.menu = (e, t, c) => void this.popupMenu(e, t, c);
     a.onPick = e => this.add(e.key, true);
     for (const root of [left, right]) this.on(root, "dismiss", () => this.close());
     this.on(cart, "dismiss", () => this.close());
@@ -227,7 +230,7 @@ export class ShopScreen extends GuiScreen {
     const it = this.eco!.info(name), cat = CATEGORIES.find(k => k.eco === it?.category);
     return itemTip({ label: itemLabel(name), type: cat?.label.replace(/s$/, "") ?? messageText(this.groupOf(name).key, "item"), rarity, flavor: "",
       item: name, kind: it?.category ?? "item", plain: !it?.heatable, level: it?.heatable ? 1 : undefined,
-      stats: it?.heatable ? itemStats(this.shop.data(), this.eco!, name, 1) : null });
+      stats: itemStats(this.shop.data(), this.eco!, name, 1) });
   }
 
   protected async refresh() {

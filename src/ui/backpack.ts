@@ -8,7 +8,9 @@
 
 import type { GameData } from "../game/data";
 import type { Economy } from "../game/economy";
-import { catalogue, toggleEquip } from "../game/items";
+import { catalogue, type ItemEntry } from "../game/items";
+import type { Outfit } from "../game/outfit";
+import { applyItemAction, COMPARE, itemMenu, SLOT_ICON } from "./itemmenu";
 import type { SaveData } from "../game/save";
 import { text } from "../i18n";
 import type { Component } from "./gui";
@@ -22,6 +24,8 @@ export interface BackpackHost extends ScreenHost {
   data(): GameData;
   /** Writes the save after a change (equipping). */
   write?(): void;
+  /** The costumes (the item menu's costume slots). */
+  outfit(): Outfit;
 }
 
 export class BackpackScreen extends GuiScreen {
@@ -40,16 +44,32 @@ export class BackpackScreen extends GuiScreen {
     const list = this.list = new ItemList(this.ctx, ui, this.tips, f => this.host.sound(f));
     list.sorts = ["natural", "name", "stars", "level"];
     list.clicks = this.clicks;
+    list.menu = (e, t, c) => void this.popupMenu(e, t, c);
     list.onPick = e => {
-      const save = this.pack.save(), item = catalogue(this.pack.data()).find(x => x.name === e.key);
-      if (!item) return;
-      save.loadout = toggleEquip(save.loadout, item);
-      this.pack.write?.();
-      this.host.sound("sound/feedback/ui_equip.ogg");
-      void this.refresh();
+      const item = catalogue(this.pack.data()).find(x => x.name === e.key);
+      if (item) void this.gearMenu(item);
     };
     return ui;
   }
+
+  /** ArsenalPanel.a: a press on gear pops up its item menu (src/ui/itemmenu.ts). */
+  private async gearMenu(item: ItemEntry) {
+    const save = this.pack.save(), costume = this.pack.outfit().appearance.costume;
+    const icon = (n: string) => this.eco?.info(n)?.icon ?? this.pack.data().resolveSync("config/item.dat", { name: n }, "item")?.icon ?? null;
+    const entries = await Promise.all(itemMenu(save, costume, item).map(async m => ({ action: m.action, text: m.text, enabled: m.enabled,
+      icon: m.slot === undefined ? null : m.item ? await this.iconImage(icon(m.item), 25)
+        : await this.styleImage("Status/Equip Socket/Backing, Icon", { File: "ui/icon/inventory/categories/" + SLOT_ICON[m.slot] }, 25) })));
+    await this.popupMenu(entries, this.eco?.displayName(item.name, save.gear[item.name]) ?? item.label, async a => {
+      const r = applyItemAction(save, item, a);
+      if (r?.loadout) { save.loadout = r.loadout; this.pack.write?.(); }
+      if (r?.costume) await this.pack.outfit().equipCostume(r.costume[0], r.costume[1]);
+      if (r) this.host.sound("sound/feedback/ui_equip.ogg");
+      void this.refresh();
+    });
+  }
+
+  /** The compare choices last while the window is open (item/client/f clears M.buL). */
+  close() { COMPARE.clear(); super.close(); }
 
   protected async refresh() {
     if (!this.list || !this.eco) return;

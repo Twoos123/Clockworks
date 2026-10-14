@@ -73,6 +73,7 @@ export class ForgeScreen extends GuiScreen {
     this.list.sorts = ["natural", "name", "stars"];
     this.list.bundle = "craft";
     this.list.clicks = this.clicks;
+    this.list.menu = (e, t, c) => void this.popupMenu(e, t, c);
     this.list.onPick = e => {
       this.chosen = this.all.find(r => r.name === e.key) ?? null;
       this.host.sound("sound/feedback/ui_dropdown_select.ogg");

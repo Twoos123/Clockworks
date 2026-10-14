@@ -24,7 +24,7 @@ import { ACHIEVEMENTS, LOCKED_ICON, ONLINE_ONLY, progressText } from "../game/ac
 import { ACCESSORY_SLOTS, accessoryDef, costumeSlot, loadAccessoryLibraries, type AccessorySlot, type CostumeSlot } from "../game/accessories";
 import type { GameData } from "../game/data";
 import { MAX_LEVEL, type Economy } from "../game/economy";
-import { CATEGORIES, catalogue, isEquipped, itemLabel, toggleEquip, unequip, type ItemEntry, type Slot } from "../game/items";
+import { CATEGORIES, catalogue, isEquipped, itemLabel, unequip, type ItemEntry, type Slot } from "../game/items";
 import type { Outfit } from "../game/outfit";
 import { knightName, MAX_LOADOUTS, saveLoadout, wearableLoadout, type Loadout, type SaveData, type SavedLoadout } from "../game/save";
 import {
@@ -34,6 +34,7 @@ import {
 import { validName } from "./createknight";
 import { messageText, type Component, type Style } from "./gui";
 import { itemTip, ItemList, levelBonuses, type ListEntry, type ListGroup, type TipBonus } from "./itemlist";
+import { applyItemAction, COMPARE, compareTarget, itemMenu, rankAllows, SLOT_ICON } from "./itemmenu";
 import { itemStats, pillDamage, wornDefense } from "../game/itemstats";
 import { styledLabel } from "./floating";
 import { freshProgress, rankName } from "../game/missions";
@@ -168,7 +169,16 @@ function wardrobe(data: GameData): Promise<Wardrobe> {
 }
 
 /** The tooltip for an owned item (ItemConfig.Level's): the power bars, the unique variants, the level's bonuses at depth 30. */
-export function ownedTip(save: SaveData, data: GameData, eco: Economy, e: ItemEntry, worn: boolean) {
+export function ownedTip(save: SaveData, data: GameData, eco: Economy, e: ItemEntry, worn: boolean, compare = true): TipSpec {
+  const tip = ownTip(save, data, eco, e, worn);
+  // item/client/k: beside the item compared with (chosen, or what is worn of its group)
+  const other = compare ? compareTarget(save.loadout, e) : null;
+  const oe = other ? catalogue(data).find(x => x.name === other) : null;
+  if (oe) tip.compare = ownTip(save, data, eco, oe, isEquipped(save.loadout, oe));
+  return tip;
+}
+
+function ownTip(save: SaveData, data: GameData, eco: Economy, e: ItemEntry, worn: boolean): TipSpec {
   const heatable = !!eco.info(e.name)?.heatable;
   const g = save.gear[e.name], lv = eco.level(save, e.name);
   const bonuses: TipBonus[] = (g?.variants ?? []).map(v => ({ text: eco.variantLabel(v), bonus: true, color: "Variant" }));
@@ -178,7 +188,7 @@ export function ownedTip(save: SaveData, data: GameData, eco: Economy, e: ItemEn
     : `${e.category.label.replace(/s$/, "")}.`;
   return itemTip({ label: eco.displayName(e.name, g), type: e.category.label.replace(/s$/, ""), rarity: e.rarity, item: e.name, kind: e.category.eco,
     flavor, level: heatable ? lv : undefined, noLevel: e.category.slot === "trinket",
-    progress: eco.heatProgress(save, e.name), equipped: worn, bonuses, stats: itemStats(data, eco, e.name, Math.max(1, lv)) });
+    progress: eco.heatProgress(save, e.name), equipped: worn, bonuses, stats: itemStats(data, eco, e.name, Math.max(1, lv), g?.variants) });
 }
 
 /**
@@ -196,7 +206,7 @@ export function ownedGroups(save: SaveData, data: GameData, eco: Economy): ListG
       return { key: e.name, label: e.label, rarity: e.rarity, icon: e.icon, look: worn ? "True" : "False",
         // weapons, armour, helmets and shields hold variants (pips shown, empty or not); trinkets do not
         variants: heatable ? save.gear[e.name]?.variants.length ?? 0 : -1, levelled: heatable, level: lv,
-        damage: pillDamage(data, eco, e.name, Math.max(1, lv)), tip: ownedTip(save, data, eco, e, worn) } satisfies ListEntry;
+        damage: pillDamage(data, eco, e.name, Math.max(1, lv)), tip: ownedTip(save, data, eco, e, worn), equippable: worn || rankAllows(save, e.rarity) } satisfies ListEntry;
     });
     const key = GROUP_KEY[cat.id];
     groups.push({ id: cat.id, label: key ? messageText(key, "item") : cat.label, icon: cat.icon, entries, showEmpty: !!key });
@@ -266,6 +276,7 @@ export class ArsenalScreen extends GuiScreen {
     this.list = new ItemList(this.ctx, left, this.tips, f => this.host.sound(f));
     this.list.onPick = e => this.pick(e);
     this.list.clicks = this.clicks;
+    this.list.menu = (e, t, c) => void this.popupMenu(e, t, c);
     this.on(left, "dismiss", () => this.close());
     this.on(right, "handle", () => this.close());
     this.on(right, "button_saveloadout", () => this.openSaveLoadout());
@@ -488,11 +499,27 @@ export class ArsenalScreen extends GuiScreen {
         return;
     }
     const item = this.entry(e.key);
-    if (!item) return;
-    this.host.sound("sound/feedback/ui_equip.ogg");
-    this.arsenal.equipped(toggleEquip(this.arsenal.save().loadout, item));
+    if (item) void this.gearMenu(item);
+  }
+
+  /** ArsenalPanel.a: a press on gear pops up its item menu (src/ui/itemmenu.ts). */
+  private async gearMenu(item: ItemEntry) {
+    const save = this.arsenal.save(), outfit = this.arsenal.outfit();
+    const entries = await Promise.all(itemMenu(save, outfit.appearance.costume, item).map(async m => ({ action: m.action, text: m.text, enabled: m.enabled,
+      icon: m.slot === undefined ? null : m.item ? await this.iconImage(this.itemIcon(m.item), 25)
+        : await this.styleImage("Status/Equip Socket/Backing, Icon", { File: CAT + SLOT_ICON[m.slot] }, 25) })));
+    await this.popupMenu(entries, this.eco?.displayName(item.name, save.gear[item.name]) ?? item.label, a => void this.gearAction(item, a));
+  }
+
+  private async gearAction(item: ItemEntry, action: string) {
+    const r = applyItemAction(this.arsenal.save(), item, action);
+    if (r?.loadout) { this.host.sound("sound/feedback/ui_equip.ogg"); this.arsenal.equipped(r.loadout); }
+    if (r?.costume) { this.host.sound("sound/feedback/ui_equip.ogg"); await this.arsenal.outfit().equipCostume(r.costume[0], r.costume[1]); }
     void this.refresh();
   }
+
+  /** The windows' compare choices last while they are open (item/client/f clears M.buL). */
+  close() { COMPARE.clear(); super.close(); }
 
   // ------------------------------------------------------------------ costumes and accessories
 
@@ -849,7 +876,7 @@ export class ArsenalScreen extends GuiScreen {
     if (!this.list || !this.status) return;
     const save = this.arsenal.save(), mode = this.mode;
     const info: Record<Mode, [string, string]> = {
-      equipment: ["Equipment", "Click gear to equip or remove it; click a socket to empty it. Changes are worn from the next floor."],
+      equipment: ["Equipment", "Click gear for its menu: equip it to a slot or compare it; click a socket to empty it. Changes are worn from the next floor."],
       costume: ["Costumes", "Costumes and accessories change how your knight looks, not its stats. Search for one by name."],
       sprite: ["Battle Sprite", "Pick the sprite to take along and feed it sprite food. Click a skill socket to spend its points."],
       achievements: ["Achievements", "Achievements earned on this machine. Point at one to see what it asks and how far along you are."],
@@ -935,12 +962,12 @@ export class ArsenalScreen extends GuiScreen {
     this.statsBuilt = key;
     const title = (t: string) => styledLabel(this.ctx, t.toUpperCase(), "Status/Gear Stats/Title", page.local);
     const parts: (Component | null)[] = [await title(bundleText("projectx", "t.gear_stats", "Gear Stats"))];
-    const def = wornDefense(data, eco, [l.helmet, l.armor].filter(Boolean).map(n => ({ name: n, level: lv(n) })));
-    if (def) parts.push(await buildStats(this.ctx, def));
+    const def = wornDefense(data, eco, [l.helmet, l.armor, ...l.trinkets, l.vitapod].filter(Boolean).map(n => ({ name: n, level: lv(n), variants: save.gear[n]?.variants })));
+    if (def) parts.push(...await buildStats(this.ctx, def));
     for (const w of l.weapons.filter(Boolean)) {
       parts.push(await title(eco.displayName(w, save.gear[w])));
-      const st = itemStats(data, eco, w, lv(w));
-      if (st) parts.push(await buildStats(this.ctx, st));
+      const st = itemStats(data, eco, w, lv(w), save.gear[w]?.variants);
+      if (st) parts.push(...await buildStats(this.ctx, st));
     }
     cont.children = parts.filter((c): c is Component => !!c);
     for (const c of cont.children) { c.constraints = null; if (c.kind === "label") c.preferredSize = { width: 180, height: -1 }; }

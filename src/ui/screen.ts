@@ -8,11 +8,14 @@ import { CONFIG_REF } from "../config/params";
 import { ScriptRunner } from "./script";
 import { text as bundleText } from "../i18n";
 import type { ItemStats } from "../game/itemstats";
-import { buildInterface, Component, dispatch, hitTest, pack, render, resetInput, type GuiContext, type GuiImage, type RenderHooks } from "./gui";
+import { buildComponentConfig, buildInterface, buildMenu, Component, dispatch, hitTest, openMenu, pack, render, resetInput, type GuiContext, type GuiImage, type MenuEntry,
+  type RenderHooks } from "./gui";
 
 const BONUS = "ui/window/tooltip_parts/bonus.dat";
 const STATS = "ui/window/tooltip_parts/container_stats.dat";
 const BAR = "ui/window/tooltip_parts/stat_bar.dat";
+const COMPARE = "ui/window/tooltip_compare.dat";
+const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 
 export interface ScreenHost {
   /** Plays a UI feedback sound. */
@@ -52,27 +55,66 @@ export async function buildUi(ctx: GuiContext, ref: any): Promise<Component | nu
 
 /** A tooltip: an interface reference and lines of bonus text (ui/window/tooltip_parts/bonus.dat). */
 export interface TipSpec {
-  ref: any; lines?: string[]; /** Texts set on tagged labels after the build. */ texts?: Record<string, string>;
+  ref: any; /** A text tooltip (Component.setTooltipText) in place of the interface. */ text?: string; lines?: string[]; /** Texts set on tagged labels after the build. */ texts?: Record<string, string>;
   /** An item's attack or defence power bars (tooltip_parts/container_stats.dat), before the lines. */
   stats?: ItemStats;
   /** Bonus and penalty lines (green or red, with an icon), after the lines. */
   bonuses?: { text: string; bonus: boolean; icon?: string | null; /** "Variant" for a unique variant's line. */ color?: string }[];
+  /**
+   * The item this one is compared with (item/client/k, ItemConfig.Level's compare tooltip):
+   * both tooltips side by side in ui/window/tooltip_compare.dat, the compared one first.
+   */
+  compare?: TipSpec;
+}
+
+/**
+ * ItemConfig's stat map across a compared pair: each box shows the bars either item has, an
+ * empty bar where one lacks a type the other has, in the client's order.
+ */
+function alignStats(a: ItemStats | undefined, b: ItemStats | undefined): [ItemStats | undefined, ItemStats | undefined] {
+  if (!a || !b || a.title !== b.title) return [a, b];
+  const order = (icon: string) => { const i = ["normal", "piercing", "elemental", "shadow"].findIndex(t => icon.endsWith("_" + t)); return i < 0 ? 10 : i; };
+  const icons = [...new Set([...a.bars, ...b.bars].map(x => x.icon))].sort((x, y) => order(x) - order(y));
+  const bars = (s: ItemStats) => icons.map(i => s.bars.find(x => x.icon === i) ?? { ...[...a.bars, ...b.bars].find(x => x.icon === i)!, now: 0, potential: 0 });
+  const st = [...new Set([...(a.resists ?? []), ...(b.resists ?? [])].map(x => x.status))];
+  const resists = (s: ItemStats) => st.map(k => s.resists?.find(x => x.status === k) ?? { status: k, bonus: 0, bonusPotential: 0, penalty: 0, penaltyPotential: 0 });
+  return [{ ...a, bars: bars(a), resists: resists(a) }, { ...b, bars: bars(b), resists: resists(b) }];
 }
 
 /**
  * A tooltip's stat container as ItemConfig builds it: the title and a bar per damage type
  * (the placeholder bar removed), each with its icon, label and the bars' widths.
  */
-export async function buildStats(ctx: GuiContext, st: ItemStats): Promise<Component | null> {
+export async function buildStats(ctx: GuiContext, st: ItemStats): Promise<Component[]> {
   const t = (k: string) => bundleText("item", k, k.replace(/^t\./, "").replace(/_/g, " ").toUpperCase());
-  const [box, ...bars] = await Promise.all([buildUi(ctx, uiRef(STATS, { "Stat Title": t(st.title) })),
-    ...st.bars.map(b => buildUi(ctx, uiRef(BAR, { Icon: `ui/icon/stats/${b.icon}.png`, "Stat Label": t(b.label), Alignment: "Left",
-      "Bonus Width": b.now, "Bonus Potential Width": b.potential, "Bar Type": "Bonus" })))]);
-  const list = box?.find("stats") ?? box;
-  if (!box || !list) return null;
-  list.children = [list.children[0], ...bars.filter((b): b is Component => !!b)].filter(Boolean);
-  for (const b of list.children.slice(1)) b.constraints = null;
-  return box;
+  const box = async (title: string, refs: any[]) => {
+    const [b, ...bars] = await Promise.all([buildUi(ctx, uiRef(STATS, { "Stat Title": t(title) })), ...refs.map(r => buildUi(ctx, r))]);
+    const list = b?.find("stats") ?? b;
+    if (!b || !list) return null;
+    list.children = [list.children[0], ...bars.filter((x): x is Component => !!x)].filter(Boolean);
+    for (const x of list.children.slice(1)) x.constraints = null;
+    return b;
+  };
+  const out = await Promise.all([
+    st.bars.length ? box(st.title, st.bars.map(b => uiRef(BAR, { Icon: `ui/icon/stats/${b.icon}.png`, "Stat Label": t(b.label), Alignment: "Left",
+      "Bonus Width": b.now, "Bonus Potential Width": b.potential, "Bar Type": "Bonus" }))) : null,
+    // client/l.a: centred bars, resistance to the right and weakness to the left
+    st.resists?.length ? box("t.status_resist", st.resists.map(r => uiRef(BAR, { Icon: `ui/icon/debuff/${r.status}.png`,
+      "Stat Label": bundleText("item", `m.${r.status}`, r.status.toUpperCase()), Alignment: "Center",
+      "Bonus Width": r.bonus, "Bonus Potential Width": r.bonusPotential, "Penalty Width": r.penalty, "Penalty Potential Width": r.penaltyPotential,
+      "Bar Type": "Bonus", "Negative Bar Type": "Penalty" }))) : null,
+  ]);
+  return out.filter((c): c is Component => !!c);
+}
+
+/** An image scaled to fit `size` pixels. */
+export function scaleImage(im: GuiImage, size: number): GuiImage {
+  const s = Math.min(size / im.width, size / im.height), w = Math.max(1, Math.round(im.width * s)), h = Math.max(1, Math.round(im.height * s));
+  const canvas = new OffscreenCanvas(w, h);
+  const g = canvas.getContext("2d")!;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(im.source, 0, 0, w, h);
+  return { source: canvas, width: w, height: h };
 }
 
 /** A synthetic container laying children out in a row (as interface_forge.dat does). */
@@ -118,10 +160,12 @@ export abstract class GuiScreen {
       this.pointer = { x, y };
       const target = this.overlays[this.overlays.length - 1] ?? this.root;
       if (!target) return;
+      // an open popup menu takes the pointer: nothing under it is clicked
+      const menu = !!target.overlay;
       dispatch(target, { type, x, y, button: (e as PointerEvent).button ?? 0, delta: type === "wheel" ? Math.sign((e as WheelEvent).deltaY) : 0 });
       if (type === "wheel") e.preventDefault();
       // components with nothing to press in Clyde (spacers drawn as sockets) take clicks here
-      if (type === "down") this.pressedAt = this.clickable(target, x, y);
+      if (type === "down") this.pressedAt = menu ? null : this.clickable(target, x, y);
       if (type === "up") {
         const c = this.clickable(target, x, y);
         if (c && c === this.pressedAt && (e as PointerEvent).button === 0) this.clicks.get(c)?.();
@@ -177,8 +221,36 @@ export abstract class GuiScreen {
     this.host.closed();
   }
 
-  /** Escape: closes the topmost overlay, else the window. */
+  /**
+   * Pops up a menu built in code (the client's item and sort menus, client/ui/E.bH) under the
+   * pointer, over the topmost interface; a chosen item calls `choose` with its action.
+   */
+  protected async popupMenu(entries: MenuEntry[], title: string | undefined, choose: (action: string) => void) {
+    const target = this.overlays[this.overlays.length - 1] ?? this.root;
+    const at = this.pointer;
+    if (!target || !entries.length) return;
+    const menu = await buildMenu(this.ctx, entries, title);
+    menu.onAction = (_c, a) => { this.host.sound("sound/feedback/ui_dropdown_select.ogg"); choose(a); };
+    openMenu(target, menu, at?.x ?? this.canvas.clientWidth / 2, at?.y ?? this.canvas.clientHeight / 2, this.canvas.clientWidth, this.canvas.clientHeight);
+  }
+
+  /** An icon config's image scaled to `size` pixels, once loaded (a menu item's icon). */
+  protected async iconImage(cfg: any, size: number): Promise<GuiImage | null> {
+    const im = await this.ctx.icon(cfg);
+    return im ? scaleImage(im, size) : null;
+  }
+
+  /** A style's background image scaled to `size` pixels (an equipment slot's own icon). */
+  protected async styleImage(name: string, args: Record<string, unknown>, size: number): Promise<GuiImage | null> {
+    const st = await this.ctx.resolveStyle({ $class: CONFIG_REF, name, arguments: { $map: "com.threerings.config.ArgumentMap", entries: Object.entries(args) } }, new Map());
+    const im = st?.background?.image;
+    return im ? scaleImage(im, size) : null;
+  }
+
+  /** Escape: closes an open popup menu, then the topmost overlay, else the window. */
   escape() {
+    const top = this.overlays[this.overlays.length - 1] ?? this.root;
+    if (top?.overlay) { top.overlay = null; return; }
     if (this.overlays.length) { this.overlays.pop(); return; }
     this.close();
   }
@@ -201,22 +273,14 @@ export abstract class GuiScreen {
     const key = JSON.stringify(cfg, (k, v) => (k === "$outer" ? undefined : v)) + size;
     if (!this.icons.has(key)) {
       this.icons.set(key, null);
-      void this.ctx.icon(cfg).then(im => {
-        if (!im) return;
-        const s = Math.min(size / im.width, size / im.height), w = Math.round(im.width * s), h = Math.round(im.height * s);
-        const canvas = new OffscreenCanvas(w, h);
-        const g = canvas.getContext("2d")!;
-        g.imageSmoothingQuality = "high";
-        g.drawImage(im.source, 0, 0, w, h);
-        this.icons.set(key, { source: canvas, width: w, height: h });
-      });
+      void this.ctx.icon(cfg).then(im => { if (im) this.icons.set(key, scaleImage(im, size)); });
     }
     return this.icons.get(key) ?? null;
   }
 
   /** The tooltip for the hovered component (or an ancestor), built once per reference. */
   private hoveredTip(): Component | null {
-    if (!this.pointer || !this.root || this.overlays.length) return null;
+    if (!this.pointer || !this.root || this.overlays.length || this.root.overlay) return null;
     const hit = hitTest(this.root, this.pointer.x, this.pointer.y);
     if (!hit) return null;
     let spec: TipSpec | null = null;
@@ -233,28 +297,7 @@ export abstract class GuiScreen {
     return t instanceof Promise ? null : t;
   }
 
-  /** Builds a tooltip: its placeholder stat pills give way to the spec's bonus lines. */
-  private async buildTip(spec: TipSpec): Promise<Component | null> {
-    const plain = spec.lines?.length ?? 0;
-    const [c, stats, ...lines] = await Promise.all([buildUi(this.ctx, spec.ref), spec.stats ? buildStats(this.ctx, spec.stats) : null,
-      ...(spec.lines ?? []).map(l => buildUi(this.ctx, uiRef(BONUS, { Description: l, "Toggle Icon": false }))),
-      ...(spec.bonuses ?? []).map(b => buildUi(this.ctx, uiRef(BONUS, { Color: b.color ?? (b.bonus ? "Bonus" : "Penalty"), Description: b.text,
-        "Bonus Icon": b.icon ?? null, "Toggle Icon": !!b.icon })))]);
-    // our own lines (not the game's bonuses) leave out the bonus arrow
-    lines.slice(0, plain).forEach(l => { const arrow = l?.children[0]?.children.at(-1); if (arrow && !arrow.tag) arrow.visible = false; });
-    if (!c) return null;
-    // the tooltips' 3D item previews are drawn by the game's item renderer; not here
-    const view = c.find("renderview");
-    if (view) view.visible = false;
-    for (const [tag, text] of Object.entries(spec.texts ?? {})) { const t = c.find(tag); if (t) t.text = text; }
-    const pills = c.find("tooltip_pills");
-    if (pills) {
-      pills.children = [stats, ...lines].filter((l): l is Component => !!l);
-      for (const l of pills.children) l.constraints = null;
-      pills.visible = pills.children.length > 0;
-    }
-    return c;
-  }
+  private buildTip(spec: TipSpec): Promise<Component | null> { return buildTooltip(this.ctx, spec); }
 
   private clickable(root: Component, x: number, y: number): Component | null {
     if (!this.clicks.size) return null;
@@ -263,7 +306,6 @@ export abstract class GuiScreen {
     for (let i = path.length - 1; i >= 0; i--) if (this.clicks.has(path[i])) return path[i];
     return null;
   }
-
   private ancestors(root: Component, c: Component): Component[] | null {
     if (root === c) return [root];
     for (const k of root.children) { const p = this.ancestors(k, c); if (p) return [root, ...p]; }
@@ -314,4 +356,48 @@ export abstract class GuiScreen {
 
   /** Per-frame work before drawing (animations). */
   protected tick() {}
+}
+
+/** Builds a tooltip: its placeholder stat pills give way to the spec's bonus lines. */
+export async function buildTooltip(ctx: GuiContext, spec: TipSpec): Promise<Component | null> {
+  if (spec.text !== undefined) return textTip(ctx, spec.text);
+  if (spec.compare) {
+    const [sa, sb] = alignStats(spec.compare.stats, spec.stats);
+    const [wrap, other, own] = await Promise.all([buildUi(ctx, uiRef(COMPARE)), buildTooltip(ctx, { ...spec.compare, compare: undefined, stats: sa }),
+      buildTooltip(ctx, { ...spec, compare: undefined, stats: sb })]);
+    const box = wrap?.find("tip_container");
+    if (!wrap || !box || !other || !own) return own;
+    box.children = [other, own];
+    for (const k of box.children) k.constraints = null;
+    return wrap;
+  }
+  const plain = spec.lines?.length ?? 0;
+  const [c, stats, ...lines] = await Promise.all([buildUi(ctx, spec.ref), spec.stats ? buildStats(ctx, spec.stats) : [],
+    ...(spec.lines ?? []).map(l => buildUi(ctx, uiRef(BONUS, { Description: l, "Toggle Icon": false }))),
+    ...(spec.bonuses ?? []).map(b => buildUi(ctx, uiRef(BONUS, { Color: b.color ?? (b.bonus ? "Bonus" : "Penalty"), Description: b.text,
+      "Bonus Icon": b.icon ?? null, "Toggle Icon": !!b.icon })))]);
+  // our own lines (not the game's bonuses) leave out the bonus arrow
+  lines.slice(0, plain).forEach(l => { const arrow = l?.children[0]?.children.at(-1); if (arrow && !arrow.tag) arrow.visible = false; });
+  if (!c) return null;
+  // the tooltips' 3D item previews are drawn by the game's item renderer; not here
+  const view = c.find("renderview");
+  if (view) view.visible = false;
+  for (const [tag, text] of Object.entries(spec.texts ?? {})) { const t = c.find(tag); if (t) t.text = text; }
+  const pills = c.find("tooltip_pills");
+  if (pills) {
+    pills.children = [...stats, ...lines].filter((l): l is Component => !!l);
+    for (const l of pills.children) l.constraints = null;
+    pills.visible = pills.children.length > 0;
+  }
+  return c;
+}
+
+/** Component.createTooltipComponent: a text tooltip, a label in a Default/TooltipWindow window. */
+export async function textTip(ctx: GuiContext, text: string): Promise<Component> {
+  const win = await buildComponentConfig(ctx, { $class: COMPONENT + "Container", style: { $class: CONFIG_REF, name: "Default/TooltipWindow" },
+    layout: { $class: "com.threerings.opengl.gui.config.LayoutConfig$Border", horizontalGap: 0, verticalGap: 0,
+      children: [{ component: { $class: COMPONENT + "Label" }, location: { name: "CENTER" } }] } });
+  const label = win.children[0];
+  if (label) label.text = text;
+  return win;
 }
