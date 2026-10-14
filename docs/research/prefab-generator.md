@@ -65,8 +65,9 @@ of them prefab floors of the styles above (the rest are mission set pieces). In 
 ## Cutting the rooms out (`src/gen/prefabs.ts`)
 
 1. The floor's walkable cells (tile.dat: floor flag, no collision) split into **corridors** —
-   cells whose cross-section is at most six cells and the same one cell either way along the
-   corridor — and **rooms**, the connected rest.
+   cells whose cross-section is at most six cells (or the widest width the floor's names give
+   plus two: Devilish Drudgery's "5w" openings are seven cells between their posts) and the
+   same one cell either way along the corridor — and **rooms**, the connected rest.
 2. Each label starts a region at the node nearest it; regions grow over the node graph.
 3. A local search moves rooms and corridors between neighbouring regions (with whatever of the
    region hangs off them) to lower a cost: sides the name gives but the region does not open
@@ -78,8 +79,10 @@ of them prefab floors of the styles above (the rest are mission set pieces). In 
    placements), else at its middle. Walls and edges go with the nearest floor; entries go with
    their tag number's region, else with the region they stand in.
 
-Of the 809 labelled prefabs in the archive, about 60 percent come out opening exactly as their
-names say. The generator uses only those (one opening a side, three to seven cells wide), and
+Of the 809 labelled prefabs in the archive, 497 come out opening exactly as their names say
+(most of the rest are frames, fields, arena stairs and compound wilds, which are not joined at
+corridors). The generator uses only those (one opening a side, three cells to the name's width
+plus two), and
 leaves out mission set pieces, gold key and door rooms, danger and reward rooms, fields, frames,
 arenas, mazes, stairs and transitions.
 
@@ -118,5 +121,14 @@ generator with learned tiling paints it.
 - Traps are as captured: the floor's DamageTraps and StatusTraps choice is already applied.
 - The cut is a reconstruction: where two prefabs meet inside a corridor of one elevation, the
   split is our guess (the middle). Openings must match exactly in width.
-- Styles whose openings are wider than seven cells (Devilish Drudgery's) or that are not
-  corridor-joined (fields, compounds, arenas) fall back to the older generator.
+- Layouts that are not corridor-joined (Deconstruction Zone fields, Compounds, Battle Arenas)
+  are not cut; those styles fall back to the older generator.
+- A status with too few captured floors borrows the style's other statuses' rooms as they are
+  (a Candlestick Keep of shock may get a frozen room); their tiles are not repainted.
+
+## Measured
+
+With the archive of 2026-10-13: tunnels 30 of 30 seeds assemble (178 pieces from 27 captured floors),
+Candlestick Keep 20 of 20 (5 floors), Graveyard, Wolver Den, Lichenous Lair and Devilish
+Drudgery 10 of 10 each. `tests/prefabs.test.ts` checks the cut and the assembly on a synthetic
+floor.
