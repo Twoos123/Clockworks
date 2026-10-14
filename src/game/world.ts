@@ -15,12 +15,13 @@ import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef,
 import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
 import { addItemBonuses, capValue, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
-import { gateDisplayModel, Prop, propKind, trapState } from "./props";
+import { balloonOf, gateDisplayModel, Prop, propKind, trapState, type Balloon } from "./props";
 import { BEAM_MODELS, DungeonObjects, isAlly, isCaptive, standInModel, type BeamResult } from "./objects";
 import { ENERGY_CROWNS } from "./energy";
 import { intersects } from "./shapes";
 import { SpawnTables } from "./spawntable";
-import { DEFAULT_LOADOUT, POCKET_SLOTS, type Loadout as GearLoadout } from "./save";
+import { DEFAULT_LOADOUT, POCKET_SLOTS, type KnightFace, type Loadout as GearLoadout } from "./save";
+import { faceArgs } from "./creator";
 import { ECONOMY_FILES, Economy, type GearState, type VariantEffect } from "./economy";
 import { StatusConditions, type ActiveStatus } from "./status";
 import { itemName, monsterName } from "./text";
@@ -517,6 +518,10 @@ export class World implements LogicHost {
   /** The knight's body with one weapon in hand ("Weapon" attaches at bone_weapon_r). */
   /** The knight's personal colour (a colour print for the body model's "Colorization"). */
   color = 257;
+  /** Conversations markers have started this level (each plays once). */
+  private readonly calls = new Set<any>();
+  /** The knight's height and eyes (the body model's "Height" and "Face Texture" arguments). */
+  face: KnightFace | null = null;
   /** Weapon levels from banked heat, by item name. */
   weaponLevels = new Map<string, number>();
 
@@ -527,7 +532,7 @@ export class World implements LogicHost {
   }
 
   private async knightInstance(weapon: WeaponDef | null, shield: ShieldDef | null, armor: ArmorDef[] = []) {
-    const args: [string, any][] = [["Colorization", this.color]];
+    const args: [string, any][] = [["Colorization", this.color], ...faceArgs(this.face)];
     if (weapon) args.push(["Weapon", weapon.model]);
     if (shield) args.push(["Shield", shield.model]);
     // armour and helmet attach through the body model's "Armor" and "Helmet" parameters;
@@ -553,6 +558,23 @@ export class World implements LogicHost {
     k.instance = cur;
     k.upperBody = cur.subtree("Bip01 Spine");
     this.play(k, "character/pc/idle.dat");
+  }
+
+  /**
+   * The level's help bubbles (client sprite/a): each with its world spot (raised by its z
+   * offset) and whether it shows now, its switch still at START and the knight within its
+   * visible distance.
+   */
+  balloons(): { key: object; balloon: Balloon; x: number; y: number; z: number; shown: boolean }[] {
+    const k = this.knight, out: { key: object; balloon: Balloon; x: number; y: number; z: number; shown: boolean }[] = [];
+    for (const p of this.props) {
+      const b = p.balloon;
+      if (!b) continue;
+      const z = p.z;
+      const d2 = (p.x - k.x) ** 2 + (p.y - k.y) ** 2 + (z - k.z) ** 2;
+      out.push({ key: p, balloon: b, x: p.x, y: p.y, z: z + b.zOffset, shown: b.on && !k.dead && d2 < b.visibleDistance * b.visibleDistance });
+    }
+    return out;
   }
 
   /** The battle sprite following the knight (sprites.ts), or null. */
@@ -582,7 +604,7 @@ export class World implements LogicHost {
 
   /** The knight's body model as worn (armour and helmet, no weapon), for the HUD portrait. */
   portraitRef(): any {
-    const args: [string, any][] = [["Colorization", this.color]];
+    const args: [string, any][] = [["Colorization", this.color], ...faceArgs(this.face)];
     for (const a of this.knight?.armor ?? []) args.push([a.slot === "helmet" ? "Helmet" : "Armor", this.colored(a.model ?? DEFAULT_GEAR[a.slot ?? "armor"])]);
     return { $class: "com.threerings.config.ConfigReference", name: "character/pc/model.dat",
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: dressArgs(args, this.dressing, this.color) } };
@@ -820,8 +842,15 @@ export class World implements LogicHost {
         return true;
       }
       case "StartConversation":
-        // a townsperson talks (src/ui/conversation.ts); the knight is the activator
-        if (activator === this.knightEntity) this.onConversation?.(source.name, cfg, source);
+        // a townsperson talks (src/ui/conversation.ts); the knight is the activator, or the
+        // action's target names it (the crash site's radio call from Rhendon: a marker's
+        // action, set off by the knight entering an area, aimed at InstanceOf PawnLogic)
+        if (activator === this.knightEntity || (cfg.target && logic.resolveTarget(cfg.target, source, activator).includes(this.knightEntity))) {
+          // a marker's call (a One Time Action, whose once-only condition the export lost)
+          // plays once a level; townsfolk talk whenever asked
+          if (!source.isActor) { if (this.calls.has(cfg)) return true; this.calls.add(cfg); }
+          this.onConversation?.(source.name, cfg, source);
+        }
         return true;
       case "OpenShop": {
         // the keeper's look: its actor's sprite model, playing the shop's animation (or its idle)
@@ -1036,6 +1065,8 @@ export class World implements LogicHost {
     const kind = propKind(cfg);
     const p = new Prop(kind, e, cfg);
     p.args = Object.fromEntries((ref?.arguments?.entries ?? []) as [string, unknown][]);
+    // help bubbles: word balloons over the level, not switches to stand on
+    p.balloon = balloonOf(cfg.sprite);
     e.game = p;
     p.z = this.collision.groundZ(e.x, e.y);
     if (kind === "door") p.open = !!cfg.open;
@@ -1147,6 +1178,8 @@ export class World implements LogicHost {
 
   /** Doors open and close on signals; anything else listens through its handlers only. */
   private propSignal(p: Prop, name: string) {
+    // a help bubble's switch moves on from START at "next": the bubble goes
+    if (p.balloon) { if (name === "next") p.balloon.on = false; return; }
     if (this.objects.signal(p, name)) return;
     if (p.kind === "trap") {
       // rocket block controls switch their blocks off
@@ -1317,8 +1350,8 @@ export class World implements LogicHost {
       if (p.kind === "generic" && !p.obj && p.instance?.finished && (p.cfg.sprite?.idles?.length ?? 0) > 1) this.showPropState(p);
       switch (p.kind) {
         case "switch": {
-          // hit switches (emitters, gun blocks, cages) are not stood on
-          if (p.obj) break;
+          // hit switches (emitters, gun blocks, cages) are not stood on; nor are help bubbles
+          if (p.obj || p.balloon) break;
           if (p.strikable) {
             if (p.pressed && this.clock >= p.cooldownUntil) { p.pressed = false; this.showPropState(p); }
             break;

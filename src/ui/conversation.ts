@@ -5,13 +5,17 @@
 //  - #name: the speaker's name, #message: the node's message (the knight's name for {0});
 //  - #portrait: the NPC's model playing the node's animation, #portrait_reply: the knight;
 //  - #responses (parts/responses.dat): one row per response, a cursor beside the selected one
-//    (up and down or the mouse move it; Space, Enter or a click picks it), Escape leaves.
+//    (up and down or the mouse move it; Space, Enter or a click picks it), Escape leaves;
+//  - until the knight has talked a conversation through, the helptips bundle's m.converse
+//    ("Use the arrow keys and spacebar to navigate the conversation.") in a
+//    Default/TooltipWindow label above the responses, centred (client C: at the bottom, as
+//    high as the responses or 121 pixels).
 //
 // The way from node to node is src/game/conversation.ts's; text comes from the message
 // bundles through messageText.
 
 import { CONFIG_REF } from "../config/params";
-import { buildInterface, messageText, pack, type Component, type GuiContext, type RenderHooks } from "./gui";
+import { buildComponentConfig, buildInterface, messageText, pack, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { OverlayScreen } from "./overlay";
 import { nextNode, type NpcConversation as Conversation } from "../game/conversation";
 
@@ -51,8 +55,17 @@ export class ConversationScreen extends OverlayScreen {
     await Promise.all([DEFAULT_UI, RESPONSES].map(name => buildInterface(ctx, { $class: CONFIG_REF, name })));
   }
 
-  /** Starts a conversation at its first node. */
-  async start(conv: Conversation, knightName: string) {
+  /** The m.converse hint label, while it shows. */
+  private hint: Component | null = null;
+
+  /** Starts a conversation at its first node; `hint` shows the conversation controls hint. */
+  async start(conv: Conversation, knightName: string, hint = false) {
+    this.hint = null;
+    if (hint) {
+      const text = messageText("m.converse", "helptips");
+      this.hint = await buildComponentConfig(this.ctx, { $class: "com.threerings.opengl.gui.config.ComponentConfig$Label", text,
+        style: { $class: CONFIG_REF, name: "Default/TooltipWindow" } }).catch(() => null);
+    }
     this.conv = conv;
     this.knight = knightName;
     this.came = [];
@@ -163,6 +176,15 @@ export class ConversationScreen extends OverlayScreen {
     // the interface spans the screen (its letterboxing and corners anchor to the edges)
     ui.preferredSize = { width: Math.round(w), height: Math.round(h) };
     pack(ui);
-    return [{ ui, x: 0, y: Math.round(h) }];
+    const out = [{ ui, x: 0, y: Math.round(h) }];
+    const hint = this.hint;
+    if (hint && this.rows.length) {
+      const s = pack(hint);
+      // (as high as the responses' interface, the rows and the spacer under them, or 121 pixels)
+      const list = ui.find("responses");
+      const rise = Math.max(121, list ? list.height + 32 : 0);
+      out.push({ ui: hint, x: Math.round((w - s.width) / 2), y: Math.round(h - rise) });
+    }
+    return out;
   }
 }

@@ -1,25 +1,38 @@
-// Knight creation, shown on a fresh save before the knight first enters Haven, over the
-// game's own creation scene (rsrc/world/createknight/scene.dat: the crash site under the
-// moon), in the game's creation window (rsrc/ui/create/interface.dat): the Armor window's
-// helm, armour and design sliders (ui/create/parts/interface_icon_slider.dat and
-// interface_slider.dat), the Personalize window's colour picker (interface_color.dat), the
-// name window (interface_name.dat) and the Start button. The choices are filled in by closed
-// code in the game; here they come from the item library: the zero-star "Spiral" helmets and
-// armours that new knights wore, each in its seven trims. The Detail window (accessories),
-// height and eyes have nothing behind them in single player and are hidden.
+// Knight creation, shown on a fresh save before the knight first plays, over the game's own
+// creation scene (rsrc/world/createknight/scene.dat: the crash site), in the game's creation
+// window (rsrc/ui/create/interface.dat), filled as the client's creator (client I) fills it:
 //
-// The windows open one at a time, as the client's creator (client I) steps through them: the
-// Armor window first; "Next" opens the next window and collapses the one before to its header
-// (whose highlight re-opens it); after the last comes the name window with the Start button.
-// "Back" leaves creation (to the knight select window, or the log-on screen for a first knight).
+//  - ARMOR: helm, armour and design sliders (the starter styles and the seven designs);
+//  - DETAILS: two helm accessories in the knight's design, or none;
+//  - PERSONALIZE: height, eyes and the personal colour (a colour picker over the colour
+//    class, its arrows stepping through it);
+//  - then the name window (ui/create/parts/interface_name.dat) with the START button.
+//
+// The option lists, labels and defaults are the client's (src/game/creator.ts). The windows open
+// one at a time: "Next" opens the next window and collapses the one before to its header (its
+// small icons and a check mark; the header's highlight opens it again), and the first time
+// the ARMOR window's "You can click on completed stages to revisit them" box shows for 3
+// seconds (I.a, helpboxAppear). RANDOMIZE picks at random for the open window's sliders (I.CJ).
+// At the start every window is picked at random, then the accessories are set to none, the
+// height to normal and the eyes to the default (I.CI). "Back" leaves creation.
 
-import type { SaveData } from "../game/save";
+import type { SaveData, KnightFace } from "../game/save";
 import { dispatch, type Component, type GuiContext } from "./gui";
 import { FloatScreen, type Placement } from "./floating";
+import {
+  ACCESSORY_1, ACCESSORY_2, DESIGNS, EYES, HEIGHTS, accessoryIn, accessoryLabel, designLabel, eyesLabel, heightLabel, noneLabel,
+} from "../game/creator";
 
-export interface KnightLook { helmet: string; armor: string; color: number }
+export interface KnightLook {
+  helmet: string;
+  armor: string;
+  color: number;
+  /** Accessory configs on the helm ("Helm/Top/Headband/Headband, Heavy"). */
+  accessories: string[];
+  face: KnightFace;
+}
 
-/** Spiral starter styles from the item names: style -> trims. */
+/** Spiral starter styles from the item names: style -> designs. */
 export interface StarterGear { helmets: Map<string, string[]>; armors: Map<string, string[]>; trims: string[] }
 
 const STARTER = /^Gear\/(Helm|Armor)\/(Spiral [^/(]+?)\s*\((\w+)\)$/;
@@ -34,18 +47,24 @@ export function starterGear(names: Iterable<string>, rarity: (name: string) => n
     map.set(m[2], [...(map.get(m[2]) ?? []), m[3]]);
     trims.add(m[3]);
   }
-  return { helmets, armors, trims: [...trims].sort() };
+  // the client's design order (ItemCodes.bwi), then any others
+  const order = (t: string) => { const i = (DESIGNS as readonly string[]).indexOf(t); return i < 0 ? 99 : i; };
+  return { helmets, armors, trims: [...trims].sort((a, b) => order(a) - order(b) || a.localeCompare(b)) };
 }
 
 const itemName = (slot: "Helm" | "Armor", style: string, trim: string) => `Gear/${slot}/${style} (${trim})`;
 
 export interface CreateHooks {
   gear(): Promise<StarterGear>;
-  /** Personal colours (prints and swatches). */
+  /** An accessory config's aName ("a.hvy|a.boltedvee"), once the accessory library is loaded. */
+  accessoryName(config: string): string | undefined;
+  /** An item's display name ("Spiral Sallet"). */
+  itemLabel(item: string): string;
+  /** Personal colours (prints and swatches), in the picker's order. */
   colors(): { print: number; name: string; rgb: [number, number, number] }[];
   /** Shows the knight in the scene with this look. */
   preview(look: KnightLook): void;
-  /** The knight is made; enter Haven. */
+  /** The knight is made; on to its first level. */
   done(name: string, look: KnightLook): void;
   /** Back (the client's BACK button): to the knight select window, or the log-on screen. */
   back(): void;
@@ -64,6 +83,12 @@ export function validName(n: string): string | null {
 /** HUD parts hidden while the knight is made. */
 const HIDDEN = ["#hudCanvas", ".hint-bar", "#floorDone", "#clockworks", "#arenaBtn"];
 
+/** Sliders per window (Armor, Details, Personalize): their tags. */
+const WINDOW_SLIDERS = [["slider_helm", "slider_armor", "slider_design"], ["slider_acc1", "slider_acc2"], ["slider_height", "slider_eyetype", "slider_personalcolor"]];
+
+/** How long the "click on completed stages" box stays (client N: 3000 ms). */
+const REVISIT_HELP_MS = 3000;
+
 /** Every component with a tag, depth first. */
 function findAll(c: Component, tag: string, out: Component[] = []): Component[] {
   if (c.tag === tag) out.push(c);
@@ -71,46 +96,63 @@ function findAll(c: Component, tag: string, out: Component[] = []): Component[] 
   return out;
 }
 
-/** The parent of a component in a tree. */
-function parentOf(root: Component, c: Component): Component | null {
-  for (const k of root.children) {
-    if (k === c) return root;
-    const p = parentOf(k, c);
-    if (p) return p;
-  }
-  return null;
-}
-
 /** A slider row of the creation window: the slider, its option label and arrows. */
-interface SliderRow { slider: Component | null; option: Component | null; count: () => number; get: () => number; set: (i: number) => void; label: (i: number) => string }
+interface SliderRow { tag: string; slider: Component | null; option: Component | null; count: () => number; get: () => number; set: (i: number) => void; label: (i: number) => string }
+
+const rand = (n: number) => Math.floor(Math.random() * Math.max(1, n));
 
 export class CreateKnight extends FloatScreen {
   private gear: StarterGear | null = null;
   private helm = 0;
   private armor = 0;
   private trim = 0;
+  /** Accessory choices: 0 for none, else 1 + the index into ACCESSORY_1 or ACCESSORY_2. */
+  private acc1 = 0;
+  private acc2 = 0;
+  private height = HEIGHTS.indexOf("0");
+  private eyes = 0;
   private color = 257;
   private name = "";
   private error = "";
   private rows: SliderRow[] = [];
   private hidden: [HTMLElement, string][] = [];
-  /** The creation windows in their order (Armor, Personalize), then the name window. */
+  /** The creation windows in their order (Armor, Details, Personalize). */
   private steps: Component[] = [];
   private nameWindow: Component | null = null;
   /** How many steps have opened, and the one open now (steps.length for the name window). */
   private opened = 1;
   private active = 0;
+  /** The revisit help box has been shown (the first Next), and its timer. */
+  private helped = false;
+  private helpTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** The first window again, the rest unopened (a new creation). */
   private restart() {
     this.opened = 1;
     this.active = 0;
+    this.helped = false;
+    this.revisitHelp(false);
     this.layoutSteps();
+  }
+
+  /** The ARMOR window's "You can click on completed stages to revisit them" box. */
+  private revisitHelp(on: boolean) {
+    if (this.helpTimer) { clearTimeout(this.helpTimer); this.helpTimer = null; }
+    const box = this.steps[0]?.find("container_revisit");
+    if (box) box.visible = on;
+    if (on) this.helpTimer = setTimeout(() => this.revisitHelp(false), REVISIT_HELP_MS);
+  }
+
+  /** Opening a window: the first time the revisit box appears, later it goes (I.a, I.CR). */
+  private opening() {
+    if (!this.helped) { this.helped = true; this.revisitHelp(true); }
+    else this.revisitHelp(false);
   }
 
   /** "Next": the next unopened window, else the name window with the Start button. */
   private next() {
     this.hooks_.sound("sound/feedback/ui_confirm.ogg");
+    this.opening();
     this.opened = Math.min(this.steps.length + 1, this.opened + 1);
     this.active = this.opened - 1;
     this.layoutSteps();
@@ -118,16 +160,18 @@ export class CreateKnight extends FloatScreen {
 
   /** A collapsed window's highlight opens it again (the others collapse). */
   private activate(i: number) {
-    if (i >= this.opened) return;
+    if (i >= this.opened || i === this.active) return;
     this.hooks_.sound("sound/feedback/ui_dropdown_select.ogg");
+    this.opening();
     this.active = i;
     this.layoutSteps();
   }
 
   /**
    * Shows the windows as the client leaves them: opened ones visible, the active one expanded
-   * and the others collapsed to their headers (with the highlight that re-opens them, and a
-   * check mark); the name window and Start once every window has been through.
+   * and the others collapsed to their headers (their choices' small icons, a check mark and
+   * the highlight that re-opens them); the name window and Start once every window has been
+   * through.
    */
   private layoutSteps() {
     const ui = this.root;
@@ -135,12 +179,17 @@ export class CreateKnight extends FloatScreen {
     this.steps.forEach((w, i) => {
       w.visible = i < this.opened;
       const open = i === this.active;
-      for (const t of ["icontable"]) for (const c of findAll(w, t)) c.visible = open;
-      for (const c of findAll(w, "container_random")) c.visible = open && c !== findAll(w, "container_random")[0];
+      for (const c of findAll(w, "icontable")) c.visible = open;
+      const randoms = findAll(w, "container_random");
+      for (const c of randoms) c.visible = open && c !== randoms[0];
       const b = w.find("expandbutton");
       if (b) b.visible = !open;
       const check = w.find("checkmark");
       if (check) check.visible = !open;
+      const small = w.find("smallicons");
+      if (small) small.visible = !open;
+      const count = WINDOW_SLIDERS[i]?.length ?? 0;
+      for (let n = 1; n <= 5; n++) { const s = w.find(`icon${n}Small`); if (s) s.visible = n <= count; }
     });
     const naming = this.opened > this.steps.length;
     if (this.nameWindow) {
@@ -164,15 +213,9 @@ export class CreateKnight extends FloatScreen {
 
   async open(save: SaveData) {
     this.gear = await this.hooks_.gear();
-    this.color = save.color;
     this.name = save.knight?.name ?? "";
-    // start from the current look when it is a starter piece
-    const h = [...this.gear.helmets.keys()], a = [...this.gear.armors.keys()];
-    const cur = (n: string) => STARTER.exec(n);
-    const ch = cur(save.loadout.helmet), ca = cur(save.loadout.armor);
-    this.helm = Math.max(0, ch ? h.indexOf(ch[2]) : 0);
-    this.armor = Math.max(0, ca ? a.indexOf(ca[2]) : 0);
-    this.trim = Math.max(0, this.gear.trims.indexOf(ch?.[3] ?? ca?.[3] ?? "Blue"));
+    const fresh = !this.isOpen;
+    if (fresh) this.randomizeAll();
     if (!this.isOpen) {
       document.body.classList.add("creating");
       this.hidden = [];
@@ -180,14 +223,31 @@ export class CreateKnight extends FloatScreen {
     }
     const field = this.root?.find("namefield");
     if (field) field.text = this.name;
-    const fresh = !this.isOpen;
     await this.show();
     if (fresh) this.restart();
     this.hooks_.preview(this.look());
   }
 
+  /**
+   * I.CI: every window at random, then no accessories, normal height and the default eyes.
+   * (The colour is a random one of the class.)
+   */
+  private randomizeAll() {
+    const g = this.gear!;
+    this.helm = rand(g.helmets.size);
+    this.armor = rand(g.armors.size);
+    this.trim = rand(g.trims.length);
+    const cs = this.hooks_.colors();
+    if (cs.length) this.color = cs[rand(cs.length)].print;
+    this.acc1 = 0;
+    this.acc2 = 0;
+    this.height = HEIGHTS.indexOf("0");
+    this.eyes = 0;
+  }
+
   close() {
     this.hide();
+    this.revisitHelp(false);
     document.body.classList.remove("creating");
     for (const [e, d] of this.hidden) e.style.display = d;
     this.hidden = [];
@@ -195,12 +255,18 @@ export class CreateKnight extends FloatScreen {
 
   look(): KnightLook {
     const g = this.gear!;
-    const h = [...g.helmets.keys()][this.helm], a = [...g.armors.keys()][this.armor], t = g.trims[this.trim];
+    const h = [...g.helmets.keys()][this.helm], a = [...g.armors.keys()][this.armor], t = g.trims[this.trim] ?? "Blue";
     const pick = (slot: "Helm" | "Armor", style: string) => {
       const trims = (slot === "Helm" ? g.helmets : g.armors).get(style) ?? [];
       return itemName(slot, style, trims.includes(t) ? t : trims[0]);
     };
-    return { helmet: h ? pick("Helm", h) : "", armor: a ? pick("Armor", a) : "", color: this.color };
+    const accessories: string[] = [];
+    if (this.acc1 > 0) accessories.push(accessoryIn(ACCESSORY_1[this.acc1 - 1], t));
+    if (this.acc2 > 0) accessories.push(accessoryIn(ACCESSORY_2[this.acc2 - 1], t));
+    return {
+      helmet: h ? pick("Helm", h) : "", armor: a ? pick("Armor", a) : "", color: this.color, accessories,
+      face: { height: HEIGHTS[this.height] ?? "0", eyes: EYES[this.eyes] ?? "DEFAULT" },
+    };
   }
 
   private changed() {
@@ -209,48 +275,63 @@ export class CreateKnight extends FloatScreen {
     this.hooks_.preview(this.look());
   }
 
+  /** The colour picker's choices and the chosen one's index. */
+  private colorIndex() {
+    const cs = this.hooks_.colors();
+    return { cs, i: Math.max(0, cs.findIndex(c => c.print === this.color)) };
+  }
+
   protected async build(): Promise<Component | null> {
     const ui = await this.ui("ui/create/interface.dat");
     if (!ui) return null;
     // single player has no server line, and no random names (the client's are hidden too)
     for (const tag of ["server_status", "randomname"]) for (const c of findAll(ui, tag)) c.visible = false;
-    const windows = ui.find("customize_container")?.children ?? [];
-    // the Detail window: accessories are not part of a new knight here
-    if (windows[1]) windows[1].visible = false;
-    this.steps = windows.filter((_, i) => i !== 1);
+    this.steps = ui.find("customize_container")?.children ?? [];
     this.nameWindow = ui.find("container_name");
     this.steps.forEach((w, i) => { const b = w.find("expandbutton"); if (b) b.onAction = () => this.activate(i); });
     const nameExpand = this.nameWindow?.find("expandbutton");
     if (nameExpand) nameExpand.onAction = () => this.activate(this.steps.length);
     this.on(ui, "button_next", () => this.next());
     this.on(ui, "back", () => { this.hooks_.sound("sound/feedback/ui_dismiss.ogg"); this.hooks_.back(); });
-    // the Personalize window's height and eyes rows
-    for (const tag of ["slider_height", "slider_eyetype"]) {
-      const s = ui.find(tag), row = s && parentOf(ui, s);
-      if (row) row.visible = false;
-    }
     const g = () => this.gear!;
+    this.rows = [];
     const row = (tag: string, count: () => number, get: () => number, set: (i: number) => void, label: (i: number) => string) => {
       const part = ui.find(tag);
       if (!part) return;
-      const r: SliderRow = { slider: part.find("slider"), option: part.find("label_option"), count, get, set, label };
-      const step = (d: number) => { const n = count(); if (n) { set((get() + d + n) % n); this.changed(); } };
+      const r: SliderRow = { tag, slider: part.find("slider"), option: part.find("label_option"), count, get, set, label };
+      // the arrows stop at the ends (I.a's listener: max(0, v - 1), min(max, v + 1))
+      const step = (d: number) => {
+        const n = count(), v = Math.max(0, Math.min(n - 1, get() + d));
+        if (n && v !== get()) { set(v); this.changed(); }
+      };
       this.on(part, "buttonprev", () => step(-1));
       this.on(part, "buttonnext", () => step(1));
       if (r.slider) r.slider.onAction = (c, a) => { if (a === "change" && c.model && c.model.value !== get()) { set(c.model.value); this.changed(); } };
       this.rows.push(r);
     };
-    row("slider_helm", () => g().helmets.size, () => this.helm, i => { this.helm = i; }, i => [...g().helmets.keys()][i] ?? "-");
-    row("slider_armor", () => g().armors.size, () => this.armor, i => { this.armor = i; }, i => [...g().armors.keys()][i] ?? "-");
-    row("slider_design", () => g().trims.length, () => this.trim, i => { this.trim = i; }, i => g().trims[i] ?? "-");
-    // the personal colour: the picker shows the colour class's swatches
+    // labels (client I.g): an item's name, the design's colour word, an accessory's name
+    const styleLabel = (slot: "Helm" | "Armor", style: string | undefined) =>
+      style ? this.hooks_.itemLabel(itemName(slot, style, DESIGNS[0])).replace(/\s*\(\w+\)$/, "") || style : "-";
+    const accLabel = (list: string[], i: number) => i === 0 ? noneLabel()
+      : accessoryLabel(this.hooks_.accessoryName(accessoryIn(list[i - 1], DESIGNS[0])), list[i - 1].replace(/^.*\//, ""));
+    row("slider_helm", () => g().helmets.size, () => this.helm, i => { this.helm = i; }, i => styleLabel("Helm", [...g().helmets.keys()][i]));
+    row("slider_armor", () => g().armors.size, () => this.armor, i => { this.armor = i; }, i => styleLabel("Armor", [...g().armors.keys()][i]));
+    row("slider_design", () => g().trims.length, () => this.trim, i => { this.trim = i; },
+      i => designLabel(this.hooks_.accessoryName(accessoryIn(ACCESSORY_1[1], g().trims[i] ?? "")), g().trims[i] ?? "-"));
+    row("slider_acc1", () => ACCESSORY_1.length + 1, () => this.acc1, i => { this.acc1 = i; }, i => accLabel(ACCESSORY_1, i));
+    row("slider_acc2", () => ACCESSORY_2.length + 1, () => this.acc2, i => { this.acc2 = i; }, i => accLabel(ACCESSORY_2, i));
+    row("slider_height", () => HEIGHTS.length, () => this.height, i => { this.height = i; }, i => heightLabel(HEIGHTS[i] ?? "0"));
+    row("slider_eyetype", () => EYES.length, () => this.eyes, i => { this.eyes = i; }, i => eyesLabel(EYES[i] ?? "DEFAULT"));
+    // the personal colour: the picker shows the colour class's colours as a rainbow; its arrows
+    // step through them (I.a: setSelectedIndex(index -/+ 1)) and a click picks one
     const color = ui.find("slider_personalcolor");
     if (color) {
       const step = (d: number) => {
-        const cs = this.hooks_.colors();
+        const { cs, i } = this.colorIndex();
         if (!cs.length) return;
-        const i = Math.max(0, cs.findIndex(c => c.print === this.color));
-        this.color = cs[(i + d + cs.length) % cs.length].print;
+        const n = Math.max(0, Math.min(cs.length - 1, i + d));
+        if (n === i) return;
+        this.color = cs[n].print;
         this.changed();
       };
       this.on(color, "buttonprev", () => step(-1));
@@ -260,23 +341,13 @@ export class CreateKnight extends FloatScreen {
         const cs = this.hooks_.colors(), r = picker.screen, p = this.pointer;
         if (!cs.length || !r || !p) return;
         const i = Math.max(0, Math.min(cs.length - 1, Math.floor((p.x - r.x) / r.width * cs.length)));
+        if (cs[i].print === this.color) return;
         this.color = cs[i].print;
         this.changed();
       });
     }
-    // the randomize buttons: the Armor window's picks a look, the Personalize window's a colour
-    const r = (n: number) => Math.floor(Math.random() * n);
-    const randomLook = () => {
-      const gg = g();
-      this.helm = r(gg.helmets.size); this.armor = r(gg.armors.size); this.trim = r(gg.trims.length);
-      this.changed();
-    };
-    const randomColor = () => {
-      const cs = this.hooks_.colors();
-      if (cs.length) this.color = cs[r(cs.length)].print;
-      this.changed();
-    };
-    windows.forEach((w, i) => { for (const b of findAll(w, "button_random")) b.onAction = i === 2 ? randomColor : randomLook; });
+    // RANDOMIZE: the open window's sliders at random (I.CJ: I.b on the active window)
+    this.steps.forEach((w, i) => { for (const b of findAll(w, "button_random")) b.onAction = () => this.randomize(i); });
     const field = ui.find("namefield");
     if (field) {
       field.text = this.name;
@@ -297,19 +368,35 @@ export class CreateKnight extends FloatScreen {
           const sw = w / cs.length;
           cs.forEach((s, i) => {
             gr.fillStyle = `rgb(${s.rgb.join(",")})`;
-            gr.fillRect(Math.round(x + i * sw), y + 1, Math.ceil(sw), h - 2);
-            if (s.print === this.color) {
-              gr.strokeStyle = "#fff6c0";
-              gr.lineWidth = 2;
-              gr.strokeRect(Math.round(x + i * sw) + 1, y, Math.ceil(sw) - 2, h);
-            }
+            gr.fillRect(x + i * sw, y + 1, sw + 0.5, h - 2);
           });
+          // the picker's thumb over the chosen colour
+          const { i } = this.colorIndex();
+          const cx = Math.round(x + (i + 0.5) * sw);
+          gr.fillStyle = "#f4f4f4";
+          gr.strokeStyle = "#3a3a3a";
+          gr.lineWidth = 1;
+          gr.fillRect(cx - 2, y - 2, 5, h + 4);
+          gr.strokeRect(cx - 2.5, y - 2.5, 5, h + 4);
         },
       },
     };
     return ui;
   }
 
+  /** RANDOMIZE in window `w` (I.b): each slider at random; the colour picker a random colour. */
+  private randomize(w: number) {
+    for (const tag of WINDOW_SLIDERS[w] ?? []) {
+      if (tag === "slider_personalcolor") {
+        const cs = this.hooks_.colors();
+        if (cs.length) this.color = cs[rand(cs.length)].print;
+        continue;
+      }
+      const r = this.rows.find(x => x.tag === tag);
+      if (r) r.set(rand(r.count()));
+    }
+    this.changed();
+  }
 
   private nameFocused = false;
 

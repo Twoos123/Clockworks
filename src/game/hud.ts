@@ -62,8 +62,9 @@ export class Hud {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  /** Draws world-space HUD bits, then `overlay` (the game's own HUD panels) on top. */
-  draw(world: World, proj: Mat4, view: Mat4, overlay?: (g: CanvasRenderingContext2D, cw: number, ch: number) => void) {
+  /** Draws world-space HUD bits, then `under` (help bubbles), then `overlay` (the game's own HUD panels) on top. */
+  draw(world: World, proj: Mat4, view: Mat4, overlay?: (g: CanvasRenderingContext2D, cw: number, ch: number) => void,
+    under?: (g: CanvasRenderingContext2D, project: (x: number, y: number, z: number) => [number, number] | null) => void) {
     const c = this.canvas, dpr = Math.min(2, devicePixelRatio || 1);
     const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -135,6 +136,8 @@ export class Hud {
       }
     }
     g.textAlign = "left";
+    // windows pinned in the world (help bubbles), under the HUD
+    under?.(g, project);
     // the game's HUD panels, at the chosen size
     const s = this.options.hudScale;
     g.save();

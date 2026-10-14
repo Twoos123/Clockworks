@@ -41,6 +41,8 @@ export interface SaveData {
   recipes: string[];
   /** The knight's personal colour: a colour print (class << 8 | colour), 257 by default. */
   color: number;
+  /** The knight's height and eyes, picked at creation (src/game/creator.ts); absent for the defaults. */
+  face?: KnightFace;
   /** Consumables carried in the pocket slots (capsules and vials): item name and count. */
   pocket: [string, number][];
   /** Until when (ms) the heat amplifier doubles heat; 0 for none. An Energy item in the game. */
@@ -137,7 +139,12 @@ export interface KnightProfile {
   /** The look picked at creation (starting helmet and armour; the colour is SaveData.color). */
   helmet: string;
   armor: string;
+  /** The knight has talked through a conversation (the client's "converse" hint shows until then). */
+  conversed?: boolean;
 }
+
+/** ProjectXCodes.KnightHeight's value ("-1", "0", "+1") and EyeType's name ("HAPPY"). */
+export interface KnightFace { height: string; eyes: string }
 
 /** The name plate's text: the created knight's name, else "Knight". */
 export const knightName = (d: SaveData) => d.knight?.name || "Knight";
@@ -192,6 +199,8 @@ export function normalizeSave(raw: unknown): SaveData {
       };
     }
   } catch { out = fresh; }
+  const f = out.face as Partial<KnightFace> | undefined;
+  if (f && (typeof f.height !== "string" || typeof f.eyes !== "string")) delete out.face;
   // every owned item has its state (heat, level, variants)
   for (const n of out.owned) {
     const g = out.gear[n];

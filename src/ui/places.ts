@@ -19,7 +19,17 @@ import type { ColorPository } from "../colors";
 import type { Economy } from "../game/economy";
 import { cachedPlacements, guildOf } from "../game/guild";
 import { cachedHallId, CREATE_KNIGHT, CREATE_KNIGHT_CAMERA, CREATE_KNIGHT_POSE, GUILD_HALL, placeCamera, placeRoot, PLACE_SPAWN, READY_ROOM, READY_ROOM_POSE } from "../game/places";
-import { writeSave } from "../game/save";
+import { writeSave, type SaveData } from "../game/save";
+import { accessoryDef, equipAccessory, loadAccessoryLibraries, normalizeAppearance } from "../game/accessories";
+import { itemName } from "../game/text";
+
+/** A colour's hue (0 to 1), greys first. */
+function hue([r, g, b]: [number, number, number]): number {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (d < 8) return -1 + max / 255;
+  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return h / 6;
+}
 import { FurnitureLayer, FurnitureWindow, type FurnitureHost } from "./furniture";
 import { GuildWindow } from "./guild";
 import { CreateKnight, starterGear, type KnightLook } from "./createknight";
@@ -101,22 +111,28 @@ export class Places {
     this.create = new CreateKnight(host.gui(), {
       gear: async () => {
         const d = host.data();
-        await d.preload("config/item.dat");
+        await d.preload("config/item.dat", "config/accessory.dat");
         return starterGear(d.library_("config/item.dat").keys(), n => d.resolveSync("config/item.dat", { name: n }, "item")?.rarity ?? 0);
       },
+      accessoryName: config => {
+        const a = host.data().config("config/accessory.dat", config)?.aName;
+        return typeof a === "string" ? a : undefined;
+      },
+      itemLabel: item => itemName(item),
       colors: () => this.swatches,
       preview: look => this.preview(look),
-      done: (name, look) => this.created(name, look),
+      done: (name, look) => void this.created(name, look),
       back: () => this.onCreationBack?.(),
       sound: f => host.sound(f),
     });
     void host.colors().then(pos => {
       const cls = pos?.classes.get(host.save().color >> 8);
       if (!pos || !cls) return;
+      // the creator's colour picker runs through the class's colours as a rainbow, by hue
       this.swatches = [...cls.colors.values()].map(c => {
         const z = pos.byPrint((cls.classId << 8) | c.colorId);
         return { print: (cls.classId << 8) | c.colorId, name: c.name, rgb: z ? z.colorizedRoot() : [128, 128, 128] as [number, number, number] };
-      });
+      }).sort((a, b) => hue(a.rgb) - hue(b.rgb));
     });
   }
 
@@ -224,6 +240,18 @@ export class Places {
   private previewing: Promise<void> = Promise.resolve();
   private pending: KnightLook | null = null;
 
+  /** A look's accessories on the save's appearance (each in its own slot), the rest taken off. */
+  private async wear(save: SaveData, look: KnightLook) {
+    const data = this.host.data();
+    await loadAccessoryLibraries(data);
+    const app = save.appearance = normalizeAppearance(save.appearance);
+    app.accessories = {};
+    for (const a of look.accessories) {
+      const def = accessoryDef(data, a);
+      if (def) equipAccessory(app, a, def, n => accessoryDef(data, n));
+    }
+  }
+
   private preview(look: KnightLook) {
     // one restart at a time; only the latest look matters
     const first = !this.pending;
@@ -234,17 +262,23 @@ export class Places {
         const l = this.pending;
         const save = this.host.save();
         save.color = l.color;
+        save.face = { ...l.face };
         save.loadout = { ...save.loadout, helmet: l.helmet, armor: l.armor };
+        await this.wear(save, l);
         await this.host.restart();
         if (this.pending === l) this.pending = null;
       }
     });
   }
 
-  private created(name: string, look: KnightLook) {
+  private async created(name: string, look: KnightLook) {
     const save = this.host.save();
+    // (a preview still under way finishes first: it dresses the same save)
+    await this.previewing;
     save.knight = { name, helmet: look.helmet, armor: look.armor };
     save.color = look.color;
+    save.face = { ...look.face };
+    await this.wear(save, look);
     save.loadout = { ...save.loadout, helmet: look.helmet, armor: look.armor };
     for (const n of [look.helmet, look.armor]) if (n && !save.owned.includes(n)) save.owned.push(n);
     guildOf(save);
