@@ -145,7 +145,8 @@ export async function resolveDressing(data: GameData, app: Appearance): Promise<
   const costume = (n: string) => {
     if (!n) return null;
     const it = data.resolveSync("config/item.dat", { name: n }, "item");
-    return /Costume$/.test(kind(it) ?? "") && it.model ? it.model : null;
+    // costumes, and gear worn as a costume (ItemConfig.Armor, Helm and Shield fit their costume slots)
+    return /^(\w*Costume|Armor|Helm|Shield)$/.test(kind(it) ?? "") && it.model ? it.model : null;
   };
   const out: Dressing = { armor: costume(app.costume.armor), helmet: costume(app.costume.helmet), shield: costume(app.costume.shield), attachments: [], step: null };
   for (const s of ACCESSORY_SLOTS) {

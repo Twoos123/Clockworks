@@ -20,9 +20,11 @@ import type { Economy, Recipe } from "../game/economy";
 import { catalogue, CATEGORIES, isEquipped, itemLabel, toggleEquip } from "../game/items";
 import { itemStats, pillDamage } from "../game/itemstats";
 import type { SaveData } from "../game/save";
+import type { Outfit } from "../game/outfit";
+import { InventoryPanel } from "./backpack";
 import { message, text } from "../i18n";
 import type { Component } from "./gui";
-import { itemTip, ItemList, type ListGroup } from "./itemlist";
+import { itemPreview, itemTip, ItemList, type ListGroup } from "./itemlist";
 import { buildUi, GuiScreen, uiRef, type ScreenHost } from "./screen";
 
 export interface ForgeHost extends ScreenHost {
@@ -31,6 +33,8 @@ export interface ForgeHost extends ScreenHost {
   /** The save changed (crafting, equipping). */
   changed(): void;
   eco(): Promise<Economy>;
+  /** The costumes (the inventory panel's item menus). */
+  outfit(): Outfit;
 }
 
 const MATERIAL = "ui/recipes/parts/material/interface.dat";
@@ -73,12 +77,17 @@ export class ForgeScreen extends GuiScreen {
     this.list.sorts = ["natural", "name", "stars"];
     this.list.bundle = "craft";
     this.list.clicks = this.clicks;
+    this.list.menu = (e, t, c) => void this.popupMenu(e, t, c);
     this.list.onPick = e => {
       this.chosen = this.all.find(r => r.name === e.key) ?? null;
       this.host.sound("sound/feedback/ui_dropdown_select.ogg");
       void this.refresh();
     };
     this.on(left, "dismiss", () => this.close());
+    // craft/a/o.LW: the inventory window opens beside the recipes, at the screen's right; its
+    // own dismiss closes only it
+    this.inventory = await InventoryPanel.create(this, this.ctx, { ...this.host_, write: () => this.host_.changed() }, eco, this.tips, this.clicks,
+      () => { this.side = null; this.host.sound("sound/feedback/ui_dismiss.ogg"); }, () => void this.refresh());
     // the item preview on the knight, the market's buy widget, unbinding: not in this port
     for (const tag of ["buy_item_widget", "keep_variants", "result_bound"]) { const c = right.find(tag); if (c) c.visible = false; }
     this.on(right, "confirm", () => void this.transmute());
@@ -96,6 +105,15 @@ export class ForgeScreen extends GuiScreen {
 
   /** The item the transmute result shows. */
   private shown: string | null = null;
+  /** The inventory window beside the recipes. */
+  private inventory: InventoryPanel | null = null;
+
+  async open() {
+    // each opening brings the inventory window back
+    this.side = this.inventory?.ui ?? null;
+    await super.open();
+    if (!this.side && this.inventory) this.side = this.inventory.ui;
+  }
 
   private iconOf(name: string | null | undefined) { return name ? this.eco?.info(name)?.icon ?? null : null; }
   private catOf(r: Recipe) { const c = this.eco?.info(r.output)?.category; return CATEGORIES.find(k => k.eco === c) ?? null; }
@@ -108,6 +126,7 @@ export class ForgeScreen extends GuiScreen {
 
   protected async refresh() {
     if (!this.list || !this.ingredients) return;
+    void this.inventory?.refresh();
     const save = this.host_.save(), eco = this.eco!, data = this.host_.data();
     // craft/a/x lists the recipes the knight has learned
     const known = this.all.filter(r => save.recipes.includes(r.name));
@@ -121,7 +140,8 @@ export class ForgeScreen extends GuiScreen {
           key: r.name, label: itemLabel(r.output), rarity: r.rarity, icon: this.iconOf(r.output),
           damage: pillDamage(data, eco, r.output),
           tip: itemTip({ label: itemLabel(r.output), type: cat.label.replace(/s$/, ""), rarity: r.rarity, item: r.output, kind: cat.eco,
-            flavor: "", level: eco.info(r.output)?.heatable ? 1 : undefined, noLevel: g.id === "trinket", stats: itemStats(data, eco, r.output, 1) }),
+            flavor: "", level: eco.info(r.output)?.heatable ? 1 : undefined, noLevel: g.id === "trinket", stats: itemStats(data, eco, r.output, 1),
+            model: itemPreview(data, r.output, save.color) }),
         })),
       };
     });
