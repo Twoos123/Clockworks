@@ -16,10 +16,10 @@
 // (an action event for the screen, such as the prologue's "end_prologue").
 
 import { invert, multiply, compose, readTransform, type Mat4 } from "../math";
-import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
+import { loadAnimation, paintBillboards, type AnimationClip, type ComponentPainter, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer, SkyboxItem } from "../render/renderer";
 import { UNLIT_VIEW_ENVIRONMENT, type Environment } from "../environment";
-import { buildInterface, dispatch, layout, pack, render, resetInput, type Component, type GuiContext, type RenderHooks } from "./gui";
+import { buildInterface, dispatch, layout, pack, paintComponent, render, resetInput, type Component, type GuiContext, type RenderHooks } from "./gui";
 import { buildUi, uiRef } from "./screen";
 import { ScriptRunner } from "./script";
 import { orbitView, viewProjection } from "./portrait";
@@ -30,6 +30,27 @@ interface ViewState {
   loading: boolean;
   /** An animation asked for before the models loaded. */
   pending: AnimationClip | null;
+}
+
+let painted = 0;
+/** Draws ComponentBillboard models' components and hands them to the renderer as textures. */
+export function componentPainter(ctx: GuiContext, renderer: Renderer): ComponentPainter {
+  return async def => {
+    const p = await paintComponent(ctx, def.root, def.styles, def.bundle);
+    if (!p) return null;
+    const texture = `%component/${++painted}`;
+    renderer.registerImage(texture, p.canvas);
+    return { texture, width: p.width, height: p.height };
+  };
+}
+
+/**
+ * The animation a model starts by itself (its first automatic mapping, with the reference's
+ * arguments), loaded; null when it has none.
+ */
+export async function autoClip(loader: ModelLoader, model: LoadedModel): Promise<AnimationClip | null> {
+  const ref = model.autoRefs?.[0] ?? model.autoAnimations[0];
+  return ref ? loadAnimation(loader, ref).catch(() => null) : null;
 }
 
 const kindOf = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(Math.max(c.lastIndexOf("."), c.lastIndexOf("$")) + 1); };
@@ -83,7 +104,14 @@ export abstract class GlScreen {
     c.addEventListener("pointermove", ev("move"));
     c.addEventListener("pointerleave", () => { this.pointer = null; if (this.root) dispatch(this.root, { type: "move", x: -1, y: -1 }); });
     c.addEventListener("contextmenu", e => e.preventDefault());
+    this.painter = componentPainter(ctx, renderer);
   }
+
+  /**
+   * Draws the interface components that models in the views show (a comic panel's word
+   * balloon is a ComponentBillboardConfig), with the interface's styles and fonts, as textures.
+   */
+  private readonly painter: ComponentPainter;
 
   get visible() { return this.shown; }
 
@@ -231,16 +259,22 @@ export abstract class GlScreen {
         const ref = this.viewModel(c, vms[i], i);
         if (!ref?.name) continue;
         const model: LoadedModel = await this.loader.load(ref.name, ref);
+        await paintBillboards(model, this.painter);
         const instance = await this.renderer.instantiate(model);
         // the model's own automatic animation (a skybox's idle, a comic panel's move), as the
         // scene props play theirs; else the screen's idle for it
-        const auto = model.autoAnimations[0];
-        const clip = auto ? await loadAnimation(this.loader, auto).catch(() => null) : null;
+        const clip = await autoClip(this.loader, model);
         if (clip) instance.clip = clip;
         else if (i === 0) {
           const idle = this.viewIdle(c);
           const ic = idle ? await loadAnimation(this.loader, idle).catch(() => null) : null;
           if (ic) instance.play(ic, { loop: true });
+        }
+        // and its attachments' (each comic panel's word balloon pops up after its delay)
+        for (const d of instance.descendants()) {
+          if (d === instance) continue;
+          const dc = await autoClip(this.loader, d.model);
+          if (dc) d.clip = dc;
         }
         const t = readTransform(vms[i].transform);
         out.push({ instance, placement: t.matrix ?? compose(t.t, t.r, t.s) });

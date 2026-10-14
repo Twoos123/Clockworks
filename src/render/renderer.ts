@@ -701,9 +701,40 @@ export class Renderer {
   /** Colour definitions used to recolor textures; set once loaded. */
   colors: Promise<ColorPository | null> = Promise.resolve(null);
 
+  /** Pictures drawn at run time (billboarded interface components), by the texture path they take. */
+  private readonly images = new Map<string, TexImageSource>();
+
+  /** Makes a picture drawn at run time a texture that materials can name by `path`. */
+  registerImage(path: string, source: TexImageSource) {
+    this.images.set(path, source);
+  }
+
   private texture(unit: TextureUnitState): Promise<WebGLTexture | null> {
     const path = unit.texture!;
     const sm = unit.sampler;
+    const image = this.images.get(path);
+    if (image) {
+      let p = this.textures.get("img:" + path);
+      if (!p) {
+        const gl = this.gl;
+        const t = gl.createTexture()!;
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        // bottom row first, as Clyde's textures; premultiplied, as its blend states assume
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        this.loadedTextures.set("img:" + path, t);
+        this.textures.set("img:" + path, p = Promise.resolve(t));
+      }
+      return p;
+    }
     const key = (unit.premultiply ? "p:" : "s:") + `${sm.wrapS},${sm.wrapT},${sm.minFilter},${sm.magFilter}:` + (unit.colorizations.length
       ? path + "|" + JSON.stringify(unit.colorizations, (k, v) => (k === "$outer" ? undefined : v)) : path);
     let p = this.textures.get(key);

@@ -554,6 +554,28 @@ export function buildComponentConfig(ctx: GuiContext, cfg: any, local: Map<strin
   return buildComponent(ctx, cfg, local, {}, 0);
 }
 
+/**
+ * A component drawn by itself, as a ComponentBillboard draws its root (a comic panel's word
+ * balloon): built from its config with text translated in `bundle`, laid out at its preferred
+ * size and drawn onto a canvas `density` pixels an interface pixel. Its size is returned in
+ * interface pixels.
+ */
+export async function paintComponent(ctx: GuiContext, cfg: any, local: Map<string, any>, bundle = "global", density = 2):
+  Promise<{ canvas: HTMLCanvasElement; width: number; height: number } | null> {
+  const c = await buildComponent(ctx, cfg, local, { bundle }, 0);
+  const s = pack(c);
+  const width = Math.ceil(s.width), height = Math.ceil(s.height);
+  if (width <= 0 || height <= 0) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = width * density;
+  canvas.height = height * density;
+  const g = canvas.getContext("2d");
+  if (!g) return null;
+  g.scale(density, density);
+  render(c, g, 0, height);
+  return { canvas, width, height };
+}
+
 async function buildComponent(ctx: GuiContext, cfg: any, local: Map<string, any>, opts: BuildOptions, depth: number): Promise<Component> {
   const k = kind(cfg);
   const ck: CompKind = k === "Container" ? "container" : k === "Label" || k === "StatusLabel" || k === "FadeLabel" || k === "TextArea" ? "label"
