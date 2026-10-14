@@ -1141,6 +1141,8 @@ class Viewer {
         targetView.view.draw(c, g, x, y, w, h);
       } else (c.viewOwner === "cooldown" ? ringView : c.tag === "heat_view" ? heatView : portrait).draw(c, g, x, y, w, h);
     } });
+    // the HUD's interface scripts play their sounds (the weapon switcher's scroll)
+    this.gameHud.onSound = f => this.uiSound(f);
     void this.gameHud.init(hudState(world, knightName(this.save))).catch(e => console.warn("HUD failed to load", e));
     $("spawnJelly").hidden = false;
     // in town, the item windows and the options are built while the player looks around, so
@@ -1428,8 +1430,10 @@ class Viewer {
       this.audio.applyVolumes();
     }
     this.renderer.particlesOn = o.particles;
-    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, get hudScale() { return uiScale(o); }, fps: o.showFps };
-    if (this.gameHud) this.gameHud.options = { minimap: o.minimap, screenFlash: o.screenFlash };
+    // ProjectXPrefs show_charge_bar and show_weapon_switcher (Options, Game: on by default)
+    const pref = (tag: string) => o.prefs[tag] !== false;
+    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, get hudScale() { return uiScale(o); }, fps: o.showFps, chargeBar: pref("charge_bar") };
+    if (this.gameHud) this.gameHud.options = { minimap: o.minimap, screenFlash: o.screenFlash, weaponSwitcher: pref("weapon_switcher") };
     if (this.world) this.world.autoAimOn = o.autoAim;
     padOptions.deadZone = o.deadZone;
     document.body.classList.toggle("no-hint", !o.controlsHint);

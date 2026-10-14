@@ -441,8 +441,12 @@ export class GameHud {
   }
   private townBuilt: boolean | null = null;
   private hovered: Component | null = null;
-  /** Display options: the minimap, and the damage effects (the red flash when hit and the low-health frame). */
-  options = { minimap: true, screenFlash: true };
+  /**
+   * Display options: the minimap, the damage effects (the red flash when hit and the
+   * low-health frame) and the weapon switcher (its card and its sound: the client's switcher
+   * runs only while show_weapon_switcher is on).
+   */
+  options = { minimap: true, screenFlash: true, weaponSwitcher: true };
   /** No minimap in this place (the Ready Room). */
   private noMap = false;
   private get showMap() { return this.options.minimap && !this.noMap; }
@@ -625,9 +629,15 @@ export class GameHud {
   private mouse: { x: number; y: number } | null = null;
   private hoverStart = 0;
 
+  /**
+   * Plays an interface script's PlaySound (the weapon switcher's "Scroll Up" and "Scroll
+   * Down" play sound/feedback/ui_dropdown_activate.ogg as the card scrolls).
+   */
+  onSound: ((file: string) => void) | null = null;
+
   private runner(ui: Component) {
     let r = this.runners.get(ui);
-    if (!r) this.runners.set(ui, r = new ScriptRunner(ui));
+    if (!r) { this.runners.set(ui, r = new ScriptRunner(ui)); r.onSound = f => this.onSound?.(f); }
     return r;
   }
 
@@ -719,7 +729,7 @@ export class GameHud {
     if (sel !== this.lastWeapon) {
       // the switcher's icons load ahead of the first switch
       for (const w of state.weapons) for (const size of [30, 40, 60]) if (w.icon) this.icon(w.icon, size);
-      if (this.lastWeapon >= 0 && sel >= 0 && state.dungeon) this.showSwitch(state.weapons, sel, this.lastWeapon);
+      if (this.lastWeapon >= 0 && sel >= 0 && state.dungeon && this.options.weaponSwitcher) this.showSwitch(state.weapons, sel, this.lastWeapon);
       this.lastWeapon = sel;
     }
     if (this.switcher?.visible) {

@@ -14,7 +14,7 @@ const NAME_COLOR = "rgb(191,191,191)";
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D;
   /** Display options from the options menu. */
-  options = { healthBars: true, damageNumbers: true, hudScale: 1, fps: false };
+  options = { healthBars: true, damageNumbers: true, hudScale: 1, fps: false, chargeBar: true };
   private fpsTimes: number[] = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -240,8 +240,8 @@ export class Hud {
 
     // the charge bar (character/charge_transformed.dat): a 100 x 20 billboard at 0.015 units a
     // pixel, 0.667 below the knight's root, at half opacity, filling with the charge; it gives
-    // way to the charge-complete effect once full
-    const progress = world.chargeProgress();
+    // way to the charge-complete effect once full (Options: Show Weapon Charge Meter)
+    const progress = this.options.chargeBar ? world.chargeProgress() : null;
     if (progress !== null && progress <= 1) {
       const p = project(k.x, k.y, k.z - 0.667), u = unitPx(k.x, k.y, k.z - 0.667);
       if (p && u > 0) {

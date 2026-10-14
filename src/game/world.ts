@@ -5,7 +5,7 @@
 // the install, depth-scaled damage against defence, and transient effects.
 
 import type { AudioSystem } from "../audio";
-import { compose, multiply, readTransform, type Mat4, type Vec3 } from "../math";
+import { compose, invert, multiply, readTransform, type Mat4, type Vec3 } from "../math";
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
@@ -38,6 +38,7 @@ import type { Prize, PrizeSource } from "./prizewheel";
 import { hasMessage, message } from "../i18n";
 import { scriptedMusic, type ScriptedMusic } from "./musicstack";
 import { ShieldBubble, shieldPowerLevel } from "./shieldfx";
+import { MetaScripts } from "./metascripts";
 
 /** A live level-scripted music actor ("Environment/Music"). */
 export interface MusicActor { entity: Entity; music: ScriptedMusic }
@@ -324,8 +325,32 @@ interface Effect {
   matrix: Mat4;
   life: number;
   follow?: Actor;
+  /**
+   * Where a following effect sits on its actor (the actor's frame): a transient spawned with
+   * "move with origin" at an offset (a gun's muzzle flash at the barrel) keeps that offset.
+   * Absent, it sits at the actor's own transform.
+   */
+  local?: Mat4;
   /** ScriptedConfig: its actions, the time so far and the next action to run. */
   script?: { actions: { time: number; action: any }[]; loop: number; t: number; next: number };
+  /** Meta particle layers whose particles are scripted models (src/game/metascripts.ts). */
+  meta?: MetaScripts;
+}
+
+/** Where an effect is now: on its actor (at its offset there) or where it was placed. */
+function effectMatrix(e: Effect): Mat4 {
+  if (!e.follow) return e.matrix;
+  const m = e.follow.matrix();
+  return e.local ? multiply(m, e.local) : m;
+}
+
+/** A transform's place in a followed actor's frame (undefined when it is the actor's own). */
+function localTo(follow: Actor | undefined, matrix: Mat4): Mat4 | undefined {
+  if (!follow) return undefined;
+  const local = multiply(invert(follow.matrix()), matrix);
+  // the actor's own transform: nothing to keep
+  const identity = local.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-4);
+  return identity ? undefined : local;
 }
 
 /**
@@ -1800,8 +1825,12 @@ export class World implements LogicHost {
       const sc = e.script;
       if (sc) {
         sc.t += dt;
-        while (sc.next < sc.actions.length && sc.actions[sc.next].time <= sc.t) this.modelAction(sc.actions[sc.next++].action, e.follow ? e.follow.matrix() : e.matrix, e.follow);
+        while (sc.next < sc.actions.length && sc.actions[sc.next].time <= sc.t) this.modelAction(sc.actions[sc.next++].action, effectMatrix(e), e.follow);
         if (sc.next >= sc.actions.length && sc.loop > 0 && sc.t >= sc.loop) { sc.t -= sc.loop; sc.next = 0; }
+      }
+      if (e.meta && e.life > 0) {
+        this.metaBirths(e, dt);
+        if (e.meta.done) e.life = 0;
       }
     }
     for (let i = this.effects.length - 1; i >= 0; i--) if (this.effects[i].life <= 0) this.effects.splice(i, 1);
@@ -3571,13 +3600,22 @@ export class World implements LogicHost {
   // ---------------------------------------------------------------- effects and drawing
 
   private async spawnEffect(ref: any, matrix: Mat4, life: number, follow?: Actor) {
+    // a following transient keeps its place on the actor (taken now, before the model loads)
+    const local = localTo(follow, matrix);
     const model = await this.loader.loadRef(ref).catch(() => null);
     if (!model) return;
-    this.startLabels(model, matrix);
-    this.startScripts(model, matrix, life, follow);
+    // where it is once loaded: on its actor, or where it was placed
+    const at = follow ? (local ? multiply(follow.matrix(), local) : follow.matrix()) : matrix;
+    this.startLabels(model, at);
+    this.startScripts(model, at, life, follow);
     if (model.script) return;
     const instance = await this.instantiate(model);
-    this.effects.push({ instance, matrix, life, follow });
+    this.effects.push({ instance, matrix, life, follow, local });
+  }
+
+  /** Runs the scripts of the particles a meta effect's scripted layers bear this tick. */
+  private metaBirths(e: Effect, dt: number) {
+    for (const b of e.meta!.step(dt, effectMatrix(e))) this.startScripts(b.model, b.matrix, b.life, e.follow);
   }
 
   /**
@@ -3608,16 +3646,25 @@ export class World implements LogicHost {
   /**
    * Scripted models (alone or inside compounds: a bomb's drop sound, an explosion's blasts
    * and camera shake) have no geometry: they run their timed actions, then end (looping
-   * ones live as long as the effect).
+   * ones live as long as the effect). Meta particle layers whose particles are scripted
+   * models (an area explosion's blasts) run each particle's script as it is born.
    */
   private startScripts(model: LoadedModel, matrix: Mat4, life: number, follow?: Actor) {
     const start = (m: LoadedModel, local: Mat4, depth: number) => {
       if (depth > 6) return;
+      const at = multiply(matrix, local);
       if (m.script) {
         const sc = m.script;
         const end = sc.actions.length ? sc.actions[sc.actions.length - 1].time : 0;
-        this.effects.push({ instance: null, matrix: multiply(matrix, local), life: sc.loopDuration > 0 ? life : end + 0.1, follow,
+        this.effects.push({ instance: null, matrix: at, life: sc.loopDuration > 0 ? life : end + 0.1, follow, local: localTo(follow, at),
           script: { actions: sc.actions, loop: sc.loopDuration, t: 0, next: 0 } });
+      }
+      const meta = m.particles?.length ? MetaScripts.of(m) : null;
+      if (meta) {
+        const e: Effect = { instance: null, matrix: at, life: meta.endless ? life : 60, follow, local: localTo(follow, at), meta };
+        this.effects.push(e);
+        // the particles a layer starts with are born with it
+        this.metaBirths(e, 0);
       }
       for (const a of m.attachments) {
         const t = a.transform;
@@ -3668,7 +3715,7 @@ export class World implements LogicHost {
     const k = this.knight;
     drain(k.instance, () => k.matrix(), k);
     for (const m of this.monsters) drain(m.instance, () => m.matrix(), m);
-    for (const e of this.effects) if (e.instance) drain(e.instance, () => e.follow ? e.follow.matrix() : e.matrix, e.follow);
+    for (const e of this.effects) if (e.instance) drain(e.instance, () => effectMatrix(e), e.follow);
     for (const p of this.puppets) drain(p.instance, () => puppetMatrix(p));
   }
 
@@ -3689,7 +3736,7 @@ export class World implements LogicHost {
     out.push(...this.beamItems);
     if (this.companion) out.push(...this.companion.items());
     for (const p of this.projectiles) if (p.instance && !p.done) out.push({ instance: p.instance, matrix: p.matrix() });
-    for (const e of this.effects) if (e.instance) out.push({ instance: e.instance, matrix: e.follow ? e.follow.matrix() : e.matrix });
+    for (const e of this.effects) if (e.instance) out.push({ instance: e.instance, matrix: effectMatrix(e) });
     for (const p of this.puppets) out.push({ instance: p.instance, matrix: puppetMatrix(p) });
     return out;
   }

@@ -60,7 +60,11 @@ const RANGES: Record<Range, { min: number; max: number; fmt: (v: number) => stri
   deadZone: { min: 0.05, max: 0.5, fmt: v => `${Math.round(v * 100)}%` },
 };
 
-/** Check boxes with nothing behind them here, by tag, and their defaults (ProjectXPrefs'). */
+/**
+ * Check boxes kept in Settings.prefs, by tag, and their defaults (ProjectXPrefs'). The weapon
+ * switcher and the charge meter boxes are read by the HUDs (main.ts applyOptions); the rest
+ * have nothing behind them here.
+ */
 const PREF_BOXES: Record<string, boolean> = {
   party_with_any: false, full_inspect: true, npc_names: true, weapon_switcher: true, charge_bar: true, ld_hud_arrows: true,
   rank_mode: true, discord: false,
