@@ -93,6 +93,16 @@ export function dealt(attack: Amounts, defense: Amounts | null, bonus = 0): numb
 }
 
 /**
+ * A hit's whole damage: dealt() rounded up, at least 1. The server's rounding is not in the
+ * client; rounding up reproduces the wiki's measured weapon tables (Leviathan Blade and Proto
+ * Sword at every stratum, tools/audit/balance.ts) where rounding to nearest came out one low
+ * on most rows. A hair below a whole number counts as that number (float noise).
+ */
+export function hitDamage(attack: Amounts, defense: Amounts | null, bonus = 0): number {
+  return Math.max(1, Math.ceil(dealt(attack, defense, bonus) - 1e-6));
+}
+
+/**
  * A damage impulse (ImpulseConfig DamageImpulse): units of knockback, over how many ms, and
  * its level (it moves only targets whose impulse level it reaches). A bare number is a
  * distance with the usual duration.

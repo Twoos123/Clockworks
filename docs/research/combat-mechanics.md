@@ -247,3 +247,121 @@ Per https://wiki.spiralknights.com/HUD unless noted:
 - Monster aggro radii and status durations (except Curse).
 
 Choose tuned values for these and label them as such in code.
+
+---
+
+## 11. Balance audit after the depth-scale fix (2026-10-14)
+
+Until the depth-scale reader was fixed (client-fidelity.md, section 1), every weapon dealt a
+flat 10 normal, every monster had 100 health and no defence, armour gave nothing and shields
+had 50 health. Code written or tuned in that world was re-checked against the real tables
+with `npx tsx tools/audit/balance.ts [easy|medium|hard] [monster filter]`. The script loads
+the install's `config/item.dat`, `item_property.dat`, `level_table.dat`, `actor.dat`,
+`attack.dat`, `fire_action.dat`, `status_condition.dat` and `depth_scale.dat` through the
+game's own code paths. For each tier it prints each monster family's health, defence, its
+strongest attack against the tier's typical loadout, and time-to-kill both ways. It also
+prints a wiki cross-check, the bosses, status conditions, mender heals and the revive blast.
+Its model is an estimate, not a simulation: every swing lands, combo time is the sum of the
+attack timings, and a monster lands its strongest attack once per max(1 s, its attack's
+length).
+
+### Validation against the wiki
+
+The Leviathan Blade and Proto Sword pages tabulate damage per stratum at the completed level
+(wiki.spiralknights.com/Leviathan_Blade, /Proto_Sword). Our depth tables, level bonus and
+`dealt()` against a jelly's normal defence reproduce 70 of the 72 values exactly. The other 2
+are one point low (Leviathan swing at depths 3 and 5, where the exact result is a whole
+number and the game's float arithmetic lands a hair above it). Rounding to nearest put most
+rows one point low, so a hit's damage now rounds **up** (`hitDamage` in combat.ts). Knight
+health matches the wiki's Health page: 200 base, and +5 pips (200) per 5-star piece from heat
+level 5. The wiki gives no per-hit monster damage or monster health. Those come from the same
+evaluator and tables that reproduce the weapon tables.
+
+### Time-to-kill (medium difficulty, from the script)
+
+| Matchup | Monster health | Knight hit | Knight kills it in | Its hit on the knight | It knocks out the knight in |
+|---|---|---|---|---|---|
+| Proto knight (lvl 1) vs Jelly Cube, depth 1 | 40 | 11 | 4 hits, 2.1 s (gun 5.3 s) | 13 of 200 | 16 hits, about 36 s |
+| Proto knight vs Jelly Cube, depth 7 | 150 | 12.7 | 12 hits, 6.9 s | 61 of 200 | 4 hits, about 9 s |
+| 2-star lvl 5 vs Jelly Cube, depth 7 | 150 | 49 | 4 hits, 1.8 s | 36 of 280 | 8 hits, about 18 s |
+| 3/4-star lvl 10 vs Jelly Cube, depth 17 | 375 | 98 | 4 hits, 2.2 s | 63 of 440 | 7 hits, about 16 s |
+| 5-star lvl 10 (Skolver, Leviathan) vs Jelly Cube, depth 28 | 964 | 283 | 4 hits, 2.0 s | 108 of 600 | 6 hits, about 13 s |
+| 5-star vs Trojan, depth 28 | 1929 | 283 | 7 hits, 4.0 s | slam 352 of 600 | 2 slams, about 6 s |
+| 5-star vs Spookat / Gun Puppy / Scuttlebot, depth 28 | 964 | 283 | 4 hits, 2.0 s | 319 shadow or elemental (no armour for it) | 2 hits |
+
+The tiers hold together: a tier's gear kills its monsters in about 2 to 4 seconds of
+swinging. The monsters' types decide how hard they hit. A matching armour type halves a
+hit, and an unarmoured type lands whole. This matches the wiki's type tables and the game's
+armour design. Proto gear falls behind past depth 3, as the Proto Sword's own falling wiki
+table shows. Nothing here was tuned. The remaining differences were bugs, listed below.
+
+### Fixed (with before and after)
+
+- **Damage flags.** A damage part reaches a victim only when its `flags` (default 1) meet
+  the victim's `damageMask`: knights 13 (Character/PC/Level), monsters 3 by default (their
+  configs' `damageMask`), blocks 3. Monster attacks carry 4, knights' weapons 2 and floor
+  traps 8 (`DungeonActorConfig` Dungeoneer, Monster and Block fields, `DamageConfig.Base.flags`).
+  The trojans' "Knightmare - Slam" pairs Attack Base +10 for knights with -10 for monsters.
+  Both were summed onto the knight: 789 normal at depth 28, which one-shot a 5-star knight.
+  It is now 510, which deals 352. `DepthScales.damage(..., mask)`, `DAMAGE_MASK`, and
+  `World.against()` give each victim its own share. Status parts are filtered the same way.
+- **Fire actions with their own damage region** ("Attack Shape", "Status Damage" arguments,
+  no "Damage" argument). These cover the lumbers' slam, the trojans' slam, the deadnaughts'
+  charge and skewer, the mimics' attacks, the tortodrones' attacks, lichen colonies and the
+  Snarbolax's barbs. They read no damage and fell back to a flat 10 normal. A lumber at depth
+  1 dealt about 5 to a proto knight and now deals 23; at depth 28 it dealt 1 to a 5-star
+  knight and now deals 349 (`innerStrike` in data.ts). The lumber's slam lands 3 units
+  ahead, as its Attack Shape says. It previously landed 0.8 units ahead.
+- **"Fake Damage"** (gremlin dodges, trojan and deadnaught deflects) is a zero-amount strike.
+  It fell back to 10 normal and hit the knight. A hit with no amount now brings only its
+  conditions and push (`isHarmless`). The 10-normal fallback is gone.
+- **Bullets that detonate through a fire action** (scuttlebot pellets) read that action's
+  damage region, at the shooter's depth context (`projectile()` in data.ts).
+- **Damage number colours.** Grey, blue or brown was picked by the share a defence took off.
+  Every monster defends normal damage about as much as a same-depth weapon deals, so plain
+  hits read as "resisted" (grey) on everything. The colour now comes from the hit's main type
+  against the target's own defences: its lowest is its weakness (brown), its highest its
+  resistance (grey), and anything else is blue (`defenseKind` in feedback.ts).
+- **Curse** ticked every second, which was 126% of a fresh knight's health over one depth-1
+  curse. It now bites when the victim acts, as the wiki and `StatusConditionConfig$Curse`
+  say (`signalInterval` 0, `min/maxCurseWeapons`). A monster takes the damage on every attack.
+  A knight takes it when using one of the 1 to 4 weapon slots the curse locked
+  (`cursedSlots`). That is 14 a bite at depth 1 and 40 (the cap) from depth 7.
+- **Freeze.** The ice's health (2 to 4 times the depth's health table) was 1 while the
+  tables read 0, so any hit freed anyone. With real tables a frozen monster stayed frozen
+  through 15 to 25 hits. Following the wiki, a frozen monster now breaks out at any hit, and
+  one that thaws by itself takes the thaw damage (`damageStart` to `damageEnd`: 14 at depth
+  1, 238 at depth 28, about a third of a same-tier monster). A frozen knight's ice still
+  wears down by the damage taken.
+- **Area heals** (the menders' heal bombs, healing totems) were capped at 10% of the monster's
+  health, a cap that only made sense when every monster had 100. They now heal the config's
+  amount: Monster/Damage/Attack Base, about 35 to 50% of a same-tier monster.
+- **Untargeted monster heals** (the gremlins' Use Potion, Heal Base +10) healed the monster's
+  target, the knight. They now heal the gremlin: 20 at depth 1, 327 at depth 28, 34 to 50%
+  of its health.
+- **Heal pads** quartered their 40/80/120 heal (one to three pips) for a 100-health knight.
+  The knight now has 200 or more health, so they heal the full amount.
+- **Revive energy blast**: Bomb Base at the best equipped weapon's star rating, without the
+  bonuses of the weapon in hand. Before, a proto gun in hand made it 8 at depth 28 even with
+  a 5-star sword equipped. It is now 142.
+
+### Checked and left alone
+
+- **Monster AI** (behavior.ts, monsterai.ts): its health conditions (potion below 40%,
+  self-destruct below 25%, healers' wounded-ally checks) are already shares of the monster's
+  own health. Targeting weighs damage taken as a share of its health. The hit-reaction
+  threshold is `minReactPercent` of maximum health. Tests pin these down (tests/balance.test.ts).
+- **Bosses** (bosses.ts): stages advance when the stage actor dies, and those actors carry
+  their own health (Health Base +40/+30/+20/+10, Vanaduke 15000, masks 5000 and 5500).
+  The Snarbolax's stun lets through at most a third of its health, so it always takes 3
+  bells (750 health at depth 7; a 2-star sword does 136/s). The twins need one 7 s exposure
+  per stage (750 health at depth 17). Vanaduke's masks need 2 to 3 five-second douses with
+  a 5-star sword. The Royal Jelly's absorb heal is max(Heal Base -05, 3%) per mini.
+- **Difficulty** (difficulty.ts): the client's multipliers. World now reads them from
+  `DIFFICULTY_SCALES` rather than its own copy.
+- **Fire, shock, poison and sleep**: depth-scaled from their configs. At MODERATE power, fire
+  burns 6 to 37% of a knight's health over a burn. Shock arcs deal 5 to 85. Sleep's flat
+  regeneration (`min/maxHealthRegen`, not depth-scaled in the client either) is unchanged.
+- **Heat, crowns and arena waves** do not read monster health or damage (spawn tables scale
+  by depth and difficulty).
+- **Damage numbers** are centred strings, so four digits draw like two.

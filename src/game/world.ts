@@ -10,9 +10,10 @@ import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader }
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
 import { contactPoint, separationShares, type CollisionMap } from "./collision";
-import { dealt, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
+import { dealt, hitDamage, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
-import { DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
+import { DAMAGE_MASK, DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
+import { DIFFICULTY_SCALES } from "./difficulty";
 import { addItemBonuses, capValue, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
 import { Entity, Logic, type LogicHost } from "./logic";
 import { balloonOf, gateDisplayModel, Prop, propKind, trapState, type Balloon } from "./props";
@@ -24,12 +25,12 @@ import { SpawnTables } from "./spawntable";
 import { DEFAULT_LOADOUT, POCKET_SLOTS, type KnightFace, type Loadout as GearLoadout } from "./save";
 import { faceArgs } from "./creator";
 import { ECONOMY_FILES, Economy, type GearState, type VariantEffect } from "./economy";
-import { StatusConditions, type ActiveStatus } from "./status";
+import { cursedSlots, StatusConditions, ticksDamage, type ActiveStatus } from "./status";
 import { itemName, monsterName } from "./text";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
-import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type LabelStyle, type NumberStyle, type ShakeSpec } from "./feedback";
+import { defenseKind, heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type LabelStyle, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "./behavior";
 import { behaviorArgs, behaviorScript, monsterBehavior, type MonsterInfo } from "./monsterai";
@@ -1088,17 +1089,24 @@ export class World implements LogicHost {
         const amount = k === "Heal" ? (cfg.current ?? 20) : this.data.depth.evaluate(cfg.depthScale, this.ctx(0)) || 20;
         const fs = source.fixedShape;
         if (!cfg.target && fs?.k === "circle") {
-          // an area heal (a healing totem's pulse) mends the monsters inside it
+          // an area heal (a healing totem's pulse, a mender's heal bomb) mends the monsters
+          // inside it by the config's own depth-scaled amount (a mender's is its attack table,
+          // "Monster/Damage/Attack Base": a third to a half of a same-tier monster's health). It
+          // was capped at a tenth of the monster's health while every monster had 100.
           for (const m of this.monsters) {
             if (m.state === "dying" || m.passive || m.ally || Math.hypot(m.x - fs.x, m.y - fs.y) > fs.r + m.radius || m.health >= m.maxHealth) continue;
-            const h = Math.max(1, Math.min(amount, m.maxHealth * 0.1));
-            m.health = Math.min(m.maxHealth, m.health + h);
-            this.numberAt(m, `+${Math.round(h)}`, "Heal", "#7bd88f");
+            this.healMonster(m, Math.max(1, amount));
           }
           return true;
         }
+        // untargeted, a monster's own heal mends itself (a gremlin's Use Potion: Heal Base +10),
+        // anything else's its activator (a heart, a capsule); it healed the monster's target,
+        // the knight, before
+        const own = !cfg.target && source.game instanceof Monster ? source.game : null;
+        if (own) { this.healMonster(own, Math.max(1, amount)); return true; }
         for (const t of cfg.target ? logic.resolveTarget(cfg.target, source, activator) : [activator]) {
           if (t === this.knightEntity) this.healKnight(amount);
+          else if (t?.game instanceof Monster) this.healMonster(t.game, Math.max(1, amount));
         }
         return true;
       }
@@ -2351,6 +2359,7 @@ export class World implements LogicHost {
           if (t && t.state !== "dying") k.heading = Math.atan2(t.y - k.y, t.x - k.x);
         }
         k.sinceAttack = 0;
+        if (e.slot !== "bash" && e.slot !== "cooldown") this.curseBite(k, k.slot);
         const timing = k.control.activity.timing;
         this.startAttack(k, def, !!timing?.moves);
         if (late > 0 && k.attack) this.advanceAttack(k, late, false);
@@ -2470,6 +2479,8 @@ export class World implements LogicHost {
 
   private startAttack(a: Actor, def: AttackDef, overlay = false) {
     if (this.probe?.attack && (a instanceof Knight || a instanceof Monster)) this.probe.attack(a, def);
+    // a cursed monster hurts itself with every attack (the knight, with a locked weapon: below)
+    if (a instanceof Monster) this.curseBite(a, null);
     // an attack the config marks as not blended (a gun's charged shot, a sword swing) plays on
     // the whole body even for a weapon that otherwise fires on the move
     a.attack = { def, phase: "start", t: 0, ft: 0, fired: new Set(), lunged: false, overlay: overlay && def.blended && !!a.upperBody };
@@ -2640,10 +2651,16 @@ export class World implements LogicHost {
     }
   }
 
-  /** A DamageConfig as amounts per type; attacks without one deal a small normal hit. */
-  private amounts(damage: any, ctx: DepthContext): Amounts {
-    const a: Amounts & { statuses?: any[]; ctx?: DepthContext } = damage ? this.data.depth.damage(damage, ctx) : zeroAmounts();
-    if (a.NORMAL + a.PIERCING + a.ELEMENTAL + a.SHADOW + (a.UNBLOCKABLE ?? 0) <= 0) a.NORMAL = 10;
+  /**
+   * A DamageConfig as amounts per type. One with no amount (a status-only hit, the trojans'
+   * and deadnaughts' "Fake Damage" on a deflect) takes no health: see isHarmless. (This was a
+   * flat 10 normal from when no depth scale evaluated; it made status hits and fake strikes
+   * draw blood.)
+   */
+  private amounts(damage: any, ctx: DepthContext, mask = -1): Amounts {
+    const a: Amounts & { statuses?: any[]; ctx?: DepthContext } = damage ? this.data.depth.damage(damage, ctx, undefined, mask) : zeroAmounts();
+    // kept to give each victim its own share (against())
+    if (mask === -1 && damage) Object.defineProperty(a, "source", { value: { damage, ctx }, enumerable: false });
     // an uncapped level bonus scales damage the game's way; buffs multiply
     if (ctx.uncapped) for (const t of DAMAGE_TYPES) a[t] = modifyDamage(a[t], 1 + ctx.uncapped);
     if (ctx.multiplier) for (const t of DAMAGE_TYPES) a[t] *= ctx.multiplier;
@@ -2653,14 +2670,31 @@ export class World implements LogicHost {
       if (!d || depth > 6) return;
       const k = String(d.$class ?? "").split("$").pop();
       // a "major react" hit (charged attacks, heavy blows) knocks a knight off its feet
+      if (k === "Compound") { for (const x of d.damages ?? []) walk(x, depth + 1); return; }
+      // (a part whose flags miss the victim's damage mask brings nothing)
+      if (((d.flags ?? 1) & mask) === 0) return;
       if (d.majorReact) (a as any).major = true;
       if ((k === "Status" || k === "ExclusiveStatus") && d.statusCondition) statuses.push(d.statusCondition);
-      else if (k === "Compound") for (const x of d.damages ?? []) walk(x, depth + 1);
     };
     walk(damage);
     if (statuses.length) { a.statuses = statuses; a.ctx = ctx; }
     if (ctx.tagged && Object.keys(ctx.tagged).length) (a as any).tagged = ctx.tagged;
     return a;
+  }
+
+  /**
+   * A hit's amounts for one victim: only the parts whose flags meet its damage mask (a trojan's
+   * slam gives knights its heavy part, monsters caught in it the light one). Amounts built
+   * without a source (hand-made ones) are used as they are.
+   */
+  private against(a: Amounts, mask: number): Amounts {
+    const src = (a as any).source as { damage: any; ctx: DepthContext } | undefined;
+    if (!src) return a;
+    const memo: Map<number, Amounts> = (a as any).byMask ?? new Map();
+    if (!(a as any).byMask) Object.defineProperty(a, "byMask", { value: memo, enumerable: false });
+    let got = memo.get(mask);
+    if (!got) { got = this.amounts(src.damage, src.ctx, mask); memo.set(mask, got); }
+    return got;
   }
 
   // ---------------------------------------------------------------- status conditions
@@ -2682,6 +2716,7 @@ export class World implements LogicHost {
     const duration = def.duration * (target.team === "monster" ? (def.cfg.monsterDurationMultiplier ?? 1) : 1);
     if (same) { same.remaining = Math.max(same.remaining, duration); same.def = def; return; }
     const st: ActiveStatus = { def, remaining: duration, tick: def.interval, fx: null, ice: def.ice, nextSpasm: def.spasmInterval, asleep: 0 };
+    if (def.kind === "Curse" && target instanceof Knight) st.cursed = cursedSlots(def.cfg, def.power, target.weapons.length);
     target.statuses.push(st);
     const sprite = def.cfg.sprite;
     if (sprite?.applicationTransient) this.spawnEffect(sprite.applicationTransient, target.matrix(), 2, target);
@@ -2712,13 +2747,19 @@ export class World implements LogicHost {
     let held = false;
     for (const st of [...a.statuses]) {
       st.remaining -= dt;
-      if (st.remaining <= 0 || a.dead) { this.endStatus(a, st); continue; }
+      if (st.remaining <= 0 || a.dead) {
+        this.endStatus(a, st);
+        // a monster whose ice runs out by itself takes the thaw damage (the wiki's Freeze page;
+        // the config's damageStart to damageEnd)
+        if (st.def.kind === "Freeze" && a instanceof Monster && a.state !== "dying" && st.def.thaw > 0) this.statusDamage(a, st.def.thaw, "#9fd8ff");
+        continue;
+      }
       const d = st.def;
-      if (d.kind === "Fire" || d.kind === "Curse") {
+      if (ticksDamage(d.kind)) {
         st.tick -= dt;
         if (st.tick <= 0) {
           st.tick += d.interval;
-          if (d.tickDamage > 0) this.statusDamage(a, d.tickDamage, d.kind === "Fire" ? "#ff8a3d" : "#b07bff");
+          if (d.tickDamage > 0) this.statusDamage(a, d.tickDamage, "#ff8a3d");
         }
       } else if (d.kind === "Shock") {
         // a spasm every spasm interval: the victim cannot act, and an arc jumps to the
@@ -2749,6 +2790,18 @@ export class World implements LogicHost {
       } else if (d.kind === "Freeze") held = true;
     }
     return held;
+  }
+
+  /**
+   * A curse's bite (StatusConditionConfig$Curse: its damage scales, capped at maxCurseDamage,
+   * unblockable): a monster takes it whenever it attacks, a knight when it uses a weapon the
+   * curse locked (`slot`, null for any action).
+   */
+  private curseBite(a: Actor, slot: number | null) {
+    const st = a.statuses.find(s => s.def.kind === "Curse");
+    if (!st || st.def.tickDamage <= 0) return;
+    if (slot !== null && st.cursed && !st.cursed.includes(slot)) return;
+    this.statusDamage(a, st.def.tickDamage, "#b07bff");
   }
 
   /** Damage from a condition: no knockback, no flinch. */
@@ -2800,7 +2853,11 @@ export class World implements LogicHost {
     for (const st of [...a.statuses]) {
       if (st.def.kind === "Sleep") this.endStatus(a, st);
       else if (st.def.kind === "Freeze") {
-        st.ice = (st.ice ?? st.def.ice) - dmg;
+        // a frozen monster breaks out at any hit (the wiki's Freeze page); a frozen knight's
+        // ice wears down by the damage (its health is 2 to 4 times the depth's health table,
+        // so it holds through a monster's blows: before the depth tables evaluated it was 1,
+        // and the first hit freed anyone)
+        st.ice = a instanceof Monster && dmg > 0 ? 0 : (st.ice ?? st.def.ice) - dmg;
         if (st.ice <= 0) this.endStatus(a, st);
       }
     }
@@ -3230,6 +3287,9 @@ export class World implements LogicHost {
   private damageMonster(m: Monster, amounts: Amounts, knockback: Knock, fx: number, fy: number) {
     // allies are immortal companions here (the game's rest and recover when worn down)
     if (m.passive || m.ally) return;
+    amounts = this.against(amounts, m.def.damageMask ?? DAMAGE_MASK.MONSTER);
+    // a hit without an amount only brings its conditions and its push
+    if (isHarmless(amounts)) { this.hitStatuses(m, amounts, 0); this.knock(m, fx, fy, knockback); return; }
     // the summed damage bonus: the attacker's pool plus its tag bonuses for this monster's
     // tags (its family, fam_slime, from its folder when the config gives none); capped in dealt
     const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(m.entity?.name ?? "")?.[1]?.toLowerCase();
@@ -3237,7 +3297,7 @@ export class World implements LogicHost {
     const tagged: Record<string, number> = (amounts as any).tagged ?? {};
     let bonus = (amounts as any).bonus ?? 0;
     for (const t of tags) bonus += tagged[t] ?? 0;
-    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(m), bonus)));
+    let dmg = hitDamage(amounts, this.effectiveDefense(m), bonus);
     if (this.boss?.damage) {
       dmg = Math.round(this.boss.damage(m, dmg));
       if (dmg <= 0) {
@@ -3266,7 +3326,7 @@ export class World implements LogicHost {
     m.hurtBy.set(0, rec);
     // the client's hit feedback: the hit particle for how the hit performed (with its camera
     // shake), the damage number in that style, and a red flash
-    const perf = performanceOf(dmg, Math.max(1, Math.round(dealt(amounts, null, bonus))), m.maxHealth);
+    const perf = performanceOf(dmg, hitDamage(amounts, null, bonus), m.maxHealth, defenseKind(amounts, this.effectiveDefense(m)));
     this.numberAt(m, "-" + dmg, numberStyle(perf), TYPE_COLORS[mainType(amounts)]);
     m.flashAt = this.clock;
     void this.spawnEffect(argRef("particle/fx_gethit_monster-scaled.dat", [["variant", performanceVariant(perf)]]), compose([m.x, m.y, m.z], [0, 0, 0, 1], 1), 1);
@@ -3303,10 +3363,18 @@ export class World implements LogicHost {
   private damageKnight(amounts: Amounts, knockback: Knock, fx: number, fy: number) {
     const k = this.knight;
     if (k.invulnerable > 0 || k.dead) return;
+    amounts = this.against(amounts, DAMAGE_MASK.KNIGHT);
     const now = this.clock * 1000, c = k.control;
+    if (isHarmless(amounts)) {
+      // no amount: a raised shield takes nothing; otherwise only conditions and the push
+      const shielded = (k.shielding || c.activity.kind === "shieldHit") && k.shieldBroken <= 0 && !!k.shield;
+      if (!shielded) this.hitStatuses(k, amounts, 0);
+      this.knock(k, fx, fy, knockback, shielded ? 0.3 : 1);
+      return;
+    }
     // a raised shield (or one recoiling from a hit) takes hits from every direction until it breaks
     if ((k.shielding || c.activity.kind === "shieldHit") && k.shieldBroken <= 0 && k.shield) {
-      const sdmg = Math.max(1, Math.round(dealt(amounts, k.shieldDefense)));
+      const sdmg = hitDamage(amounts, k.shieldDefense);
       k.shieldHealth -= sdmg;
       if (this.probe?.hitKnight) {
         const kn = knockOf(knockback);
@@ -3328,7 +3396,7 @@ export class World implements LogicHost {
       if (k.shield.breakEffect) this.spawnEffect(k.shield.breakEffect, k.matrix(), 1.5);
       return;
     }
-    let dmg = Math.max(1, Math.round(dealt(amounts, this.effectiveDefense(k))));
+    let dmg = hitDamage(amounts, this.effectiveDefense(k));
     // a sprite shield (the Seraphynx's Angelic Aura) takes the hit first
     if (this.companion) { dmg = Math.round(this.companion.absorb(dmg)); if (dmg <= 0) { k.invulnerable = 0.25; return; } }
     this.hitStatuses(k, amounts, dmg);
@@ -3418,7 +3486,10 @@ export class World implements LogicHost {
    */
   energyBlast() {
     const k = this.knight;
-    void this.spawnProjectileAt({ name: "Bomb/Revive/Revive" }, k.x, k.y, k.heading, "knight", this.attackerCtx(k));
+    // its damage is the bomb table (PC/Damage/Bomb/Bomb Base) by star rating; ours: the best
+    // equipped weapon's stars, without that weapon's or the gear's damage bonuses (it was the
+    // weapon in hand with all its bonuses, so a proto gun in hand made it a tickle)
+    void this.spawnProjectileAt({ name: "Bomb/Revive/Revive" }, k.x, k.y, k.heading, "knight", this.ctx(reviveRarity(k.weapons.map(l => l.def?.rarity ?? 0))));
   }
 
   // ---------------------------------------------------------------- for boss directors
@@ -3539,7 +3610,7 @@ export class World implements LogicHost {
     // scale (DungeonCodes Difficulty: easy 0.8, hard 1.25)
     const ctx = this.ctx(0);
     const base = def.healthScale ? this.data.depth.evaluate(def.healthScale, ctx) : def.health;
-    const scale = this.difficulty === "easy" ? 0.8 : this.difficulty === "hard" ? 1.25 : 1;
+    const scale = DIFFICULTY_SCALES[this.difficulty]?.monsterHealth ?? 1;
     const m = new Monster(await this.instantiate(model, false), def, Math.max(1, Math.round((base || 100) * scale)));
     m.defense = def.defense ? this.data.depth.defense(def.defense, ctx) : null;
     // the spawn point may sit in a wall or pit; move to the nearest free spot
@@ -4030,6 +4101,16 @@ export type { LoadedModel, Vec3 };
  * A stateful block's sprite state: the hits it has taken (Block/Stone and the mineral nodes
  * enter states 1 and 2 on their first two hits and break on the third).
  */
+/** The star rating the revive's energy blast hits at: the best of the equipped weapons'. */
+export const reviveRarity = (rarities: number[]) => Math.min(5, Math.max(0, ...rarities));
+
+/** Whether a hit carries no damage at all (only conditions or a push). */
+export function isHarmless(a: Amounts): boolean {
+  let t = a.UNBLOCKABLE ?? 0;
+  for (const k of DAMAGE_TYPES) t += Math.max(0, a[k]);
+  return !(t > 0);
+}
+
 export function blockState(p: { hits: boolean; health: number; maxHealth: number }): number {
   if (p.maxHealth <= 0) return 0;
   return p.hits ? Math.max(0, p.maxHealth - p.health) : Math.max(0, Math.floor((1 - p.health / p.maxHealth) * 3));

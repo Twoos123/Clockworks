@@ -43,6 +43,8 @@ export interface StatusDef {
   heal: number;
   /** Ice health (freeze). */
   ice: number;
+  /** Freeze: the thaw damage a monster takes when its ice runs out by itself (damageStart to damageEnd). */
+  thaw: number;
   /** Shock: seconds between spasms and how long each lasts. */
   spasmInterval: number;
   spasmDuration: number;
@@ -57,7 +59,7 @@ export interface StatusDef {
 }
 
 /** An active condition on an actor. */
-export interface ActiveStatus { def: StatusDef; remaining: number; tick: number; fx: any; ice?: number; spasm?: number; nextSpasm?: number; asleep?: number }
+export interface ActiveStatus { def: StatusDef; remaining: number; tick: number; fx: any; ice?: number; spasm?: number; nextSpasm?: number; asleep?: number; /** Curse: the knight's weapon slots it locked. */ cursed?: number[] }
 
 /** StatusCodes StatusChance levels. */
 export const CHANCE: Record<string, number> = { LOW: 0.05, MEDIUM: 0.1, HIGH: 0.25, VERY_HIGH: 0.5, ULTRA: 0.65, MAXIMUM: 0.9 };
@@ -87,6 +89,27 @@ export function difficultyChance(c: number, difficulty: Difficulty): number {
 const total = (d: Record<string, number | undefined>) => Object.values(d).reduce<number>((s, x) => s + (x ?? 0), 0);
 const levelName = (v: unknown) => (v as any)?.name ?? (typeof v === "string" ? v.split(".").pop() : undefined);
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+/**
+ * The weapon slots a curse locks (StatusConditionConfig$Curse minCurseWeapons 1 to
+ * maxCurseWeapons 4, power picking between them), out of the knight's `weapons`; using one
+ * hurts. Which ones is the server's roll: `rand` picks.
+ */
+export function cursedSlots(cfg: any, power: number, weapons: number, rand = Math.random): number[] {
+  const lo = cfg?.minCurseWeapons ?? 1, hi = cfg?.maxCurseWeapons ?? 4;
+  const n = Math.max(0, Math.min(weapons, Math.round(lerp(lo, hi, power))));
+  const slots = Array.from({ length: weapons }, (_, i) => i);
+  for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]]; }
+  return slots.slice(0, n).sort((a, b) => a - b);
+}
+
+/**
+ * Whether a condition hurts on a timer. Fire burns every damageInterval; a curse does not
+ * tick (its signalInterval defaults to 0): it bites when the victim acts (a monster attacking,
+ * a knight using a locked weapon). It ticked every second here, which took 126% of a fresh
+ * knight's health over a depth-1 curse (tools/audit/balance.ts).
+ */
+export const ticksDamage = (kind: StatusKind) => kind === "Fire";
 
 export class StatusConditions {
   constructor(private readonly lib: Map<string, any>, private readonly depth: DepthScales) {}
@@ -157,6 +180,7 @@ export class StatusConditions {
           : k === "Buff" ? 1 + num(c.defenseModifier) : 1,
         heal: k === "Poison" ? 1 + red(c.minHealModifier, c.maxHealModifier, -0.1, -0.5) : 1,
         ice: k === "Freeze" ? Math.max(1, between(c.healthStart, c.healthEnd)) : 0,
+        thaw: k === "Freeze" ? between(c.damageStart, c.damageEnd) : 0,
         spasmInterval: lerp(ms(c.minSpasmInterval, 1000), ms(c.maxSpasmInterval, 4000), p),
         spasmDuration: lerp(ms(c.minSpasmDuration, 500), ms(c.maxSpasmDuration, 2000), p),
         regenDelay: ms(c.healthRegenDelay, 4000),

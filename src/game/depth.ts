@@ -33,6 +33,16 @@ export type DamageType = (typeof DAMAGE_TYPES)[number];
 export type Amounts = Record<DamageType, number> & { UNBLOCKABLE?: number };
 export const zeroAmounts = (): Amounts => ({ NORMAL: 0, PIERCING: 0, ELEMENTAL: 0, SHADOW: 0 });
 
+/**
+ * Damage masks (the "damage" editor mask): a damage part's `flags` (default 1) meet the
+ * victim's `damageMask` or pass it by. Monster attacks carry 4 (knights only), knights'
+ * weapons 2 (monsters and blocks), floor traps 8 (knights in levels). A trojan's slam pairs a
+ * heavy part for knights (flags 4) with a light one for monsters caught in it (flags 2); both
+ * were summed onto the knight. From DungeonActorConfig: Dungeoneer 5 (Character/PC/Level sets
+ * 13), Monster 3 (some configs 2, 0, 5 or 7), Block 3.
+ */
+export const DAMAGE_MASK = { KNIGHT: 13, MONSTER: 3, BLOCK: 3 } as const;
+
 export class DepthScales {
   private lib: Promise<Map<string, any>>;
   private table = new Map<string, any>();
@@ -95,16 +105,20 @@ export class DepthScales {
    * A DamageConfig as amounts per damage type. Depth-scaled damage may split between two
    * types by a split table (the fraction that stays the first type). Status and action
    * damage carry no amount here.
+   *
+   * `mask` is the victim's damage mask: a part whose `flags` (default 1) share no bit with it
+   * passes the victim by (see DAMAGE_MASK). All parts count when it is left out.
    */
-  damage(d: any, ctx: DepthContext, out: Amounts = zeroAmounts()): Amounts {
+  damage(d: any, ctx: DepthContext, out: Amounts = zeroAmounts(), mask = -1): Amounts {
+    if (d && kind(d) !== "Compound" && kind(d) !== "Optional" && ((d.flags ?? 1) & mask) === 0) return out;
     switch (kind(d)) {
       case "Normal": out.NORMAL += d.amount ?? 0; break;
       case "Piercing": out.PIERCING += d.amount ?? 0; break;
       case "Elemental": out.ELEMENTAL += d.amount ?? 0; break;
       case "Shadow": out.SHADOW += d.amount ?? 0; break;
       case "Unblockable": case "DepthUnblockable": out.UNBLOCKABLE = (out.UNBLOCKABLE ?? 0) + (d.amount ?? 0); break;
-      case "Optional": if (Math.random() < (d.probability ?? 0.5)) this.damage(d.damage, ctx, out); break;
-      case "Compound": for (const x of d.damages ?? []) this.damage(x, ctx, out); break;
+      case "Optional": if (Math.random() < (d.probability ?? 0.5)) this.damage(d.damage, ctx, out, mask); break;
+      case "Compound": for (const x of d.damages ?? []) this.damage(x, ctx, out, mask); break;
       case "DepthNormal": out.NORMAL += lerpDepth(d, ctx.depth); break;
       case "DepthScale": case "DepthScaleMulti": {
         const total = this.evaluate(d.depthScale, ctx) * (d.multiplier ?? 1);

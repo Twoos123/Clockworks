@@ -383,9 +383,10 @@ export class DungeonObjects {
             st.timer = this.padInterval(p);
             const r = 0.5 + 0.33;
             if (!k.dead && Math.abs(k.x - p.x) < r && Math.abs(k.y - p.y) < r) {
-              // the Heart choice's Health (40, 80, 120 of the game's 400 health; ours is 100)
+              // the Heart choice's Health (40, 80, 120: one to three pips), in the knight's own
+              // health units (200 before gear, 40 a pip); it was quartered when the knight had 100
               const h = p.cfg.handlers?.[0]?.action?.condition?.action?.current ?? 40;
-              this.w.heal(h / 4);
+              this.w.heal(h);
             }
           }
           break;

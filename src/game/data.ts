@@ -160,6 +160,8 @@ export interface MonsterDef {
   collisionMask: number;
   /** Handlers such as loot drops. */
   handlers: any[];
+  /** The damage flags that reach it (DungeonActorConfig Monster damageMask, 3 by default; see DAMAGE_MASK). */
+  damageMask: number;
 }
 
 export type WeaponKind = "Sword" | "Handgun" | "Bomb" | "Other";
@@ -479,9 +481,19 @@ export class GameData {
       }
       // a fire action whose config does nothing (a lichen's merge) marks a moment the game's
       // own code acts on; it strikes nothing
-      if (!spawn && !shapeArg && !damage) {
+      if (!spawn && !damage) {
         const fa = await this.resolve("config/fire_action.dat", fire, "action");
-        if (fa && !fa.action) { fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name }); continue; }
+        if (fa && !fa.action && !shapeArg) { fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name }); continue; }
+        // ...or strikes with a damage region of its own, its arguments filling the shape and
+        // status ("Attack Shape", "Status Damage": a lumber's slam, a trojan's, a deadnaught's
+        // charge and skewer, a mimic's roundhouse), which is no Damage argument to read
+        const own = innerStrike(fa?.action);
+        if (own?.damage) {
+          const argShape = shapeArg ?? getArg(fire, "Attack Shape");
+          fires.push({ delay, damage: own.damage, shape: argShape ? readShape(argShape) : own.shape ?? readShape(undefined),
+            knockback: kb ? readKnock(kb) : readKnock(own.impulseDealt), spawn: null, name: fire.name });
+          continue;
+        }
       }
       const shape = !spawn || shapeArg ? readShape(shapeArg) : null;
       fires.push({ delay, damage: spawn && !shapeArg ? null : damage, shape, knockback: readKnock(kb), spawn, name: fire.name });
@@ -575,6 +587,7 @@ export class GameData {
       collisionFlags: m.collisionFlags ?? 8,
       collisionMask: m.collisionMask ?? 1,
       handlers: m.handlers ?? [],
+      damageMask: m.damageMask ?? 3,
     };
   }
 
@@ -641,7 +654,19 @@ export class GameData {
     // embedded crystal), flown on the side of what spawned them rather than through the logic
     // (which would spawn them on the monsters' side)
     const spawns = spawnedProjectiles(p.detonationAction ?? timer);
-    const acts = flat(p.detonationAction ?? timer)
+    // a detonation that fires a fire action (a scuttlebot's bullet: "Scuttlebot Bullet Damage")
+    // strikes with that action's damage region, the bullet's arguments applied, so its damage
+    // is read here and dealt at the shooter's depth context like any other bullet's
+    const expanded: any[] = [];
+    for (const a of flat(p.detonationAction ?? timer)) {
+      if (kind(a) === "FireAction" && a.fireAction?.name) {
+        const fa = await this.resolve("config/fire_action.dat", a.fireAction, "action").catch(() => null);
+        const inner = flat(fa?.action);
+        if (inner.some(x => /^DamageRegion/.test(kind(x)))) { expanded.push(...inner); continue; }
+      }
+      expanded.push(a);
+    }
+    const acts = expanded
       .filter(a => !(timer && /^(Delayed|Spawn)/.test(kind(a))) && !spawnedProjectiles(a).length);
     const det = acts.find(a => /^DamageRegion/.test(kind(a))) ?? null;
     const trail = k === "Bullet" && !p.detonationAction ? burstTrail(p, full!.ref, full!.base) : null;
@@ -817,6 +842,32 @@ export function regionStrike(action: any, depth = 0): { damage: any; shape: Dama
   const t = action.translation ?? {};
   return { damage: action.damage ?? null, impulseDealt: action.impulseDealt,
     shape: readShape({ shape, transform: { translation: { x: t.x ?? 0, y: t.y ?? 0 } } }) };
+}
+
+/**
+ * The damage region a fire action's own action strikes, looking inside Compounds: its damage,
+ * its shape (of a compound region, the first part the export kept: the parameter-filled one)
+ * and the impulse it or an ImpartImpulse beside it deals.
+ */
+export function innerStrike(action: any, depth = 0): { damage: any; shape: DamageShape | null; impulseDealt: any } | null {
+  if (!action || depth > 4) return null;
+  const k = kind(action);
+  if (k === "Compound") {
+    const list: any[] = action.actions ?? [];
+    for (const a of list) {
+      const r = innerStrike(a, depth + 1);
+      if (r) return { ...r, impulseDealt: r.impulseDealt ?? list.find(x => kind(x) === "ImpartImpulse")?.impulseDealt };
+    }
+    return null;
+  }
+  if (k === "Conditional") return action.condition == null ? innerStrike(action.elseAction, depth + 1) : null;
+  if (!/^DamageRegion(FromPoint)?$/.test(k) || action.target) return null;
+  let shape = action.region?.shape;
+  if (kind(shape) === "Compound") shape = (shape.shapes ?? []).find((s: any) => s);
+  const t = action.translation ?? {}, inner = shape?.transform?.translation;
+  return { damage: action.damage ?? null, impulseDealt: action.impulseDealt,
+    // (a region the export stripped leaves no shape)
+    shape: !shape ? null : readShape({ shape: shape?.shape ?? shape, transform: { translation: { x: (t.x ?? 0) + (inner?.x ?? 0), y: (t.y ?? 0) + (inner?.y ?? 0) } } }) };
 }
 
 /** An actor's collision radius: ShapeConfig.Circle's default radius is 1. */

@@ -55,12 +55,32 @@ export function shakeOffset(s: ShakeSpec, scale: number, t: number): [number, nu
  * of the target's health it took.
  */
 export type Performance = { kind: "WEAK" | "NORMAL" | "STRONG"; size: "SMALL" | "MEDIUM" | "LARGE" };
-export function performanceOf(dealt: number, undefended: number, maxHealth: number): Performance {
+export function performanceOf(dealt: number, undefended: number, maxHealth: number, kindOf?: Performance["kind"] | null): Performance {
   const r = undefended > 0 ? dealt / undefended : 1;
-  const kind = r >= 0.9 ? "STRONG" : r <= 0.5 ? "WEAK" : "NORMAL";
+  const kind = kindOf ?? (r >= 0.9 ? "STRONG" : r <= 0.5 ? "WEAK" : "NORMAL");
   const share = maxHealth > 0 ? dealt / maxHealth : 0;
   const size = share < 0.1 ? "SMALL" : share < 0.3 ? "MEDIUM" : "LARGE";
   return { kind, size };
+}
+
+/**
+ * Weak, normal or effective by the defence the hit's main damage type meets, against the
+ * target's other defences (the wiki's Damage page: grey for a resisted type, blue for a
+ * neutral one, brown for the type it is weak to). The share of a hit that gets through is no
+ * guide with the real depth-scaled tables: every monster defends normal damage about as
+ * much as a same-depth weapon deals, so even plain hits lose half and read as resisted.
+ * Null when the target has no defences to compare.
+ */
+export function defenseKind(attack: { [type: string]: number | undefined }, defense: { [type: string]: number | undefined } | null): Performance["kind"] | null {
+  if (!defense) return null;
+  const types = ["NORMAL", "PIERCING", "ELEMENTAL", "SHADOW"];
+  let main = "", best = 0;
+  for (const t of types) if ((attack[t] ?? 0) > best) { best = attack[t] ?? 0; main = t; }
+  if (!main) return null;
+  const ds = types.map(t => defense[t] ?? 0), d = defense[main] ?? 0;
+  const lo = Math.min(...ds), hi = Math.max(...ds);
+  if (hi - lo < 1e-6) return "NORMAL";
+  return d <= lo + 1e-6 ? "STRONG" : d >= hi - 1e-6 ? "WEAK" : "NORMAL";
 }
 
 /** The hit particle's variant name (`Performance.variant()`), as fx_gethit_monster-scaled.dat names them. */
