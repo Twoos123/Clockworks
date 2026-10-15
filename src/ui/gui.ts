@@ -1249,6 +1249,24 @@ export function pack(c: Component) {
   return s;
 }
 
+/**
+ * Lays out an interface in a window stretched over a w x h display, as the client's dialogs do
+ * it (a stretching InterfaceWindow given a VGroupLayout: policy NONE, off-axis CONSTRAIN, both
+ * justifications CENTER). The interface asks for its preferred size with the display's size as
+ * the hints, so a root of preferred width 640 and height -1 over an AnchorLayout comes out 640
+ * wide and as tall as the display; it is no wider than the display and is centred. Sets c's
+ * bounds (Clyde's upward y) within the display and lays it out.
+ */
+export function packStretched(c: Component, w: number, h: number) {
+  const s = preferredSize(c, w, h);
+  const width = Math.min(s.width, w), height = s.height;
+  c.width = width; c.height = height;
+  c.x = Math.trunc((w - width) / 2);
+  c.y = h - Math.trunc((h - height) / 2) - height;
+  layout(c);
+  return { x: c.x, y: c.y, width, height };
+}
+
 // ------------------------------------------------------------------------------------ render
 
 export interface RenderHooks {
