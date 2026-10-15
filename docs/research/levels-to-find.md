@@ -2,13 +2,13 @@
 
 These are the levels missing from the archive, measured 2026-10-15 with `npm run levels`: 166 levels that are still in the game. Not listed here: Coliseum PvP (29), old removed levels, and guild halls.
 
-## How capturing works
+## Why playing them doesn't capture them
 
-1. Play the level in the real game, in normal online play. The client saves every level the servers send it into the install's `scenes/` folder.
-2. Open clyde-web (dev server or launcher). It copies new scenes into `%LOCALAPPDATA%\clyde-web\scenes`, where they stay even if the game clears its cache.
-3. Run `npm run levels` to tick them off.
+The client only saves *fixed* scenes to the install's `scenes/` folder. These are scenes whose id is below 1073741823 (2^30): towns, buildings and other permanent places (`cV.a` in `ProjectXApp`). Mission floors and Arcade floors are instances the servers create per party, with ids above that line, and the client never writes them to disk. So playing these levels in the real game does not add them to the cache, and the 2026-10-15 run of Alien Ooze saved nothing. The mission and Clockworks levels in the archive came from a community scene archive (`npm run import-scenes`).
 
-Reaching one floor of a level is enough. You don't need to clear it.
+Ways to fill the gaps:
+- **Fixed places** (King Krogmo's Coliseum, the Training Grounds): visiting them in the real game does cache them.
+- **Instanced floors:** find another community scene archive that has them, and import it with `npm run import-scenes <folder>`. Otherwise they keep playing as generated floors built from the real prefab rooms.
 
 ## What to prioritise
 
