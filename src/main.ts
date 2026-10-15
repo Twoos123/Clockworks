@@ -1144,7 +1144,7 @@ class Viewer {
     // the level's help bubbles (src/ui/balloons.ts)
     this.balloons ??= new Balloons(this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors));
     this.balloons.clear();
-    this.hud.image = f => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f);
+    this.hud.image = (f, zations) => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f, zations);
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
     this.tooSmall ??= new TooSmallWarning(this.gui);
@@ -1499,7 +1499,7 @@ class Viewer {
     this.renderer.particlesOn = o.particles;
     // ProjectXPrefs show_charge_bar and show_weapon_switcher (Options, Game: on by default)
     const pref = (tag: string) => o.prefs[tag] !== false;
-    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, get hudScale() { return uiScale(o); }, fps: o.showFps, chargeBar: pref("charge_bar") };
+    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, get hudScale() { return uiScale(o); }, fps: o.showFps, chargeBar: pref("charge_bar"), npcNames: pref("npc_names") };
     if (this.gameHud) this.gameHud.options = { minimap: o.minimap, screenFlash: o.screenFlash, weaponSwitcher: pref("weapon_switcher") };
     if (this.world) this.world.autoAimOn = o.autoAim;
     padOptions.deadZone = o.deadZone;
@@ -3347,8 +3347,9 @@ class Viewer {
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
         const items = this.world ? [...this.sceneItems, ...this.world.items(), ...this.places.items()] : this.sceneItems;
+        // the scene's projected decals draw inside drawAll, in their material's queue slot
+        if (this.scene && this.options_.decals) this.renderer.queueDecals(this.sceneDecals(), env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
-        if (this.scene && this.options_.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.places.drawMarks(this.renderer, proj, view);
         if (this.world && this.options_.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;

@@ -43,7 +43,6 @@ export class SocialScreen extends GuiScreen {
     super(ctx, social, "socialCanvas");
     // client/g: docked at the left edge (the event hub docks beside it), the game left undimmed
     this.dockLeft = () => 0;
-    this.dim = false;
   }
 
   toggle() { if (this.isOpen) this.close(); else void this.open(); }

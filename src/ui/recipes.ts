@@ -78,7 +78,6 @@ export class RecipesScreen extends GuiScreen {
     // game goes on undimmed behind them
     this.dockLeft = () => 0;
     this.tallDocks = true;
-    this.dim = false;
     this.energy = () => energyNow(energyOf(this.host_.save()));
   }
 

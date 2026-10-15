@@ -29,7 +29,7 @@ import { cursedSlots, StatusConditions, ticksDamage, type ActiveStatus } from ".
 import { itemName, monsterName } from "./text";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
-import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
+import { attackClipAt, attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
 import { defenseKind, heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type LabelStyle, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "./behavior";
@@ -132,7 +132,9 @@ abstract class Actor {
    * go off at their delays, a burst running on into the follow-through), which have fired,
    * whether the lunge started, and whether it plays on the upper body only.
    */
-  attack: { def: AttackDef; phase: Phase; t: number; ft: number; total?: number; fired: Set<number>; lunged: boolean; overlay: boolean; touched?: Set<Actor> } | null = null;
+  attack: { def: AttackDef; phase: Phase; t: number; ft: number; total?: number; fired: Set<number>; lunged: boolean; overlay: boolean; touched?: Set<Actor>;
+    /** The animation playing (0 start, 1 fire, 2 end; -1 before the first): see attackClipAt. */
+    clip: number } | null = null;
   /** Lunge from an attack's impulse: its displacement, seconds into it and its length. */
   lunge = { dx: 0, dy: 0, t: 0, dur: 0 };
   /** Nodes animated by the upper-body overlay (knights); null plays attacks whole-body. */
@@ -862,8 +864,13 @@ export class World implements LogicHost {
       rarity: name => eco.info(name)?.rarity ?? 0,
       depthWeight: (dw, r, d) => eco.depthWeight(dw, r, d),
     } : null);
-    // the drop pools are built once, before the first drop
-    if (eco) for (const t of ["MATERIAL", "GEAR"]) eco.autoItems(t);
+    // the drop pools are built once, when the browser is next idle after the level starts (a
+    // drop before then builds them itself), so they do not hold up the first level's load
+    if (eco) {
+      const build = () => { for (const t of ["MATERIAL", "GEAR"]) eco.autoItems(t); };
+      if (typeof requestIdleCallback === "function") requestIdleCallback(build, { timeout: 3000 });
+      else setTimeout(build, 0);
+    }
     await this.data.preload("config/status_condition.dat");
     this.conditions = new StatusConditions(this.data.library_("config/status_condition.dat"), this.data.depth);
     this.logic = new Logic(this, {
@@ -2483,9 +2490,28 @@ export class World implements LogicHost {
     if (a instanceof Monster) this.curseBite(a, null);
     // an attack the config marks as not blended (a gun's charged shot, a sword swing) plays on
     // the whole body even for a weapon that otherwise fires on the move
-    a.attack = { def, phase: "start", t: 0, ft: 0, fired: new Set(), lunged: false, overlay: overlay && def.blended && !!a.upperBody };
-    if (def.start) this.animate(a, def.start, def.startSpeed);
-    else this.enterFire(a);
+    a.attack = { def, phase: "start", t: 0, ft: 0, fired: new Set(), lunged: false, overlay: overlay && def.blended && !!a.upperBody, clip: -1 };
+    this.syncAttackClip(a);
+    if (def.land / def.startSpeed <= 0) this.enterFire(a);
+  }
+
+  /**
+   * Plays the attack's animation for where it has got to (start, fire, end: each when the one
+   * before has finished, see attackClipAt), when that is a later one than is playing.
+   */
+  private syncAttackClip(a: Actor) {
+    const at = a.attack!, d = at.def;
+    const clips: [any, number][] = [[d.start, d.startSpeed], [d.fire, d.fireSpeed], [d.end, d.endSpeed]];
+    const lens = clips.map(([path, speed]) => {
+      if (!path) return null;
+      const c = this.clip(path);
+      return c && c.frames.length ? ((c.frames.length - 1) / c.rate / Math.max(0.01, speed)) * 1000 : 0;
+    });
+    const now = attackClipAt(lens, (at.total ?? 0) * 1000);
+    if (!now || now.clip <= at.clip) return;
+    at.clip = now.clip;
+    const [path, speed] = clips[now.clip];
+    this.animate(a, path, speed);
   }
 
   /** One-shot attack animation: upper body for walking attacks, else whole body. */
@@ -2518,7 +2544,6 @@ export class World implements LogicHost {
     at.phase = "fire";
     at.t = 0;
     at.ft = 0;
-    if (at.def.fire) this.animate(a, at.def.fire, at.def.fireSpeed);
     // the weapon's own model plays its attack (a flintlock's hammer, a diskgun's claws)
     if (a === this.knight) {
       const k = this.knight;
@@ -2561,13 +2586,14 @@ export class World implements LogicHost {
     }
     if (a === this.knight && a.lunge.t < a.lunge.dur) a.lunge.t += dt / Math.max(1e-6, this.attackRate(a));
     if (d.contact && a.lunge.t < a.lunge.dur) this.contactHits(a, at);
+    // the animations, each on from the last as it finishes, apart from the phase times
+    this.syncAttackClip(a);
     if (at.phase === "start") {
       if (at.t * 1000 >= d.land / d.startSpeed) this.enterFire(a);
     } else if (at.phase === "fire") {
       if (at.t * 1000 >= d.rearm / d.fireSpeed) {
         at.phase = "end";
         at.t = 0;
-        if (d.end) this.animate(a, d.end, d.endSpeed);
       }
     } else if (at.phase === "end" && ends && at.t * 1000 >= d.clear / d.endSpeed) {
       a.attack = null;
@@ -3247,25 +3273,63 @@ export class World implements LogicHost {
   get onElevator(): boolean { return this.props.some(p => p.kind === "elevator" && p.standTime > 0) && !this.finished; }
 
   /**
-   * The names over the townsfolk and machines (client/sprite/g, the NameLabel): an actor whose
-   * sprite is a named one (ProjectXActorSpriteConfig Named, Stranger, NamedStatefulEntry) or a
-   * named placeable (ProjectXPlaceableConfig$Named) shows character/label.dat at its
-   * nameOffset above its root, with its description's name and title.
+   * The names over the townsfolk and machines (client/sprite/g, the NameLabel). Every sprite
+   * of a named kind carries one: an actor sprite that is ProjectXActorSpriteConfig Named,
+   * Stranger, Memorable (client/sprite/i, k, f) or NamedStatefulEntry (sprite/j), whatever
+   * game object the actor became here (a trader among the monsters, a Stranger or a casino
+   * machine among the props), and a ProjectXPlaceableConfig Named placeable (sprite/h). The
+   * label (character/label.dat) hangs at the sprite's nameOffset (2 where the config keeps the
+   * default) above the model's root, in the model's scale, and reads its DescriptionConfig's
+   * name, title and name icon; a sprite without a description shows none. The HUD hides them
+   * all while Options, Game, "Display NPC Names" is off (ProjectXPrefs show_npc_names). The
+   * knight's own name never shows over it: KnightSprite hides the label of the actor the
+   * player controls, so other players' knights are the only ones that carry one.
    */
-  nameplates(): { x: number; y: number; z: number; name: string; title: string; icon: string | null }[] {
-    const out: { x: number; y: number; z: number; name: string; title: string; icon: string | null }[] = [];
-    const add = (name: string, cfg: any, holder: any, x: number, y: number, z: number, scale: number) => {
-      if (typeof holder?.nameOffset !== "number" || !holder.description) return;
-      const d = this.describe(name, cfg);
-      if (d?.name) out.push({ x, y, z: z + holder.nameOffset * scale, name: d.name, title: d.title, icon: d.nameIcon ?? null });
+  nameplates(): Nameplate[] {
+    const out: Nameplate[] = [];
+    const add = (holder: any, x: number, y: number, z: number, scale: number) => {
+      const d = this.plateDescription(holder.description);
+      if (d?.name) out.push({ x, y, z: z + (holder.nameOffset ?? 2) * scale, name: d.name, title: d.title, icon: d.nameIcon ?? null });
     };
     for (const m of this.monsters) {
-      if (m.state === "dying" || !m.entity?.name) continue;
-      const cfg = this.npcs.get(m)?.cfg ?? (m.passive ? this.data.resolveSync("config/actor.dat", { name: m.entity.name }, "actor") : null);
-      if (cfg) add(m.entity.name, cfg, cfg.sprite, m.x, m.y, m.z, m.scale);
+      if (m.state === "dying" || !m.entity) continue;
+      let holder = this.plateHolders.get(m);
+      if (holder === undefined) {
+        const cfg = this.npcs.get(m)?.cfg ?? this.data.resolveSync("config/actor.dat", m.ref ?? { name: m.entity.name }, "actor");
+        holder = namedHolder(cfg);
+        this.plateHolders.set(m, holder);
+      }
+      if (holder) add(holder, m.x, m.y, m.z, m.scale);
     }
-    for (const p of this.props) if (p.entity?.name && /\$Named$/.test(String(p.cfg?.$class ?? ""))) add(p.entity.name, p.cfg, p.cfg, p.x, p.y, p.z, 1);
+    // props draw at their own size (Prop.matrix), so their labels hang unscaled too
+    for (const p of this.props) {
+      if (!p.instance) continue;
+      const holder = namedHolder(p.cfg);
+      if (holder) add(holder, p.x, p.y, p.z, 1);
+    }
+    // the scene's named placeables (machines), in their placed scale
+    for (const n of this.scene.names ?? []) add(n.holder, n.x, n.y, n.z, n.scale);
     return out;
+  }
+
+  /** Each monster's named sprite config (null for none), found once. */
+  private readonly plateHolders = new WeakMap<Monster, any>();
+  /** The name labels' descriptions, by their DescriptionConfig reference. */
+  private readonly plateDescs = new Map<string, import("../ui/hud").HudDescription | null>();
+
+  /** A name label's DescriptionConfig, translated, loaded in the background on first ask. */
+  private plateDescription(ref: any): import("../ui/hud").HudDescription | null {
+    if (!ref?.name) return null;
+    const key = ref.arguments ? JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v)) : String(ref.name);
+    if (!this.plateDescs.has(key)) {
+      this.plateDescs.set(key, null);
+      void this.data.description(ref).then(d => {
+        if (!d || !d.dname) return;
+        const tr = (k: string) => k ? (k.startsWith("~") ? k.slice(1) : message(d.bundle, k) || k) : "";
+        this.plateDescs.set(key, { key, name: tr(d.dname), title: tr(d.title), info: tr(d.description), icon: d.icon, nameIcon: d.nameIcon });
+      }).catch(() => undefined);
+    }
+    return this.plateDescs.get(key) ?? null;
   }
 
   /** A thing's DescriptionConfig for the target panel, loaded in the background on first ask. */
@@ -4174,4 +4238,22 @@ function amountsOf(a: Amounts): Record<string, number> {
 function puppetMatrix(p: Puppet): Mat4 {
   const a = p.heading + Math.PI / 2;
   return compose([p.x, p.y, p.z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], p.scale);
+}
+
+/** A name label over a townsperson or machine: its spot, its lines and its name icon. */
+export interface Nameplate { x: number; y: number; z: number; name: string; title: string; icon: string | null }
+
+/** Actor sprites that carry a name label (client/sprite/i, k, f and j: Named and its kinds). */
+const NAMED_SPRITE = /ProjectXActorSpriteConfig\$(Named|Stranger|Memorable|NamedStatefulEntry)$/;
+
+/**
+ * Where a config keeps its name label's description and nameOffset: a named placeable's own
+ * config, or an actor's sprite when that is a named kind; null when there is no description
+ * (sprite/g then shows no label).
+ */
+export function namedHolder(cfg: any): any | null {
+  if (!cfg) return null;
+  const holder = /ProjectXPlaceableConfig\$Named$/.test(String(cfg.$class ?? "")) ? cfg
+    : NAMED_SPRITE.test(String(cfg.sprite?.$class ?? "")) ? cfg.sprite : null;
+  return holder?.description ? holder : null;
 }

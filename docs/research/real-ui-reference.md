@@ -321,7 +321,12 @@ From a 215-second recording; frames are in `.scratch/vid4` (one every 2 seconds,
   - The top centre shows "Press ATTACK <Left Mouse> to browse vendor goods".
   - The target panel at the top shows the NPC's portrait icon, name and title ("Quillion /
     Blade Merchant", "Alchemy Machine").
-  - Names float over NPCs and players, with the title in gold under NPC names.
+  - Names float over NPCs and other players, with the title under NPC names. On a closer look
+    (f025, f049, f073; vid6 f036) both lines are light grey Arial Black with a black outline
+    (character/label.dat, colour print 514), and a prestige icon sits before some names
+    (Basil). The only exception is the vendor being browsed: Quillion's title then shows in
+    italic teal on a dark bar. No name shows over the player's own knight, which matches the
+    client (KnightSprite hides the label of the actor the player controls).
 - **Vendor (for example Quillion):**
   - A "VENDOR" list window docked at the left: item rows with icon, name and crown price (3,000
     / 7,500 ...), and a Preview button at the bottom.
