@@ -3347,8 +3347,9 @@ class Viewer {
           env = { ...env, fog: fogOn ? { ...env.fog, start: env.fog.start + shift, end: env.fog.end + shift } : null };
         }
         const items = this.world ? [...this.sceneItems, ...this.world.items(), ...this.places.items()] : this.sceneItems;
+        // the scene's projected decals draw inside drawAll, in their material's queue slot
+        if (this.scene && this.options_.decals) this.renderer.queueDecals(this.sceneDecals(), env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.renderer.drawAll(items, proj, view, env, this.skyboxes);
-        if (this.scene && this.options_.decals) this.renderer.drawDecals(this.sceneDecals(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.places.drawMarks(this.renderer, proj, view);
         if (this.world && this.options_.shadows) this.renderer.drawShadows(this.world.shadows(), proj, view, env.shadow ?? [0, 0.08, 0.1, 0.4]);
         this.lastProj = proj;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ConfigLibrary } from "../src/config/materials.ts";
-import { drawOrder, RENDER_QUEUES, sortsByDepth } from "../src/render/renderer.ts";
+import { DECAL_LIFT, DECAL_QUEUE, drawOrder, RENDER_QUEUES, sortsByDepth } from "../src/render/renderer.ts";
 import { UNLIT_VIEW_ENVIRONMENT } from "../src/environment.ts";
 
 const T = "com.threerings.opengl.material.config.";
@@ -64,6 +64,38 @@ test("a priority-1 floor decal in Opaque draws after the characters it lies unde
   const floor = { name: "floor", queue: "Opaque", priority: 0, depth: -12 };
   const glow = { name: "glow", queue: "Transparent", priority: 0, depth: -1 };
   assert.deepEqual([glow, decal, knight, floor].sort(drawOrder).map(m => m.name), ["knight", "floor", "decal", "glow"]);
+});
+
+// config/material.dat's projection material for the floor decals (the Haven emblem): a
+// NormalEnqueuer with no queue (Opaque) at priority 1, depth tested, no depth writes
+const decalMaterial = {
+  name: "Model/Decal/Emissive/Translucent", $class: T + "MaterialConfig",
+  implementation: { $class: T + "MaterialConfig$Original", techniques: [{ $class: T + "TechniqueConfig", enqueuer: {
+    $class: T + "TechniqueConfig$NormalEnqueuer", priority: 1,
+    passes: [{ depthState: { mask: false }, alphaState: { destBlendFactor: { name: "ONE_MINUS_SRC_ALPHA" } } }],
+  } }] },
+};
+
+test("scene decals draw in their material's slot: after the characters on them, before Transparent", async () => {
+  const lib = await new ConfigLibrary().load(async p => (p === "config/material.dat" ? [decalMaterial] : []));
+  const m = lib.resolve({ name: "Model/Decal/Emissive/Translucent" }, null);
+  assert.equal(m.queue, DECAL_QUEUE.queue);
+  assert.equal(m.priority, DECAL_QUEUE.priority);
+  assert.equal(m.passes[0].depthMask, false);
+  assert.equal(m.passes[0].depthFunc, "LEQUAL");
+  // the knight (and the floor) are Opaque at 0 and write depth first, so the decal's depth test
+  // hides it wherever the knight stands; translucent things blend over the decal
+  const knight = { name: "knight", queue: "Opaque", priority: 0 };
+  const floor = { name: "floor", queue: "Opaque", priority: 0 };
+  const grass = { name: "grass", queue: "Opaque", priority: 1 };
+  const decal = { name: "decal", ...DECAL_QUEUE };
+  const beam = { name: "beam", queue: "Transparent", priority: 0, depth: -30 };
+  const visor = { name: "visor", queue: "Transparent", priority: -1, depth: -5 };
+  // (drawItems adds the decal batch after the meshes, so it follows the other priority-1 ones)
+  assert.deepEqual([visor, beam, knight, grass, floor, decal].sort(drawOrder).map(o => o.name),
+    ["knight", "floor", "grass", "decal", "visor", "beam"]);
+  // the quad floats a fixed world height over its origin, not the placement's scaled one
+  assert.ok(DECAL_LIFT > 0 && DECAL_LIFT <= 0.12);
 });
 
 test("Transparent sorts back to front inside each priority; Opaque and Overlay keep their order", () => {

@@ -390,6 +390,17 @@ export async function paintBillboards(model: LoadedModel, painter: ComponentPain
  * config's queue at its priority, premultiplied-alpha blended (ONE, ONE_MINUS_SRC_ALPHA) with
  * no depth writes, unlit and unfogged.
  */
+/**
+ * A ConditionalConfig case that holds only in the scene editor: model/conditional/marker.dat's
+ * `markersVisible` reference, which the game's scope never sets (Clyde reads an unset boolean
+ * reference as false). The sunbeam props (world/prop/outershell/sunbeam/compound_model.dat)
+ * wrap their editor marker poles in it, untextured opaque Model/Opaque meshes the game never
+ * shows.
+ */
+export function editorCase(cond: any): boolean {
+  return String(cond?.$class ?? "").endsWith("BooleanExpression$Reference") && cond.name === "markersVisible";
+}
+
 export function billboardPart(texture: string, width: number, height: number, scale: number, priority = 0, queue = "Transparent",
   node?: string): MeshPart {
   const x = (width / 2) * scale, y = (height / 2) * scale;
@@ -539,6 +550,8 @@ export class ModelLoader {
         return model;
       }
       for (const c of impl.cases ?? []) {
+        // (never an editor-only case: the sunbeams' marker poles show only in the scene editor)
+        if (editorCase(c?.condition)) continue;
         const cm = await this.loadRef(c.model, depth, chain);
         if (cm) { model.attachments.push({ node: "", transform: readTransform(c.transform), model: cm }); model.animations = { ...cm.animations }; return model; }
       }

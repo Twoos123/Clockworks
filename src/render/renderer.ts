@@ -237,6 +237,28 @@ export const drawOrder = (a: DrawKey, b: DrawKey) => {
     default: return 0;
   }
 };
+/** A projected decal placed in the world (a SceneInfluencer projector's quad). */
+export interface DecalItem { matrix: Mat4; width: number; height: number; texture: string; glow: boolean }
+/**
+ * Where scene decals draw: their projection material's queue and enqueuer priority
+ * (config/material.dat's Model/Decal/Emissive/Translucent: a NormalEnqueuer into Opaque at
+ * priority 1). They come after the opaque scene and the characters (priority 0), whose depth
+ * then hides the decal wherever they stand on it, and before the Transparent queue.
+ */
+export const DECAL_QUEUE: DrawKey = { queue: "Opaque", priority: 1 };
+/** How far (world units) a decal quad floats over its projector's origin, under polygon offset. */
+export const DECAL_LIFT = 0.12;
+/**
+ * The state ground quads (decals, actor shadows) draw with: depth tested as LEQUAL whatever the
+ * last pass left (the "(Priority)" materials of NPC icons and health bars test ALWAYS, which drew
+ * the Haven emblem over the knight), no depth writes, both faces.
+ */
+function groundQuadState(gl: WebGL2RenderingContext) {
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+  gl.depthMask(false);
+  gl.disable(gl.CULL_FACE);
+}
 /** Whether a queue orders its batches by depth (each placement is then a batch of its own). */
 export const sortsByDepth = (m: { queue: string; subQueue?: string }) => {
   const s = queueConfig(m.subQueue ?? m.queue).sort;
@@ -959,8 +981,12 @@ export class Renderer {
     }
     gl.uniformMatrix4fv(this.u.u_view, false, view);
     this.setFog(env.fog);
-    this.drawItems(skyItems.length ? [...items, ...skyItems.map(it => ({ ...it, filter: "rest" }))] : items);
+    this.mainPv = multiply(proj, view);
+    this.drawItems(skyItems.length ? [...items, ...skyItems.map(it => ({ ...it, filter: "rest" }))] : items, this.pendingDecals);
+    // (queued decals are for this one draw: not the HUD portraits and interface views after it)
+    this.pendingDecals = null;
     gl.depthMask(true);
+    gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.BLEND);
     if (region) gl.disable(gl.SCISSOR_TEST);
   }
@@ -1215,8 +1241,7 @@ export class Renderer {
     const p = this.shadowProgram;
     gl.useProgram(p);
     gl.bindVertexArray(this.shadowVao);
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthMask(false);
+    groundQuadState(gl);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.uniformMatrix4fv(gl.getUniformLocation(p, "u_pv"), false, multiply(proj, view));
@@ -1254,11 +1279,33 @@ export class Renderer {
   }
 
   /**
-   * Projected shadow decals (SceneInfluencer projectors): horizontal textured quads on the
-   * ground, placed by `matrix` (its rotation and position), drawn over the scene.
+   * Projected decals (SceneInfluencer projectors: shadows under roofs and trees, the floor
+   * logos): horizontal textured quads on the ground, placed by `matrix` (its rotation and
+   * position), drawn over what is already in the depth buffer. The scene's own go through
+   * queueDecals instead, which draws them in their queue slot.
    */
-  drawDecals(list: { matrix: Mat4; width: number; height: number; texture: string; glow: boolean }[], proj: Mat4, view: Mat4,
-    color: [number, number, number, number]) {
+  drawDecals(list: DecalItem[], proj: Mat4, view: Mat4, color: [number, number, number, number]) {
+    this.drawDecalList(list, multiply(proj, view), color);
+  }
+
+  /** Scene decals for the next drawAll, drawn in their queue slot (DECAL_QUEUE), then dropped. */
+  private pendingDecals: { list: DecalItem[]; color: [number, number, number, number] } | null = null;
+  /** The main pass's projection times view, for decals drawn from inside the queues. */
+  private mainPv: Mat4 = identity();
+
+  /**
+   * Hands the next drawAll the scene's projected decals. They draw as their material does
+   * (Model/Decal/Emissive/Translucent: the Opaque queue at priority 1, depth tested, no depth
+   * writes): after the opaque scene and the characters standing on them, whose depth hides the
+   * decal where they stand, and before anything translucent, which then blends over them.
+   */
+  queueDecals(list: DecalItem[], color: [number, number, number, number]) {
+    this.pendingDecals = list.length ? { list, color } : null;
+  }
+
+  private decalVao: WebGLVertexArrayObject | null = null;
+
+  private drawDecalList(list: DecalItem[], pv: Mat4, color: [number, number, number, number]) {
     if (!list.length) return;
     const gl = this.gl;
     if (!this.decalProgram) {
@@ -1269,8 +1316,12 @@ export class Renderer {
         out vec2 v_uv;
         void main() {
           v_uv = a_pos * 0.5 + 0.5;
-          gl_Position = u_pv * u_model * vec4(a_pos * u_size * 0.5, 0.12, 1.0);
-        }`, `#version 300 es
+          // lifted a little in world units, not the placement's (the Haven emblem is placed at
+          // scale 2, which lifted it to the knight's ankles): floor tiles have some relief
+          vec4 p = u_model * vec4(a_pos * u_size * 0.5, 0.0, 1.0);
+          p.z += DECAL_LIFT * p.w;
+          gl_Position = u_pv * p;
+        }`.replace("DECAL_LIFT", DECAL_LIFT.toFixed(3)), `#version 300 es
         precision mediump float;
         in vec2 v_uv;
         uniform sampler2D u_tex;
@@ -1283,16 +1334,25 @@ export class Renderer {
           float a = u_shadow ? u_color.a * t.a : t.a;
           o = u_shadow ? vec4(u_color.rgb * a, a) : vec4(t.rgb * a, a);
         }`);
+      this.decalVao = gl.createVertexArray();
+      gl.bindVertexArray(this.decalVao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(this.decalProgram, "a_pos");
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      gl.bindVertexArray(null);
     }
-    if (!this.shadowVao) this.drawShadows([{ x: 0, y: 0, z: -1e6, r: 0 }], proj, view, [0, 0, 0, 0.001]);
     const p = this.decalProgram;
     gl.useProgram(p);
-    gl.bindVertexArray(this.shadowVao);
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthMask(false);
+    gl.bindVertexArray(this.decalVao);
+    groundQuadState(gl);
+    // a projection lies on the floor it lands on: pulled toward the camera against it
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(-1, -2);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.uniformMatrix4fv(gl.getUniformLocation(p, "u_pv"), false, multiply(proj, view));
+    gl.uniformMatrix4fv(gl.getUniformLocation(p, "u_pv"), false, pv);
     gl.uniform4fv(gl.getUniformLocation(p, "u_color"), color);
     gl.uniform1i(gl.getUniformLocation(p, "u_tex"), 0);
     gl.activeTexture(gl.TEXTURE0);
@@ -1309,6 +1369,7 @@ export class Renderer {
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
     gl.bindVertexArray(null);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
   }
@@ -1389,7 +1450,8 @@ export class Renderer {
     }
   }
 
-  private drawItems(items: { instance: ModelInstance; matrix: Mat4; filter?: QueueFilter }[]) {
+  private drawItems(items: { instance: ModelInstance; matrix: Mat4; filter?: QueueFilter }[],
+    decals: { list: DecalItem[]; color: [number, number, number, number] } | null = null) {
     const gl = this.gl;
     const frame = ++this.frame;
 
@@ -1493,7 +1555,7 @@ export class Renderer {
       return v[2] * x + v[6] * y + v[10] * z + v[14];
     };
     type MeshBatch = (typeof batches)[number];
-    type Op = DrawKey & { mesh?: MeshBatch; layer?: { emitter: Emitter; li: number; matrix: Mat4 }; at?: number };
+    type Op = DrawKey & { mesh?: MeshBatch; layer?: { emitter: Emitter; li: number; matrix: Mat4 }; at?: number; decals?: boolean };
     const ops: Op[] = [];
     for (const b of batches) {
       const mat = b.gp.part.material;
@@ -1517,6 +1579,9 @@ export class Renderer {
         ops.push({ queue: mat.queue, subQueue: mat.subQueue, priority: mat.priority, depth, layer: { emitter, li, matrix } });
       });
     }
+    // the scene's decals as one batch in their queue, after the meshes of the same priority
+    // (Opaque keeps collection order)
+    if (decals && !this.skyboxPass) ops.push({ ...DECAL_QUEUE, decals: true });
     ops.sort(drawOrder);
 
     // upload every instance matrix for this frame in one buffer, in drawing order
@@ -1539,6 +1604,9 @@ export class Renderer {
       } else if (o.layer) {
         this.setLocalLights([]);
         this.drawParticleLayer(o.layer.emitter, o.layer.li, o.layer.matrix);
+      } else if (o.decals && decals) {
+        this.drawDecalList(decals.list, this.mainPv, decals.color);
+        gl.useProgram(this.program);
       }
     }
     this.setLocalLights([]);
