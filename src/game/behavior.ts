@@ -113,6 +113,54 @@ export type Behavior =
    */
   | { type: "Attack"; attack?: number; stop?: boolean; attacks?: number[]; minAttackInterval?: number };
 
+/**
+ * Whether a behaviour ever starts a harming attack (`harms`, by attack index) on its foes, and
+ * how long it waits first: a Targeting behaviour that acquires foes (a non-zero acquire
+ * region) through its target action's attacks, an untargeted Attack, or a script's Attack
+ * step, after the Wait steps before it. Dodges, heals aimed at wounded allies, following and
+ * fleeing start none. The Test Range sweep expects a monster left to itself to attack only
+ * when this says it aims something at the knight, and within its window only when it waits
+ * less (a Crimson Hammer core's script waits 14 s before its first volley).
+ */
+export function attackOutlook(cfg: Behavior | null | undefined, harms: (i: number) => boolean): { aims: boolean; delay: number } {
+  let aims = false, delay = Infinity;
+  const hit = (list: (number | undefined)[], wait = 0) => {
+    if (list.some(i => i !== undefined && harms(i))) { aims = true; delay = Math.min(delay, wait); }
+  };
+  const action = (t: TargetAction | undefined, d = 0) => {
+    if (!t || d > 8) return;
+    if (t.type === "RandomAction") { for (const x of t.actions) action(x.action, d + 1); return; }
+    const own = t as { attacks?: number[]; chargeAttacks?: number[] };
+    hit([...(own.attacks ?? (t.type === "Flee" ? [] : [0])), ...(own.chargeAttacks ?? [])]);
+  };
+  const walk = (b: Behavior | undefined, d = 0) => {
+    if (!b || d > 8) return;
+    switch (b.type) {
+      case "Targeting":
+        if ((b.targets ?? "foes") === "foes" && (b.acquireRadius ?? 10) > 0) action(b.targetAction);
+        walk(b.routine, d + 1);
+        return;
+      case "Dodging": walk(b.behavior, d + 1); return;
+      case "Random": for (const x of b.behaviors) walk(x.behavior, d + 1); return;
+      case "Cascading": for (const x of b.cascades) walk(x.behavior, d + 1); return;
+      case "Combined": walk(b.first, d + 1); walk(b.second, d + 1); return;
+      case "Attack": hit(b.attacks ?? [b.attack ?? 0]); return;
+      case "Scripted": {
+        let wait = 0;
+        for (const s of b.steps ?? []) {
+          const k = String(s?.$class ?? "").split("$").pop();
+          if (k === "Wait") wait += s.wait ?? 0;
+          else if (k === "Attack") hit([s.attack ?? 0], wait);
+          else if (k === "Attacks") hit(s.attacks?.length ? s.attacks : [0], wait);
+        }
+        return;
+      }
+    }
+  };
+  walk(cfg ?? undefined);
+  return { aims, delay: aims ? delay : 0 };
+}
+
 /** Something an agent can see: the knight, a companion, another monster. */
 export interface Seen {
   id: number;
@@ -180,7 +228,7 @@ export class Agent {
   now = 0;
   dt = 0;
   readonly behavior: BehaviorLogic;
-  constructor(readonly host: BehaviorHost, cfg: Behavior, readonly speed: number, readonly targetedSpeed: number,
+  constructor(readonly host: BehaviorHost, readonly cfg: Behavior, readonly speed: number, readonly targetedSpeed: number,
     readonly baseTurnRate: number, readonly radius: number, x = 0, y = 0, rotation = 0) {
     this.turnRate = baseTurnRate;
     this.x = x; this.y = y; this.rotation = this.targetRotation = rotation;
@@ -850,7 +898,10 @@ class PathAttackL implements ActionLogic {
   tick(now: number, t: Seen) {
     const a = this.tb.agent, gap = gapTo(a, t);
     const max = this.cfg.maxAttackDistance ?? 0.85, min = this.cfg.minAttackDistance ?? 0;
-    const inBand = gap <= max && gap >= min;
+    // (PathAttack has no minimum: only TrackAttack's minAttackDistance holds it off. A target
+    // pressed against it sits at a gap of zero or a hair below, which a plain gap >= 0 refused:
+    // a zombie or retrode touching the knight stood there forever without swinging)
+    const inBand = gap <= max && (min <= 0 || gap >= min);
     // keep the last waypoint on a target it can walk straight to
     if (!inBand && this.tb.path && this.tb.pidx === this.tb.path.length - 1 && gap > max && this.tb.host.sees(a.x, a.y, t.x, t.y)) {
       this.tb.path[this.tb.pidx] = [t.x, t.y];

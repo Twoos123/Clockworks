@@ -71,9 +71,28 @@ type Handler = {
   children?: Handler[];
   /** Sensor shape for intersection handlers. */
   sensor?: Shape | null;
+  /** A guarded Intersection (see guardedIntersection): the activators inside it this tick and the last. */
+  inside?: Set<Entity>;
+  wasInside?: Set<Entity>;
+  guarded?: boolean;
 };
 
 interface Timer { at: number; run: () => void; cancelled: boolean; owner: Entity }
+
+/**
+ * An actor's Intersection handler with no refractory period whose action spawns actors: as
+ * exported it fires on every tick an activator stays inside, since what limited it went with
+ * the server (the condition of the stripped Conditional around Eddie's meat shield, whatever
+ * kept Weirdo Hello to one tentacle per greeting), so a knight standing against a mimic piece
+ * raised thirty a second, and two pieces side by side tripped each other's sensors with their
+ * spawns without end. It fires once as each player comes in instead (players only, the
+ * "Player ..." triggers' rule, PLAYER_TRIGGER).
+ */
+function guardedIntersection(h: Handler): boolean {
+  const a = h.cfg?.action;
+  return h.source.isActor && !(h.cfg?.refractoryPeriod > 0) && !!a
+    && /Spawn|ActivateMonster/.test(JSON.stringify(a).slice(0, 4000));
+}
 
 /** Areas and markers named for players (Player Enter, Player Exit...) fire for knights only. */
 const PLAYER_TRIGGER = /^Player /;
@@ -384,13 +403,18 @@ export class Logic {
   tick(dtMs: number) {
     this.ts += dtMs;
     for (const e of this.removals.splice(0)) this.remove(e);
-    // sensors: moving actors trigger intersection handlers whose mask matches their flags
-    for (const a of this.actors) {
+    // sensors: moving actors trigger intersection handlers whose mask matches their flags.
+    // The actors as they stand at the start of the tick: one a handler spawns now is checked
+    // from the next tick (Eddie's sensor spawned a meat shield inside itself, which tripped it
+    // again in the same loop until the page ran out of memory)
+    for (const h of this.sensors) if (h.inside) { h.wasInside = h.inside; h.inside = new Set(); }
+    for (const a of [...this.actors]) {
       if (!a.mobile || a.destroyed || !a.collisionFlags) continue;
       const shape = a.shape();
       if (!shape) continue;
       for (const h of [...this.sensors]) {
-        if (h.source === a) continue;
+        // (an actor never trips the sensor of the actor that spawned it)
+        if (h.source === a || a.source === h.source) continue;
         const sensor = h.source.isActor ? (() => { const s = h.source.shape(); return s ? expand(s, h.cfg.shape?.expansion ?? 0) : null; })() : h.sensor;
         if (!sensor || ((h.cfg.mask ?? 0xffff) & a.collisionFlags) === 0 || !intersects(sensor, shape)) continue;
         // "Player ..." triggers answer to players only: their condition (dropped from the
@@ -409,6 +433,15 @@ export class Logic {
     switch (h.kind) {
       case "Intersection":
         if (this.ts < (h.min ?? 0)) return;
+        if (h.guarded ??= guardedIntersection(h)) {
+          // a player's coming in (two such spawners side by side, a mimic's Eddie and Weirdo
+          // Hello, otherwise answered each other's spawns without end), once as it comes in
+          // rather than on every tick it stays
+          if ((a.collisionFlags & 4) === 0) return;
+          const was = h.wasInside ??= new Set();
+          (h.inside ??= new Set()).add(a);
+          if (was.has(a)) return;
+        }
         this.run(h.cfg.action, h.source, a);
         h.min = Math.round(this.ts + (h.cfg.refractoryPeriod ?? 0) * 1000);
         break;

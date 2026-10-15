@@ -9,7 +9,8 @@ import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader }
 import type { Renderer } from "../render/renderer";
 import { Knight, Monster, type MonsterHold, type ProbeHit, type Puppet, type World } from "../game/world";
 import type { Prop } from "../game/props";
-import type { AttackDef } from "../game/data";
+import { attackHarms, type AttackDef } from "../game/data";
+import { attackOutlook } from "../game/behavior";
 import { catalogue, CATEGORIES, type ItemEntry } from "../game/items";
 import type { Loadout } from "../game/save";
 import { attackTiming, damageSplit, hitLines, monsterTree, statusText, summarize, timingText, type HitRecord, type StatusRoll } from "./readout";
@@ -587,6 +588,11 @@ export class TestRange {
 
   // ---------------------------------------------------------------- the sweep's handle
 
+  private actorKind(ref: any): string | null {
+    const cfg = this.world?.data.resolveSync("config/actor.dat", ref, "actor");
+    return cfg ? String(cfg.$class ?? "").split("$").pop() ?? null : null;
+  }
+
   /** window.__range (development builds): what tools/audit/sweep.ts drives. */
   private api() {
     return {
@@ -607,6 +613,16 @@ export class TestRange {
       strike: (m: Monster, share?: number, knock?: number) => this.strike(m, share, knock),
       placeBlock: (name: string, dist?: number, args?: [string, unknown][]) => this.placeBlock(name, dist, args),
       clearAll: () => { for (const m of [...this.penned]) this.remove(m); if (this.dummy) this.remove(this.dummy); this.removePuppet(); this.clearBlocks(); },
+      /** An actor config's class ("Monster", "Bomb", "Bullet", "Orbital"...), null when there is none. */
+      actorKind: (name: string) => this.actorKind({ name }),
+      /** Whether an attack is a blow at the knight (data.ts attackHarms): a bark or a dodge is not. */
+      attackHarms: (a: AttackDef) => attackHarms(a, r => this.actorKind(r)),
+      /** Whether the monster's behaviour aims a harming attack at the knight, and after how long (behavior.ts attackOutlook). */
+      outlook: (m: Monster) => {
+        const w = this.world as any;
+        if (!w) return null;
+        return attackOutlook(w.brainOf(m).cfg, (i: number) => attackHarms(m.def.slots[i], r => this.actorKind(r)));
+      },
       hits: () => this.hits,
       clearHits: () => this.clearHits(),
       attackTiming,

@@ -11,7 +11,7 @@ import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
 import { collidesWith, contactPoint, separationShares, type CollisionMap } from "./collision";
 import { dealt, hitDamage, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
-import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
+import { GameData, type ArmorDef, type AttackDef, type DamageShape, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { DAMAGE_MASK, DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
 import { DIFFICULTY_SCALES } from "./difficulty";
 import { addItemBonuses, capValue, emptyBonuses, forWeapon, resistFactor, STATUS_BITS, type Bonuses } from "./bonus";
@@ -942,9 +942,10 @@ export class World implements LogicHost {
       return e;
     }
     const k = String(cfg.$class ?? "").split("$").pop();
-    // inert monsters (corpses such as a dead gremlin: no collision, effectively unkillable)
-    // are scenery; they do not hold their wave open
-    if (k === "Monster" && cfg.collisionFlags === 0 && (cfg.health ?? 0) >= 99999) {
+    // inert monsters (corpses such as a dead gremlin: no collision, effectively unkillable,
+    // nothing to attack with) are scenery; they do not hold their wave open. The Swarm is as
+    // untouchable but attacks (its Consume), so it stays a monster
+    if (k === "Monster" && cfg.collisionFlags === 0 && (cfg.health ?? 0) >= 99999 && !(cfg.attacks ?? []).some((a: any) => a?.ref?.name)) {
       e.tags = [];
       e.handlerConfigs = [];
       this.createProp(e, { ...cfg, $class: "generic", model: cfg.sprite?.model });
@@ -2566,7 +2567,9 @@ export class World implements LogicHost {
    * before has finished, see attackClipAt), when that is a later one than is playing.
    */
   private syncAttackClip(a: Actor) {
-    const at = a.attack!, d = at.def;
+    const at = a.attack;
+    if (!at) return;
+    const d = at.def;
     const clips: [any, number][] = [[d.start, d.startSpeed], [d.fire, d.fireSpeed], [d.end, d.endSpeed]];
     const lens = clips.map(([path, speed]) => {
       if (!path) return null;
@@ -2595,14 +2598,19 @@ export class World implements LogicHost {
     this.play(a, path, { loop: false, speed, blend: 0.06 });
   }
 
-  /** Moves an actor along an active lunge (the same easing curve as an impulse). */
+  /**
+   * Moves an actor along an active lunge (the same easing curve as an impulse). A monster's
+   * attack step is the client's ItemImpulse on a mobile actor like the knight's swing, so it
+   * stops against the actors in its way (moveAmongActors): a spookat's 2-unit pounce moved
+   * 0.4 units a tick straight through the knight it was biting and landed behind it.
+   */
   private applyLunge(a: Actor, dt: number, mask: number) {
     const l = a.lunge;
     if (l.t >= l.dur) return;
     const u0 = l.t / l.dur;
     l.t = Math.min(l.dur, l.t + dt);
     const f = impulseShare(u0, l.t / l.dur);
-    this.move(a, l.dx * f, l.dy * f, mask);
+    this.moveAmongActors(a, l.dx * f, l.dy * f, mask);
   }
 
   private enterFire(a: Actor) {
@@ -2633,7 +2641,13 @@ export class World implements LogicHost {
     dt *= this.attackRate(a);
     at.t += dt;
     at.total = (at.total ?? 0) + dt;
-    if (at.phase !== "start") { at.ft += dt; this.runFires(a, at); }
+    if (at.phase !== "start") {
+      at.ft += dt;
+      this.runFires(a, at);
+      // a fire action may end the attack under way: a bombie's self-destruct kills it (its
+      // death clears the attack), an action may start another one
+      if (a.attack !== at) return;
+    }
     // the attack's impulse (each sword swing is a lunge; some gun charges kick back) starts
     // `delay` into the attack; a speed-modified one stretches with the status speed
     const imp = at.def.impulse, d = at.def;
@@ -2652,6 +2666,7 @@ export class World implements LogicHost {
     }
     if (a === this.knight && a.lunge.t < a.lunge.dur) a.lunge.t += dt / Math.max(1e-6, this.attackRate(a));
     if (d.contact && a.lunge.t < a.lunge.dur) this.contactHits(a, at);
+    if (a.attack !== at) return;
     // the animations, each on from the last as it finishes, apart from the phase times
     this.syncAttackClip(a);
     if (at.phase === "start") {
@@ -2722,12 +2737,14 @@ export class World implements LogicHost {
   private resolveHit(a: Actor, def: FireDef) {
     const shape = def.shape!;
     const c = Math.cos(a.heading), s = Math.sin(a.heading);
-    const hits = (tx: number, ty: number, r: number) => {
+    const within = (p: DamageShape, tx: number, ty: number, r: number) => {
       const dx = tx - a.x, dy = ty - a.y;
-      const lx = dx * c + dy * s - shape.forward, ly = -dx * s + dy * c - shape.side;
-      if (shape.halfWidth > 0) return Math.abs(lx) <= shape.halfLength + r && Math.abs(ly) <= shape.halfWidth + r;
-      return Math.hypot(lx, ly) <= shape.radius + r;
+      const lx = dx * c + dy * s - p.forward, ly = -dx * s + dy * c - p.side;
+      if (p.halfWidth > 0) return Math.abs(lx) <= p.halfLength + r && Math.abs(ly) <= p.halfWidth + r;
+      return Math.hypot(lx, ly) <= p.radius + r;
     };
+    // a compound region strikes with any of its parts
+    const hits = (tx: number, ty: number, r: number) => (shape.parts ?? [shape]).some(p => within(p, tx, ty, r));
     const amounts = this.amounts(def.damage, this.attackerCtx(a));
     if (a.team === "knight") {
       for (const m of this.monsters) {

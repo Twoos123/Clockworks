@@ -768,6 +768,7 @@ export async function loadAnimation(loader: ModelLoader, pathOrRef: string | any
     return impl.animation?.name && depth < 6 ? loadAnimation(loader, impl.animation, depth + 1) : null;
   }
   if (impl.$class.endsWith("$Sequential")) return sequential(loader, impl, hasArguments(ref) ? path + "|" + argKey(ref) : path, depth);
+  if (impl.$class.endsWith("$Procedural")) return procedural(impl, hasArguments(ref) ? path + "|" + argKey(ref) : path);
   if (!impl.transforms || !impl.targets) return null;
   return {
     path: hasArguments(ref) ? path + "|" + argKey(ref) : path,
@@ -779,6 +780,33 @@ export async function loadAnimation(loader: ModelLoader, pathOrRef: string | any
     frames: (impl.transforms as any[]).map(f => (f as any[]).map(readTransform)),
     actions: ((impl.actions ?? []) as any[]).filter(a => a?.action).map(a => ({ frame: a.frame ?? 0, action: a.action })),
   };
+}
+
+/** How long a procedural animation is sampled for when it plays as a clip, in seconds. */
+const PROCEDURAL_SECONDS = 8;
+
+/**
+ * AnimationConfig$Procedural played as a clip (a razor's idle and movement, jitter.dat: its
+ * blade nodes turned by noise of the clock): each target transform's expression sampled at
+ * 30 fps over PROCEDURAL_SECONDS and looped, as matrices that set the nodes' local transforms
+ * outright (as a model's automatic procedurals do in the renderer). It used to load as no clip,
+ * so a razor stood in its bind pose.
+ */
+export function procedural(impl: any, path: string): AnimationClip | null {
+  const parts = ((impl.transforms ?? []) as any[]).map(tt => ({ targets: ((tt?.targets ?? []) as string[]).filter(Boolean), fn: transformExpr(tt?.expression) }))
+    .filter(p => p.targets.length && p.fn);
+  if (!parts.length) return null;
+  const targets = [...new Set(parts.flatMap(p => p.targets))];
+  const rate = 30, frames: Transform[][] = [];
+  for (let i = 0; i <= PROCEDURAL_SECONDS * rate; i++) {
+    const at = new Map<string, Transform>();
+    for (const p of parts) {
+      const m = p.fn!(i / rate);
+      for (const t of p.targets) at.set(t, { ...IDENTITY_TRANSFORM, matrix: m });
+    }
+    frames.push(targets.map(t => at.get(t)!));
+  }
+  return { path, rate, loop: true, targets, frames, actions: [] };
 }
 
 /**
