@@ -184,6 +184,10 @@ export class SceneLoader {
 
   /** Loads a scene from its parsed root (a cached scene, or a generated one). */
   async loadRoot(id: string, s: any, onProgress?: (done: number, total: number) => void): Promise<LoadedScene> {
+    // the config libraries the entries resolve through, and the materials the models use, are
+    // read at once rather than each when first needed
+    for (const f of ["config/area.dat", "config/tile.dat", "config/placeable.dat"]) void this.library(f);
+    void this.loader.configs();
     const objects: SceneObject[] = [];
     const collision = new CollisionMap();
     const levelMap = new LevelMap();
@@ -311,6 +315,8 @@ export class SceneLoader {
     // --- load each distinct model reference once
     let done = 0;
     const unique = new Set<LoadedModel>();
+    // every model file is read at once; the models are still built (and placed) in order
+    this.loader.prefetch(jobs.map(j => j.ref));
     for (const job of jobs) {
       if (editorOnly(job.ref?.name ?? "")) { stats.markers++; continue; }
       const model = await this.loader.loadRef(job.ref);
