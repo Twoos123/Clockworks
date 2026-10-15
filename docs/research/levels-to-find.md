@@ -1,6 +1,6 @@
 # Levels to find
 
-These are the levels missing from the archive, measured 2026-10-15 with `npm run levels`: 166 levels that are still in the game. Not listed here: Coliseum PvP (29), old removed levels, and guild halls.
+These are the levels missing from the archive, measured 2026-10-15 with `npm run levels`, after importing the scene archive's full git history (22 older floors that later commits had overwritten): 144 levels that are still in the game. Not listed here: Coliseum PvP (29), old removed levels, and guild halls.
 
 ## Why playing them doesn't capture them
 
@@ -12,12 +12,11 @@ Ways to fill the gaps:
 
 ## What to prioritise
 
-1. **Danger missions (4) and the story mission floors (22).** Without a capture, these play as a generated stand-in floor.
+1. **Danger missions (4).** Without a capture, these play as a generated stand-in floor. Every story mission floor is now captured.
 2. **Clockworks levels (109).** These come up randomly at Arcade gates, so just playing the Arcade picks them up over time. Look at the gate's stratum icons to aim for a theme (fire, freeze, poison or shock) and a monster family. Until captured, they play as generated floors built from the real prefab rooms.
 3. **Items marked `[unknown]` or `[event: ...]`.** The game may not send these anymore, so skip them unless you happen to see one.
 
-## Clockworks levels: 51 of 160
-- [ ] **Clockwork Tunnels**: Clockwork Tunnels: Mechanized Mile — Arcade gate, any tier: a Construct stratum with no status theme (the most common level type)
+## Clockworks levels: 56 of 160
 - [ ] **Clockwork Tunnels**: Clockwork Tunnels: Infernal Passage — Arcade gate, any tier: a Fiend stratum with no status theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Clockwork Tunnels: Gremlin Grounds — Arcade gate, any tier: a Gremlin stratum with no status theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Blast Furnace: Wild Path — Arcade gate, any tier: a Beast stratum with the fire theme (the most common level type)
@@ -28,10 +27,8 @@ Ways to fill the gaps:
 - [ ] **Clockwork Tunnels**: Blast Furnace: Haunted Passage — Arcade gate, any tier: a Undead stratum with the fire theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Cooling Chamber: Wild Path — Arcade gate, any tier: a Beast stratum with the freeze theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Cooling Chamber: Mechanized Mile — Arcade gate, any tier: a Construct stratum with the freeze theme (the most common level type)
-- [ ] **Clockwork Tunnels**: Cooling Chamber: Infernal Passage — Arcade gate, any tier: a Fiend stratum with the freeze theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Cooling Chamber: Gremlin Grounds — Arcade gate, any tier: a Gremlin stratum with the freeze theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Cooling Chamber: Slimeway — Arcade gate, any tier: a Slime stratum with the freeze theme (the most common level type)
-- [ ] **Clockwork Tunnels**: Cooling Chamber: Haunted Passage — Arcade gate, any tier: a Undead stratum with the freeze theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Wasteworks: Wild Path — Arcade gate, any tier: a Beast stratum with the poison theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Wasteworks: Mechanized Mile — Arcade gate, any tier: a Construct stratum with the poison theme (the most common level type)
 - [ ] **Clockwork Tunnels**: Wasteworks: Infernal Passage — Arcade gate, any tier: a Fiend stratum with the poison theme (the most common level type)
@@ -79,7 +76,6 @@ Ways to fill the gaps:
 - [ ] **Compound**: Charred Compound: Chittering Burrows — Arcade gate, tier 2 or 3 only: a Gremlin stratum with the fire theme
 - [ ] **Compound**: Charred Compound: Creeping Colony — Arcade gate, tier 2 or 3 only: a Gremlin stratum with the fire theme
 - [ ] **Compound**: Charred Compound: Ravenous Warrens — Arcade gate, tier 2 or 3 only: a Gremlin stratum with the fire theme
-- [ ] **Compound**: Frozen Compound: Chittering Burrows — Arcade gate, tier 2 or 3 only: a Gremlin stratum with the freeze theme
 - [ ] **Compound**: Frozen Compound: Creeping Colony — Arcade gate, tier 2 or 3 only: a Gremlin stratum with the freeze theme
 - [ ] **Compound**: Frozen Compound: Ravenous Warrens — Arcade gate, tier 2 or 3 only: a Gremlin stratum with the freeze theme
 - [ ] **Compound**: Blighted Compound: Chittering Burrows — Arcade gate, tier 2 or 3 only: a Gremlin stratum with the poison theme
@@ -106,7 +102,6 @@ Ways to fill the gaps:
 - [ ] **Lichenous Lair**: Cold Fusion — Arcade gate stratum with Slime monsters and the freeze status theme
 - [ ] **Lichenous Lair**: Toxic Union — Arcade gate stratum with Slime monsters and the poison status theme
 - [ ] **Lichenous Lair**: Shocking Synthesis — Arcade gate stratum with Slime monsters and the shock status theme
-- [ ] **Wolver Den**: Pack Brutality — Arcade gate stratum with Beast monsters and the normal status theme
 - [ ] **Wolver Den**: Ashes to Ash Tails — Arcade gate stratum with Beast monsters and the fire status theme
 - [ ] **Wolver Den**: Raving Rabids — Arcade gate stratum with Beast monsters and the poison status theme
 - [ ] **Wolver Den**: High Voltail — Arcade gate stratum with Beast monsters and the shock status theme
@@ -135,24 +130,7 @@ Ways to fill the gaps:
 - [ ] **Heart of Ice**: Frozen Highway — Danger mission "Heart of Ice" from the prestige mission board (daily rotation, every fourth day), rank 4-1 or higher to host; depth by rank
 - [ ] **Ghosts in the Machine**: Dry Dock — Danger mission "Ghosts in the Machine" from the prestige mission board (daily rotation, every fourth day), rank 4-1 or higher to host; depth by rank
 
-## Mission levels: 115 of 153
-- [ ] **3-1 Alien Ooze**: Field Research Site — Rank mission 3-1 "Alien Ooze"; after a Slimeway
-- [ ] **4-2 Oilers in the Boilers**: The Hot Vents — Rank mission 4-2 "Oilers in the Boilers"
-- [ ] **4-2 Oilers in the Boilers**: Smoldering Slime Source — Rank mission 4-2 "Oilers in the Boilers"
-- [ ] **5-1 Chilled to the Bone**: Candlestick Keep — Rank mission 5-1 "Chilled to the Bone"
-- [ ] **5-2 Rise or Fall**: Storm Rising — Rank mission 5-2 "Rise or Fall"
-- [ ] **5-2 Rise or Fall**: Night Falls — Rank mission 5-2 "Rise or Fall"
-- [ ] **6-1 Plan of Attack**: Power Grid — Rank mission 6-1 "Plan of Attack"
-- [ ] **6-2 Whipping and Mishandling**: Sol'Fork Skyway — Rank mission 6-2 "Whipping and Mishandling"
-- [ ] **6-2 Whipping and Mishandling**: Sol'Fork Downtown — Rank mission 6-2 "Whipping and Mishandling"
-- [ ] **6-2 Sewer Stash**: Security Outpost — Rank mission 6-2 "Sewer Stash"
-- [ ] **6-2 Sewer Stash**: Weapons Cache — Rank mission 6-2 "Sewer Stash"
-- [ ] **7-2 Vicious and Viscous**: The Creeping Colony — Rank mission 7-2 "Vicious and Viscous"
-- [ ] **7-2 Vicious and Viscous**: The Hungry Den — Rank mission 7-2 "Vicious and Viscous"
-- [ ] **7-2 Vicious and Viscous**: The Oozing Onslaught — Rank mission 7-2 "Vicious and Viscous"
-- [ ] **8-2 The Vile Engine**: Forgotten Trail — Rank mission 8-2 "The Vile Engine"
-- [ ] **8-2 The Vile Engine**: Lichen Colony — Rank mission 8-2 "The Vile Engine"
-- [ ] **8-2 The Vile Engine**: Processing Plant — Rank mission 8-2 "The Vile Engine"
+## Mission levels: 132 of 153
 - [ ] **The Core**: Stormchasing [unknown] — A Core level in the game's text (keyed like It Came From Below's The Path is Revealed), not on the wiki
 - [ ] **rank 4+ Shroud of the Apocrea**: The Grasping Plateau [event: Shroud of the Apocrea] — Event mission "Shroud of the Apocrea"; Shroud of the Apocrea event, depths 19 to 25 (the Nexus is its lobby, Departure its last floor)
 - [ ] **rank 4+ That Mold and Black Magic**: That Mold and Black Magic (its floors) [event: Kataclysmic Confrontation] — Kataclysmic Confrontation event mission (Black Kats, given at Moorcroft Manor); floor names and keys not known
