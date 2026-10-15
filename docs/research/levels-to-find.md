@@ -1,6 +1,6 @@
 # Levels to find
 
-These are the levels missing from the archive, measured 2026-10-15 with `npm run levels`, after importing the scene archive's full git history (22 older floors that later commits had overwritten): 144 levels that are still in the game. Not listed here: Coliseum PvP (29), old removed levels, and guild halls.
+These are the levels missing from the archive, measured 2026-10-15 with `npm run levels`, after importing the scene archive's full git history (22 older floors that later commits had overwritten): the 115 levels still in the game. Not listed here: Coliseum PvP (29), old removed levels, and guild halls.
 
 ## Why playing them doesn't capture them
 
