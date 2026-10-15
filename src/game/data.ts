@@ -24,6 +24,8 @@ export interface DamageShape {
   halfLength: number;
   halfWidth: number;
   radius: number;
+  /** A compound region's parts (a hit lands when any of them reaches): see readShape. */
+  parts?: DamageShape[];
 }
 
 /** One fire action of an attack: a melee hit (shape and damage) or a spawned bullet or bomb. */
@@ -787,6 +789,76 @@ export function orbitalDef(name: string, p: any, k: string): ProjectileDef {
 }
 
 /**
+ * Whether a DamageConfig hurts a victim with damage mask `mask` (the knight's by default):
+ * an amount (a "Base" one's of at least half a point; a flat one with none is the configs'
+ * "Fake Damage", which a wolver's bark, a devilite's dodge or a trojan's deflect deal to time a
+ * reaction, and a bombie's 0.001 marks its self-destruct), a depth-scaled table, a status
+ * condition or an action. A part whose flags miss the mask passes the victim by (depth.ts).
+ */
+export function damageHarms(d: any, mask = DAMAGE_MASK_KNIGHT, depth = 0): boolean {
+  if (!d?.$class || depth > 6) return false;
+  const k = kind(d);
+  if (k === "Compound") return ((d.damages ?? []) as any[]).some(x => damageHarms(x, mask, depth + 1));
+  if (k === "Optional") return damageHarms(d.damage, mask, depth + 1);
+  if (((d.flags ?? 1) & mask) === 0) return false;
+  if (/^Depth(Normal|Piercing|Elemental|Shadow|Multi)$/.test(k)) return (d.amount ?? 0) >= 0.5 || (d.endAmount ?? 0) >= 0.5;
+  if (/^(Normal|Piercing|Elemental|Shadow|Unblockable|DepthUnblockable)$/.test(k)) return (d.amount ?? 0) >= 0.5;
+  if (k === "DepthScale" || k === "DepthScaleMulti") return !!d.depthScale;
+  if (k === "TaggedBonus") return d.damage ? damageHarms(d.damage, mask, depth + 1) : true;
+  // Status, ExclusiveStatus, Action
+  return true;
+}
+
+/** The knight's damage mask (depth.ts DAMAGE_MASK.KNIGHT). */
+const DAMAGE_MASK_KNIGHT = 13;
+
+/** Actor config classes that come into the world as monsters (World.createActor), not projectiles. */
+const MONSTER_KINDS = /^(Monster|ZMonster|Agent)$/;
+
+/**
+ * Whether an action (a fire action's, looking inside compounds, random picks, conditionals and
+ * delays) strikes the knight or launches something at it: a damage region or a damage to its
+ * target that harms the knight, or the spawn of an actor that is not a monster (a bullet, a
+ * bomb, a laser). Applying a status (a buff on allies), a flag, an effect, a heal or a
+ * conversation does not. `actorKind` names a spawned actor's config class when it is known.
+ */
+export function actionHarms(a: any, actorKind?: (ref: any) => string | null, depth = 0): boolean {
+  if (!a || typeof a !== "object" || depth > 8) return false;
+  if (Array.isArray(a)) return a.some(x => actionHarms(x, actorKind, depth + 1));
+  const k = kind(a);
+  if (/^DamageRegion|^DamageTarget/.test(k)) return damageHarms(a.damage);
+  if (/Spawn/.test(k) && !/TableSpawn/.test(k)) {
+    const refs = [a.actor, ...((a.spawns ?? []) as any[]).map(s => s?.actor)].filter(r => r?.name);
+    return refs.some(r => !MONSTER_KINDS.test(actorKind?.(r) ?? ""));
+  }
+  // another fire action by name: what it does is in config/fire_action.dat, unread here
+  if (k === "FireAction") return true;
+  if (/^(ApplyStatus|FireEffect|SetFlag|StartConversation|DepthScaleHeal|Heal|Signal|ImpartImpulse|TableSpawn)$/.test(k)) return false;
+  // containers (Compound, Random, Conditional, Delayed...): what they hold
+  for (const [f, v] of Object.entries(a)) {
+    if (f === "$class" || f === "$outer" || !v || typeof v !== "object") continue;
+    if (actionHarms(v, actorKind, depth + 1)) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether an attack is a blow at the knight: one of its fire actions strikes with damage that
+ * harms it, spawns a projectile, or runs a harming action (actionHarms), or its shield bash's
+ * contact does. A wolver's bark, a devilite's or gremlin's dodge, a deadnaught's deflect, a
+ * blastcore weak spot's expose and hide, a potion, a scripted signal or a boss's stage swap
+ * is not one: the Test Range sweep expects no hit from those.
+ */
+export function attackHarms(a: AttackDef | null | undefined, actorKind?: (ref: any) => string | null): boolean {
+  if (!a) return false;
+  if (a.contact && damageHarms(a.contact.damage)) return true;
+  return a.fires.some(f =>
+    (f.spawn ? !MONSTER_KINDS.test(actorKind?.(f.spawn.actor) ?? "") : false)
+    || (!!f.shape && damageHarms(f.damage))
+    || actionHarms(f.action, actorKind));
+}
+
+/**
  * The spawns of a prespawning fire action (DungeonActionConfig SpawnPrespawned and its
  * transformed form, or a MultiSpawnPrespawned of several), each with its rotation, spread,
  * offset and multi-spawn index.
@@ -885,10 +957,23 @@ function actorRadius(shape: any): number {
   return shape?.radius ?? 0.5;
 }
 
-function readShape(s: any): DamageShape {
+export function readShape(s: any): DamageShape {
   const t = s?.transform?.translation;
   const inner = s?.shape ?? s;
   const k = kind(inner);
+  // a compound region (Vanaduke's club slam: a rectangle along the club and a circle where it
+  // lands, 2 to 9.4 units ahead) strikes with each part, each at the outer offset plus its own;
+  // its own fields are the part reaching farthest (what reach and threat checks read)
+  if (k === "Compound") {
+    const parts = ((inner.shapes ?? []) as any[]).filter(Boolean).map(p => {
+      const pt = p?.transform?.translation;
+      return readShape({ shape: p?.shape ?? p, transform: { translation: { x: (t?.x ?? 0) + (pt?.x ?? 0), y: (t?.y ?? 0) + (pt?.y ?? 0) } } });
+    });
+    if (parts.length) {
+      const far = parts.reduce((a, b) => (b.forward + Math.max(b.halfLength, b.radius) > a.forward + Math.max(a.halfLength, a.radius) ? b : a));
+      return parts.length === 1 ? parts[0] : { ...far, parts };
+    }
+  }
   const base: DamageShape = { forward: t?.x ?? 0.8, side: t?.y ?? 0, halfLength: 0, halfWidth: 0, radius: 0.9 };
   if (k === "Rectangle") return { ...base, halfLength: (inner.width ?? 1) / 2, halfWidth: (inner.height ?? 1) / 2 };
   if (k === "Circle") return { ...base, radius: inner.radius ?? 1 };
