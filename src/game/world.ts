@@ -9,7 +9,7 @@ import { compose, invert, multiply, readTransform, type Mat4, type Vec3 } from "
 import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader } from "../model";
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
-import { contactPoint, separationShares, type CollisionMap } from "./collision";
+import { collidesWith, contactPoint, separationShares, type CollisionMap } from "./collision";
 import { dealt, hitDamage, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { DAMAGE_MASK, DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
@@ -60,6 +60,8 @@ const MAX_HEALTH_FX = { $class: "com.threerings.config.ConfigReference", name: "
 /** The text labels particle effects carry as component billboards (status names, item notices). */
 const LABEL_MODELS = /particle\/part_component_(debuffname|itemfail)\.dat$/;
 const MONSTER_MASK = 1 | 2 | 8 | 32;
+/** The longest step an impulse moves an actor before it is pushed back out of the actors it met (World.moveAmongActors). */
+const ACTOR_SUBSTEP = 0.2;
 export const STARTER_WEAPONS = ["Weapon/Sword/Proto Sword", "Weapon/Handgun/Proto Gun", "Weapon/Bomb/Proto Bomb"];
 const STARTER_SHIELD = "Gear/Shield/Proto Shield";
 const STARTER_ARMOR = ["Gear/Armor/Parts/Proto (Base)", "Gear/Helm/Parts/Proto (Base)"];
@@ -2080,8 +2082,32 @@ export class World implements LogicHost {
     const u0 = imp.t / imp.dur;
     imp.t = Math.min(imp.dur, imp.t + dt);
     const f = impulseShare(u0, imp.t / imp.dur);
-    this.move(a, imp.dx * f, imp.dy * f, mask);
+    this.moveAmongActors(a, imp.dx * f, imp.dy * f, mask);
     if (imp.t >= imp.dur) a.impulse = null;
+  }
+
+  /**
+   * Moves an actor by an impulse's share for the tick, stopping at the actors that block it
+   * (collision.ts collidesWith). The client advances its actors a frame at a time and pushes a
+   * mover back out of whatever it walked into (Tudey's penetration), so a sword's step ends
+   * against a monster in front; one long tick (a sword's 2-unit step moves 0.8 units in the
+   * first 33 ms) would carry the knight past the monster's middle, and the separation that
+   * follows would then push it out the far side. A long move is taken in short steps, the
+   * mover pushed back out of its blockers after each.
+   */
+  private moveAmongActors(a: Actor, dx: number, dy: number, mask: number) {
+    const n = Math.ceil(Math.hypot(dx, dy) / ACTOR_SUBSTEP);
+    if (n <= 1) { this.move(a, dx, dy, mask); return; }
+    const blockers = this.separating().filter(b => b !== a && collidesWith(a, b));
+    for (let i = 0; i < n; i++) {
+      this.move(a, dx / n, dy / n, mask);
+      for (const b of blockers) {
+        const ox = a.x - b.x, oy = a.y - b.y, d = Math.hypot(ox, oy), min = a.radius + b.radius;
+        if (d >= min || d < 1e-4) continue;
+        const px = (ox / d) * (min - d), py = (oy / d) * (min - d);
+        if (!this.collision.collides(a.x + px, a.y + py, a.radius, mask)) { a.x += px; a.y += py; }
+      }
+    }
   }
 
   /**
@@ -3979,14 +4005,18 @@ export class World implements LogicHost {
     if (act) this.logic.execute(act, at, m.entity ?? at);
   }
 
+  /** The actors kept apart: the knight and the monsters that move (turrets are not pushed around). */
+  private separating(): Actor[] {
+    return [this.knight, ...this.monsters.filter(m => m.state !== "dying" && m.def.targetedSpeed > 0)];
+  }
+
   /**
    * Keeps actors from overlapping each other as their collision bits say (collision.ts
    * separationShares): the knight walks through townsfolk's snipes (flags 4, outside its mask
    * 43), and they, standing idle, are not shoved aside.
    */
   private separate() {
-    // stationary monsters (turrets) are not pushed around
-    const actors: Actor[] = [this.knight, ...this.monsters.filter(m => m.state !== "dying" && m.def.targetedSpeed > 0)];
+    const actors = this.separating();
     for (let i = 0; i < actors.length; i++) {
       for (let j = i + 1; j < actors.length; j++) {
         const a = actors[i], b = actors[j];

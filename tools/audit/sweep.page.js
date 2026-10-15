@@ -147,22 +147,29 @@
 
       // the basic chain (a gun until its clip is spent and it reloads)
       const presses = def.kind === "Sword" ? def.attacks.length : Math.max(def.attacks.length, def.maxChain || 1);
-      let pressed = 0, tick = 0;
-      // a press every 5 ticks until the chain is done, across the steps below
+      let tick = 0;
+      const started = () => A().log().attacks.filter(a => a.who === "knight").length;
+      // clicks every 3 ticks until that many attacks have started, across the steps below: the
+      // client chains the next step only on a click at or after the swing's rearm (a click
+      // earlier in the swing is dropped), so a fixed count of early clicks played one swing
       const drive = () => {
         const inp = { aim: aim() };
-        if (tick++ % 5 === 0 && pressed < presses) { inp.attackDown = true; pressed++; }
+        if (tick++ % 3 === 0 && started() < presses) inp.attackDown = true;
         return inp;
       };
-      const started = () => A().log().attacks.filter(a => a.who === "knight").length;
       if (await step(7, drive, () => k.attack?.phase === "fire")) rec.shots.push(await shot("chain 1", k.instance));
-      if (presses > 1) await step(8, drive, () => pressed >= presses && started() > 1 && k.attack?.phase === "fire");
+      if (presses > 1) await step(8, drive, () => started() >= presses && k.attack?.phase === "fire");
       else await step(0.15, drive);
       rec.shots.push(await shot("chain end", k.instance));
-      await step(4, drive, () => pressed >= presses && !k.attack && !knightProjectiles());
+      await step(4, drive, () => started() >= presses && !k.attack && !knightProjectiles());
       await step(1, () => ({ aim: aim() }));
       await sleep(300);
-      rec.chain = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), travel: travel(home), impulse: impulseOf(def.attacks.slice(0, presses)) };
+      // the swings that played carry the knight; the dummy (pinned in place) stops it where they
+      // meet, as the client's mobile collision stops a step against a monster
+      const swings = Math.min(presses, started());
+      const gap = Math.hypot(dummy.x - k.x, dummy.y - k.y) - dummy.radius - k.radius;
+      rec.chain = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), travel: travel(home),
+        impulse: impulseOf(def.attacks.slice(0, swings)), swings: presses, blocked: gap < 0.1 };
 
       // a full charge and release
       if (def.chargedAttack) {
@@ -185,7 +192,8 @@
         await step(4, () => ({ aim: aim() }), () => !k.attack && !knightProjectiles());
         await step(1, () => ({ aim: aim() }));
         await sleep(300);
-        rec.charge = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), full, pose: chargePose, travel: travel(start), impulse: impulseOf([def.chargedAttack]) };
+        rec.charge = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), full, pose: chargePose, travel: travel(start), impulse: impulseOf([def.chargedAttack]),
+          blocked: Math.hypot(dummy.x - k.x, dummy.y - k.y) - dummy.radius - k.radius < 0.1 };
       }
       R().clearAll();
       return rec;

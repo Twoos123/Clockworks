@@ -96,8 +96,13 @@ export interface WeaponRecord {
   chargeTime?: number;
   attackNames?: string[];
   chargedName?: string | null;
-  chain?: (RunLog & { travel?: number; impulse?: number }) | null;
-  charge?: (RunLog & { full: boolean; pose: string | null; travel?: number; impulse?: number }) | null;
+  /**
+   * The basic chain: how far the knight moved (`travel`), the forward units of the swings that
+   * played (`impulse`), the attacks the sweep clicked for (`swings`), and whether it ended
+   * against the dummy (`blocked`), which stops a step as the client's collision does.
+   */
+  chain?: (RunLog & { travel?: number; impulse?: number; swings?: number; blocked?: boolean }) | null;
+  charge?: (RunLog & { full: boolean; pose: string | null; travel?: number; impulse?: number; blocked?: boolean }) | null;
   shots: Shot[];
   console: string[];
   problems: string[];
@@ -191,9 +196,13 @@ export function judgeWeapon(r: WeaponRecord): string[] {
     p.push(...failedEffects(x.effects).map(e => `${label}: ${e}`));
   };
   run("chain", r.chain);
-  // a combo whose swings carry the knight (their impulses) should move it
-  const still = (label: string, x: { travel?: number; impulse?: number } | null | undefined) => {
-    if (x && (x.impulse ?? 0) >= 0.5 && (x.travel ?? 0) < Math.abs(x.impulse!) * 0.25)
+  // a sword's chain plays every swing of its combo
+  if (r.kind === "Sword" && r.chain?.swings && r.chain.attacks.length < r.chain.swings)
+    p.push(`chain: ${r.chain.attacks.length} of its ${r.chain.swings} swings played`);
+  // a combo whose swings carry the knight (their impulses) should move it, unless it ended
+  // against the dummy (the client's collision stops a step against a monster)
+  const still = (label: string, x: { travel?: number; impulse?: number; blocked?: boolean } | null | undefined) => {
+    if (x && !x.blocked && (x.impulse ?? 0) >= 0.5 && (x.travel ?? 0) < Math.abs(x.impulse!) * 0.25)
       p.push(`${label}: the knight moved ${(x.travel ?? 0).toFixed(2)} of its attacks' ${x.impulse!.toFixed(2)} units`);
   };
   still("chain", r.chain);

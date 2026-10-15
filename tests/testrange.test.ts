@@ -104,6 +104,14 @@ test("weapon anomalies", () => {
   const ok: WeaponRecord = { name: "Weapon/Sword/Y", kind: "Sword", chargedName: null, chain: { attacks: ["A"], projectiles: [], effects: [], sounds: [], hits: [hit()] },
     shots: [{ label: "chain 1", pose: { clip: "a.dat", targets: 4, matched: 4 } }], console: [], problems: [] };
   assert.deepEqual(judgeWeapon(ok), []);
+  // a combo that played one of its three swings, or whose steps never moved the knight
+  const swing = (n: number, travel: number, blocked = false) => judgeWeapon({ ...ok,
+    chain: { attacks: ["A", "B", "C"].slice(0, n), projectiles: [], effects: [], sounds: [], hits: [hit()], swings: 3, impulse: 3.25, travel, blocked } });
+  assert.ok(swing(1, 0).includes("chain: 1 of its 3 swings played"));
+  assert.ok(swing(3, 0).includes("chain: the knight moved 0.00 of its attacks' 3.25 units"));
+  assert.deepEqual(swing(3, 3.1), []);
+  // stopped against the dummy: the step's legitimate end
+  assert.deepEqual(swing(3, 0.5, true), []);
 });
 
 test("monster anomalies", () => {
