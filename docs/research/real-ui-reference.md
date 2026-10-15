@@ -344,6 +344,12 @@ From a 215-second recording; frames are in `.scratch/vid4` (one every 2 seconds,
     Plug 558 / 4", ...), the crown cost (2,500) and a "Transmute" button.
   - An orb panel underneath: "Elite Orb of Alchemy ★4" with Buy Item.
   - ARSENAL at the right, and the energy widget.
+  - A 5★ recipe (Acheron, screenshot 2026-10-15): the ingredients panel heads "RECIPE: ACHERON"
+    and lists the materials with have/need and a magnifier, the Eternal Orb of Alchemy among them
+    ("24 / 3"). SPECIAL holds the base item, "Silent Nightblade (Lv 10)", in red while it isn't
+    met. COST is ⊙5,000, and Transmute is greyed out. There is no orb panel, because the depot
+    doesn't sell Eternal orbs. The recipe groups (Sword, Handgun, Bomb...) collapse with an arrow
+    on the group bar, and each row shows the item's icon, name and star.
 - **Mysterious Alchemy Machine (the Arcade):** the same interaction, with the name floating over
   the machine.
 - **Auction House:** an "AUCTION HOUSE" window at the left with categories, a results table and
