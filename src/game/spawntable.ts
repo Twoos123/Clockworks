@@ -7,6 +7,7 @@
 import { applyArguments } from "../config/params";
 import type { Difficulty } from "./depth";
 import { rewardScale } from "./difficulty";
+import { vitapodBetter, vitapodPips } from "./droprates";
 
 const kind = (o: any) => { const c: string = o?.$class ?? ""; return c.substring(c.lastIndexOf("$") + 1); };
 
@@ -14,6 +15,16 @@ export interface SpawnContext {
   depth: number; tier: number; difficulty: Difficulty;
   /** Tags of the source (the dropping monster's family, fam_slime): tag-gated drops and materials. */
   tags?: string[];
+  /**
+   * The vitapod the knight holds, in capsules (pips): an "Always Better" table gives its
+   * fallback for a pod no better (the wiki's Vitapod page: such pods "don't drop").
+   */
+  pod?: number;
+  /**
+   * A weight for a pick among mineral nodes on this floor (the wiki's Minerals page: a stratum's
+   * theme favours some colours), by the picked entry's actor or table name; even when unset.
+   */
+  pickWeight?: (name: string) => number;
 }
 export interface SpawnResult { actor?: any; item?: any; count: number }
 
@@ -36,7 +47,19 @@ export class SpawnTables {
     const cfg = this.resolve(ref, depth);
     if (!cfg) return [];
     if (kind(cfg) === "AutoItem") return this.autoItem(cfg, ctx, depth);
+    if (kind(cfg) === "AlwaysBetterDungeonItem") return this.alwaysBetter(cfg, ctx, depth);
     return this.entry(cfg.root, ctx, depth + 1);
+  }
+
+  /**
+   * SpawnTableConfig$AlwaysBetterDungeonItem (the vitapod tables): the pod the depth gives when
+   * it beats the one held, else the fallback table (hearts or pickups).
+   */
+  private alwaysBetter(cfg: any, ctx: SpawnContext, depth: number): SpawnResult[] {
+    const got = this.entry(cfg.root, ctx, depth + 1);
+    const pips = got.reduce((m, r) => Math.max(m, r.item?.name ? vitapodPips(String(r.item.name)) : 0), 0);
+    if (got.length && (!pips || vitapodBetter(pips, ctx.pod ?? 0))) return got;
+    return cfg.fallback ? this.evaluate(cfg.fallback, ctx, depth + 1) : [];
   }
 
   /**
@@ -91,7 +114,14 @@ export class SpawnTables {
       }
       case "SimpleRandomEntry": case "SpawnTypeListEntry": {
         const list: any[] = e.entries ?? [];
-        return list.length ? sub(list[Math.floor(Math.random() * list.length)]) : e.spawnTable ? this.evaluate(e.spawnTable, ctx, depth + 1) : [];
+        if (!list.length) return e.spawnTable ? this.evaluate(e.spawnTable, ctx, depth + 1) : [];
+        // an even pick, unless the floor weights the choices (mineral colours by stratum theme)
+        const ws = ctx.pickWeight ? list.map(x => Math.max(0, ctx.pickWeight!(String(x?.actor?.name ?? x?.spawnTable?.name ?? "")))) : null;
+        const total = ws ? ws.reduce((a, b) => a + b, 0) : 0;
+        if (!ws || total <= 0) return sub(list[Math.floor(Math.random() * list.length)]);
+        let r = Math.random() * total;
+        for (let i = 0; i < list.length; i++) { r -= ws[i]; if (r < 0) return sub(list[i]); }
+        return sub(list[list.length - 1]);
       }
       // (modifyForDifficulty: the chance times the difficulty's reward scale, OptionalEntry.a)
       case "OptionalEntry": return Math.random() < chance(e, ctx) ? sub(e.entry) : [];
@@ -103,10 +133,12 @@ export class SpawnTables {
       }
       case "DepthListEntry": {
         // the deepest entry whose start depth the current depth has reached
-        const list: any[] = e.entries ?? [];
+        // (offset: a deeper pick, the Vitapod table's "Depth Offset")
+        const list: any[] = e.entries ?? [], at = ctx.depth + (e.offset ?? 0);
         let pick: any = null;
-        for (const x of list) if ((x?.depth ?? 0) <= ctx.depth && (!pick || (x.depth ?? 0) >= (pick.depth ?? 0))) pick = x;
-        return sub(pick ?? list[0]);
+        for (const x of list) if ((x?.depth ?? 0) <= at && (!pick || (x.depth ?? 0) >= (pick.depth ?? 0))) pick = x;
+        // the offset carries down: what the pick holds is chosen at the offset depth too
+        return at === ctx.depth ? sub(pick ?? list[0]) : this.entry(pick ?? list[0], { ...ctx, depth: at }, depth + 1);
       }
       case "TierSwitchEntry": return sub(e[`tier${ctx.tier}`] ?? e.tier1);
       case "DifficultySwitchEntry": return sub(e[ctx.difficulty] ?? e.medium);

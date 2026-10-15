@@ -21,7 +21,7 @@ import { BEAM_MODELS, DungeonObjects, isAlly, isCaptive, standInModel, type Beam
 import { ENERGY_CROWNS } from "./energy";
 import { expand, intersects } from "./shapes";
 import { ARSENAL_DESCRIPTION, ARSENAL_STATION, policyOf, type EquipPolicy } from "./equippolicy";
-import { SpawnTables } from "./spawntable";
+import { SpawnTables, type SpawnContext } from "./spawntable";
 import { DEFAULT_LOADOUT, POCKET_SLOTS, type KnightFace, type Loadout as GearLoadout } from "./save";
 import { faceArgs } from "./creator";
 import { ECONOMY_FILES, Economy, type GearState, type VariantEffect } from "./economy";
@@ -41,6 +41,7 @@ import { hasMessage, message } from "../i18n";
 import { scriptedMusic, type ScriptedMusic } from "./musicstack";
 import { ShieldBubble, shieldPowerLevel } from "./shieldfx";
 import { MetaScripts } from "./metascripts";
+import { BELT_STACK, dropTags, mineralOf, mineralWeight, vitapodBetter, vitapodHealth, vitapodPips, wheelPickup, type Theme } from "./droprates";
 
 /** A live level-scripted music actor ("Environment/Music"). */
 export interface MusicActor { entity: Entity; music: ScriptedMusic }
@@ -446,8 +447,17 @@ export class World implements LogicHost {
   economy: Economy | null = null;
   /** The save's per-item state (heat, level, variants), by item name. */
   gear: Record<string, GearState> = {};
-  /** Monster family tags of the floor's theme, for treasure that has no monster to name one. */
-  themeTags: string[] = [];
+  /**
+   * The floor's stratum theme (a family or a status, src/game/droprates.ts): treasure with no
+   * monster to name one drops its materials, and its mineral nodes favour its colours.
+   */
+  floorTheme: Theme | null = null;
+  /**
+   * The vitapod picked up on this expedition, in capsules (0 for none). It adds empty pips above
+   * the equipped pod's and lasts until the expedition ends (the wiki's Vitapod page); the game
+   * carries it from floor to floor.
+   */
+  dungeonPod = 0;
   /** Per weapon: its level's and variants' damage, charge, attack speed and family damage. */
   private weaponBonus = new Map<string, { damage: number; uncapped: number; charge: number; attackSpeed: number; tagged: Record<string, number> }>();
   /** Per armour piece and shield: its level's defence increase (percent). */
@@ -1020,7 +1030,7 @@ export class World implements LogicHost {
         const at = cfg.location ? logic.resolveTarget(cfg.location, source, activator) : [source];
         let any = false;
         for (const t of at) {
-          const results = this.tables.evaluate(table, { depth: this.depth, tier: this.tier(), difficulty: this.difficulty, tags: this.sourceTags(source) });
+          const results = this.tables.evaluate(table, this.spawnContext(this.sourceTags(source)));
           for (const r of results) {
             for (let n = 0; n < r.count; n++) {
               // several results scatter a little around the spawn point
@@ -1202,17 +1212,36 @@ export class World implements LogicHost {
   /** The Clockworks tier of the current depth (tier 2 starts at Moorcroft Manor, depth 8). */
   private tier() { return this.depth >= 18 ? 3 : this.depth >= 8 ? 2 : 1; }
 
-  /** The prize wheel's pools here: a material by depth weight, a pickup from the tier's table. */
+  /**
+   * The spawn tables' context here: depth, tier, difficulty, the source's drop tags, the
+   * vitapod held (for "Always Better" pods) and the floor's mineral colours by its theme.
+   */
+  spawnContext(tags?: string[]): SpawnContext {
+    const theme = this.floorTheme;
+    return {
+      depth: this.depth, tier: this.tier(), difficulty: this.difficulty, tags, pod: this.podPips(),
+      pickWeight: theme ? name => { const m = mineralOf(name); return m ? mineralWeight(theme, m) : 1; } : undefined,
+    };
+  }
+
+  /** The capsules of the better of the equipped vitapod and the one found on this expedition. */
+  podPips(): number { return Math.max(this.vitapod?.count ?? 0, this.dungeonPod); }
+
+  /**
+   * The prize wheel's pools here: a material by depth weight, a pickup from the tier's table
+   * by the wiki's belt rules (src/game/droprates.ts wheelPickup).
+   */
   prizeSource(): PrizeSource {
     const ctx = { depth: this.depth, tier: this.tier(), difficulty: this.difficulty };
+    const random = () => {
+      const r = this.tables?.evaluate({ name: `Treasure/Pickups/Pickups ${ctx.tier}` }, ctx) ?? [];
+      const it = r.find(x => x.item?.name && this.pocketItem(String(x.item.name)));
+      return it ? String(it.item.name) : null;
+    };
     return {
       depth: this.depth,
       material: () => this.economy?.autoItem("MATERIAL", "Materials", ctx) ?? null,
-      pickup: () => {
-        const r = this.tables?.evaluate({ name: `Treasure/Pickups/Pickups ${ctx.tier}` }, ctx) ?? [];
-        const it = r.find(x => x.item?.name && this.pocketItem(String(x.item.name)));
-        return it ? String(it.item.name) : null;
-      },
+      pickup: () => wheelPickup(this.pocket, POCKET_SLOTS, random),
     };
   }
 
@@ -1238,14 +1267,15 @@ export class World implements LogicHost {
   }
 
   /**
-   * Tags a drop's source carries: a monster's family (its config folder, Monster/Slime/...,
-   * as fam_slime) and its actor tags; other sources (treasure, blocks) take the floor's theme.
+   * Tags a drop's source carries (src/game/droprates.ts dropTags): a monster's family (its
+   * config folder, Monster/Slime/..., as fam_slime) and its family and status tags (the
+   * elemental variants' sc_fire and the like: the wiki's Materials page has a monster drop
+   * its family's and its status's materials); other sources (treasure, blocks) take the
+   * floor's theme.
    */
   private sourceTags(source: Entity): string[] {
-    const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(source.name ?? "")?.[1]?.toLowerCase();
-    const own = (source.tags ?? []).filter(t => t.startsWith("fam_"));
-    if (fam) return [...new Set([`fam_${fam}`, ...own])];
-    return own.length ? own : this.themeTags;
+    const fam = /\/Monster\/(Beast|Construct|Fiend|Gremlin|Slime|Undead)\//.exec(source.name ?? "")?.[1] ?? null;
+    return dropTags(fam, source.tags ?? [], this.floorTheme);
   }
 
   private healKnight(amount: number) {
@@ -1529,8 +1559,9 @@ export class World implements LogicHost {
 
   /** Puts a consumable in the pocket; false when every slot holds something else. */
   private pocketAdd(name: string): boolean {
+    // a belt slot holds three of a kind (the wiki's Pickup page)
     const slot = this.pocket.find(p => p[0] === name);
-    if (slot) { slot[1]++; return true; }
+    if (slot) { if (slot[1] >= BELT_STACK) return false; slot[1]++; return true; }
     if (this.pocket.length >= POCKET_SLOTS) return false;
     this.pocket.push([name, 1]);
     return true;
@@ -1579,9 +1610,17 @@ export class World implements LogicHost {
       }
       return;
     }
-    // dungeon vitapod drops ("Always Better") heal a pip per level on the spot
-    const pod = /^Gear\/Dungeon\/Vitapod\/Health \+(\d+)/.exec(name);
-    if (pod) { this.healKnight(10 * Number(pod[1])); this.floaters.push({ x, y, z, text: `+${pod[1]} health`, color: "#ff8a8a", age: 0 }); return; }
+    // a dungeon vitapod (the wiki's Vitapod page): a better one replaces what is held and adds
+    // empty pips for the rest of the expedition, without healing; one no better is not kept
+    const pips = vitapodPips(name);
+    if (pips) {
+      if (!vitapodBetter(pips, this.podPips())) return;
+      this.dungeonPod = pips;
+      this.updateKnightStats(this.knight);
+      this.onLoot?.(name, 1);
+      this.floaters.push({ x, y, z, text: `+${pips} vitapod`, color: "#ff8a8a", age: 0 });
+      return;
+    }
     const eco = this.economy, info = eco?.info(name);
     const dep = info?.category === "deposit" ? eco!.deposit(name) : null;
     if (dep) {
@@ -1893,7 +1932,8 @@ export class World implements LogicHost {
       if (t in d) d[t] += def.depthScale ? Math.ceil(this.data.depth.evaluate(def.depthScale, this.ctx(rarity))) : 0;
     }
     k.defense = d;
-    k.maxHealth = KNIGHT_HEALTH + k.bonuses.health;
+    // a vitapod found on the expedition adds its pips above the equipped pod's
+    k.maxHealth = KNIGHT_HEALTH + k.bonuses.health + vitapodHealth(Math.max(0, this.dungeonPod - (this.vitapod?.count ?? 0)));
     if (k.shield) {
       const sctx = this.ctx(k.shield.rarity);
       k.shieldMax = Math.max(1, this.data.depth.evaluate(k.shield.healthScale, sctx) || 50);
