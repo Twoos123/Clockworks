@@ -3190,25 +3190,63 @@ export class World implements LogicHost {
   get onElevator(): boolean { return this.props.some(p => p.kind === "elevator" && p.standTime > 0) && !this.finished; }
 
   /**
-   * The names over the townsfolk and machines (client/sprite/g, the NameLabel): an actor whose
-   * sprite is a named one (ProjectXActorSpriteConfig Named, Stranger, NamedStatefulEntry) or a
-   * named placeable (ProjectXPlaceableConfig$Named) shows character/label.dat at its
-   * nameOffset above its root, with its description's name and title.
+   * The names over the townsfolk and machines (client/sprite/g, the NameLabel). Every sprite
+   * of a named kind carries one: an actor sprite that is ProjectXActorSpriteConfig Named,
+   * Stranger, Memorable (client/sprite/i, k, f) or NamedStatefulEntry (sprite/j), whatever
+   * game object the actor became here (a trader among the monsters, a Stranger or a casino
+   * machine among the props), and a ProjectXPlaceableConfig Named placeable (sprite/h). The
+   * label (character/label.dat) hangs at the sprite's nameOffset (2 where the config keeps the
+   * default) above the model's root, in the model's scale, and reads its DescriptionConfig's
+   * name, title and name icon; a sprite without a description shows none. The HUD hides them
+   * all while Options, Game, "Display NPC Names" is off (ProjectXPrefs show_npc_names). The
+   * knight's own name never shows over it: KnightSprite hides the label of the actor the
+   * player controls, so other players' knights are the only ones that carry one.
    */
-  nameplates(): { x: number; y: number; z: number; name: string; title: string; icon: string | null }[] {
-    const out: { x: number; y: number; z: number; name: string; title: string; icon: string | null }[] = [];
-    const add = (name: string, cfg: any, holder: any, x: number, y: number, z: number, scale: number) => {
-      if (typeof holder?.nameOffset !== "number" || !holder.description) return;
-      const d = this.describe(name, cfg);
-      if (d?.name) out.push({ x, y, z: z + holder.nameOffset * scale, name: d.name, title: d.title, icon: d.nameIcon ?? null });
+  nameplates(): Nameplate[] {
+    const out: Nameplate[] = [];
+    const add = (holder: any, x: number, y: number, z: number, scale: number) => {
+      const d = this.plateDescription(holder.description);
+      if (d?.name) out.push({ x, y, z: z + (holder.nameOffset ?? 2) * scale, name: d.name, title: d.title, icon: d.nameIcon ?? null });
     };
     for (const m of this.monsters) {
-      if (m.state === "dying" || !m.entity?.name) continue;
-      const cfg = this.npcs.get(m)?.cfg ?? (m.passive ? this.data.resolveSync("config/actor.dat", { name: m.entity.name }, "actor") : null);
-      if (cfg) add(m.entity.name, cfg, cfg.sprite, m.x, m.y, m.z, m.scale);
+      if (m.state === "dying" || !m.entity) continue;
+      let holder = this.plateHolders.get(m);
+      if (holder === undefined) {
+        const cfg = this.npcs.get(m)?.cfg ?? this.data.resolveSync("config/actor.dat", m.ref ?? { name: m.entity.name }, "actor");
+        holder = namedHolder(cfg);
+        this.plateHolders.set(m, holder);
+      }
+      if (holder) add(holder, m.x, m.y, m.z, m.scale);
     }
-    for (const p of this.props) if (p.entity?.name && /\$Named$/.test(String(p.cfg?.$class ?? ""))) add(p.entity.name, p.cfg, p.cfg, p.x, p.y, p.z, 1);
+    // props draw at their own size (Prop.matrix), so their labels hang unscaled too
+    for (const p of this.props) {
+      if (!p.instance) continue;
+      const holder = namedHolder(p.cfg);
+      if (holder) add(holder, p.x, p.y, p.z, 1);
+    }
+    // the scene's named placeables (machines), in their placed scale
+    for (const n of this.scene.names ?? []) add(n.holder, n.x, n.y, n.z, n.scale);
     return out;
+  }
+
+  /** Each monster's named sprite config (null for none), found once. */
+  private readonly plateHolders = new WeakMap<Monster, any>();
+  /** The name labels' descriptions, by their DescriptionConfig reference. */
+  private readonly plateDescs = new Map<string, import("../ui/hud").HudDescription | null>();
+
+  /** A name label's DescriptionConfig, translated, loaded in the background on first ask. */
+  private plateDescription(ref: any): import("../ui/hud").HudDescription | null {
+    if (!ref?.name) return null;
+    const key = ref.arguments ? JSON.stringify(ref, (k, v) => (k === "$outer" ? undefined : v)) : String(ref.name);
+    if (!this.plateDescs.has(key)) {
+      this.plateDescs.set(key, null);
+      void this.data.description(ref).then(d => {
+        if (!d || !d.dname) return;
+        const tr = (k: string) => k ? (k.startsWith("~") ? k.slice(1) : message(d.bundle, k) || k) : "";
+        this.plateDescs.set(key, { key, name: tr(d.dname), title: tr(d.title), info: tr(d.description), icon: d.icon, nameIcon: d.nameIcon });
+      }).catch(() => undefined);
+    }
+    return this.plateDescs.get(key) ?? null;
   }
 
   /** A thing's DescriptionConfig for the target panel, loaded in the background on first ask. */
@@ -4093,4 +4131,22 @@ function amountsOf(a: Amounts): Record<string, number> {
 function puppetMatrix(p: Puppet): Mat4 {
   const a = p.heading + Math.PI / 2;
   return compose([p.x, p.y, p.z], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], p.scale);
+}
+
+/** A name label over a townsperson or machine: its spot, its lines and its name icon. */
+export interface Nameplate { x: number; y: number; z: number; name: string; title: string; icon: string | null }
+
+/** Actor sprites that carry a name label (client/sprite/i, k, f and j: Named and its kinds). */
+const NAMED_SPRITE = /ProjectXActorSpriteConfig\$(Named|Stranger|Memorable|NamedStatefulEntry)$/;
+
+/**
+ * Where a config keeps its name label's description and nameOffset: a named placeable's own
+ * config, or an actor's sprite when that is a named kind; null when there is no description
+ * (sprite/g then shows no label).
+ */
+export function namedHolder(cfg: any): any | null {
+  if (!cfg) return null;
+  const holder = /ProjectXPlaceableConfig\$Named$/.test(String(cfg.$class ?? "")) ? cfg
+    : NAMED_SPRITE.test(String(cfg.sprite?.$class ?? "")) ? cfg.sprite : null;
+  return holder?.description ? holder : null;
 }
