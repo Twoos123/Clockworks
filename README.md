@@ -140,6 +140,7 @@ does. `#dev=1` opens the developer viewer (scene list, model browser).
 | `npm run build` | Type-checks and builds the game into `dist/` |
 | `npm run package` | Bundles the launcher and the built game into one executable |
 | `npm run levels` | Lists the game's levels you have and are missing |
+| `npm run capture` | Plays your own Spiral Knights client and saves the mission and Arcade floors it's sent, which it would otherwise never cache, into your private archive |
 | `npm run import-scenes` | Imports a local copy of a community scene archive into your private archive |
 | `npm run scan` | Parses every `.dat` in the install and reports failures |
 

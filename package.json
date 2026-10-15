@@ -16,7 +16,8 @@
     "import-scenes": "tsx tools/import-scenes.ts",
     "scan": "tsx tools/scan.ts",
     "dump": "tsx tools/dump.ts",
-    "levels": "tsx tools/levels.ts"
+    "levels": "tsx tools/levels.ts",
+    "capture": "tsx tools/capture/play.ts"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

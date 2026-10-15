@@ -7,6 +7,7 @@ These are the levels missing from the archive, measured 2026-10-15 with `npm run
 The client only saves *fixed* scenes to the install's `scenes/` folder. These are scenes whose id is below 1073741823 (2^30): towns, buildings and other permanent places (`cV.a` in `ProjectXApp`). Mission floors and Arcade floors are instances the servers create per party, with ids above that line, and the client never writes them to disk. So playing these levels in the real game does not add them to the cache, and the 2026-10-15 run of Alien Ooze saved nothing. The mission and Clockworks levels in the archive came from a community scene archive (`npm run import-scenes`).
 
 Ways to fill the gaps:
+- **`npm run capture`:** this starts your own client with a small wrapper around its scene cache (`tools/capture/`), which saves every instanced floor the servers send to `%LOCALAPPDATA%\clyde-web\captured`. clyde-web imports these on its next sync (`importCaptured` in `server/install.ts`). The game's files aren't modified.
 - **Fixed places** (King Krogmo's Coliseum, the Training Grounds): visiting them in the real game does cache them.
 - **Instanced floors:** find another community scene archive that has them, and import it with `npm run import-scenes <folder>`. Otherwise they keep playing as generated floors built from the real prefab rooms.
 

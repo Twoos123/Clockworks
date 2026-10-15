@@ -3,7 +3,8 @@
 // game's files go from the player's disk to the player's browser and nowhere else.
 
 import { execFileSync } from "node:child_process";
-import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
@@ -149,7 +150,48 @@ export function syncArchive(install: string | null, archive = archiveDir()): num
       copied++;
     } catch { /* being written by the client: next sync */ }
   }
-  return copied;
+  return copied + importCaptured(archive);
+}
+
+/** Archive ids for captured floors: above the servers' instance ids, so they never collide. */
+const CAPTURED_IDS = 1900000000;
+
+/**
+ * Floors saved by the capture launcher (tools/capture: npm run capture), "<sceneId>_<time>" in
+ * the captured folder beside the archive. Instanced floors reuse their scene ids, so each new
+ * capture gets a fresh archive id; one identical to an archived floor is skipped. Imported
+ * captures move to captured/imported.
+ */
+export function importCaptured(archive = archiveDir()): number {
+  const dir = join(dirname(archive), "captured");
+  if (!existsSync(dir)) return 0;
+  const files = readdirSync(dir).filter(n => /^\d+_[\d-]+$/.test(n));
+  if (!files.length) return 0;
+  const done = join(dir, "imported");
+  mkdirSync(done, { recursive: true });
+  const hash = (p: string) => createHash("sha1").update(readFileSync(p)).digest("hex");
+  // the floors already archived from captures (and the recovered history), by content
+  const known = new Set<string>();
+  let next = CAPTURED_IDS;
+  for (const n of readdirSync(archive)) {
+    if (!SCENE.test(n) || Number(n) < CAPTURED_IDS) continue;
+    known.add(hash(join(archive, n)));
+    next = Math.max(next, Number(n) + 1);
+  }
+  let added = 0;
+  for (const n of files) {
+    const from = join(dir, n);
+    try {
+      const h = hash(from);
+      if (!known.has(h)) {
+        copyFileSync(from, join(archive, String(next)));
+        replaced(archive, String(next));
+        known.add(h); next++; added++;
+      }
+      renameSync(from, join(done, n));
+    } catch { /* still being written: next sync */ }
+  }
+  return added;
 }
 
 type IndexEntry = { size: number; mtime: number; name: string };
