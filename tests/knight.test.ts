@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ACTIVITY_MS, attackTiming, FREE, KnightControl, type AttackSlot, type ControlInput, type WeaponRules } from "../src/game/knight.ts";
+import { ACTIVITY_MS, attackClipAt, attackTiming, FREE, KnightControl, type AttackSlot, type ControlInput, type WeaponRules } from "../src/game/knight.ts";
 
 /** A sword-like weapon: three combo steps, land 300 / rearm 500 / clear 900 ms, charges in 3 s. */
 function sword(over: Partial<WeaponRules> = {}): WeaponRules {
@@ -185,4 +185,60 @@ test("a knockdown holds for its length, then the knight gets up for 400 ms", () 
   assert.equal(c.activity.kind, "recover");
   frame(c, 1400, idle(), w);
   assert.equal(c.activity.kind, "idle");
+});
+
+/**
+ * The Proto Sword's three swings at attack speed 1 (AttackConfig Original's land, rearm and
+ * clear over their speeds): the last has rearm 677 and clear 1, so it rearms and clears together.
+ */
+function protoSword(): WeaponRules {
+  const swing = { land: 200, rearm: 433, clear: 766, moves: false };
+  const last = attackTiming({ land: 350, rearm: 677, clear: 1, startSpeed: 1.75, fireSpeed: 1, endSpeed: 1.5, blended: true }, 1, false);
+  return sword({ timing: (s: AttackSlot) => s === 2 ? last : s === "bash" ? { land: 100, rearm: 200, clear: 600, moves: false } : swing });
+}
+
+test("Proto Sword: after the combo's last swing the knight moves at its clear and a new press starts a new combo at once", () => {
+  const w = protoSword();
+  assert.deepEqual(w.timing(2), { land: 200, rearm: 877, clear: 877, moves: false });
+  const c = new KnightControl();
+  const press = (t: number) => frame(c, t, { ...idle(), attack: true, attackChanged: t }, w);
+  press(0);
+  press(433);
+  assert.deepEqual(press(866), [{ type: "attack", slot: 2, at: 866 }]);
+  frame(c, 1000, { ...idle(), attackChanged: 1000 }, w);
+  assert.equal(c.allowsMovement(), false, "rooted through the last swing");
+  // its clear, 866 + 877: free to walk, and a press there swings the first step again
+  assert.deepEqual(frame(c, 1742, idle(), w), []);
+  assert.equal(c.allowsMovement(), false);
+  assert.deepEqual(frame(c, 1743, idle(), w), [{ type: "idle", at: 1743 }]);
+  assert.equal(c.allowsMovement(), true);
+  assert.equal(c.chain(1743), 0, "the full chain lapses with the last swing's clear");
+  assert.deepEqual(press(1743), [{ type: "attack", slot: 0, at: 1743 }]);
+});
+
+test("Proto Sword: a press on the frame the last swing clears begins a new combo there", () => {
+  const w = protoSword();
+  const c = new KnightControl();
+  const press = (t: number) => frame(c, t, { ...idle(), attack: true, attackChanged: t }, w);
+  press(0);
+  press(433);
+  press(866);
+  // the last swing clears at 1743; pressed on the next 16 ms frame, the new combo begins then
+  const ev = frame(c, 1750, { ...idle(), attack: true, attackChanged: 1750 }, w);
+  assert.deepEqual(ev, [{ type: "idle", at: 1743 }, { type: "attack", slot: 0, at: 1750 }]);
+});
+
+test("an attack's animations follow each other as each finishes, the last holding", () => {
+  // the Proto Sword's last swing: start 250 ms at 1.75, fire 234 at 1, end 667 at 1.5
+  const lens = [250 / 1.75, 234, 667 / 1.5];
+  assert.deepEqual(attackClipAt(lens, 0), { clip: 0, t: 0 });
+  assert.equal(attackClipAt(lens, 150)!.clip, 1, "the fire clip begins as the start ends, before the land (200)");
+  const end = attackClipAt(lens, 400)!;
+  assert.equal(end.clip, 2, "the follow-through plays from 377, long before the rearm (877)");
+  assert.ok(Math.abs(end.t - (400 - 250 / 1.75 - 234)) < 1e-9);
+  assert.equal(attackClipAt(lens, 5000)!.clip, 2);
+  // missing clips are skipped; no clips at all, none
+  assert.deepEqual(attackClipAt([null, 100, null], 500), { clip: 1, t: 500 });
+  assert.deepEqual(attackClipAt([50, null, 100], 60), { clip: 2, t: 10 });
+  assert.equal(attackClipAt([null, null, null], 0), null);
 });

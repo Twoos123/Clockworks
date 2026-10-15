@@ -55,6 +55,28 @@ export function attackTiming(a: AttackTimes, attackSpeed: number, weaponMoves: b
   return { land: Math.trunc(land / s), rearm: Math.trunc(rearm / s), clear: Math.trunc(clear / s), moves: weaponMoves && a.blended };
 }
 
+/**
+ * Which of an attack's animations (0 start, 1 fire, 2 end) plays `t` ms into the attack, and
+ * how far into it. The client's sprite plays them one after another, each as the one before
+ * finishes (ActorSprite's activity animation `update`), whatever the attack's land and rearm
+ * times; the last holds once done, until the activity ends. `lengths` are each clip's length
+ * at its speed (ms), null for one the attack lacks. Null when it has none.
+ */
+export function attackClipAt(lengths: (number | null)[], t: number): { clip: number; t: number } | null {
+  let last = -1, start = 0;
+  for (let i = 0; i < lengths.length; i++) {
+    const len = lengths[i];
+    if (len === null) continue;
+    if (last >= 0) {
+      const prev = lengths[last]!;
+      if (t < start + prev) break;
+      start += prev;
+    }
+    last = i;
+  }
+  return last < 0 ? null : { clip: last, t: t - start };
+}
+
 /** Activity lengths the client fixes (ms). */
 export const ACTIVITY_MS = {
   hurt: 500, recover: 400, shieldHit: 411,
