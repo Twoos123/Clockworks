@@ -1,7 +1,8 @@
 // The options window (Esc): the game's own rsrc/ui/options/interface.dat as OptionsDialog fills
-// it, drawn over the whole screen: its root's Options Backing (the vertical stripes) fills the
-// screen and the logo, the tabs (General, Video, Game, Chat, Controls, Prompts, Partner, About)
-// and the bottom bar (Quit, Logoff, Return to Haven, OK) sit in the middle. Every control the
+// it, at the UI scale: its root's Options Backing (the vertical stripes) is a 640-wide column as
+// tall as the screen, the game showing on either side, and the logo, the tabs (General, Video,
+// Game, Chat, Controls, Prompts, Partner, About) and the bottom bar (Quit, Logoff, Return to
+// Haven, OK) sit in its middle. Every control the
 // client shows is shown; those bound to something here change it (volumes, quality, camera
 // shake, UI scale, the display mode, the Game page's damage, health, NPC name, damage effect and auto
 // target boxes, the control scheme and custom keys), and those with nothing behind them in
@@ -17,7 +18,7 @@ import { CONFIG_REF } from "../config/params";
 import { LEGACY_KEY, loadSave, normalizeSave, reloadRoster, ROSTER_KEY, writeSave, type SaveData } from "../game/save";
 import { checklist } from "../game/levels";
 import { message, messages, text } from "../i18n";
-import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, restyle, selectTab, setComboItems, type GuiContext, type GuiImage } from "./gui";
+import { buildComponentConfig, buildInterface, Component, dispatch, pack, packStretched, render, resetInput, restyle, selectTab, setComboItems, type GuiContext, type GuiImage } from "./gui";
 import { findParent, KeyBindings } from "./keybinds";
 import { buildUi, modalShade, uiRef } from "./screen";
 import { defaultSettings, UI_MIN_SCALE, uiMaxScale, uiScale, uiScaleLimit, type Settings, type Tab } from "./settings";
@@ -131,8 +132,9 @@ export class OptionsScreen {
     const ev = (type: "down" | "up" | "move" | "wheel") => (e: PointerEvent | WheelEvent) => {
       const target = this.overlays[this.overlays.length - 1] ?? this.ui;
       if (!target) return;
-      const r = this.canvas.getBoundingClientRect();
-      dispatch(target, { type, x: e.clientX - r.left, y: e.clientY - r.top, button: (e as PointerEvent).button ?? 0,
+      // the window is laid out over a display shrunk by the UI scale (see frame)
+      const r = this.canvas.getBoundingClientRect(), sc = uiScale(this.settings);
+      dispatch(target, { type, x: (e.clientX - r.left) / sc, y: (e.clientY - r.top) / sc, button: (e as PointerEvent).button ?? 0,
         delta: type === "wheel" ? Math.sign((e as WheelEvent).deltaY) : 0 });
       if (type === "wheel") e.preventDefault();
     };
@@ -189,8 +191,14 @@ export class OptionsScreen {
     if (logoff) logoff.visible = playing;
     const chat = this.ui?.find("pane")?.parts.buttons?.children[PAGES.indexOf("chat")];
     if (chat) chat.visible = playing;
-    // a knight's own options (full inspect, loot messages, party with any) show once one plays
-    if (this.ui) for (const tag of ["full_inspect", "loot_filter", "party_with_any"]) showPart(this.ui, tag, playing);
+    // a knight's own options (full inspect, loot messages, party with any) show once one plays;
+    // without them OptionsDialog shows party_with_spacer in Party with Any's place, so the
+    // language table (TableLayout skips hidden cells) keeps Region on the second row
+    if (this.ui) {
+      for (const tag of ["full_inspect", "loot_filter", "party_with_any"]) showPart(this.ui, tag, playing);
+      const spacer = this.ui.find("party_with_spacer");
+      if (spacer) spacer.visible = !playing;
+    }
     if (!this.running) { this.running = true; requestAnimationFrame(this.frame); }
     if (page) await this.showPage(page);
   }
@@ -863,18 +871,20 @@ export class OptionsScreen {
     const g = c.getContext("2d")!;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.clearRect(0, 0, w, h);
-    g.scale(dpr, dpr);
-    const cw = w / dpr, ch = h / dpr;
+    // the client's Root draws every window at the UI scale, over a display that much smaller
+    const sc = uiScale(this.settings);
+    g.scale(dpr * sc, dpr * sc);
+    const cw = Math.round(w / dpr / sc), ch = Math.round(h / dpr / sc);
     // the options window leaves the game undimmed behind it; its dialogs are modal (the shade
     // behind the topmost)
     for (const ui of [this.ui, ...this.overlays]) {
       if (!ui) continue;
       if (ui === this.ui) {
-        // the window covers the screen: its Options Backing (vertical stripes) fills it, and the
-        // anchored logo, tabs and buttons sit in the middle
-        ui.preferredSize = { width: Math.round(cw), height: Math.round(ch) };
-        pack(ui);
-        render(ui, g, 0, Math.round(ch), {});
+        // OptionsDialog is a stretched window: its root (preferred 640 x -1, the Options
+        // Backing's stripes) takes the display's height in a centred column, the game showing
+        // on either side; the logo, tabs and buttons are anchored in its middle
+        packStretched(ui, cw, ch);
+        render(ui, g, 0, ch, {});
         continue;
       }
       if (ui === this.overlays[this.overlays.length - 1]) modalShade(g, cw, ch);
