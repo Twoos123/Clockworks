@@ -6,23 +6,31 @@ player's private archive (`%LOCALAPPDATA%\clyde-web\scenes`). This page lists ev
 known to exist and where to go in the real game to get it cached.
 
 The data lives in `src/game/levels.ts` (group, set, name, where, scene-name pattern,
-availability). `npm run levels` prints the have/missing checklist for the archive and the
-install's cache. The options window's **Levels** tab shows the counts per group in the game.
+availability). `npm run levels` prints the checklist for the archive and the install's cache;
+the options window's **Levels** tab shows the counts per group in the game. Every level is in one
+of three states: **captured** (the game's own level is in the archive), **generated or derived**
+(this port builds it from captured ones: playable, not the game's own capture) and **missing**.
 
-Measured 2026-10-13 against the player's archive after `npm run import-scenes` (19,137 cached
-scenes, about 400 of them levels and the rest guild halls):
+The Clockworks levels the servers build from prefab rooms on every run (tunnels, Keeps, Dens,
+Lairs, Drudgery, Graveyards) count by **(type x status)** rather than by name: a named level
+such as "Wasteworks: Wild Path" is generated whenever its pair (tunnels, poison) is covered.
+See "Prefab-built levels: coverage" below; `npm run coverage` prints the full evidence per pair.
 
-| Group | Collected | Total |
-|---|---|---|
-| Clockworks levels | 51 | 160 |
-| Boss levels | 15 | 15 |
-| Danger missions and Shadow Lairs | 27 | 31 |
-| Mission levels | 115 | 153 |
-| Towns and hubs | 21 (2 ship with the install) | 23 |
-| Coliseum (PvP) | 0 | 39 |
-| **All** | **229** | **421** |
-| Guild halls | 18,732 archived | (one line, not levels) |
-| Dev, test and unnamed scenes | 19 | (not levels) |
+Measured 2026-10-15 against the player's archive (19,168 cached scenes, about 400 of them levels
+and the rest guild halls; 69 captured prefab floors):
+
+| Group | Captured | Generated or derived | Missing | Total |
+|---|---|---|---|---|
+| Prefab-built (type x status) pairs | 22 | 7 | 1 | 30 |
+| Clockworks levels | 61 | 70 (33 generated from covered pairs, 8 derived pairs' levels, 29 derived arenas) | 29 | 160 |
+| Boss levels | 15 | 0 | 0 | 15 |
+| Danger missions and Shadow Lairs | 28 | 0 | 3 | 31 |
+| Mission levels | 132 | 0 | 21 | 153 |
+| Towns and hubs | 21 (2 ship with the install) | 0 | 2 | 23 |
+| Coliseum (PvP) | 0 | 0 | 39 | 39 |
+| **All** | **257** | **70** | **94** | **421** |
+| Guild halls | 18,732 archived | | | (one line, not levels) |
+| Dev, test and unnamed scenes | 19 | | | (not levels) |
 
 `npm run levels` reads the archive's names from `scene-index.json` beside it (the index the
 local server keeps, `sceneIndex` in `server/install.ts`), so only levels that are new or changed
@@ -131,6 +139,62 @@ captures store no `spawnTypes`, so everything the servers chose is baked into th
   and family (three `ct_beast`, two `pc_slime`; `rc_undead_minis` against `fc_undead_minis`) are
   different sets and arrangements of prefab rooms. They are generated per run, so new ones are
   assembled from the captured rooms (src/gen/assemble.ts) rather than derived.
+
+## Prefab-built levels: coverage
+
+The Clockwork Tunnels, Candlestick Keeps, Wolver Dens, Lichenous Lairs, Devilish Drudgery and
+Graveyards are laid out by the servers from prefab rooms on every run (prefab-generator.md), and
+our generator assembles them from the rooms cut out of the captured floors. What a capture gives
+it, read off the 69 captured prefab floors of 2026-10-15 (`npm run coverage`; mission floors
+count, `src/game/coverage.ts`):
+
+- **Rooms are pooled per style across monster families.** A tunnel room's tiles depend only on
+  the status: "Clockworks" with no status, "Clockworks Fire" in the Blast Furnace and so on; no
+  family changes them. The other styles use one tile set in every status (Keep: Castle; Den: Sky
+  Islands, Day; Lair: Sky Islands, Night; Drudgery: City, Base; Graveyard: Graveyard), so their
+  rooms serve every status. Rooms are taken only in the style's own tiles: mission floors the
+  servers laid out as a compound ("ct construct spark roar", "ct beast vile engine", "wolver den
+  fire terminal meltdown", "lichenous lair shock vicious viscous": Compound Wilds rooms in other
+  tiles) and casino danger rooms in another status's tiles give none.
+- **The environment is per (type x status), plus two family variants.** Lighting, fog, sky and
+  music are scene globals named per status in config/scene_global.dat ("Environment/Custom/Wolver's
+  Den/Poison/Light Set"; "Default" for none). The plain tunnels have two family variants: the
+  Haunted Passage uses "Clockwork Tunnels/Spooky" (captured on "ct undead"), and the library's
+  "Clockwork Tunnels/Fiendish" set, which no capture shows, is by its name the Infernal Passage's.
+  The Keep alone uses generic globals with the colours as arguments, different per status, so a
+  Keep status's environment exists only in a capture. Some mission floors carry their mission's
+  own ("Missions/Prestige/Heart of Ice", Devilish Drudgery lighting on "ct fiend whipping
+  mishandling", generic lights on "dd office party vanilla"); those give rooms, not the environment.
+- **Monsters are set by the generator, not the source floors.** The servers bake each floor's spawn
+  tables; the tables are typed by family, status and role (config/spawn_table.dat), so every
+  room's spawns are re-cast from its capture's family and status to the floor's by the client's
+  rule (SpawnTableConfig$SpawnTypeListEntry, src/game/derive.ts recastSpawns): the source family's
+  monsters become the floor family's of the same role, and status monsters take the floor's
+  status. On a sample floor of every pair, no spawn is left of another status after the re-cast
+  (a poison Den from other statuses' rooms: 20 of 22 before).
+
+So a pair is **captured** when a capture has rooms in its tiles and its environment; **derived**
+when its rooms are there (for the tunnels, its status's own) but its environment is rebuilt from
+the client's library on another capture of the style; **missing** otherwise. A named level of a
+captured pair counts as generated from captured rooms; of a derived pair, as derived. With names
+alone (the options tab) a mission floor's environment is assumed to be its style's;
+`npm run levels` reads the floors and checks.
+
+| Type | No status | Fire | Freeze | Poison | Shock |
+|---|---|---|---|---|---|
+| Clockwork Tunnels | captured (11) | captured (6) | captured (8) | captured (4) | captured (4) |
+| Candlestick Keep | captured (2) | **missing** | captured (1) | captured (1) | captured (2) |
+| Wolver Den | captured (1) | captured (2) | captured (2) | derived | captured (2) |
+| Lichenous Lair | captured (1) | captured (2) | derived | captured (2) | captured (2) |
+| Devilish Drudgery | derived (Office Party's lighting is its mission's) | captured (1) | captured (3) | captured (1) | captured (1) |
+| Graveyard | captured (3) | derived | derived | derived | derived |
+
+(captures of each pair in brackets.) Every pair assembles on 20 of 20 seeds. The Graveyards with a
+status are in the game's text only; whether the servers send them is unknown.
+
+Compounds, Deconstruction Zones and Treasure Vaults are built from prefabs as well, but our
+generator does not rebuild them (compound wilds and transitions, framed fields), so they still
+count by name.
 
 ## Boss levels
 

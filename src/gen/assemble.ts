@@ -246,6 +246,21 @@ function tryPath(plan: PieceKind[], pool: Record<PieceKind, LibPiece[]>, shuffle
   return { placed: placed.map(p => ({ piece: p.piece, dx: p.dx, dy: p.dy })), path };
 }
 
+/**
+ * A floor from a style's rooms of its status, else (`shared`: a style whose rooms are the same
+ * in every status, src/game/coverage.ts) from its rooms of every status. A small library fails
+ * some seeds, so a few seeds following from the given one are tried before giving up: rooms of
+ * another status in the tunnels would bring that status's tiles.
+ */
+export function assembleFloor(own: LibPiece[], every: () => LibPiece[], seed: number, shared: boolean, tries = 8): Assembled | null {
+  const next = (k: number) => (seed + Math.imul(k, 0x9e3779b1)) >>> 0;
+  for (let k = 0; k < tries; k++) { const a = assemble(own, next(k)); if (a) return a; }
+  if (!shared) return null;
+  const all = every();
+  for (let k = 0; k < tries; k++) { const a = assemble(all, next(k)); if (a) return a; }
+  return null;
+}
+
 const CLS = "com.threerings.tudey.data.TudeySceneModel$";
 
 /**

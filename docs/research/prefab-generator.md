@@ -88,19 +88,31 @@ arenas, mazes, stairs and transitions.
 
 ## Assembling a floor (`src/gen/assemble.ts`)
 
-The rooms of a style and status (the status's captured floors first, then the style's others)
-make a library: starts, exits, airlocks, rooms (two or more openings) and dead ends (one). A
-floor follows the path the captures show: start, two or three rooms, airlock (when the library
+The rooms of a style and status make a library: starts, exits, airlocks, rooms (two or more
+openings) and dead ends (one). Rooms are pooled across monster families, and only rooms in the
+style's tiles for their capture's status are kept (`roomFits` in src/game/coverage.ts: a mission
+floor laid out as a compound, or a casino danger room in another status's tiles, gives none).
+A floor follows the path the captures show: start, two or three rooms, airlock (when the library
 has one), two or three rooms, exit. Each next piece joins the last one's free opening with an
 opening of the same width on the opposite side; it must not overlap anything placed, its floor
 must not touch other floor except at the joint, and its other openings need room beyond them.
-Then every opening still free is closed with a dead end. Forty seeded tries, else null.
+Then every opening still free is closed with a dead end. Forty seeded tries, and then a few
+following seeds (`assembleFloor`), else the style's rooms of every status, but only for the
+styles whose tiles are the same in every status: a tunnel floor never takes another status's
+rooms (their tiles are that status's), and falls back to the older generator instead.
 
 The floor keeps everything the rooms carry: their tiles (with the placement's elevation taken
 off, so the floor is level), elevators, doors, spawners and areas, treasure, minerals, traps,
-props, renumbered tags. Its lighting, fog, sky and music are the globals of the floor its start
-room came from. On a family stratum the masters' tables become the stratum's (`rethemeMasters`
-in src/main.ts); class spawns and drones stay as captured.
+props, renumbered tags. Its spawns are re-cast from each room's capture's family and status to
+the floor's (`recastRooms`, with src/game/derive.ts recastSpawns: the client's spawn-type rule),
+so a Haunted Passage built from Wild Path rooms has Undead where the Wild Path had its Wolvers,
+and no room keeps another status's monsters; on a status stratum (no family) each room keeps
+its family. Its lighting, fog, sky and music are a capture's of its style, status and family
+variant (`environmentFor`: the Haunted Passage's "Clockwork Tunnels/Spooky", a mission's own
+lighting never), else one of the style's re-themed to the status from the client's library
+("Wolver's Den/Poison/..."), else (a Keep status no capture shows: its globals carry colours,
+not names) the start room's floor's. docs/research/levels.md "Prefab-built levels: coverage"
+has which pairs are covered; `npm run coverage` prints the evidence.
 
 ## Where it is used
 
@@ -123,12 +135,14 @@ generator with learned tiling paints it.
   split is our guess (the middle). Openings must match exactly in width.
 - Layouts that are not corridor-joined (Deconstruction Zone fields, Compounds, Battle Arenas)
   are not cut; those styles fall back to the older generator.
-- A status with too few captured floors borrows the style's other statuses' rooms as they are
-  (a Candlestick Keep of shock may get a frozen room); their tiles are not repainted.
+- A status with too few captured floors borrows the style's other statuses' rooms only where the
+  tiles are the same in every status (not the tunnels); their status-specific traps stay as
+  captured. A status no capture shows has no known extras (snow, embers, lightning, rain).
 
 ## Measured
 
-With the archive of 2026-10-13: tunnels 30 of 30 seeds assemble (178 pieces from 27 captured floors),
-Candlestick Keep 20 of 20 (5 floors), Graveyard, Wolver Den, Lichenous Lair and Devilish
-Drudgery 10 of 10 each. `tests/prefabs.test.ts` checks the cut and the assembly on a synthetic
+With the archive of 2026-10-15 (`npm run coverage`): every (type x status) pair of the six
+styles assembles on 20 of 20 seeds, the tunnels from their status's own rooms (the plain tunnels
+from 13 captures, 83 rooms), the other styles from their status's rooms or, with too few, every
+status's. `tests/prefabs.test.ts` checks the cut and the assembly on a synthetic
 floor.

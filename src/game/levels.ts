@@ -18,6 +18,9 @@
 // few levels whose key is not known keep a guess on the level's English name; `npm run levels`
 // lists any cached name that matches nothing.
 
+import type { Element } from "./archive";
+import type { Family } from "./clockworks";
+import { coverageSources, envDir, levelCoverage, prefabCoverage, prefabType, type CaptureFacts, type CoverageRow } from "./coverage";
 import { derivedArenas } from "./derive";
 
 export type LevelGroup = "clockworks" | "boss" | "danger" | "missions" | "towns" | "pvp";
@@ -53,6 +56,12 @@ export interface Level {
   event?: string;
   /** For shipped levels: the file under rsrc/. */
   rsrc?: string;
+  /**
+   * For a level the servers build from prefab rooms on every run (src/game/coverage.ts): its
+   * style, status and monster family. Such a level is not one to collect by its name: the
+   * generator builds it whenever its (type x status) pair is covered.
+   */
+  prefab?: { style: string; element: Element | null; family: Family | null };
 }
 
 // ------------------------------------------------------------------------------ patterns
@@ -106,6 +115,7 @@ const THEMES = ["vanilla", "fire", "freeze", "poison", "shock"] as const;
 const FAMILIES = ["beast", "construct", "fiend", "gremlin", "slime", "undead"] as const;
 const FAMILY_NAMES = ["Beast", "Construct", "Fiend", "Gremlin", "Slime", "Undead"];
 const theme = (status: string) => status === "no status" ? "no status theme" : `the ${status} theme`;
+const ELEMENT_OF: Record<string, Element | null> = { "no status": null, normal: null, vanilla: null, fire: "Fire", freeze: "Freeze", poison: "Poison", shock: "Shock" };
 
 // Clockwork Tunnels: five status areas, six monster levels in each ("ct_beast", "bf_slime")
 const TUNNEL_AREAS: [string, string, string][] = [["Clockwork Tunnels", "ct", "no status"], ["Blast Furnace", "bf", "fire"],
@@ -113,7 +123,8 @@ const TUNNEL_AREAS: [string, string, string][] = [["Clockwork Tunnels", "ct", "n
 const TUNNEL_LEVELS = ["Wild Path", "Mechanized Mile", "Infernal Passage", "Gremlin Grounds", "Slimeway", "Haunted Passage"];
 for (const [area, k, status] of TUNNEL_AREAS)
   TUNNEL_LEVELS.forEach((lv, i) => add("clockworks", "Clockwork Tunnels", `${area}: ${lv}`,
-    `Arcade gate, any tier: a ${FAMILY_NAMES[i]} stratum with ${theme(status)} (the most common level type)`, keys(`${k}_${FAMILIES[i]}`)));
+    `Arcade gate, any tier: a ${FAMILY_NAMES[i]} stratum with ${theme(status)} (the most common level type)`, keys(`${k}_${FAMILIES[i]}`),
+    "regular", { prefab: { style: "tunnels", element: ELEMENT_OF[status], family: FAMILY_NAMES[i] as Family } }));
 
 // Battle Arenas: five status arenas, six monster bouts in each ("iea_beast")
 const ARENAS: [string, string, string][] = [["Iron Edge Arena", "iea", "no status"], ["Flame Lash Arena", "fla", "fire"],
@@ -134,16 +145,18 @@ for (const [c, k, status] of COMPOUNDS)
     add("clockworks", "Compound", `${c}: ${lv}`, `Arcade gate, tier 2 or 3 only: a Gremlin stratum with ${theme(status)}`, keys(`${k}_${fam}_minis`));
 
 /** A set whose levels are one per status theme ("wolver_den_freeze"). */
-function themed(region: string, family: string, levels: string[], tiers: string) {
+function themed(region: string, family: string, levels: string[], tiers: string, style?: string) {
   const k = region.toLowerCase().replace(/ /g, "_");
   levels.forEach((lv, i) => add("clockworks", region, lv,
-    `Arcade gate stratum with ${family} monsters and the ${ELEMENTS[i]} status theme${tiers ? `, ${tiers}` : ""}`, keys(`${k}_${THEMES[i]}`)));
+    `Arcade gate stratum with ${family} monsters and the ${ELEMENTS[i]} status theme${tiers ? `, ${tiers}` : ""}`, keys(`${k}_${THEMES[i]}`),
+    "regular", style ? { prefab: { style, element: ELEMENT_OF[THEMES[i]], family: family as Family } } : {}));
 }
-themed("Candlestick Keep", "Undead", ["Fear the Dark", "Burning Blackout", "Cold Shadows", "Noxious Night", "Galvanized Gloom"], "tiers 2 and 3");
+themed("Candlestick Keep", "Undead", ["Fear the Dark", "Burning Blackout", "Cold Shadows", "Noxious Night", "Galvanized Gloom"], "tiers 2 and 3", "keep");
+// (the Deconstruction Zone's fields are framed, not corridor-joined: the generator does not rebuild them)
 themed("Deconstruction Zone", "Gremlin", ["Savage Salvaging", "Molten Mayhem", "Cold Storage", "Radioactive Recycling", "Circuit Breakers"], "");
-themed("Devilish Drudgery", "Fiend", ["Overtime, Every Time", "Everybody's Fired", "Hiring Freeze", "Toxic Workplace", "Wired for Synergy"], "");
-themed("Lichenous Lair", "Slime", ["Prognosis: Symbiosis", "Fiery Fusion", "Cold Fusion", "Toxic Union", "Shocking Synthesis"], "");
-themed("Wolver Den", "Beast", ["Pack Brutality", "Ashes to Ash Tails", "Frosty Fury", "Raving Rabids", "High Voltail"], "");
+themed("Devilish Drudgery", "Fiend", ["Overtime, Every Time", "Everybody's Fired", "Hiring Freeze", "Toxic Workplace", "Wired for Synergy"], "", "drudgery");
+themed("Lichenous Lair", "Slime", ["Prognosis: Symbiosis", "Fiery Fusion", "Cold Fusion", "Toxic Union", "Shocking Synthesis"], "", "lair");
+themed("Wolver Den", "Beast", ["Pack Brutality", "Ashes to Ash Tails", "Frosty Fury", "Raving Rabids", "High Voltail"], "", "den");
 
 // Treasure Vaults and Graveyards: the randomized ("?") floors
 ["Obscurity Through Security", "Burn Rate", "Frozen Assets", "Toxic Debt", "Flash Crash"].forEach((lv, i) =>
@@ -151,9 +164,11 @@ themed("Wolver Den", "Beast", ["Pack Brutality", "Ashes to Ash Tails", "Frosty F
     keys(`tvault_${THEMES[i]}`)));
 add("clockworks", "Treasure Vault", "Treasure Trove: Fortune Smiles on the Greedy", 'A "Treasure Trove" in the game\'s text ("treasure_vault_1"), not on the wiki; probably the vaults\' older form',
   keys("treasure_vault_1"), "unknown");
-add("clockworks", "Graveyard", "Where Monsters Fear to Tread", 'A randomized depth of an arcade gate (shown as "?" on the gate), Undead and curse', keys("graveyard_vanilla"));
+const GRAVE = (t: string) => ({ prefab: { style: "graveyard", element: ELEMENT_OF[t], family: "Undead" as Family } });
+add("clockworks", "Graveyard", "Where Monsters Fear to Tread", 'A randomized depth of an arcade gate (shown as "?" on the gate), Undead and curse', keys("graveyard_vanilla"),
+  "regular", GRAVE("vanilla"));
 for (const t of THEMES.slice(1))
-  add("clockworks", "Graveyard", `Graveyard (${t})`, `A ${t} Graveyard in the game's text, named only by its theme and not on the wiki`, keys(`graveyard_${t}`), "unknown");
+  add("clockworks", "Graveyard", `Graveyard (${t})`, `A ${t} Graveyard in the game's text, named only by its theme and not on the wiki`, keys(`graveyard_${t}`), "unknown", GRAVE(t));
 add("clockworks", "Danger Room", "Danger Room", "An optional gated room inside Clockwork Tunnels (and Starlight Cradle) levels; probably part of its level's scene rather than a scene of its own",
   /danger ?room/);
 add("clockworks", "Battlepod", "Battlepod (30 variants)", 'Named "Battlepod" in the game\'s text, one for each tunnel area and monster family ("bp_cc_slime"); not on the wiki, so where it appears is unknown (perhaps the Danger Rooms)',
@@ -427,9 +442,11 @@ export function matchLevels(sceneName: string, levels: readonly Level[] = LEVELS
 }
 
 /**
- * A group's levels: those collected (cached by the real client), those not collected that this
- * port derives from a collected one (src/game/derive.ts: a Battle Arena re-cast from another),
- * and the rest. A derived level is playable but not the game's own: it is still to be captured.
+ * A group's levels in three states: those collected (cached by the real client); those not
+ * collected that this port builds anyway, either derived from a collected one (src/game/derive.ts:
+ * a Battle Arena re-cast from another) or generated from captured prefab rooms because their
+ * (type x status) pair is covered (src/game/coverage.ts); and the rest. A derived or generated
+ * level is playable but is not the game's own capture.
  */
 export interface GroupCount { group: LevelGroup; title: string; have: Level[]; derived: Level[]; missing: Level[] }
 
@@ -442,18 +459,28 @@ export interface Checklist {
   /** Developer, test and unnamed scenes (NOT_LEVEL). */
   other: number;
   have: number;
-  /** Levels not collected but derived from a collected one, and the scene each derives from. */
+  /** Levels not collected but derived or generated from collected ones. */
   derived: number;
+  /** Arenas derived from a collected one, and the scene each derives from. */
   derivedFrom: Map<Level, string>;
+  /** How each derived or generated level is built (for the listing). */
+  how: Map<Level, string>;
+  /** Levels generated from the captured rooms of their covered (type x status) pair, with the pair. */
+  generated: Map<Level, CoverageRow>;
+  /** Every prefab-generated (type x status) pair's coverage. */
+  coverage: CoverageRow[];
+  missing: number;
   total: number;
 }
 
 /**
  * The checklist for a set of cached scene names. Shipped levels count as had when `shipped`
- * says their file is present (by default, always: every install ships them).
+ * says their file is present (by default, always: every install ships them). `facts` are the
+ * captured prefab floors' tiles and globals by lower-case name (tools/levels.ts reads them from
+ * the archive); without them a mission floor's environment is not taken as its style's own.
  */
 export function checklist(sceneNames: Iterable<string>, shipped: (rsrc: string) => boolean = () => true,
-  levels: readonly Level[] = LEVELS): Checklist {
+  levels: readonly Level[] = LEVELS, facts?: ReadonlyMap<string, CaptureFacts>): Checklist {
   const got = new Set<Level>();
   const unmatched: string[] = [];
   let guildHalls = 0, other = 0;
@@ -469,14 +496,34 @@ export function checklist(sceneNames: Iterable<string>, shipped: (rsrc: string) 
   }
   for (const l of levels) if (l.rsrc && shipped(l.rsrc)) got.add(l);
   // levels this port derives from a collected one: counted apart, never as collected
-  const derivedFrom = new Map<Level, string>();
+  const derivedFrom = new Map<Level, string>(), how = new Map<Level, string>();
   for (const [key, from] of derivedArenas(names)) {
-    for (const l of matchLevels(key, levels)) if (!got.has(l) && !derivedFrom.has(l)) derivedFrom.set(l, from);
+    for (const l of matchLevels(key, levels)) if (!got.has(l) && !derivedFrom.has(l)) {
+      derivedFrom.set(l, from);
+      how.set(l, `derived from "${from}"`);
+    }
+  }
+  // levels the servers build from prefab rooms: generated when their pair is covered
+  const src = coverageSources(names, facts);
+  const coverage = prefabCoverage(src);
+  const generated = new Map<Level, CoverageRow>();
+  for (const l of levels) {
+    const p = l.prefab;
+    if (!p || got.has(l) || how.has(l) || !prefabType(p.style)) continue;
+    const row = coverage.find(r => r.type.style === p.style && r.status === p.element)!;
+    const st = levelCoverage(row, p.family, src);
+    if (st === "missing") continue;
+    generated.set(l, row);
+    const floors = `${row.rooms.length} captured floor${row.rooms.length === 1 ? "" : "s"}`;
+    how.set(l, st === "captured" ? `generated from the rooms of ${floors}`
+      : row.state === "derived" ? `derived: ${row.note}`
+      : `derived: its environment is the client's "${row.type.env}/${envDir(p.style, p.element, p.family)}" set, which no capture shows`);
   }
   const groups = GROUPS.map(g => {
     const all = levels.filter(l => l.group === g.id);
-    return { group: g.id, title: g.title, have: all.filter(l => got.has(l)), derived: all.filter(l => derivedFrom.has(l)),
-      missing: all.filter(l => !got.has(l) && !derivedFrom.has(l)) };
+    return { group: g.id, title: g.title, have: all.filter(l => got.has(l)), derived: all.filter(l => how.has(l)),
+      missing: all.filter(l => !got.has(l) && !how.has(l)) };
   });
-  return { groups, unmatched, guildHalls, other, have: got.size, derived: derivedFrom.size, derivedFrom, total: levels.length };
+  return { groups, unmatched, guildHalls, other, have: got.size, derived: how.size, derivedFrom, how, generated, coverage,
+    missing: levels.length - got.size - how.size, total: levels.length };
 }

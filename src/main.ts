@@ -56,11 +56,12 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { bossName, BOSSES, gateFloors, STYLES, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { bossName, BOSSES, FAMILIES, gateFloors, STYLES, realFloor, stratumTables, tierStars, type BossKey, type Family, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { LevelArchive } from "./game/archive";
-import { DERIVE, deriveArena, parseDeriveId, SpawnTypes } from "./game/derive";
-import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
+import { DERIVE, deriveArena, parseDeriveId, SpawnTypes, type Status } from "./game/derive";
+import { environmentFor, envOrder, prefabType, recastRooms, roomFits } from "./game/coverage";
+import { assembledRoot, assembleFloor, libraryPieces, type LibPiece } from "./gen/assemble";
 import { lairRun, missionRun, rankLabel, tierLock, type Mission } from "./game/missions";
 import { LAIR_GATES } from "./game/missionfloors";
 import type { Prop } from "./game/props";
@@ -322,6 +323,10 @@ class Viewer {
   private genStyles = new Map<string, FloorStyle>();
   /** Floors built from the game's prefab rooms: the generator theme to paint instead if they cannot be. */
   private genFallback = new Map<string, string>();
+  /** The monster family of a floor built from prefab rooms (by scene id; none: each room keeps its own). */
+  private genFamily = new Map<string, Family>();
+  /** The captured floors' environment globals, by scene id. */
+  private captureGlobals = new Map<string, Promise<any[]>>();
   /** The prefab rooms cut out of the captured floors, per style and status (src/gen/prefabs.ts). */
   private prefabLibs = new Map<string, Promise<LibPiece[]>>();
   genReport: FeatureReport | null = null;
@@ -839,12 +844,10 @@ class Viewer {
     const pf = /^pf-([a-z]+)-([a-z]+)$/.exec(key);
     if (pf) {
       // a floor of the game's own prefab rooms; the old way when they cannot make one
+      // (its monsters are the rooms' own spawns re-cast for the floor's family and status)
       const root = await this.prefabRoot(pf[1], pf[2] === "none" ? null : pf[2][0].toUpperCase() + pf[2].slice(1), Number(seed),
-        this.genNames.get(id) ?? "New floor").catch(e => { console.warn("prefab floor", e); return null; });
+        this.genNames.get(id) ?? "New floor", this.genFamily.get(id) ?? null).catch(e => { console.warn("prefab floor", e); return null; });
       if (root) {
-        const tables = this.genTables.get(id);
-        const theme = this.floors[this.run.depth]?.stratum?.theme;
-        if (tables?.length && theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme)) rethemeMasters(root, tables, rng(Number(seed) ^ 0x5bd1e995));
         this.genReport = null;
         return root;
       }
@@ -933,7 +936,10 @@ class Viewer {
           for (const m of (r.tileConfigs?.items ?? r.tileConfigs ?? []) as any[]) {
             if (m?.tile && !infos.has(refKey(m.tile))) infos.set(refKey(m.tile), await this.sceneLoader.tileInfo(m.tile));
           }
-          out.push(...libraryPieces(c.id, r, ref => infos.get(refKey(ref)) ?? { width: 1, height: 1, walkable: false }));
+          // only rooms in the style's tiles of the capture's status (a mission floor may lay out
+          // compound rooms, a danger room another status's: src/game/coverage.ts roomFits)
+          out.push(...libraryPieces(c.id, r, ref => infos.get(refKey(ref)) ?? { width: 1, height: 1, walkable: false })
+            .filter(p => roomFits(style, c.element, p.tiles.map(t => String(t.ref?.name ?? "")))));
         }
         return out;
       })();
@@ -943,15 +949,50 @@ class Viewer {
     return p;
   }
 
-  /** A floor assembled from a style's prefab rooms, with the globals of the floor its start came from. */
-  private async prefabRoot(style: string, element: string | null, seed: number, title: string): Promise<any | null> {
-    let a = assemble(await this.prefabLibrary(style, element), seed);
-    // too few rooms of this status: the style's rooms of every status
-    if (!a) a = assemble(await this.prefabLibrary(style, element, true), seed);
+  /**
+   * A floor assembled from a style's prefab rooms (src/game/coverage.ts): its rooms' spawns
+   * re-cast for the floor's family (none: each room's own) and status by the client's spawn-type
+   * rule, and the environment of a capture of its style, status and family variant, else one of
+   * the style's re-themed from the client's library, else (a Keep status no capture shows) the
+   * globals of the floor its start came from.
+   */
+  private async prefabRoot(style: string, element: string | null, seed: number, title: string, family: Family | null = null): Promise<any | null> {
+    // too few rooms of this status: the style's rooms of every status, where they are the same
+    // in every status (the tunnels' are not: their tiles are the status's; the older generator
+    // paints those in the status's tiles instead)
+    const shared = !(prefabType(style)?.statusTiles ?? true);
+    let a = assembleFloor(await this.prefabLibrary(style, element), () => [], seed, false);
+    if (!a && shared) a = assembleFloor(await this.prefabLibrary(style, element, true), () => [], seed, false);
     if (!a) return null;
-    const src = await this.sceneLoader.parse(await this.vfs.readScene(a.placed[0].piece.source));
-    const globals = ((src.entries ?? []) as any[]).filter(e => e.$class.endsWith("GlobalEntry"));
-    return assembledRoot(a, globals, title);
+    const status = element as Status | null;
+    this.spawnTypes ??= new SpawnTypes(await this.sceneLoader.configs("config/spawn_table.dat"));
+    // the rooms' spawns re-cast for the floor's family and status (src/game/coverage.ts)
+    a.placed = recastRooms(a.placed, new Map(this.archive.captures.map(c => [c.id, c])), style, family, status, this.spawnTypes, seed);
+    const sceneGlobals = await this.sceneLoader.configs("config/scene_global.dat");
+    const has = (n: string) => sceneGlobals.has(n);
+    const order = envOrder(status, this.archive.captures.filter(c => c.style === style));
+    let env: { globals: any[] } | null = null;
+    for (const c of order.filter(c => c.element === status)) {
+      const r = environmentFor(style, status, family, [{ ...c, globals: await this.globalsOf(c.id) }], has);
+      if (r && !r.derived) { env = r; break; }
+    }
+    for (const c of env ? [] : order) {
+      env = environmentFor(style, status, family, [{ ...c, globals: await this.globalsOf(c.id) }], has);
+      if (env) break;
+    }
+    return assembledRoot(a, env?.globals ?? await this.globalsOf(a.placed[0].piece.source), title);
+  }
+
+  /** A captured floor's global entries (lighting, fog, sky, music), cached. */
+  private globalsOf(id: string): Promise<any[]> {
+    let p = this.captureGlobals.get(id);
+    if (!p) {
+      p = (async () => ((await this.sceneLoader.parse(await this.vfs.readScene(id))).entries ?? [] as any[])
+        .filter((e: any) => String(e.$class).endsWith("GlobalEntry")))();
+      p.catch(() => this.captureGlobals.delete(id));
+      this.captureGlobals.set(id, p);
+    }
+    return p;
   }
 
   private async selectScene(id: string) {
@@ -2666,6 +2707,7 @@ class Viewer {
     if (f.kind === "level" && !f.special && !f.levelKey && a.prefabSources(s.style.key, null, true).length) {
       const id = `gen:pf-${s.style.key}-${element}:${seed}`;
       this.genFallback.set(id, theme);
+      if ((FAMILIES as readonly string[]).includes(s.theme)) this.genFamily.set(id, s.theme as Family);
       this.genTables.set(id, stratumTables(s.theme, rng(seed)));
       this.genNames.set(id, `${f.name} · ${s.theme}`);
       return { id, name: `${f.name} · depth ${f.depth}` };
@@ -2719,6 +2761,8 @@ class Viewer {
     if (lv.kind === "level" && lv.style && a.prefabSources(lv.style, null, true).length) {
       const id = `gen:pf-${lv.style}-${lv.element ? lv.element.toLowerCase() : "none"}:${seed}`;
       this.genFallback.set(id, theme);
+      const fam = lv.family ?? ((FAMILIES as readonly string[]).includes(s?.theme ?? "") ? s!.theme as Family : null);
+      if (fam) this.genFamily.set(id, fam);
       this.genTables.set(id, tables);
       this.genNames.set(id, `${label} · ${family}`);
       return { id, name: `${f.name} · depth ${f.depth}` };
@@ -2758,6 +2802,7 @@ class Viewer {
     if (a.prefabSources(ms.style, null, true).length) {
       const id = `gen:pf-${ms.style}-${ms.element ? ms.element.toLowerCase() : "none"}:${seed}`;
       this.genFallback.set(id, theme);
+      if (ms.family) this.genFamily.set(id, ms.family);
       this.genTables.set(id, stratumTables(ms.family, rng(seed)));
       this.genNames.set(id, `${label} · ${ms.family}`);
       return { id, name: `${f.name} · depth ${f.depth}` };
@@ -3459,23 +3504,6 @@ function retheme(root: any, tables: string[], rand: () => number) {
     const table = { $class: "com.threerings.config.ConfigReference", name: byTag.get(tag)!,
       arguments: { $map: "com.threerings.config.ArgumentMap", entries: [["Depth Offset", 0], ["Loot", "Primary"], ["Wave Tag", wave]] } };
     if (i >= 0) args[i] = ["Spawn Table", table]; else args.push(["Spawn Table", table]);
-  }
-}
-
-/**
- * Points the Master Signal Triggers of a floor built from prefab rooms at the stratum's spawn
- * tables, one table per spawn group, keeping their arguments (wave tags). The rooms' Class
- * Spawns (support and turret classes) and drones stay as the servers chose them.
- */
-function rethemeMasters(root: any, tables: string[], rand: () => number) {
-  const byTag = new Map<string, string>();
-  for (const e of root.entries ?? []) {
-    const args: [string, any][] | undefined = e.placeable?.arguments?.entries;
-    if (!args || e.placeable?.name !== "Trigger/Master Signal Trigger") continue;
-    const tag = String(args.find(([k]) => k === "Spawn Tag")?.[1] ?? "");
-    if (!byTag.has(tag)) byTag.set(tag, tables[Math.floor(rand() * tables.length)]);
-    const t = args.find(([k]) => k === "Spawn Table");
-    if (t?.[1]) t[1] = { ...t[1], name: byTag.get(tag)! };
   }
 }
 
