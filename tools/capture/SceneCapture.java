@@ -6,18 +6,16 @@
 // archive sync picks it up (server/install.ts). Nothing the client sends or receives is altered,
 // and the client runs exactly as its own launcher would start it.
 //
-// Compiled with no compile-time reference to the client (everything is found by reflection), so
-// any JDK 21+ builds it: tools/capture/build.cmd. Run with tools/capture/play.cmd.
+// Built by npm run capture (tools/capture/play.ts) with any JDK 21+: the repository wrapper is
+// compiled against stand-ins for the two client types it names (tools/capture/stubs).
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
-import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashSet;
@@ -90,8 +88,8 @@ public class SceneCapture {
           if (f.getType() != repo) continue;
           f.setAccessible(true);
           Object inner = f.get(holder);
-          if (inner == null || Proxy.isProxyClass(inner.getClass())) continue;
-          f.set(holder, Proxy.newProxyInstance(repo.getClassLoader(), new Class<?>[] { repo }, new Capturing(inner)));
+          if (inner == null || inner instanceof CapturingRepository) continue;
+          f.set(holder, new CapturingRepository(inner));
           swapped++;
         }
       }
@@ -107,19 +105,6 @@ public class SceneCapture {
         try { f.setAccessible(true); out.add(f.get(o)); } catch (RuntimeException e) { /* inaccessible */ }
       }
     return out;
-  }
-
-  static final class Capturing implements InvocationHandler {
-    final Object inner;
-    Capturing(Object inner) { this.inner = inner; }
-    public Object invoke(Object proxy, Method m, Object[] a) throws Throwable {
-      Object r;
-      try { r = m.invoke(inner, a); } catch (InvocationTargetException e) { throw e.getCause(); }
-      // a scene model passed in (store) or returned (load)
-      if (a != null) for (Object x : a) capture(x);
-      capture(r);
-      return r;
-    }
   }
 
   static void capture(Object model) {

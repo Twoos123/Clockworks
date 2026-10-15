@@ -22,10 +22,15 @@ if (!install) { console.log("No Spiral Knights install found (set SK_DIR to its 
 const captured = join(dirname(archiveDir()), "captured");
 const build = join(dirname(archiveDir()), "capture-build");
 mkdirSync(captured, { recursive: true });
-if (!existsSync(join(build, "SceneCapture.class"))) {
-  const javac = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, "bin", "javac") : "javac";
+if (!existsSync(join(build, "CapturingRepository.class"))) {
+  const bin = process.env.JAVA_HOME ? join(process.env.JAVA_HOME, "bin") : "";
+  const javac = bin ? join(bin, "javac") : "javac";
   console.log("Building SceneCapture...");
-  execFileSync(javac, ["--release", "21", "-d", build, join(here, "SceneCapture.java")], { stdio: "inherit" });
+  // the client stand-ins are compiled aside and only put on the compile classpath
+  const stubs = join(dirname(build), "capture-stubs");
+  const stubSrc = ["com/threerings/whirled/a/a/a.java", "com/threerings/whirled/data/SceneModel.java"].map(f => join(here, "stubs", f));
+  execFileSync(javac, ["--release", "21", "-d", stubs, ...stubSrc], { stdio: "inherit" });
+  execFileSync(javac, ["--release", "21", "-cp", stubs, "-d", build, join(here, "SceneCapture.java"), join(here, "CapturingRepository.java")], { stdio: "inherit" });
 }
 
 // getdown.txt: the code jars (no platform tag, or this platform's) and the JVM arguments
