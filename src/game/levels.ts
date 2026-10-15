@@ -18,6 +18,8 @@
 // few levels whose key is not known keep a guess on the level's English name; `npm run levels`
 // lists any cached name that matches nothing.
 
+import { derivedArenas } from "./derive";
+
 export type LevelGroup = "clockworks" | "boss" | "danger" | "missions" | "towns" | "pvp";
 
 export const GROUPS: { id: LevelGroup; title: string }[] = [
@@ -424,7 +426,12 @@ export function matchLevels(sceneName: string, levels: readonly Level[] = LEVELS
   return levels.filter(l => l.pattern.test(n));
 }
 
-export interface GroupCount { group: LevelGroup; title: string; have: Level[]; missing: Level[] }
+/**
+ * A group's levels: those collected (cached by the real client), those not collected that this
+ * port derives from a collected one (src/game/derive.ts: a Battle Arena re-cast from another),
+ * and the rest. A derived level is playable but not the game's own: it is still to be captured.
+ */
+export interface GroupCount { group: LevelGroup; title: string; have: Level[]; derived: Level[]; missing: Level[] }
 
 export interface Checklist {
   groups: GroupCount[];
@@ -435,6 +442,9 @@ export interface Checklist {
   /** Developer, test and unnamed scenes (NOT_LEVEL). */
   other: number;
   have: number;
+  /** Levels not collected but derived from a collected one, and the scene each derives from. */
+  derived: number;
+  derivedFrom: Map<Level, string>;
   total: number;
 }
 
@@ -447,7 +457,8 @@ export function checklist(sceneNames: Iterable<string>, shipped: (rsrc: string) 
   const got = new Set<Level>();
   const unmatched: string[] = [];
   let guildHalls = 0, other = 0;
-  for (const name of sceneNames) {
+  const names = [...sceneNames];
+  for (const name of names) {
     const m = matchLevels(name, levels);
     for (const l of m) got.add(l);
     if (m.length) continue;
@@ -457,9 +468,15 @@ export function checklist(sceneNames: Iterable<string>, shipped: (rsrc: string) 
     else unmatched.push(name);
   }
   for (const l of levels) if (l.rsrc && shipped(l.rsrc)) got.add(l);
+  // levels this port derives from a collected one: counted apart, never as collected
+  const derivedFrom = new Map<Level, string>();
+  for (const [key, from] of derivedArenas(names)) {
+    for (const l of matchLevels(key, levels)) if (!got.has(l) && !derivedFrom.has(l)) derivedFrom.set(l, from);
+  }
   const groups = GROUPS.map(g => {
     const all = levels.filter(l => l.group === g.id);
-    return { group: g.id, title: g.title, have: all.filter(l => got.has(l)), missing: all.filter(l => !got.has(l)) };
+    return { group: g.id, title: g.title, have: all.filter(l => got.has(l)), derived: all.filter(l => derivedFrom.has(l)),
+      missing: all.filter(l => !got.has(l) && !derivedFrom.has(l)) };
   });
-  return { groups, unmatched, guildHalls, other, have: got.size, total: levels.length };
+  return { groups, unmatched, guildHalls, other, have: got.size, derived: derivedFrom.size, derivedFrom, total: levels.length };
 }

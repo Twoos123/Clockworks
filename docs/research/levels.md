@@ -107,6 +107,31 @@ and monster family (perhaps the Danger Rooms).
 The status order of the five-level sets (normal, fire, freeze, poison, shock) and of the arenas
 is confirmed by the keys (`<set>_vanilla`, `_fire`, ...).
 
+### What varies between Battle Arenas, tunnels and compounds
+
+Compared in the archive (prefab labels, globals and spawn tables of each captured floor; the
+captures store no `spawnTypes`, so everything the servers chose is baked into the entries):
+
+- **Battle Arenas** are one skeleton of prefab rooms: `elevator_start_N_5w`, three
+  `stairs_<n>_NS_5w_26l`, three `room_battle_<n>_NS_5w_01` with a `room_break_<n>_E_5w` beside each,
+  two `elevator_next_option_NSW_5w` and `elevator_next_end_SW_5w` (`ima_beast`); a `:N` suffix
+  picks a room's variant. The tiles are the castle's Arena King set (the only rug variants in
+  tile.dat). What changes with family and status is baked in: each Class Spawn's spawn table
+  (waves of one monster, `<room>_auto_spawn <wave>`), the typed mineral nodes (`ima_beast` has
+  exactly the two that match both `beast` and `freeze`: Dark Matter and Luminite) and the
+  `Environment/Custom/Battle Arena/<Status>/` globals (plus Universal/Freeze/Vision Snow under
+  freeze). The waves mix the family's status variants with vanilla ones (Frostifurs and
+  Wolvers) and other families' supports and turrets (Menders, Polyps). Mission floors on the
+  same skeleton (`ima_construct_spark_roar`, `vfa_undead_weight_of_darkness`) use the `_02` rooms,
+  no break rooms, clockwork tiles and the Clockwork Tunnels globals: they are their mission's.
+  The client's rule for choosing among a monster's status variants or a family's monsters of a
+  role is SpawnTableConfig$SpawnTypeListEntry (best count of matching spawn types, ties at
+  random, else the list's default); src/game/derive.ts re-casts an archived arena with it.
+- **Clockwork Tunnels** and **Gremlin Compounds** are not one layout: two captures of one area
+  and family (three `ct_beast`, two `pc_slime`; `rc_undead_minis` against `fc_undead_minis`) are
+  different sets and arrangements of prefab rooms. They are generated per run, so new ones are
+  assembled from the captured rooms (src/gen/assemble.ts) rather than derived.
+
 ## Boss levels
 
 | Boss stratum | Levels | Where |

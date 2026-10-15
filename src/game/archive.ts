@@ -8,6 +8,7 @@
 // which the newest (the highest scene id below the instance range) is used.
 
 import { BOSSES, ELEMENTS, FAMILIES, type BossKey, type Family } from "./clockworks";
+import { arenaName, deriveId, pickArenaSource } from "./derive";
 
 export type Element = typeof ELEMENTS[number];
 
@@ -149,6 +150,16 @@ export class LevelArchive {
     return [...(fixed ? [fixed] : []), ...(this.instances.get(n) ?? [])];
   }
   private instances = new Map<string, { id: string; name: string }[]>();
+
+  /**
+   * A Battle Arena the archive lacks, derived from one it holds (src/game/derive.ts): its scene
+   * id ("derive:..."), the arena's scene name ("fla fiend") and the source's; null when the
+   * archive holds that arena itself or no arena at all.
+   */
+  deriveArena(family: Family, element: Element | null, seed: number): { id: string; name: string; source: { id: string; name: string } } | null {
+    const src = pickArenaSource(this.levels.filter(l => l.style === "arena"), family, element);
+    return src ? { id: deriveId(src.id, family, element, seed), name: arenaName(family, element), source: { id: src.id, name: src.name } } : null;
+  }
 
   /** Styles with at least one archived level. */
   styles(): Set<string> { return new Set(this.levels.map(l => l.style)); }

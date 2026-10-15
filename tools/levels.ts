@@ -34,10 +34,17 @@ console.log(`Install: ${install ?? "(not found)"}`);
 console.log(`Archive: ${archiveDir()}`);
 console.log(`Cached scenes read: ${named.size}${failed.length ? `, ${failed.length} unreadable` : ""}\n`);
 
+// a level this port derives from a collected one (src/game/derive.ts) is playable, but it is
+// not the game's own: it is counted apart and stays on the list of levels to capture
+const derivedNote = (n: number) => (n ? ` (+${n} derived from a capture)` : "");
 for (const g of list.groups) {
-  const total = g.have.length + g.missing.length;
-  console.log(`== ${g.title}: ${g.have.length} of ${total}`);
+  const total = g.have.length + g.derived.length + g.missing.length;
+  console.log(`== ${g.title}: ${g.have.length} of ${total}${derivedNote(g.derived.length)}`);
   if (all) for (const l of g.have) console.log(`  [x] ${l.set}: ${l.name}`);
+  if (g.derived.length) {
+    console.log(`  Derived from a capture (playable, still to capture):`);
+    for (const l of g.derived) console.log(`    [~] ${l.set}: ${l.name} - from "${list.derivedFrom.get(l)}"; capture: ${l.where}`);
+  }
   let set = "";
   for (const l of g.missing) {
     if (l.set !== set) { set = l.set; console.log(`  ${set}`); }
@@ -47,10 +54,10 @@ for (const g of list.groups) {
   console.log("");
 }
 
-console.log(`Total: ${list.have} of ${list.total} levels`);
+console.log(`Total: ${list.have} of ${list.total} levels${derivedNote(list.derived)}`);
 for (const g of GROUPS) {
   const c = list.groups.find(x => x.group === g.id)!;
-  console.log(`  ${g.title.padEnd(34)} ${String(c.have.length).padStart(3)} / ${c.have.length + c.missing.length}`);
+  console.log(`  ${g.title.padEnd(34)} ${String(c.have.length).padStart(3)} / ${c.have.length + c.derived.length + c.missing.length}${derivedNote(c.derived.length)}`);
 }
 console.log(`  ${"Guild halls".padEnd(34)} ${list.guildHalls} archived`);
 console.log(`  ${"Dev, test and unnamed scenes".padEnd(34)} ${list.other}`);
