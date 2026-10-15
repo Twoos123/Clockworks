@@ -60,6 +60,12 @@ export interface LogicEntry {
   actor?: any;
 }
 
+/**
+ * A ProjectXPlaceableConfig Named placeable (the Alchemy Machine): where it stands, its scale,
+ * and the config holding its name label's description and nameOffset (client/sprite/h).
+ */
+export interface SceneName { x: number; y: number; z: number; scale: number; holder: { description: any; nameOffset?: number } }
+
 export interface LoadedScene {
   id: string;
   name: string;
@@ -76,6 +82,8 @@ export interface LoadedScene {
   triggers: TriggerArea[];
   startupActors: StartupActor[];
   logic: LogicEntry[];
+  /** The named placeables (machines, shop signs) that carry a name label. */
+  names?: SceneName[];
   /** Where knights arrive: the start elevator platform, when the level has one. */
   start: [number, number] | null;
 }
@@ -193,6 +201,7 @@ export class SceneLoader {
     const levelMap = new LevelMap();
     const spawns: SpawnPoint[] = [], triggers: TriggerArea[] = [], startupActors: StartupActor[] = [];
     const logic: LogicEntry[] = [];
+    const names: SceneName[] = [];
     let start: [number, number] | null = null;
     for (const e of s.entries ?? []) {
       if (!e.$class.endsWith("AreaEntry") || !e.vertices?.length) continue;
@@ -301,6 +310,10 @@ export class SceneLoader {
       if (!modelRef) { stats.unresolved++; continue; }
       const t = readTransform(e.transform);
       collision.addProp(impl, e.transform);
+      if (/ProjectXPlaceableConfig\$Named$/.test(impl.$class) && impl.description) {
+        const at = t.matrix ? [t.matrix[12], t.matrix[13], t.matrix[14]] : t.t;
+        names.push({ x: at[0], y: at[1], z: at[2], scale: t.s, holder: { description: impl.description, nameOffset: impl.nameOffset } });
+      }
       // the exit elevators' screens show where they lead (src/game/gatemap.ts elevatorScreen)
       let elevator: SceneObject["elevator"];
       if (impl.$class.endsWith("$ElevatorProp") && impl.actor) {
@@ -334,7 +347,7 @@ export class SceneLoader {
     }
     stats.uniqueModels = unique.size;
     const globals = (s.entries ?? []).filter((e: any) => e.$class.endsWith("GlobalEntry")).map((e: any) => e.sceneGlobal);
-    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision, levelMap, spawns, triggers, startupActors, logic, start };
+    return { id, name: prettySceneName(s.name ?? id), objects, stats, bounds: { min, max }, globals, collision, levelMap, spawns, triggers, startupActors, logic, names, start };
   }
 }
 

@@ -160,6 +160,13 @@ export interface MonsterDef {
   collisionMask: number;
   /** Handlers such as loot drops. */
   handlers: any[];
+  /**
+   * DungeonActorSpriteConfig Monster balloonOffset (2): the height above the model's root its
+   * health bar (character/health_transformed.dat) and word balloons hang at, in model units.
+   */
+  balloonOffset: number;
+  /** DungeonActorConfig Monster showHealth (false): its health bar shows even while unhurt. */
+  showHealth: boolean;
 }
 
 export type WeaponKind = "Sword" | "Handgun" | "Bomb" | "Other";
@@ -575,6 +582,8 @@ export class GameData {
       collisionFlags: m.collisionFlags ?? 8,
       collisionMask: m.collisionMask ?? 1,
       handlers: m.handlers ?? [],
+      balloonOffset: sprite.balloonOffset ?? 2,
+      showHealth: !!m.showHealth,
     };
   }
 

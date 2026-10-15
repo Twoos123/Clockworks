@@ -1144,7 +1144,7 @@ class Viewer {
     // the level's help bubbles (src/ui/balloons.ts)
     this.balloons ??= new Balloons(this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors));
     this.balloons.clear();
-    this.hud.image = f => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f);
+    this.hud.image = (f, zations) => (this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors)).image(f, zations);
     this.gui ??= new GuiContext(this.loader, this.vfs, this.renderer.colors);
     initNotices(this.gui);
     this.tooSmall ??= new TooSmallWarning(this.gui);
@@ -1499,7 +1499,7 @@ class Viewer {
     this.renderer.particlesOn = o.particles;
     // ProjectXPrefs show_charge_bar and show_weapon_switcher (Options, Game: on by default)
     const pref = (tag: string) => o.prefs[tag] !== false;
-    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, get hudScale() { return uiScale(o); }, fps: o.showFps, chargeBar: pref("charge_bar") };
+    if (this.hud) this.hud.options = { healthBars: o.healthBars, damageNumbers: o.damageNumbers, get hudScale() { return uiScale(o); }, fps: o.showFps, chargeBar: pref("charge_bar"), npcNames: pref("npc_names") };
     if (this.gameHud) this.gameHud.options = { minimap: o.minimap, screenFlash: o.screenFlash, weaponSwitcher: pref("weapon_switcher") };
     if (this.world) this.world.autoAimOn = o.autoAim;
     padOptions.deadZone = o.deadZone;

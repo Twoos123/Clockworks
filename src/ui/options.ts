@@ -3,10 +3,10 @@
 // screen and the logo, the tabs (General, Video, Game, Chat, Controls, Prompts, Partner, About)
 // and the bottom bar (Quit, Logoff, Return to Haven, OK) sit in the middle. Every control the
 // client shows is shown; those bound to something here change it (volumes, quality, camera
-// shake, UI scale, the display mode, the Game page's damage, health, damage effect and auto
+// shake, UI scale, the display mode, the Game page's damage, health, NPC name, damage effect and auto
 // target boxes, the control scheme and custom keys), and those with nothing behind them in
 // single player (region, party with any, the chat page, the confirmation prompts, Discord, full
-// inspect, NPC names...) keep the player's choice without effect (Settings.prefs). Report a
+// inspect...) keep the player's choice without effect (Settings.prefs). Report a
 // Bug is disabled. The Partner page's Steam box (hidden without Steam, as the client hides it)
 // holds the browser's save instead. The Advanced buttons open the advanced video and game
 // windows (ui/options/advanced_*.dat), with rows for this port's own settings; Custom (Click to
@@ -62,7 +62,7 @@ const RANGES: Record<Range, { min: number; max: number; fmt: (v: number) => stri
 
 /**
  * Check boxes kept in Settings.prefs, by tag, and their defaults (ProjectXPrefs'). The weapon
- * switcher and the charge meter boxes are read by the HUDs (main.ts applyOptions); the rest
+ * switcher, charge meter and NPC name boxes are read by the HUDs (main.ts applyOptions); the rest
  * have nothing behind them here.
  */
 const PREF_BOXES: Record<string, boolean> = {
