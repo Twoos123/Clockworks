@@ -27,6 +27,17 @@ const DOCK_GAP = 4;
 const ENERGY_BOTTOM = 70;
 const COMPONENT = "com.threerings.opengl.gui.config.ComponentConfig$";
 
+/**
+ * ProjectXApp's modal shade (Root.setModalShade: black at half opacity), drawn behind the
+ * topmost modal window only: the confirm prompts (client/ui/k), the popups (client/ui/O: the
+ * forging, a craft's success) and the like. The game's ordinary windows (the arsenal, the
+ * shops, the boards, the options) are not modal and leave the game undimmed behind them.
+ */
+export function modalShade(g: CanvasRenderingContext2D, w: number, h: number) {
+  g.fillStyle = "rgba(0,0,0,0.5)";
+  g.fillRect(0, 0, w, h);
+}
+
 export interface ScreenHost {
   /** Plays a UI feedback sound. */
   sound(file: string): void;
@@ -359,8 +370,6 @@ export abstract class GuiScreen {
   protected dockLeft: boolean | (() => number) = false;
   /** The left-docked window's width as last drawn (for the windows docked beside it). */
   dockedWidth = 0;
-  /** Darkens the game behind the window (a docked list leaves it be). */
-  protected dim = true;
   /**
    * The docked windows stand full height above the HUD from the top edge, as every client/g
    * list window does (the arsenal, the loadouts, the shop's vendor), instead of centred at
@@ -533,10 +542,6 @@ export abstract class GuiScreen {
     g.clearRect(0, 0, w, h);
     g.scale(dpr, dpr);
     const cw = w / dpr, ch = h / dpr;
-    if (this.dim) {
-      g.fillStyle = "rgba(4,10,18,0.6)";
-      g.fillRect(0, 0, cw, ch);
-    }
     const now = performance.now(), dt = this.last ? Math.min(0.5, (now - this.last) / 1000) : 0;
     this.last = now;
     for (const r of this.runners.values()) r.tick(dt);
@@ -546,10 +551,15 @@ export abstract class GuiScreen {
     let edge = cw, leftEdge = 0;
     const tall = Math.max(200, Math.round(ch - DOCK_BOTTOM));
     // the right edge's column (the arsenal, a right-docked window): the energy panel joins it
-    let column = false;
+    // at its foot, the window shortened by the panel's height so the two stand as one column
+    // whose bottom is the HUD's 145 pixels up
+    let column: number | null = null;
+    const energyH = this.energyHeight();
+    const columnTall = Math.max(100, tall - energyH);
     for (const d of this.docks) {
       const ui = d.panel.ui;
-      if (this.tallDocks) ui.preferredSize = { width: -1, height: tall };
+      const first = !d.left && edge === cw && this.tallDocks;
+      if (this.tallDocks) ui.preferredSize = { width: -1, height: first ? columnTall : tall };
       const s = pack(ui);
       const bottom = this.tallDocks ? s.height : Math.round((ch + s.height) / 2);
       if (d.left) {
@@ -558,7 +568,7 @@ export abstract class GuiScreen {
         leftEdge += s.width;
         continue;
       }
-      if (edge === cw && this.tallDocks) column = true;
+      if (first) column = bottom;
       edge -= s.width;
       render(ui, g, Math.max(0, edge), bottom, this.hooks);
     }
@@ -570,11 +580,12 @@ export abstract class GuiScreen {
         this.dockedWidth = s.width;
         render(this.root, g, Math.min(Math.max(0, cw - s.width), this.dockLeft()), s.height, this.hooks);
       } else {
-        // a right-docked list window stands full height from the top, against the edge
-        if (this.dockRight) this.root.preferredSize = { width: -1, height: tall };
-        const s = pack(this.root);
+        // a right-docked list window stands full height from the top, against the edge (less
+        // the energy panel under it there)
         const right = this.docks.some(d => !d.left) ? edge - (this.dockRight ? 0 : DOCK_GAP) : cw;
-        if (this.dockRight && right === cw) column = true;
+        if (this.dockRight) this.root.preferredSize = { width: -1, height: right === cw ? columnTall : tall };
+        const s = pack(this.root);
+        if (this.dockRight && right === cw) column = s.height;
         let x = this.dockLeft ? 0 : this.dockRight ? right - s.width
           : Math.max(leftEdge + DOCK_GAP, Math.min(Math.round((cw - s.width) / 2), right - s.width));
         // a window docked to the main one's left (the mission board's Featured Items,
@@ -594,10 +605,10 @@ export abstract class GuiScreen {
         render(this.root, g, Math.max(0, x), this.dockRight ? s.height : Math.round((ch + s.height) / 2), this.hooks);
       }
     }
-    this.drawEnergy(g, cw, ch, column ? tall : null);
-    for (const o of this.overlays) {
-      g.fillStyle = "rgba(4,10,18,0.45)";
-      g.fillRect(0, 0, cw, ch);
+    this.drawEnergy(g, cw, ch, column);
+    for (const [i, o] of this.overlays.entries()) {
+      // the client's modal shade behind the topmost modal window (a confirmation, the forging)
+      if (i === this.overlays.length - 1) modalShade(g, cw, ch);
       const s = pack(o);
       render(o, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
     }
@@ -640,20 +651,26 @@ export abstract class GuiScreen {
   /** Per-frame work before drawing (animations). */
   protected tick() {}
 
-  /**
-   * The HUD's energy panel at the bottom right (hud/r, anchored right and bottom, 70 up), flush
-   * against the screen's edge; under a column docked at the right edge it hangs from that
-   * column's bottom (`top`), joined to it.
-   */
-  private drawEnergy(g: CanvasRenderingContext2D, cw: number, ch: number, top: number | null = null) {
-    if (!this.energy) return;
+  /** The energy panel's height while this window shows it (0 until it is built, or without one). */
+  private energyHeight(): number {
+    if (!this.energy) return 0;
     if (!this.energyUi) {
       if (!this.energyBuilding) {
         this.energyBuilding = true;
         void energyPanel(this.ctx).then(c => { this.energyUi = c; }, e => console.error("energy panel failed", e));
       }
-      return;
+      return 0;
     }
+    return pack(this.energyUi).height;
+  }
+
+  /**
+   * The HUD's energy panel at the bottom right (hud/r, anchored right and bottom, 70 up), flush
+   * against the screen's edge; under a column docked at the right edge it hangs from that
+   * column's bottom (`top`), joined to it, the column shortened by its height (energyHeight).
+   */
+  private drawEnergy(g: CanvasRenderingContext2D, cw: number, ch: number, top: number | null = null) {
+    if (!this.energy || !this.energyUi) return;
     const n = this.energyUi.find("crystalenergy");
     if (n) n.text = this.energy().toLocaleString("en-US");
     const s = pack(this.energyUi);

@@ -19,7 +19,7 @@ import { checklist } from "../game/levels";
 import { message, messages, text } from "../i18n";
 import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, restyle, selectTab, setComboItems, type GuiContext, type GuiImage } from "./gui";
 import { findParent, KeyBindings } from "./keybinds";
-import { buildUi, uiRef } from "./screen";
+import { buildUi, modalShade, uiRef } from "./screen";
 import { defaultSettings, UI_MIN_SCALE, uiMaxScale, uiScale, uiScaleLimit, type Settings, type Tab } from "./settings";
 
 export interface OptionsActions {
@@ -860,8 +860,8 @@ export class OptionsScreen {
     g.clearRect(0, 0, w, h);
     g.scale(dpr, dpr);
     const cw = w / dpr, ch = h / dpr;
-    g.fillStyle = "rgba(4,10,18,0.35)";
-    g.fillRect(0, 0, cw, ch);
+    // the options window leaves the game undimmed behind it; its dialogs are modal (the shade
+    // behind the topmost)
     for (const ui of [this.ui, ...this.overlays]) {
       if (!ui) continue;
       if (ui === this.ui) {
@@ -872,8 +872,7 @@ export class OptionsScreen {
         render(ui, g, 0, Math.round(ch), {});
         continue;
       }
-      g.fillStyle = "rgba(4,10,18,0.45)";
-      g.fillRect(0, 0, cw, ch);
+      if (ui === this.overlays[this.overlays.length - 1]) modalShade(g, cw, ch);
       const s = pack(ui);
       render(ui, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), {});
     }
