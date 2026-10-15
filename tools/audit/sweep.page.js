@@ -155,7 +155,14 @@
       // clicks every 3 ticks until that many attacks have started, across the steps below: the
       // client chains the next step only on a click at or after the swing's rearm (a click
       // earlier in the swing is dropped), so a fixed count of early clicks played one swing
+      // the closest the knight came to the dummy, edge to edge: a step that ends against it
+      // stops there (the client's mobile collision), and the range pins the dummy back to its
+      // spot afterwards, so the gap at the end does not show it (a hunting blade's pulling
+      // swings drag the dummy in, and the knight's next steps stop against it)
+      let closest = Infinity;
+      const near = () => { closest = Math.min(closest, Math.hypot(dummy.x - k.x, dummy.y - k.y) - dummy.radius - k.radius); };
       const drive = () => {
+        near();
         const inp = { aim: aim() };
         if (tick++ % 3 === 0 && started() < presses) inp.attackDown = true;
         return inp;
@@ -170,9 +177,9 @@
       // the swings that played carry the knight; the dummy (pinned in place) stops it where they
       // meet, as the client's mobile collision stops a step against a monster
       const swings = Math.min(presses, started());
-      const gap = Math.hypot(dummy.x - k.x, dummy.y - k.y) - dummy.radius - k.radius;
+      near();
       rec.chain = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), travel: travel(home),
-        impulse: impulseOf(def.attacks.slice(0, swings)), swings: presses, blocked: gap < 0.1 };
+        impulse: impulseOf(def.attacks.slice(0, swings)), swings: presses, blocked: closest < 0.1 };
 
       // a full charge and release
       if (def.chargedAttack) {
@@ -189,14 +196,17 @@
         rec.shots.push(await shot("charged", k.instance));
         chargePose = k.instance.overlay?.clip?.path ?? chargePose;
         await step(DT, { attackHeld: false, aim: aim() });
-        await step(2, () => ({ aim: aim() }), () => k.attack?.phase === "fire");
-        await step(0.1, () => ({ aim: aim() }));
+        closest = Infinity;
+        const aimNear = () => { near(); return { aim: aim() }; };
+        await step(2, aimNear, () => k.attack?.phase === "fire");
+        await step(0.1, aimNear);
         rec.shots.push(await shot("release", k.instance));
-        await step(4, () => ({ aim: aim() }), () => !k.attack && !knightProjectiles());
+        await step(4, aimNear, () => !k.attack && !knightProjectiles());
+        near();
         await step(1, () => ({ aim: aim() }));
         await sleep(300);
         rec.charge = { ...runLog("knight"), hits: R().hits().filter(h => h.from === "knight"), full, pose: chargePose, travel: travel(start), impulse: impulseOf([def.chargedAttack]),
-          blocked: Math.hypot(dummy.x - k.x, dummy.y - k.y) - dummy.radius - k.radius < 0.1 };
+          blocked: closest < 0.1 };
       }
       R().clearAll();
       return rec;
@@ -206,10 +216,14 @@
       const w = W(), k = w.knight;
       const rec = { name, shots: [], console: [], problems: [] };
       fresh();
+      // only monster configs come into the world as monsters (World.createActor); the rest under
+      // Character/NPC/Monster are a boss's parts: markers and debris (bombs), its flames
+      // (orbitals) and bullets, switches, a shadow polyp's influence, scripted props
+      const kind = R().actorKind(name);
+      if (!/^(Monster|ZMonster|Agent)$/.test(kind ?? "")) { rec.part = kind ?? "no config"; return rec; }
       const [m] = await R().spawn(name, { hold: "frozen", undying: true, dist: 4.5, count: 1 });
       if (!m) {
-        const cfg = w.data.resolveSync("config/actor.dat", { name }, "actor");
-        rec.error = `never appeared (${String(cfg?.$class ?? "no config").split("$").pop()})`;
+        rec.error = `never appeared (${kind})`;
         return rec;
       }
       const d = m.def;
@@ -230,12 +244,24 @@
         m.hold = "frozen";
       }
       // its first attack, made by hand with the knight in reach
-      const atk = d.attacks[0] ?? null;
+      // the first of its attacks that is a blow at the knight (data.ts attackHarms): a wolver's
+      // bark, a devilite's dodge or a blastcore's weak spot strikes nothing by design; a monster
+      // with none has its first made, and nothing is expected of it
+      const atk = d.attacks.find(x => R().attackHarms(x)) ?? d.attacks[0] ?? null;
       if (atk && !m.passive) {
-        const reach = atk.shape ? Math.max(0.6, atk.shape.forward + Math.max(atk.shape.halfLength, atk.shape.radius) * 0.5) : 4;
         const a = Math.atan2(k.y - m.y, k.x - m.x);
-        k.x = m.x + Math.cos(a) * (reach + m.radius * 0.5); k.y = m.y + Math.sin(a) * (reach + m.radius * 0.5);
+        // a compound region (Vanaduke's club slam) strikes ahead of it: the knight goes to the
+        // middle of its nearest part
+        const part = atk.shape?.parts ? atk.shape.parts.reduce((p, q) => (q.forward < p.forward ? q : p)) : null;
+        if (part) {
+          const c = Math.cos(a), sn = Math.sin(a);
+          k.x = m.x + c * part.forward - sn * part.side; k.y = m.y + sn * part.forward + c * part.side;
+        } else {
+          const reach = atk.shape ? Math.max(0.6, atk.shape.forward + Math.max(atk.shape.halfLength, atk.shape.radius) * 0.5) : 4;
+          k.x = m.x + Math.cos(a) * (reach + m.radius * 0.5); k.y = m.y + Math.sin(a) * (reach + m.radius * 0.5);
+        }
         face();
+        if (part) m.heading = a;
         A().log().projectiles.length = 0; A().log().effects.length = 0;
         R().clearHits();
         w.monsterAttack(m, atk);
@@ -249,7 +275,7 @@
         await step(0.5, () => ({ aim: [m.x, m.y] }));
         await sleep(200);
         const l = runLog("monster");
-        rec.forced = { name: atk.name, hits: R().hits().filter(h => h.to === "knight"), projectiles: l.projectiles, effects: l.effects };
+        rec.forced = { name: atk.name, harms: R().attackHarms(atk), hits: R().hits().filter(h => h.to === "knight"), projectiles: l.projectiles, effects: l.effects };
         // left to its own behaviour: does it come at the knight and attack?
         // the knight 3 units off, past the forced hit's knockback; slow walkers (the Green Giant
         // crawls at 1 unit a second) get time to close the gap
@@ -257,9 +283,14 @@
         const pull = Math.max(0, off - 3);
         k.x -= Math.cos(a) * pull; k.y -= Math.sin(a) * pull;
         const n0 = A().log().attacks.filter(x => x.who === "monster").length, x0 = m.x, y0 = m.y;
+        // whether its behaviour aims a blow at the knight at all (healers, followers, a
+        // tortodrone until provoked do not), and how long a script waits before the first
+        const outlook = R().outlook(m) ?? { aims: true, delay: 0 };
+        const window = 12 + Math.min(10, (outlook.delay || 0) / 1000);
         m.hold = "live";
-        await step(12, () => ({}), () => A().log().attacks.filter(x => x.who === "monster").length > n0);
-        rec.live = { attacked: A().log().attacks.filter(x => x.who === "monster").length > n0, moved: +Math.hypot(m.x - x0, m.y - y0).toFixed(2) };
+        await step(window, () => ({}), () => A().log().attacks.filter(x => x.who === "monster").length > n0);
+        rec.live = { attacked: A().log().attacks.filter(x => x.who === "monster").length > n0, moved: +Math.hypot(m.x - x0, m.y - y0).toFixed(2),
+          aims: outlook.aims, delay: outlook.delay, window };
         m.hold = "frozen";
         m.attack = null;
         await step(0.5, () => ({}));
@@ -268,7 +299,7 @@
       if (!m.passive) {
         face();
         R().clearHits();
-        R().strike(m, 0.6, 1.5);
+        R().strike(m, 2, 1.5);
         rec.reacted = m.reacting > 0;
         await step(0.12, () => ({}));
         rec.shots.push(await shot("hit", m.instance));

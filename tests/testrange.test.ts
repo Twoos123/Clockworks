@@ -135,7 +135,7 @@ test("monster anomalies", () => {
   const base: MonsterRecord = { name: "Character/NPC/Monster/Slime/X/X 1", passive: false, speed: 3, idle: "idle.dat", move: null, reactTime: 500, minReact: 0.1,
     forced: { name: "Bite", hits: [], projectiles: [], effects: [] }, live: { attacked: false, moved: 0 }, reacted: false, died: false, shots: [], console: [], problems: [] };
   const p = judgeMonster(base);
-  for (const want of ["moves but has no movement animation", "attack Bite: no hit and no projectile", "never attacks (left to its own behaviour)", "no hit reaction", "never dies"]) {
+  for (const want of ["attack Bite: no hit and no projectile", "never attacks (left to its own behaviour)", "no hit reaction", "never dies"]) {
     assert.ok(p.includes(want), `${want} in ${p.join(" | ")}`);
   }
   // a monster that never reacts by its config is not flagged for it; a passive one is not asked to fight
@@ -145,6 +145,28 @@ test("monster anomalies", () => {
   const dead = judgeMonster({ ...base, move: "w.dat", forced: { name: "Bite", hits: [hit({ to: "knight" })], projectiles: [], effects: [] }, live: { attacked: true, moved: 2 },
     reacted: true, died: true, removedAfter: 1.2, deathEffects: ["particle/death.dat"] });
   assert.deepEqual(dead, []);
+});
+
+test("monster sweep false alarms: parts, absent models, non-blows, peaceful behaviours, configs without clips", () => {
+  const base: MonsterRecord = { name: "Character/NPC/Monster/Beast/Wolver/Wolver/Wolver 1", passive: false, speed: 3, idle: null, move: null, reactTime: 500, minReact: 0.1,
+    forced: { name: "Character/NPC/Monster/Beast/Wolver/Bark", harms: false, hits: [], projectiles: [], effects: [] }, live: { attacked: false, moved: 0, aims: false, delay: 0, window: 12 },
+    reacted: true, died: true, removedAfter: 1, deathEffects: ["particle/death.dat"],
+    shots: [{ label: "idle", pose: { clip: null, targets: 0, matched: 0 } }], console: [], problems: [] };
+  // a bark is no blow, a behaviour that aims none need not attack, a config without an idle or
+  // a movement shows its model as it stands
+  assert.deepEqual(judgeMonster(base), []);
+  // but a blow that lands nothing, a behaviour that aims one and never does, are still caught
+  const bad = judgeMonster({ ...base, forced: { ...base.forced!, harms: true }, live: { ...base.live!, aims: true } });
+  assert.ok(bad.includes("attack Character/NPC/Monster/Beast/Wolver/Bark: no hit and no projectile"), bad.join(" | "));
+  assert.ok(bad.includes("never attacks (left to its own behaviour)"), bad.join(" | "));
+  // a script that waits past the window (a Crimson Hammer core's 14 s) is not caught out
+  assert.deepEqual(judgeMonster({ ...base, live: { attacked: false, moved: 0, aims: true, delay: 30000, window: 22 } }), []);
+  // a named idle that fails is still a bind pose
+  assert.ok(judgeMonster({ ...base, idle: "idle.dat" }).includes("idle: no animation (bind pose)"));
+  // a boss's part is not a monster; a model the install lacks cannot appear
+  assert.deepEqual(judgeMonster({ name: "Character/NPC/Monster/Boss/Vanaduke/Part/Flame", part: "Orbital", shots: [], console: [], problems: [] }), []);
+  assert.deepEqual(judgeMonster({ name: "Character/NPC/Monster/Beast/Lizardman/Hunter/Ironscale Hunter 1", error: "never appeared (Monster)", shots: [],
+    console: ["Missing file in the install: character/npc/monster/lizardman/hunter/model_nrm-r1.dat"], problems: [] }), []);
 });
 
 test("knight anomalies and the report", () => {

@@ -118,6 +118,12 @@ export interface WeaponRecord {
 export interface MonsterRecord {
   name: string;
   error?: string;
+  /**
+   * Not a monster: the actor config's class when it is not one World.createActor brings in as
+   * a monster (a boss's markers and debris are bombs, its flames orbitals, its shots bullets;
+   * switches, a shadow polyp, scripted props). Nothing of a monster is expected of it.
+   */
+  part?: string;
   passive?: boolean;
   speed?: number;
   attackNames?: string[];
@@ -128,9 +134,18 @@ export interface MonsterRecord {
   reactTime?: number;
   minReact?: number;
   /** The forced attack: its name, whether it hit the knight or fired anything. */
-  forced?: { name: string; hits: HitRecord[]; projectiles: string[]; effects: string[] } | null;
-  /** Left to its own behaviour for a few seconds. */
-  live?: { attacked: boolean; moved: number };
+  /**
+   * `harms`: whether the attack is a blow at the knight at all (data.ts attackHarms): a bark, a
+   * dodge, a deflect, a weak spot's expose, a potion or a scripted signal is not, and is made
+   * only when the monster has no blow.
+   */
+  forced?: { name: string; harms?: boolean; hits: HitRecord[]; projectiles: string[]; effects: string[] } | null;
+  /**
+   * Left to its own behaviour for `window` seconds. `aims`: its behaviour starts a blow at the
+   * knight at all (behavior.ts attackOutlook: healers, followers, a tortodrone until provoked do
+   * not); `delay`: ms its script waits before the first one.
+   */
+  live?: { attacked: boolean; moved: number; aims?: boolean; delay?: number; window?: number };
   reacted?: boolean;
   died?: boolean;
   removedAfter?: number | null;
@@ -235,20 +250,35 @@ export function judgeWeapon(r: WeaponRecord): string[] {
   return [...new Set(p)];
 }
 
+/** A console line saying a file the config names is not in the install (or not served). */
+const MISSING_FILE = /Missing file in the install|status of 404/;
+
 export function judgeMonster(r: MonsterRecord): string[] {
+  // a boss's part (a marker, a flame, a bullet...) is not spawned as a monster
+  if (r.part) return [];
   const p: string[] = [];
+  // a monster whose model is not in the install (Ironscale Hunter: character/npc/monster/
+  // lizardman; the Beast Master: zombieknight/beast) cannot appear: unreleased content
+  if (r.error && /^never appeared/.test(r.error) && r.console.some(l => MISSING_FILE.test(l))) return [];
   if (r.error) p.push(`sweep error: ${r.error}`);
   if (r.error && !r.shots.length) return [...new Set([...p, ...consoleProblems(r.console)])];
-  for (const s of r.shots) { const b = bindPose(s.pose); if (b) p.push(`${s.label}: ${b}`); }
-  if (!r.idle) p.push("no idle animation");
-  if ((r.speed ?? 0) > 0 && !r.move) p.push("moves but has no movement animation");
+  // a config with no idle (or no movement) has its model shown as it stands, in the game too
+  // (blastcores, a boss's core, souls, a mimic's chest): only a named clip that fails counts
+  for (const s of r.shots) {
+    if (s.label === "idle" && !r.idle) continue;
+    const b = bindPose(s.pose);
+    if (b) p.push(`${s.label}: ${b}`);
+  }
   if (!r.passive) {
     const f = r.forced;
-    // an "attack" that is only a state change (a Glop Drop's Idle, a spawner's pause) strikes nothing by design
-    if (f && !f.hits.length && !f.projectiles.length && !/(^|[\/, ])Idle$/i.test(f.name)) p.push(`attack ${f.name}: no hit and no projectile`);
-    if (f && f.hits.length && f.hits.every(h => h.dealt <= 0)) p.push(`attack ${f.name}: zero damage`);
+    // an "attack" that is only a state change (a Glop Drop's Idle, a spawner's pause), or one
+    // that is no blow (attackHarms: a bark, a dodge, a weak spot), strikes nothing by design
+    if (f && f.harms !== false && !f.hits.length && !f.projectiles.length && !/(^|[\/, ])Idle$/i.test(f.name)) p.push(`attack ${f.name}: no hit and no projectile`);
+    if (f && f.harms !== false && f.hits.length && f.hits.every(h => h.dealt <= 0)) p.push(`attack ${f.name}: zero damage`);
     if (f) p.push(...failedEffects(f.effects).map(e => `attack ${f.name}: ${e}`));
-    if (r.live && !r.live.attacked) p.push("never attacks (left to its own behaviour)");
+    // only a monster whose behaviour aims a blow at the knight, soon enough to see, must attack
+    const l = r.live;
+    if (l && !l.attacked && l.aims !== false && (l.delay ?? 0) / 1000 < (l.window ?? 12)) p.push("never attacks (left to its own behaviour)");
     const reacts = (r.reactTime ?? 1) > 0 && (r.minReact ?? 0) < 1;
     if (reacts && r.reacted === false) p.push("no hit reaction");
     if (r.died === false) p.push("never dies");
@@ -329,7 +359,7 @@ export function reportMarkdown(data: { weapons: WeaponRecord[]; monsters: Monste
     L.push("| Monster | Forced attack on the knight | Attacks on its own | Reacts | Dies | Flags |", "|---|---|---|---|---|---|",
       ...data.monsters.map(r => {
         const f = r.forced;
-        const fc = !f ? (r.passive ? "passive" : "-") : f.hits.length ? `${f.name}: ${f.hits.map(h => h.dealt).join("/")}` : `${f.name}: ${f.projectiles.length ? "fired, missed" : "nothing"}`;
+        const fc = r.part ? `not a monster (${r.part})` : !f ? (r.passive ? "passive" : "-") : f.harms === false && !f.hits.length ? `${f.name}: no blow` : f.hits.length ? `${f.name}: ${f.hits.map(h => h.dealt).join("/")}` : `${f.name}: ${f.projectiles.length ? "fired, missed" : "nothing"}`;
         return `| ${esc(short(r.name))} | ${esc(fc)} | ${r.live ? (r.live.attacked ? "yes" : "no") : "-"} | ${r.reacted == null ? "-" : r.reacted ? "yes" : "no"} | ${r.died == null ? "-" : r.died ? "yes" : "no"} | ${esc(r.problems.join("; ") || "OK")} |`;
       }), "");
   }
