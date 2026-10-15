@@ -553,7 +553,7 @@ export abstract class GuiScreen {
     // the right edge's column (the arsenal, a right-docked window): the energy panel joins it
     // at its foot, the window shortened by the panel's height so the two stand as one column
     // whose bottom is the HUD's 145 pixels up
-    let column: number | null = null;
+    let column: number | null = null, columnWidth = 0;
     const energyH = this.energyHeight();
     const columnTall = Math.max(100, tall - energyH);
     for (const d of this.docks) {
@@ -568,7 +568,7 @@ export abstract class GuiScreen {
         leftEdge += s.width;
         continue;
       }
-      if (first) column = bottom;
+      if (first) { column = bottom; columnWidth = s.width; }
       edge -= s.width;
       render(ui, g, Math.max(0, edge), bottom, this.hooks);
     }
@@ -585,7 +585,7 @@ export abstract class GuiScreen {
         const right = this.docks.some(d => !d.left) ? edge - (this.dockRight ? 0 : DOCK_GAP) : cw;
         if (this.dockRight) this.root.preferredSize = { width: -1, height: right === cw ? columnTall : tall };
         const s = pack(this.root);
-        if (this.dockRight && right === cw) column = s.height;
+        if (this.dockRight && right === cw) { column = s.height; columnWidth = s.width; }
         let x = this.dockLeft ? 0 : this.dockRight ? right - s.width
           : Math.max(leftEdge + DOCK_GAP, Math.min(Math.round((cw - s.width) / 2), right - s.width));
         // a window docked to the main one's left (the mission board's Featured Items,
@@ -605,7 +605,7 @@ export abstract class GuiScreen {
         render(this.root, g, Math.max(0, x), this.dockRight ? s.height : Math.round((ch + s.height) / 2), this.hooks);
       }
     }
-    this.drawEnergy(g, cw, ch, column);
+    this.drawEnergy(g, cw, ch, column, columnWidth);
     for (const [i, o] of this.overlays.entries()) {
       // the client's modal shade behind the topmost modal window (a confirmation, the forging)
       if (i === this.overlays.length - 1) modalShade(g, cw, ch);
@@ -669,10 +669,12 @@ export abstract class GuiScreen {
    * against the screen's edge; under a column docked at the right edge it hangs from that
    * column's bottom (`top`), joined to it, the column shortened by its height (energyHeight).
    */
-  private drawEnergy(g: CanvasRenderingContext2D, cw: number, ch: number, top: number | null = null) {
+  private drawEnergy(g: CanvasRenderingContext2D, cw: number, ch: number, top: number | null = null, width = 0) {
     if (!this.energy || !this.energyUi) return;
     const n = this.energyUi.find("crystalenergy");
     if (n) n.text = this.energy().toLocaleString("en-US");
+    // under a column it takes the column's width, so the two edges line up as one panel
+    this.energyUi.preferredSize = top !== null && width > 0 ? { width, height: -1 } : null;
     const s = pack(this.energyUi);
     render(this.energyUi, g, Math.max(0, cw - s.width), top !== null ? top + s.height : Math.round(ch - ENERGY_BOTTOM), this.hooks);
   }
