@@ -48,7 +48,6 @@ export class EventHubScreen extends GuiScreen {
     super(ctx, hub, "eventHubCanvas");
     // social/client/i: a client/g docked at the left (past the Social window), the game left undimmed
     this.dockLeft = () => hub.dockX();
-    this.dim = false;
   }
 
   protected async build(): Promise<Component | null> {

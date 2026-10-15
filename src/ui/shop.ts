@@ -134,7 +134,6 @@ export class ShopScreen extends GuiScreen {
     super(ctx, shop, "shopCanvas");
     // the game goes on behind the shop's windows (none darkens it), the HUD's energy panel at
     // the bottom right
-    this.dim = false;
     this.tallDocks = true;
     this.energy = () => energyNow(energyOf(this.shop.save()));
     // GoodSlot: a click with shift (or control) moves ten

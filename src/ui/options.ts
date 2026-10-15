@@ -3,10 +3,10 @@
 // screen and the logo, the tabs (General, Video, Game, Chat, Controls, Prompts, Partner, About)
 // and the bottom bar (Quit, Logoff, Return to Haven, OK) sit in the middle. Every control the
 // client shows is shown; those bound to something here change it (volumes, quality, camera
-// shake, UI scale, the display mode, the Game page's damage, health, damage effect and auto
+// shake, UI scale, the display mode, the Game page's damage, health, NPC name, damage effect and auto
 // target boxes, the control scheme and custom keys), and those with nothing behind them in
 // single player (region, party with any, the chat page, the confirmation prompts, Discord, full
-// inspect, NPC names...) keep the player's choice without effect (Settings.prefs). Report a
+// inspect...) keep the player's choice without effect (Settings.prefs). Report a
 // Bug is disabled. The Partner page's Steam box (hidden without Steam, as the client hides it)
 // holds the browser's save instead. The Advanced buttons open the advanced video and game
 // windows (ui/options/advanced_*.dat), with rows for this port's own settings; Custom (Click to
@@ -19,7 +19,7 @@ import { checklist } from "../game/levels";
 import { message, messages, text } from "../i18n";
 import { buildComponentConfig, buildInterface, Component, dispatch, pack, render, resetInput, restyle, selectTab, setComboItems, type GuiContext, type GuiImage } from "./gui";
 import { findParent, KeyBindings } from "./keybinds";
-import { buildUi, uiRef } from "./screen";
+import { buildUi, modalShade, uiRef } from "./screen";
 import { defaultSettings, UI_MIN_SCALE, uiMaxScale, uiScale, uiScaleLimit, type Settings, type Tab } from "./settings";
 
 export interface OptionsActions {
@@ -62,7 +62,7 @@ const RANGES: Record<Range, { min: number; max: number; fmt: (v: number) => stri
 
 /**
  * Check boxes kept in Settings.prefs, by tag, and their defaults (ProjectXPrefs'). The weapon
- * switcher and the charge meter boxes are read by the HUDs (main.ts applyOptions); the rest
+ * switcher, charge meter and NPC name boxes are read by the HUDs (main.ts applyOptions); the rest
  * have nothing behind them here.
  */
 const PREF_BOXES: Record<string, boolean> = {
@@ -860,8 +860,8 @@ export class OptionsScreen {
     g.clearRect(0, 0, w, h);
     g.scale(dpr, dpr);
     const cw = w / dpr, ch = h / dpr;
-    g.fillStyle = "rgba(4,10,18,0.35)";
-    g.fillRect(0, 0, cw, ch);
+    // the options window leaves the game undimmed behind it; its dialogs are modal (the shade
+    // behind the topmost)
     for (const ui of [this.ui, ...this.overlays]) {
       if (!ui) continue;
       if (ui === this.ui) {
@@ -872,8 +872,7 @@ export class OptionsScreen {
         render(ui, g, 0, Math.round(ch), {});
         continue;
       }
-      g.fillStyle = "rgba(4,10,18,0.45)";
-      g.fillRect(0, 0, cw, ch);
+      if (ui === this.overlays[this.overlays.length - 1]) modalShade(g, cw, ch);
       const s = pack(ui);
       render(ui, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), {});
     }

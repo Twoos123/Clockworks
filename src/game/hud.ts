@@ -10,11 +10,31 @@ import { wrapText, type ChatLog } from "./lootlog";
 const NAME_SCALE = 0.008;
 /** sprite/g's label colour: ColorPository print 514 (item_1 grey_lite), its colorized root. */
 const NAME_COLOR = "rgb(191,191,191)";
+/** character/health-bar.dat's ComponentBillboardConfig scale: world units a GUI pixel. */
+const BAR_SCALE = 0.015;
+
+/**
+ * An image drawn as a FRAME_XY background: its frame (top, left, bottom, right, in image
+ * pixels, drawn `k` screen pixels each) kept, its middle stretched over the rest.
+ */
+function drawFramed(g: CanvasRenderingContext2D, img: { source: CanvasImageSource; width: number; height: number },
+  [t, l, b, r]: [number, number, number, number], x: number, y: number, w: number, h: number, k: number) {
+  if (w <= 0 || h <= 0) return;
+  const sw = img.width, sh = img.height;
+  // a frame wider than the space shrinks to fit it
+  const fx = Math.min(1, w / Math.max(1e-6, (l + r) * k)), fy = Math.min(1, h / Math.max(1e-6, (t + b) * k));
+  const cols: [number, number, number, number][] = [[0, l, x, l * k * fx], [l, sw - l - r, x + l * k * fx, w - (l + r) * k * fx], [sw - r, r, x + w - r * k * fx, r * k * fx]];
+  const rows: [number, number, number, number][] = [[0, t, y, t * k * fy], [t, sh - t - b, y + t * k * fy, h - (t + b) * k * fy], [sh - b, b, y + h - b * k * fy, b * k * fy]];
+  for (const [sx, sww, dx, dw] of cols) {
+    if (sww <= 0 || dw <= 0) continue;
+    for (const [sy, shh, dy, dh] of rows) if (shh > 0 && dh > 0) g.drawImage(img.source, sx, sy, sww, shh, dx, dy, dw, dh);
+  }
+}
 
 export class Hud {
   private readonly ctx: CanvasRenderingContext2D;
   /** Display options from the options menu. */
-  options = { healthBars: true, damageNumbers: true, hudScale: 1, fps: false, chargeBar: true };
+  options = { healthBars: true, damageNumbers: true, hudScale: 1, fps: false, chargeBar: true, npcNames: true };
   private fpsTimes: number[] = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
@@ -60,15 +80,19 @@ export class Hud {
    */
   private drawNameplates(g: CanvasRenderingContext2D, world: World, project: (x: number, y: number, z: number) => [number, number] | null,
     unitPx: (x: number, y: number, z: number) => number) {
-    const plates = world.nameplates();
+    // Options, Game: Display NPC Names (ProjectXPrefs show_npc_names, read by sprite/g)
+    if (!this.options.npcNames) return;
+    const plates = world.nameplates()
+      .map(n => ({ n, p: project(n.x, n.y, n.z), k: unitPx(n.x, n.y, n.z) * NAME_SCALE }))
+      // the nearer labels over the farther (higher on the screen) ones
+      .filter(e => e.p && e.k * 26 >= 6).sort((a, b) => a.p![1] - b.p![1]);
     if (!plates.length) return;
     g.save();
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.lineJoin = "round";
-    for (const n of plates) {
-      const p = project(n.x, n.y, n.z), k = unitPx(n.x, n.y, n.z) * NAME_SCALE;
-      if (!p || k * 26 < 6) continue;
+    for (const { n, p: pp, k } of plates) {
+      const p = pp!;
       const nameH = 26 * k, subH = n.title ? 20 * k : 0;
       // the label's vertical group is centred on its root
       let y = p[1] - (nameH + subH) / 2 + nameH / 2;
@@ -91,6 +115,31 @@ export class Hud {
       if (n.title) line(n.title, 20, y);
     }
     g.restore();
+  }
+
+  /**
+   * A monster's health bar (dungeon/client/a/x on character/health_transformed.dat, at the
+   * sprite's balloonOffset; health-bar.dat's Frame variant): a 50 by 26 billboard at 0.015
+   * world units a pixel, drawn over everything, whose top 10 pixels hold the health (50 times
+   * the health share, minibar_full colorized 261, a 3 pixel frame at its left) and the empty
+   * backing after it (minibar_empty, framed at its right, 2 pixels over the health), with the
+   * pointer (minibar_arrowl) centred on the whole.
+   */
+  private drawHealthBar(g: CanvasRenderingContext2D, p: [number, number] | null, k: number, frac: number) {
+    if (!p || k * 50 < 8) return;
+    const left = p[0] - 25 * k, top = p[1] - 13 * k, health = Math.floor(50 * frac);
+    const arrow = this.img("ui/health/minibar_arrowl.png");
+    const full = this.img("ui/health/minibar_full.png", 261), empty = this.img("ui/health/minibar_empty.png");
+    if (arrow) g.drawImage(arrow.source, p[0] - 8 * k, p[1] - 8 * k, 16 * k, 16 * k);
+    if (!full || !empty) {
+      g.fillStyle = "rgb(41,50,57)";
+      g.fillRect(left, top, 50 * k, 10 * k);
+      g.fillStyle = "rgb(214,40,40)";
+      g.fillRect(left, top, health * k, 10 * k);
+      return;
+    }
+    if (health > 0) drawFramed(g, full, [3, 3, 3, 0], left, top, health * k, 10 * k, k);
+    drawFramed(g, empty, [3, 0, 3, 3], left + (health - 2) * k, top, (52 - health) * k, 10 * k, k);
   }
 
   /**
@@ -163,14 +212,18 @@ export class Hud {
 
   private unitPx: (x: number, y: number, z: number) => number = () => 0;
   /** Loads a game image for the HUD's billboards (set by the app). */
-  image: ((file: string) => Promise<{ source: CanvasImageSource; width: number; height: number } | null>) | null = null;
+  image: ((file: string, colorizations?: any[]) => Promise<{ source: CanvasImageSource; width: number; height: number } | null>) | null = null;
   private images = new Map<string, { source: CanvasImageSource; width: number; height: number } | null>();
-  private img(file: string) {
-    if (!this.images.has(file)) {
-      this.images.set(file, null);
-      void this.image?.(file).then(i => this.images.set(file, i));
+  /** A game image, recoloured by a colorization (ColorizationConfig Normal) when one is given. */
+  private img(file: string, colorization?: number) {
+    const key = colorization === undefined ? file : `${file}|${colorization}`;
+    if (!this.images.has(key)) {
+      this.images.set(key, null);
+      const zations = colorization === undefined ? undefined
+        : [{ $class: "com.threerings.opengl.renderer.config.ColorizationConfig$Normal", colorization }];
+      void this.image?.(file, zations).then(i => this.images.set(key, i)).catch(() => undefined);
     }
-    return this.images.get(file) ?? null;
+    return this.images.get(key) ?? null;
   }
 
   clear() {
@@ -205,16 +258,11 @@ export class Hud {
     // the names over townsfolk and machines (client/sprite/g on character/label.dat)
     this.drawNameplates(g, world, project, unitPx);
 
-    // monster health bars
+    // monster health bars (Options, Game: Display Monster Health)
     for (const m of this.options.healthBars ? world.liveMonsters : []) {
-      if (m.health >= m.maxHealth) continue;
-      const p = project(m.x, m.y, m.z + 1.3 * m.scale + 0.3);
-      if (!p) continue;
-      const bw = 42, frac = Math.max(0, m.health / m.maxHealth);
-      g.fillStyle = "rgba(0,0,0,0.6)";
-      g.fillRect(p[0] - bw / 2 - 1, p[1] - 1, bw + 2, 7);
-      g.fillStyle = frac > 0.5 ? "#7bd88f" : frac > 0.25 ? "#f5c542" : "#ef5b5b";
-      g.fillRect(p[0] - bw / 2, p[1], bw * frac, 5);
+      if (m.health >= m.maxHealth && !m.def.showHealth) continue;
+      const z = m.z + (m.def.balloonOffset ?? 2) * m.scale;
+      this.drawHealthBar(g, project(m.x, m.y, z), unitPx(m.x, m.y, z) * BAR_SCALE, Math.max(0, m.health / m.maxHealth));
     }
 
     // floating damage numbers

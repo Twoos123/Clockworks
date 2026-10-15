@@ -67,3 +67,29 @@ test("on the install: a sword's swing trail is its fire animation's frame action
     assert.ok((act.transform?.translation?.z ?? 0) > 0.5, "spawned at the blade's height, not on the floor");
   }
 });
+
+test("on the install: each Proto Sword swing's animations reach the follow-through before its rearm, with no long held pose", { skip: !haveInstall }, async () => {
+  const { GameData } = await import("../src/game/data.ts");
+  const { nodeLoader } = await import("../tools/audit/nodevfs.ts");
+  const { loadAnimation } = await import("../src/model.ts");
+  const { attackClipAt, attackTiming } = await import("../src/game/knight.ts");
+  const loader = nodeLoader();
+  const data = new GameData(loader);
+  await data.preload("config/item.dat", "config/actor.dat", "config/attack.dat", "config/fire_action.dat");
+  const sword = (await data.weapon("Weapon/Sword/Proto Sword"))!;
+  for (const a of sword.attacks) {
+    const lens: (number | null)[] = [];
+    for (const [p, speed] of [[a.start, a.startSpeed], [a.fire, a.fireSpeed], [a.end, a.endSpeed]] as const) {
+      const c = p ? await loadAnimation(loader as any, p) : null;
+      lens.push(c ? ((c.frames.length - 1) / c.rate / speed) * 1000 : null);
+    }
+    const t = attackTiming(a, 1, sword.moves ?? true);
+    const endFrom = (lens[0] ?? 0) + (lens[1] ?? 0);
+    // the follow-through starts as the fire clip ends, not at the rearm (the last swing's 877)
+    assert.equal(attackClipAt(lens, endFrom + 1)!.clip, 2, a.name);
+    assert.ok(endFrom < t.rearm, `${a.name}: follow-through from ${endFrom}, rearm ${t.rearm}`);
+    // and has played out (or nearly) by the time the knight is free
+    const held = t.clear - (endFrom + lens[2]!);
+    assert.ok(held >= 0 && held < 100, `${a.name}: last pose held ${held} ms`);
+  }
+});

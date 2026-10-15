@@ -20,7 +20,7 @@ import { loadAnimation, paintBillboards, type AnimationClip, type ComponentPaint
 import type { ModelInstance, Renderer, SkyboxItem } from "../render/renderer";
 import { UNLIT_VIEW_ENVIRONMENT, type Environment } from "../environment";
 import { buildInterface, dispatch, layout, pack, paintComponent, render, resetInput, type Component, type GuiContext, type RenderHooks } from "./gui";
-import { buildUi, uiRef } from "./screen";
+import { buildUi, modalShade, uiRef } from "./screen";
 import { ScriptRunner } from "./script";
 import { orbitView, viewProjection } from "./portrait";
 
@@ -387,8 +387,8 @@ export abstract class GlScreen {
     }
     const o = this.overlay;
     if (o) {
-      g.fillStyle = "rgba(4,10,18,0.45)";
-      g.fillRect(0, 0, cw, ch);
+      // the confirm prompt is modal (client/ui/k): the client's modal shade behind it
+      modalShade(g, cw, ch);
       const s = pack(o);
       render(o, g, Math.round((cw - s.width) / 2), Math.round((ch + s.height) / 2), this.hooks);
     }

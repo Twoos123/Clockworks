@@ -311,6 +311,25 @@ function boundsOf(b: any): LoadedModel["bounds"] {
   return { min: [mn.x, mn.y, mn.z], max: [mx.x, mx.y, mx.z] };
 }
 
+/**
+ * The model references a model file loads in any case: a derived model's base, a compound's
+ * components, attachments, and a conditional's default (before its arguments are applied).
+ */
+export function componentRefs(root: any): any[] {
+  const impl = root?.$class === "com.threerings.opengl.model.config.ModelConfig" ? root.implementation : null;
+  if (!impl || typeof impl !== "object") return [];
+  const c = String(impl.$class ?? "");
+  if (c.endsWith("ModelConfig$Derived")) return [impl.model];
+  if (c.endsWith("CompoundConfig") || c.endsWith("MergedStaticConfig")) return ((impl.models ?? []) as any[]).map(m => m?.model);
+  if (c.endsWith("ConditionalConfig")) return [impl.defaultModel];
+  if (c.endsWith("ModelConfig$Schemed")) {
+    // the variant tried first (see fromImplementation)
+    const list: any[] = impl.models ?? [];
+    return [(list.find(m => m?.scheme == null) ?? list[0])?.model];
+  }
+  return ((impl.attachments ?? []) as any[]).map(a => a?.model);
+}
+
 const EDITOR_LIGHTS = /^editor\/marker\/(point|directional)light\/(model|parts\/influencer_pointlight|influencer_directionallight)\.dat$/;
 /** Editor-only helpers (spawn markers, gizmos) the game never draws; light markers are real lights. */
 /** The game camera's distance from what it looks at is within this many units. */
@@ -450,6 +469,20 @@ export class ModelLoader {
   }
 
   /**
+   * Starts reading and parsing the files these model references name, all at once, for loads
+   * that follow one by one (a scene's models, a compound's components): their reads overlap
+   * instead of each waiting for the last. Each file's own components, attachments and base
+   * model are fetched as soon as it is read. Failures surface when the model itself is loaded.
+   */
+  prefetch(refs: Iterable<any>, depth = 0) {
+    for (const ref of refs) {
+      const name: unknown = ref?.name;
+      if (typeof name !== "string" || !name.endsWith(".dat") || editorOnly(name) || this.cache.has(name)) continue;
+      this.importFile(name).then(root => { if (depth < 8) this.prefetch(componentRefs(root), depth + 1); }).catch(() => undefined);
+    }
+  }
+
+  /**
    * Loads a model file. When a reference with arguments is given (as tiles, props and
    * derived models supply), the arguments are applied through the model's parameters first.
    * Results are cached per path and argument set, so identical references share GPU data.
@@ -468,6 +501,8 @@ export class ModelLoader {
           throw new Error(`${path} is a ${short(String(root?.$class ?? typeof root))}, not a model`);
         }
         root = applyArguments(root, ref);
+        // the components its arguments name
+        if (hasArguments(ref)) this.prefetch(componentRefs(root));
         return this.fromImplementation(path, root.implementation, depth, localConfigs(root), inner);
       })();
       this.models.set(key, p);
@@ -508,6 +543,7 @@ export class ModelLoader {
     // Compound models place several component models
     // (merged static models, such as the unbreakable crystal, list their components the same way)
     if (impl.$class.endsWith("CompoundConfig") || impl.$class.endsWith("MergedStaticConfig")) {
+      this.prefetch(((impl.models ?? []) as any[]).map(c => c?.model));
       for (const c of impl.models ?? []) {
         const m = await this.loadRef(c.model, depth, chain);
         if (m) model.attachments.push({ node: c.node ?? "", transform: readTransform(c.transform), model: m });
@@ -624,6 +660,7 @@ export class ModelLoader {
     if (impl.$class.endsWith("ParticleSystemConfig")) {
       model.particles = readParticleLayers(impl, ref => lib.resolve(ref, null, local),
         impl.$class.endsWith("MetaParticleSystemConfig"));
+      this.prefetch(model.particles.map(l => l.modelRef));
       for (const layer of model.particles) if (layer.modelRef) layer.model = await this.loadRef(layer.modelRef, depth, chain);
       if (model.particles.length === 0) model.skipped.push(model.kind);
       return model;
@@ -634,6 +671,9 @@ export class ModelLoader {
       if (nt.node) model.billboards.set(nt.node, k);
     }
 
+    // the attachments' and automatic animations' files load while the meshes are read
+    this.prefetch(((impl.attachments ?? []) as any[]).map(a => a?.model));
+    this.prefetch(((impl.animationMappings ?? []) as any[]).filter(am => am?.startAutomatically).map(am => am.animation));
     const ctx: Ctx = { lib, local, impl, dir };
     if (impl.root) model.root = readNode(ctx, impl.root, model.parts);
     for (const am of impl.animationMappings ?? []) {
