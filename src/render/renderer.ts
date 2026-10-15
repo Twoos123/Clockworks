@@ -121,15 +121,22 @@ vec4 texEnv(int env, vec4 c, vec4 t) {
   if (env == 3) return vec4(mix(c.rgb, t.rgb, t.a), c.a);   // Decal
   return c * t;                                             // Modulate, Combine
 }
+// GL's alpha test (glAlphaFunc) compares at the colour buffer's fixed-point precision: the
+// reference is clamped and converted as a colour component is, and so is the fragment's alpha.
+// Compared as raw floats, an interpolated alpha of 1.0 comes out a hair off on some pixels
+// (0.99999994), and a "Masked Hard" material (EQUAL 1: the sprite food machine) dropped a
+// shimmering speckle of its pixels. alphaTestPasses in TypeScript is the same rule.
 bool alphaPasses(float a) {
+  highp float q = floor(clamp(a, 0.0, 1.0) * 255.0 + 0.5);
+  highp float r = floor(clamp(u_alphaRef, 0.0, 1.0) * 255.0 + 0.5);
   switch (u_alphaFunc) {
     case 1: return false;
-    case 2: return a < u_alphaRef;
-    case 3: return a == u_alphaRef;
-    case 4: return a <= u_alphaRef;
-    case 5: return a > u_alphaRef;
-    case 6: return a != u_alphaRef;
-    case 7: return a >= u_alphaRef;
+    case 2: return q < r;
+    case 3: return q == r;
+    case 4: return q <= r;
+    case 5: return q > r;
+    case 6: return q != r;
+    case 7: return q >= r;
     default: return true;
   }
 }
@@ -192,6 +199,28 @@ void main() {
 const FOG_MODES = { linear: 1, exp: 2, exp2: 3 } as const;
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const ALPHA_FUNCS = ["ALWAYS", "NEVER", "LESS", "EQUAL", "LEQUAL", "GREATER", "NOTEQUAL", "GEQUAL"];
+
+/**
+ * A pass's alpha test (AlphaStateConfig testFunc/testRef) as the fragment shader runs it: GL
+ * compares the fragment's alpha with the reference at the colour buffer's 8-bit fixed-point
+ * precision, so an alpha a rounding error away from 1 still equals a reference of 1.
+ */
+export function alphaTestPasses(func: string, alpha: number, ref: number): boolean {
+  const fixed = (v: number) => Math.floor(Math.min(1, Math.max(0, v)) * 255 + 0.5);
+  const q = fixed(alpha), r = fixed(ref);
+  switch (func) {
+    case "NEVER": return false;
+    case "LESS": return q < r;
+    case "EQUAL": return q === r;
+    case "LEQUAL": return q <= r;
+    case "GREATER": return q > r;
+    case "NOTEQUAL": return q !== r;
+    case "GEQUAL": return q >= r;
+    default: return true;
+  }
+}
+/** The fragment shader's source, for tests that check it follows alphaTestPasses. */
+export const FRAGMENT_SHADER = FS;
 const ENVS = ["Modulate", "Replace", "Add", "Decal"];
 /** RenderQueueConfig.SortMode: how a queue orders the batches of one priority level. */
 export type QueueSort = "NONE" | "BY_STATE" | "BACK_TO_FRONT" | "FRONT_TO_BACK";
