@@ -56,9 +56,10 @@ import { bossArena, startBossFight, type BossFight } from "./game/bosses";
 import { addFeatures, layoutFor, type FeatureReport, type FloorStyle } from "./gen/features";
 import { THEMES as GEN_THEMES, themeAvailable, themeLevel } from "./gen/themes";
 import { decodeTiles } from "./gen/autotile";
-import { bossName, BOSSES, gateFloors, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
+import { bossName, BOSSES, gateFloors, STYLES, realFloor, stratumTables, tierStars, type BossKey, type Floor, type Gate } from "./game/clockworks";
 import { rng } from "./gen/layout";
 import { LevelArchive } from "./game/archive";
+import { DERIVE, deriveArena, parseDeriveId, SpawnTypes } from "./game/derive";
 import { assemble, assembledRoot, libraryPieces, type LibPiece } from "./gen/assemble";
 import { lairRun, missionRun, rankLabel, tierLock, type Mission } from "./game/missions";
 import { LAIR_GATES } from "./game/missionfloors";
@@ -900,6 +901,21 @@ class Viewer {
   }
 
   /**
+   * A level derived from an archived one (src/game/derive.ts): the source arena's scene with
+   * its spawns re-cast for the family and status and its environment re-themed.
+   */
+  private async derivedRoot(id: string): Promise<any> {
+    const d = parseDeriveId(id)!;
+    const [root, spawns, globals] = await Promise.all([this.vfs.readScene(d.source).then(b => this.sceneLoader.parse(b)),
+      this.sceneLoader.configs("config/spawn_table.dat"), this.sceneLoader.configs("config/scene_global.dat")]);
+    this.spawnTypes ??= new SpawnTypes(spawns);
+    const out = deriveArena(root, { family: d.family, status: d.status }, this.spawnTypes, n => globals.has(n), d.seed);
+    if (out.missingGlobals.length) console.warn("derived level: globals kept", out.missingGlobals);
+    return out.root;
+  }
+  private spawnTypes: SpawnTypes | null = null;
+
+  /**
    * The prefab rooms of a style and status: every usable room cut out of the captured floors
    * the archive holds of it (src/gen/prefabs.ts), cached.
    */
@@ -956,7 +972,7 @@ class Viewer {
       const special = id === TEST_RANGE ? await rangeRoot({
         scenes: this.sceneList, readRoot: async sid => this.sceneLoader.parse(await this.vfs.readScene(sid)),
         tileNames: () => this.sceneLoader.configNames("config/tile.dat"), tileInfo: ref => this.sceneLoader.tileInfo(ref),
-      }) : GEN.test(id) ? null : await this.places.sceneRoot(id);
+      }) : GEN.test(id) ? null : DERIVE.test(id) ? await this.derivedRoot(id) : await this.places.sceneRoot(id);
       const scene = special ? await this.sceneLoader.loadRoot(id, special, progress)
         : GEN.test(id) ? await this.sceneLoader.loadRoot(id, await this.generatedRoot(id), progress) : await this.sceneLoader.load(id, await this.vfs.readScene(id), progress);
       loading?.progress(0.8);
@@ -2635,6 +2651,13 @@ class Viewer {
         if (t) { f.name = t.title; f.zone = t.zone || undefined; }
         return real;
       }
+      // a Battle Arena the archive lacks: derived from one it holds (src/game/derive.ts)
+      const d = s.style.key === "arena" ? this.derivedArena(s.theme, seed) : null;
+      if (d) {
+        const t = levelText("m." + d.name.replace(/ /g, "_"));
+        if (t) { f.name = t.title; f.zone = t.zone || undefined; }
+        return d;
+      }
     }
     const theme = genTheme(f.tileset);
     // a floor of a style the servers generate (tunnels, keeps, dens...): built from the
@@ -2654,6 +2677,22 @@ class Viewer {
     return { id, name: `${f.name} · depth ${f.depth}` };
   }
   /**
+   * A derived arena for a stratum's theme: the family's Iron Edge bout, or for a status theme a
+   * bout of that status with one of the arena style's families; one not played this run.
+   */
+  private derivedArena(theme: string, seed: number): { id: string; name: string } | null {
+    const style = STYLES.find(st => st.key === "arena");
+    const status = (["Fire", "Freeze", "Poison", "Shock"] as const).find(e => e === theme) ?? null;
+    const rand = rng(seed ^ 0x51ed270b);
+    const fams = [...(style?.families ?? [])];
+    const options = status ? fams.sort(() => rand() - 0.5) : fams.filter(x => x === theme);
+    for (const fam of options) {
+      const d = this.archive.deriveArena(fam, status, seed);
+      if (d && !this.usedScenes.has(d.name)) { this.usedScenes.add(d.name); return d; }
+    }
+    return null;
+  }
+  /**
    * A real gate's level (src/game/gatemap.ts): the game's own from the archive (its fixed
    * revision, or one of the floors of it the servers generated and the client cached); else a
    * floor assembled from the captured prefab rooms of its style and status; else the older
@@ -2667,6 +2706,11 @@ class Viewer {
       const pick = (fresh.length ? fresh : copies)[Math.floor(rng(seed)() * (fresh.length || copies.length))];
       this.usedScenes.add(pick.id);
       return pick;
+    }
+    // a Battle Arena the archive lacks: derived from one it holds (src/game/derive.ts)
+    if (lv.style === "arena" && lv.family) {
+      const d = a.deriveArena(lv.family, lv.element, seed);
+      if (d) return d;
     }
     const family = lv.family ?? (s?.theme as any) ?? "Construct";
     const tables = stratumTables(lv.family ?? s?.theme ?? "Construct", rng(seed));

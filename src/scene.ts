@@ -125,6 +125,9 @@ export class SceneLoader {
   /** The config names in a library file (e.g. config/tile.dat). */
   async configNames(file: string): Promise<string[]> { return [...(await this.library(file)).keys()]; }
 
+  /** A config library's configs by name (e.g. config/spawn_table.dat). */
+  configs(file: string): Promise<Map<string, any>> { return this.library(file); }
+
   private library(file: string): Promise<Map<string, any>> {
     let p = this.libs.get(file);
     if (!p) {

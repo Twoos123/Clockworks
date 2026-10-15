@@ -654,8 +654,13 @@ export class OptionsScreen {
     if (title) title.text = "Levels Collected";
     const list = checklist(this.actions.sceneNames());
     const valueCfg = { ...label.config, text: "", style: { $class: CONFIG_REF, name: "Default/Label" } };
-    const rows: [string, string][] = [...list.groups.map(g => [g.title, `${g.have.length} / ${g.have.length + g.missing.length}`] as [string, string]),
-      ["All levels", `${list.have} / ${list.total}`], ...(list.guildHalls ? [["Guild halls archived", String(list.guildHalls)] as [string, string]] : [])];
+    // (levels derived from a collected one, src/game/derive.ts, are counted apart, not as collected)
+    const derived = (n: number) => (n ? ` (+${n} derived)` : "");
+    const rows: [string, string][] = [...list.groups.map(g =>
+      [g.title, `${g.have.length} / ${g.have.length + g.derived.length + g.missing.length}${derived(g.derived.length)}`] as [string, string]),
+      ["All levels", `${list.have} / ${list.total}${derived(list.derived)}`],
+      ...(list.derived ? [["Derived from a capture", `${list.derived} (playable, not collected)`] as [string, string]] : []),
+      ...(list.guildHalls ? [["Guild halls archived", String(list.guildHalls)] as [string, string]] : [])];
     const built = await Promise.all(rows.map(async ([name, value]) => {
       const [l, v] = await Promise.all([buildComponentConfig(this.ctx, { ...label.config, text: "~" + name }, label.local),
         buildComponentConfig(this.ctx, { ...valueCfg, text: "~" + value }, label.local)]);
