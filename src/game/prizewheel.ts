@@ -7,13 +7,18 @@
 // on the list's first prize, which opens with prizewheel_prize.ogg (prizewheel_spin_open.ogg as
 // it starts). The level-end window waits for the wheel before it moves on.
 //
-// What the server decides is not in the client. Rebuilt from the wiki's Prize Wheel page:
+// What the server decides is not in the client. Rebuilt from the wiki's Prize Wheel page
+// (the facts and the guesses live in src/game/droprates.ts):
 // - the wheel turns after a floor with monsters (no wheel at terminals, subtowns, lobbies, the
 //   Core);
 // - prizes: crowns (always 5, 10, 25 or 50, more deeper), materials (better deeper), a heart
-//   healing as many pips as the wheel's tier, the much rarer Full Health, and a pickup.
-// The odds and the crowns by tier are this port's guesses (the wiki gives none); lockboxes
-// and the Kleptolisk's empty slot (events) are left out.
+//   healing as many pips as the wheel's tier, the much rarer Full Health, and a pickup by the
+//   belt's rules (a random one on an empty belt, maybe another of a stack that is not full,
+//   and never one that would replace what is there).
+// The odds and the crowns by tier are GUESSES (the wiki gives none); lockboxes and the
+// Kleptolisk's empty slot (events) are left out.
+
+import { tierOf, WHEEL_CROWNS_BY_TIER, WHEEL_ODDS } from "./droprates";
 
 export type PrizeKind = "crowns" | "heart" | "material" | "pickup";
 
@@ -36,24 +41,25 @@ export const FULL_HEALTH = "Instant/Heart/Heart Full";
 
 /** The Clockworks tier of a depth, as the world's drops count it: 2 from Moorcroft (8), 3 from Emberlight (18). */
 export function wheelTier(depth: number): 1 | 2 | 3 {
-  return depth >= 18 ? 3 : depth >= 8 ? 2 : 1;
+  return tierOf(depth);
 }
 
-/** The crowns a tier's wheel can give (a guess within the wiki's 5, 10, 25 or 50). */
+/** The crowns a tier's wheel can give (GUESS within the wiki's 5, 10, 25 or 50: droprates.ts). */
 export function crownChoices(tier: number): number[] {
-  return tier <= 1 ? [5, 10] : tier === 2 ? [10, 25] : [25, 50];
+  return WHEEL_CROWNS_BY_TIER[Math.min(3, Math.max(1, tier)) as 1 | 2 | 3];
 }
 
-/** Guessed odds of each kind of prize (the wiki: Full Health is much rarer than a heart). */
-export const PRIZE_ODDS: [PrizeKind | "full", number][] = [
-  ["crowns", 0.45], ["material", 0.3], ["heart", 0.12], ["pickup", 0.1], ["full", 0.03],
-];
+/** GUESSED odds of each kind of prize (droprates.ts WHEEL_ODDS; the wiki gives none). */
+export const PRIZE_ODDS = WHEEL_ODDS;
 
 export interface PrizeSource {
   depth: number;
   /** A material for the depth (the drop pool's pick by depth weight), or null. */
   material(): string | null;
-  /** A pickup for the tier (Treasure/Pickups/Pickups N), or null. */
+  /**
+   * A pickup for the tier (Treasure/Pickups/Pickups N) that the belt takes, or null: the
+   * world applies the wiki's belt rules (droprates.ts wheelPickup).
+   */
   pickup(): string | null;
 }
 

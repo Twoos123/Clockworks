@@ -34,6 +34,7 @@ import { LoadingScreen, loadingInfo } from "./ui/loading";
 import { ElevatorScreen, type HeatReport, type HeatRow, type PrizeWheel } from "./ui/elevator";
 import { ChatLog, shouldReportLoot } from "./game/lootlog";
 import { buildReel, floorHasWheel, type Prize } from "./game/prizewheel";
+import { asTheme } from "./game/droprates";
 import { GateBoard } from "./ui/gates";
 import { GateSource } from "./game/gatesource";
 import { elevatorScreen, lockNext, withScreen } from "./game/gatemap";
@@ -303,7 +304,7 @@ class Viewer {
   /** Every scene id the archive and cache hold (named or not yet: exits lead to them by id). */
   private sceneIds = new Set<string>();
   /** The current run through the Clockworks: depth, and the knight's health between floors. */
-  private run = { depth: 1, health: null as number | null, floors: 0 };
+  private run: { depth: number; health: number | null; floors: number; pod?: number } = { depth: 1, health: null, floors: 0 };
   /** Totals for the current gate run, for the summary when it ends. */
   private runTotals = { kills: 0, crowns: 0, heat: 0, materials: 0, deepest: 0, gate: "", notes: [] as string[] };
 
@@ -1095,9 +1096,11 @@ class Viewer {
     world.face = this.save.face ?? null;
     world.gear = this.save.gear;
     if (this.eco) world.economy = this.eco;
-    // treasure on a family stratum drops that family's materials
-    const theme = this.gate ? this.floors[this.run.depth]?.stratum?.theme : null;
-    world.themeTags = theme && /^(Beast|Construct|Fiend|Gremlin|Slime|Undead)$/.test(theme) ? [`fam_${theme.toLowerCase()}`] : [];
+    // treasure on a family or status stratum drops that theme's materials, and its mineral
+    // nodes favour the theme's colours (src/game/droprates.ts)
+    world.floorTheme = asTheme(this.gate ? this.floors[this.run.depth]?.stratum?.theme : null);
+    // a vitapod found earlier on the expedition still holds its pips
+    world.dungeonPod = this.run.pod ?? 0;
     world.pocket = this.save.pocket;
     world.onLoot = (item, count) => this.lootMessage(item, count);
     await this.outfit.dress(world);
@@ -2275,6 +2278,7 @@ class Viewer {
     t.deepest = Math.max(t.deepest, this.run.depth);
     writeSave(this.save);
     this.run.health = this.world.knight.health;
+    this.run.pod = this.world.dungeonPod;
     this.run.floors++;
     this.runTotals.notes.push(...notes);
     const tally = `${l.crowns} crowns, ${l.heat} heat`;
