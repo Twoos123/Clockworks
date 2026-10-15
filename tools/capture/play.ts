@@ -46,7 +46,10 @@ const args = ["-classpath", [build, ...code].join(process.platform === "win32" ?
 if (main !== "com.threerings.projectx.client.ProjectXApp") console.log(`Note: getdown.txt names ${main} as the main class.`);
 
 console.log(`Starting Spiral Knights with level capture; floors are saved to ${captured}`);
-const child = spawn(java, args, { cwd: install, stdio: "inherit" });
+// Steam: the client logs on through Steam when the Steam API starts, which needs the game's app id
+// (Spiral Knights is 99900). Steam sets these when it launches the game; Steam must be running.
+const env = { ...process.env, SteamAppId: "99900", SteamGameId: "99900" };
+const child = spawn(java, args, { cwd: install, stdio: "inherit", env });
 child.on("exit", code => {
   console.log(`The game closed (${code}). Open clyde-web (or run npm run levels) to import the captured floors.`);
 });
