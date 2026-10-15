@@ -63,10 +63,15 @@ export function classifyCapture(sceneName: string): LevelClass | null {
   const n = sceneName.toLowerCase().replace(/_/g, " ").trim();
   let m = new RegExp(`^(ct|bf|cc|ww|pc) ${FAM}\\b`).exec(n);
   if (m && !/ minis\b/.test(n)) return { style: "tunnels", family: cap(m[2]), element: TUNNEL[m[1]] };
-  m = /^(wolver den|candlestick keep|ck|devilish drudgery|dd|lichenous lair|graveyard) (vanilla|fire|freeze|poison|shock)\b/.exec(n);
-  if (m) {
+  // the status follows the area ("wolver den fire terminal meltdown"), or the mission's set
+  // piece first ("dd knight camp fire whipping mishandling", "dd office party vanilla"); a
+  // floor without one is vanilla ("lichenous lair alien ooze", "graveyard alone in dark": their
+  // globals are their sets' Default ones)
+  m = /^(wolver den|candlestick keep|ck|devilish drudgery|dd|lichenous lair|graveyard)\b(.*)$/.exec(n);
+  if (m && !/^ (?:\d+)?$/.test(m[2] || " ")) {
     const style = m[1] === "ck" ? "keep" : m[1] === "dd" ? "drudgery" : THEMED[m[1]];
-    return { style, family: null, element: STATUS[m[2]] };
+    const s = /\b(vanilla|fire|freeze|poison|shock)\b/.exec(m[2]);
+    return { style, family: null, element: s ? STATUS[s[1]] : null };
   }
   return null;
 }

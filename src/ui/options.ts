@@ -662,12 +662,17 @@ export class OptionsScreen {
     if (title) title.text = "Levels Collected";
     const list = checklist(this.actions.sceneNames());
     const valueCfg = { ...label.config, text: "", style: { $class: CONFIG_REF, name: "Default/Label" } };
-    // (levels derived from a collected one, src/game/derive.ts, are counted apart, not as collected)
-    const derived = (n: number) => (n ? ` (+${n} derived)` : "");
-    const rows: [string, string][] = [...list.groups.map(g =>
-      [g.title, `${g.have.length} / ${g.have.length + g.derived.length + g.missing.length}${derived(g.derived.length)}`] as [string, string]),
-      ["All levels", `${list.have} / ${list.total}${derived(list.derived)}`],
-      ...(list.derived ? [["Derived from a capture", `${list.derived} (playable, not collected)`] as [string, string]] : []),
+    // three states: captured, generated or derived (built from captured ones: playable, not the
+    // game's own capture, src/game/coverage.ts and derive.ts), missing
+    const plus = (n: number) => (n ? ` (+${n} built)` : "");
+    const pairs = (s: string) => list.coverage.filter(r => r.state === s).length;
+    const rows: [string, string][] = [
+      // the levels the servers build from prefab rooms count by (type x status), not by name
+      ["Prefab level types", `${pairs("captured")} / ${list.coverage.length}${pairs("derived") ? ` (+${pairs("derived")} derived)` : ""}`],
+      ...list.groups.map(g =>
+        [g.title, `${g.have.length} / ${g.have.length + g.derived.length + g.missing.length}${plus(g.derived.length)}`] as [string, string]),
+      ["All levels", `${list.have} / ${list.total}${plus(list.derived)}`],
+      ["Still missing", String(list.missing)],
       ...(list.guildHalls ? [["Guild halls archived", String(list.guildHalls)] as [string, string]] : [])];
     const built = await Promise.all(rows.map(async ([name, value]) => {
       const [l, v] = await Promise.all([buildComponentConfig(this.ctx, { ...label.config, text: "~" + name }, label.local),

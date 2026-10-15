@@ -1,16 +1,21 @@
 // The level checklist: which server-side levels the player has collected (cached by the
-// official client and kept in the private archive) and which are still missing, with where to
-// get each one in the real game. Reads only the player's own files.
-// Usage: npm run levels [-- --all]   (--all also lists every collected level and every cached name)
+// official client and kept in the private archive), which this port builds from what is
+// collected, and which are still missing, with where to get each one in the real game. Reads
+// only the player's own files.
+// Usage: npm run levels [-- --all]   (--all also lists every collected and generated level and every cached name)
 //
 // The archive's names come from scene-index.json beside it (server/install.ts sceneIndex), so
 // only levels that are new or changed since the last run are parsed; the install's own cache
-// adds the few it holds that the archive does not.
+// adds the few it holds that the archive does not. The captured prefab floors are read as well
+// (their tiles and globals: tools/coverage.ts), for the coverage of the levels the servers build
+// from prefab rooms on every run (src/game/coverage.ts).
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { archiveDir, detectInstall, sceneIndex } from "../server/install.ts";
+import { statusLabel } from "../src/game/coverage.ts";
 import { checklist, GROUPS, GUILD_HALL, matchLevels, normalizeSceneName } from "../src/game/levels.ts";
 import { prettySceneName, sceneName } from "../src/scene.ts";
+import { captureFacts, captureScenes } from "./coverage.ts";
 
 const all = process.argv.includes("--all");
 const install = process.env.SK_DIR ?? detectInstall();
@@ -29,22 +34,45 @@ if (cache && existsSync(cache))
   }
 
 const names = [...named.values()];
-const list = checklist(names, rsrc => !!install && existsSync(join(install, "rsrc", rsrc)));
+const facts = captureFacts(await captureScenes());
+const list = checklist(names, rsrc => !!install && existsSync(join(install, "rsrc", rsrc)), undefined, facts);
 console.log(`Install: ${install ?? "(not found)"}`);
 console.log(`Archive: ${archiveDir()}`);
-console.log(`Cached scenes read: ${named.size}${failed.length ? `, ${failed.length} unreadable` : ""}\n`);
+console.log(`Cached scenes read: ${named.size}${failed.length ? `, ${failed.length} unreadable` : ""}; captured prefab floors read: ${facts.size} names\n`);
 
-// a level this port derives from a collected one (src/game/derive.ts) is playable, but it is
-// not the game's own: it is counted apart and stays on the list of levels to capture
-const derivedNote = (n: number) => (n ? ` (+${n} derived from a capture)` : "");
-for (const g of list.groups) {
-  const total = g.have.length + g.derived.length + g.missing.length;
-  console.log(`== ${g.title}: ${g.have.length} of ${total}${derivedNote(g.derived.length)}`);
-  if (all) for (const l of g.have) console.log(`  [x] ${l.set}: ${l.name}`);
-  if (g.derived.length) {
-    console.log(`  Derived from a capture (playable, still to capture):`);
-    for (const l of g.derived) console.log(`    [~] ${l.set}: ${l.name} - from "${list.derivedFrom.get(l)}"; capture: ${l.where}`);
+// three states: captured (the game's own level), generated or derived (built by this port from
+// captured ones: playable, not the game's own capture), missing
+const counts = (have: number, built: number, missing: number) =>
+  `${have} captured, ${built} generated or derived, ${missing} missing (of ${have + built + missing})`;
+
+// the levels the servers build from prefab rooms: what matters is each (type x status) pair
+console.log("== Prefab-built level types, by (type x status): what the generator needs");
+console.log("   (a named level of a covered pair is generated from its captured rooms, with its own monsters)");
+const mark = { captured: "[x]", derived: "[~]", missing: "[ ]" } as const;
+for (const r of list.coverage) {
+  const names = [...list.generated].filter(([, row]) => row === r).length;
+  console.log(`  ${mark[r.state]} ${r.type.name.padEnd(18)} ${statusLabel(r.status).padEnd(10)} ${r.state.padEnd(9)}`
+    + ` ${String(r.captures.length).padStart(2)} capture${r.captures.length === 1 ? " " : "s"}${r.note ? ` - ${r.note}` : ""}`);
+  if (all) {
+    for (const c of r.captures) console.log(`        ${c.name}${c.rooms ? "" : " (no rooms in its tiles)"}${c.env === false ? " (a mission's environment)" : ""}`);
+    if (names) console.log(`        ${names} named level${names === 1 ? "" : "s"} built from it`);
   }
+}
+const byState = (s: string) => list.coverage.filter(r => r.state === s).length;
+console.log(`  Pairs: ${byState("captured")} captured, ${byState("derived")} derived, ${byState("missing")} missing (of ${list.coverage.length})\n`);
+
+for (const g of list.groups) {
+  console.log(`== ${g.title}: ${counts(g.have.length, g.derived.length, g.missing.length)}`);
+  if (all) for (const l of g.have) console.log(`  [x] ${l.set}: ${l.name}`);
+  // generated from a covered pair's captured rooms: listed with --all; derived ones always (their
+  // environment or source is not the game's own, so a capture still helps)
+  const built = g.derived.filter(l => all || !(list.generated.has(l) && list.how.get(l)!.startsWith("generated")));
+  const hidden = g.derived.length - built.length;
+  if (built.length) {
+    console.log(`  Generated or derived (playable; a capture would make it the game's own):`);
+    for (const l of built) console.log(`    [~] ${l.set}: ${l.name} - ${list.how.get(l)}; capture: ${l.where}`);
+  }
+  if (hidden) console.log(`  (${hidden} more generated from the captured rooms of their covered pair: --all lists them)`);
   let set = "";
   for (const l of g.missing) {
     if (l.set !== set) { set = l.set; console.log(`  ${set}`); }
@@ -54,10 +82,10 @@ for (const g of list.groups) {
   console.log("");
 }
 
-console.log(`Total: ${list.have} of ${list.total} levels${derivedNote(list.derived)}`);
+console.log(`Total: ${counts(list.have, list.derived, list.missing)} levels`);
 for (const g of GROUPS) {
   const c = list.groups.find(x => x.group === g.id)!;
-  console.log(`  ${g.title.padEnd(34)} ${String(c.have.length).padStart(3)} / ${c.have.length + c.derived.length + c.missing.length}${derivedNote(c.derived.length)}`);
+  console.log(`  ${g.title.padEnd(34)} ${String(c.have.length).padStart(3)} captured, ${String(c.derived.length).padStart(3)} generated or derived, ${String(c.missing.length).padStart(3)} missing`);
 }
 console.log(`  ${"Guild halls".padEnd(34)} ${list.guildHalls} archived`);
 console.log(`  ${"Dev, test and unnamed scenes".padEnd(34)} ${list.other}`);

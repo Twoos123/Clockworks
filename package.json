@@ -17,6 +17,7 @@
     "scan": "tsx tools/scan.ts",
     "dump": "tsx tools/dump.ts",
     "levels": "tsx tools/levels.ts",
+    "coverage": "tsx tools/coverage.ts",
     "capture": "tsx tools/capture/play.ts"
   },
   "devDependencies": {
