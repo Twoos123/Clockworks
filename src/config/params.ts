@@ -81,6 +81,10 @@ export function setPath(root: any, path: string, value: unknown): boolean {
         const f = fieldName(tok.value);
         if (last) { cur[f] = value; return true; }
         if (cur[f] == null) {
+          // an argument of a reference that is not there (a bomb's "FX Transform" after its
+          // "FX" argument emptied the transient): Clyde's path finds no reference and writes
+          // nothing; a placeholder here would leave an empty object where the null was
+          if (group[ti + 1]?.kind === "arg") return false;
           // exported objects omit default-valued fields; create a placeholder
           const nextIsIndex = group[ti + 1]?.kind === "index";
           cur[f] = nextIsIndex ? [] : {};
@@ -89,6 +93,7 @@ export function setPath(root: any, path: string, value: unknown): boolean {
       } else if (tok.kind === "index") {
         if (!Array.isArray(cur)) return false;
         if (last) { cur[tok.value] = value; return true; }
+        if (cur[tok.value] == null && group[ti + 1]?.kind === "arg") return false;
         cur[tok.value] ??= {};
         cur = cur[tok.value];
       } else {

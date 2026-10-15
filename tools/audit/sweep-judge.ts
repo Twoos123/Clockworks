@@ -97,6 +97,13 @@ export interface WeaponRecord {
   attackNames?: string[];
   chargedName?: string | null;
   /**
+   * The release before a full charge (ItemConfig incompleteChargedAttack): what a bomb's tap
+   * plays. A bomb has no basic attacks (its `attacks` list is empty), so a quick click only
+   * starts a charge, and letting go early fizzles (Weapon/Bomb/Parts/Base Interupt) without
+   * placing a bomb, as in the client.
+   */
+  incompleteName?: string | null;
+  /**
    * The basic chain: how far the knight moved (`travel`), the forward units of the swings that
    * played (`impulse`), the attacks the sweep clicked for (`swings`), and whether it ended
    * against the dummy (`blocked`), which stops a step as the client's collision does.
@@ -195,7 +202,18 @@ export function judgeWeapon(r: WeaponRecord): string[] {
     else if (x.hits.every(h => h.dealt <= 0)) p.push(`${label}: zero damage`);
     p.push(...failedEffects(x.effects).map(e => `${label}: ${e}`));
   };
-  run("chain", r.chain);
+  // a weapon with no basic attacks (every bomb): the tap is an early release, which plays the
+  // incomplete charged attack (a fizzle) and strikes nothing; older records lack the attack
+  // names, and a bomb's chain then never named a basic attack
+  const tapOnly = r.attackNames ? r.attackNames.length === 0 : r.kind === "Bomb";
+  if (tapOnly && r.chain) {
+    const x = r.chain;
+    if (!x.attacks.length) p.push("tap: no attack started");
+    else if (r.incompleteName && !x.attacks.some(a => a.startsWith(r.incompleteName!))) p.push(`tap: played ${x.attacks[0]}, not its fizzle ${r.incompleteName}`);
+    if (x.projectiles.length) p.push(`tap: an early release placed ${x.projectiles[0]}`);
+    if (x.hits.length) p.push("tap: an early release hit the dummy");
+    p.push(...failedEffects(x.effects).map(e => `tap: ${e}`));
+  } else run("chain", r.chain);
   // a sword's chain plays every swing of its combo
   if (r.kind === "Sword" && r.chain?.swings && r.chain.attacks.length < r.chain.swings)
     p.push(`chain: ${r.chain.attacks.length} of its ${r.chain.swings} swings played`);

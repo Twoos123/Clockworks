@@ -138,14 +138,17 @@
       await R().equip({ weapons: [name] });
       const def = k.weapon;
       if (!def || def.name !== name) { rec.error = "did not equip"; return rec; }
-      Object.assign(rec, { kind: def.kind, rarity: def.rarity, chargeTime: def.chargeTime, attackNames: def.attacks.map(a => a.name), chargedName: def.chargedAttack?.name ?? null });
+      Object.assign(rec, { kind: def.kind, rarity: def.rarity, chargeTime: def.chargeTime, attackNames: def.attacks.map(a => a.name), chargedName: def.chargedAttack?.name ?? null,
+        incompleteName: def.incompleteChargedAttack?.name ?? null });
       const dist = def.kind === "Sword" ? 1.6 : def.kind === "Bomb" ? 1.2 : 4;
       let dummy = await placeDummy(dist);
       if (!dummy) { rec.error = "no dummy"; return rec; }
       const aim = () => [dummy.x, dummy.y];
       const home = [k.x, k.y];
 
-      // the basic chain (a gun until its clip is spent and it reloads)
+      // the basic chain (a gun until its clip is spent and it reloads); a bomb has no basic
+      // attacks, so its one click is a tap: an early release that fizzles (its incomplete
+      // charged attack) and places nothing, which the judge expects of it
       const presses = def.kind === "Sword" ? def.attacks.length : Math.max(def.attacks.length, def.maxChain || 1);
       let tick = 0;
       const started = () => A().log().attacks.filter(a => a.who === "knight").length;

@@ -114,6 +114,23 @@ test("weapon anomalies", () => {
   assert.deepEqual(swing(3, 0.5, true), []);
 });
 
+test("a bomb's tap is an early release that fizzles: no projectile or hit is asked of it", () => {
+  // the sweep once flagged every bomb "chain: no projectile" and "chain: no hit on the dummy": a
+  // bomb has no basic attacks, so its tap plays the incomplete charged attack, as in the client
+  const fizzle = "Weapon/Bomb/Parts/Base Interupt";
+  const charged = { attacks: ["Weapon/Bomb/Parts/Base Charge"], projectiles: ["Bomb/Blast (Charged)"], effects: [], sounds: [], hits: [hit()], full: true, pose: "charge_bomb_hold.dat" };
+  const bomb: WeaponRecord = { name: "Weapon/Bomb/Blast Bomb", kind: "Bomb", attackNames: [], chargedName: "Weapon/Bomb/Parts/Base Charge", incompleteName: fizzle,
+    chain: { attacks: [fizzle], projectiles: [], effects: [], sounds: ["Custom/Weapons/Bomb, Fizzle"], hits: [] }, charge: charged, shots: [], console: [], problems: [] };
+  assert.deepEqual(judgeWeapon(bomb), []);
+  // a record from before the sweep wrote the attack names: judged by its kind
+  assert.deepEqual(judgeWeapon({ ...bomb, attackNames: undefined, incompleteName: undefined }), []);
+  // a tap that placed a bomb, struck, or played something else is still caught
+  const placed = judgeWeapon({ ...bomb, chain: { ...bomb.chain!, attacks: ["Other"], projectiles: ["Bomb/Blast"], hits: [hit()] } });
+  for (const want of [`tap: played Other, not its fizzle ${fizzle}`, "tap: an early release placed Bomb/Blast", "tap: an early release hit the dummy"])
+    assert.ok(placed.includes(want), `${want} in ${placed.join(" | ")}`);
+  assert.deepEqual(judgeWeapon({ ...bomb, chain: { ...bomb.chain!, attacks: [] } }), ["tap: no attack started"]);
+});
+
 test("monster anomalies", () => {
   const base: MonsterRecord = { name: "Character/NPC/Monster/Slime/X/X 1", passive: false, speed: 3, idle: "idle.dat", move: null, reactTime: 500, minReact: 0.1,
     forced: { name: "Bite", hits: [], projectiles: [], effects: [] }, live: { attacked: false, moved: 0 }, reacted: false, died: false, shots: [], console: [], problems: [] };

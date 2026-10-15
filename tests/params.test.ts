@@ -22,6 +22,37 @@ test("setPath creates omitted default objects and sets reference arguments", () 
   assert.equal(getArg(withRef.tex, "File"), "a.png");
 });
 
+test("setPath writes nothing through an argument of a reference that is not there", () => {
+  // the vortex bombs' last implode: "FX" null empties its destruction transient, then "FX
+  // Transform" (destruction_transient["Transform"]) used to leave {} there, an effect named null
+  const cfg: any = { implementation: { sprite: { destructionTransient: null } } };
+  assert.equal(setPath(cfg, 'implementation.sprite.destruction_transient["Transform"]', { scale: 2 }), false);
+  assert.equal(cfg.implementation.sprite.destructionTransient, null);
+  const list: any = { refs: [null] };
+  assert.equal(setPath(list, 'refs[0]["File"]', "a.png"), false);
+  assert.equal(list.refs[0], null);
+  // an omitted field before more fields still gets its placeholder
+  const omitted: any = {};
+  assert.equal(setPath(omitted, "a.b", 1), true);
+  assert.equal(omitted.a.b, 1);
+});
+
+test("a vortex implode's FX argument of null leaves the implode with no destruction transient", async () => {
+  const REF_ = { $class: REF, name: "fx.dat" };
+  const actor = {
+    name: "Implode", implementation: { sprite: { destructionTransient: REF_ } },
+    parameters: [
+      { $class: "com.threerings.config.Parameter$Direct", name: "FX", paths: ["implementation.sprite.destruction_transient"] },
+      { $class: "com.threerings.config.Parameter$Direct", name: "FX Transform", paths: ['implementation.sprite.destruction_transient["Transform"]'] },
+    ],
+  };
+  const out = applyArguments(actor, { $class: REF, name: "Implode", arguments: { entries: [["FX", null], ["FX Transform", { scale: 1 }]] } });
+  assert.equal(out.implementation.sprite.destructionTransient, null);
+  // with a transient given, its transform lands on it
+  const given = applyArguments(actor, { $class: REF, name: "Implode", arguments: { entries: [["FX", { $class: REF, name: "v.dat" }], ["FX Transform", { scale: 3 }]] } });
+  assert.deepEqual(getArg(given.implementation.sprite.destructionTransient, "Transform"), { scale: 3 });
+});
+
 test("applies direct and choice parameters to a clone", () => {
   const material = {
     name: "M",
