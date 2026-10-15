@@ -58,8 +58,73 @@ export function forTileCells(impl: any, x: number, y: number, rotation: number, 
  */
 export interface FloorLift { node: string; dz: number }
 
-/** A floor collision triangle in world space (v1 v2 v3) with its sprite's floor flags. */
-interface FloorTri { v: Float32Array; flags: number; lift?: FloorLift }
+/**
+ * A floor collision triangle in world space (v1 v2 v3) with its sprite's floor flags and the
+ * cells its bounds touch.
+ */
+interface FloorTri { v: Float32Array; flags: number; lift?: FloorLift; x0: number; y0: number; x1: number; y1: number }
+
+/** A floor sprite waiting to be placed: its model-space triangles and placement. */
+interface FloorSprite { tris: ArrayLike<number>; matrix: Mat4; flags: number; lift?: FloorLift; placed: boolean }
+
+/** Floor sprites wait in blocks of 2^BLOCK by 2^BLOCK cells. */
+const BLOCK = 3;
+
+/**
+ * A sprite's floor triangles in world space: the faces looking up (Triangle.getIntersection
+ * only takes faces whose front looks along -ray), each touching at most 4096 cells.
+ */
+function placeTriangles(tris: ArrayLike<number>, m: Mat4, flags: number, lift?: FloorLift): FloorTri[] {
+  const out: FloorTri[] = [];
+  // a mirroring placement flips the winding the ray test culls by (it runs in model space)
+  const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
+  const sign = det < 0 ? -1 : 1;
+  for (let i = 0; i + 8 < tris.length; i += 9) {
+    const w = new Float32Array(9);
+    for (let k = 0; k < 3; k++) {
+      const x = tris[i + k * 3], y = tris[i + k * 3 + 1], z = tris[i + k * 3 + 2];
+      w[k * 3] = m[0] * x + m[4] * y + m[8] * z + m[12];
+      w[k * 3 + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+      w[k * 3 + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    }
+    const nz = ((w[3] - w[0]) * (w[7] - w[1]) - (w[4] - w[1]) * (w[6] - w[0])) * sign;
+    if (nz <= 1e-9) continue;
+    const x0 = Math.floor(Math.min(w[0], w[3], w[6])), x1 = Math.floor(Math.max(w[0], w[3], w[6]));
+    const y0 = Math.floor(Math.min(w[1], w[4], w[7])), y1 = Math.floor(Math.max(w[1], w[4], w[7]));
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) continue;
+    out.push({ v: w, flags, lift, x0, y0, x1, y1 });
+  }
+  return out;
+}
+
+/** Model-space bounds of a triangle list (shared models' lists are measured once). */
+const modelBounds = new WeakMap<object, [number, number, number, number, number, number]>();
+function trisBounds(tris: ArrayLike<number>): [number, number, number, number, number, number] {
+  let b = typeof tris === "object" ? modelBounds.get(tris) : undefined;
+  if (b) return b;
+  b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (let i = 0; i + 2 < tris.length; i += 3) {
+    for (let a = 0; a < 3; a++) { const v = tris[i + a]; if (v < b[a]) b[a] = v; if (v > b[a + 3]) b[a + 3] = v; }
+  }
+  modelBounds.set(tris, b);
+  return b;
+}
+
+/**
+ * The cells (x0, y0, x1, y1, inclusive) a placed sprite's triangles can touch: its model-space
+ * box's corners placed, widened a little so float rounding never leaves a cell out.
+ */
+function placedBounds(tris: ArrayLike<number>, m: Mat4): [number, number, number, number] {
+  const b = trisBounds(tris);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let c = 0; c < 8; c++) {
+    const x = b[c & 1 ? 3 : 0], y = b[c & 2 ? 4 : 1], z = b[c & 4 ? 5 : 2];
+    const wx = m[0] * x + m[4] * y + m[8] * z + m[12], wy = m[1] * x + m[5] * y + m[9] * z + m[13];
+    x0 = Math.min(x0, wx); x1 = Math.max(x1, wx); y0 = Math.min(y0, wy); y1 = Math.max(y1, wy);
+  }
+  const e = 1e-3;
+  return [Math.floor(x0 - e), Math.floor(y0 - e), Math.floor(x1 + e), Math.floor(y1 + e)];
+}
 
 /**
  * Where a vertical line through (x, y) crosses triangle v (world space, 9 floats), or -Infinity
@@ -310,26 +375,43 @@ export class CollisionMap {
    */
   addFloor(tris: ArrayLike<number>, matrix: Mat4, floorFlags = 1, lift?: FloorLift) {
     if (!floorFlags || tris.length < 9) return;
-    const m = matrix;
-    // a mirroring placement flips the winding the ray test culls by (it runs in model space)
-    const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
-    const sign = det < 0 ? -1 : 1;
-    for (let i = 0; i + 8 < tris.length; i += 9) {
-      const w = new Float32Array(9);
-      for (let k = 0; k < 3; k++) {
-        const x = tris[i + k * 3], y = tris[i + k * 3 + 1], z = tris[i + k * 3 + 2];
-        w[k * 3] = m[0] * x + m[4] * y + m[8] * z + m[12];
-        w[k * 3 + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
-        w[k * 3 + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    // the sprite's triangles are placed when a query first looks into a block of cells its
+    // bounds reach (a town has ~170k triangle-cell entries, most never looked at)
+    const [x0, y0, x1, y1] = placedBounds(tris, matrix);
+    const sprite: FloorSprite = { tris, matrix, flags: floorFlags, lift, placed: false };
+    for (let by = y0 >> BLOCK; by <= y1 >> BLOCK; by++) for (let bx = x0 >> BLOCK; bx <= x1 >> BLOCK; bx++) {
+      const k = CollisionMap.key(bx, by);
+      let list = this.pendingFloors.get(k);
+      if (!list) this.pendingFloors.set(k, list = []);
+      list.push(sprite);
+    }
+  }
+
+  /** Floor sprites not yet placed in `floors`, by the blocks of cells their bounds reach. */
+  private readonly pendingFloors = new Map<number, FloorSprite[]>();
+
+  /** A cell's floor triangles, once the sprites waiting on its block are placed. */
+  private floorList(k: number): FloorTri[] | undefined {
+    if (this.pendingFloors.size) {
+      const cx = Math.floor(k / 65536) - 32768, cy = (k % 65536) - 32768;
+      const bk = CollisionMap.key(cx >> BLOCK, cy >> BLOCK);
+      const pending = this.pendingFloors.get(bk);
+      if (pending) {
+        this.pendingFloors.delete(bk);
+        for (const s of pending) {
+          if (s.placed) continue;
+          s.placed = true;
+          this.placeFloor(s.tris, s.matrix, s.flags, s.lift);
+        }
       }
-      // Triangle.getIntersection only takes faces whose front looks along -ray (up, here)
-      const nz = ((w[3] - w[0]) * (w[7] - w[1]) - (w[4] - w[1]) * (w[6] - w[0])) * sign;
-      if (nz <= 1e-9) continue;
-      const tri: FloorTri = { v: w, flags: floorFlags, lift };
-      const x0 = Math.floor(Math.min(w[0], w[3], w[6])), x1 = Math.floor(Math.max(w[0], w[3], w[6]));
-      const y0 = Math.floor(Math.min(w[1], w[4], w[7])), y1 = Math.floor(Math.max(w[1], w[4], w[7]));
-      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) continue;
-      for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+    }
+    return this.floors.get(k);
+  }
+
+  /** Places a sprite's floor triangles in every cell their bounds touch. */
+  private placeFloor(tris: ArrayLike<number>, matrix: Mat4, floorFlags: number, lift?: FloorLift) {
+    for (const tri of placeTriangles(tris, matrix, floorFlags, lift)) {
+      for (let cy = tri.y0; cy <= tri.y1; cy++) for (let cx = tri.x0; cx <= tri.x1; cx++) {
         const k = CollisionMap.key(cx, cy);
         let list = this.floors.get(k);
         if (!list) this.floors.set(k, list = []);
@@ -354,7 +436,7 @@ export class CollisionMap {
 
   /** The floor mesh face a downward ray through (x, y) meets first, and its height (null: none). */
   private floorHit(x: number, y: number, mask = 0xff): { z: number; lift?: FloorLift } | null {
-    const list = this.floors.get(CollisionMap.key(Math.floor(x), Math.floor(y)));
+    const list = this.floorList(CollisionMap.key(Math.floor(x), Math.floor(y)));
     let best = -Infinity, lift: FloorLift | undefined;
     if (list) {
       for (const t of list) {

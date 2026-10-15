@@ -44,6 +44,62 @@ test("faces looking down, sprites without floor flags and masked-out floors are 
   assert.ok(Math.abs(r.groundZ(-0.5, 1.5) - 0.75) < 1e-6);
 });
 
+/** The floor index as it was built at load: every face looking up, in every cell it touches. */
+function eagerFloorZ(sprites: [number[], number[], number][]) {
+  const cells = new Map<string, { v: Float32Array; flags: number }[]>();
+  for (const [tris, m, flags] of sprites) {
+    if (!flags) continue;
+    const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
+    for (let i = 0; i + 8 < tris.length; i += 9) {
+      const w = new Float32Array(9);
+      for (let k = 0; k < 3; k++) {
+        const x = tris[i + k * 3], y = tris[i + k * 3 + 1], z = tris[i + k * 3 + 2];
+        w[k * 3] = m[0] * x + m[4] * y + m[8] * z + m[12];
+        w[k * 3 + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+        w[k * 3 + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+      }
+      if (((w[3] - w[0]) * (w[7] - w[1]) - (w[4] - w[1]) * (w[6] - w[0])) * (det < 0 ? -1 : 1) <= 1e-9) continue;
+      const x0 = Math.floor(Math.min(w[0], w[3], w[6])), x1 = Math.floor(Math.max(w[0], w[3], w[6]));
+      const y0 = Math.floor(Math.min(w[1], w[4], w[7])), y1 = Math.floor(Math.max(w[1], w[4], w[7]));
+      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) continue;
+      for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+        const list = cells.get(cx + "," + cy) ?? [];
+        list.push({ v: w, flags });
+        cells.set(cx + "," + cy, list);
+      }
+    }
+  }
+  return (x: number, y: number, mask = 0xff) => {
+    let best = -Infinity;
+    for (const t of cells.get(Math.floor(x) + "," + Math.floor(y)) ?? []) if (t.flags & mask) best = Math.max(best, rayDownZ(t.v, x, y));
+    return best > -Infinity ? best : 0;
+  };
+}
+
+test("the floor index, placed as queries reach it, answers as the one built at load did", () => {
+  let seed = 7;
+  const rand = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32);
+  const sprites: [number[], number[], number][] = [];
+  for (let n = 0; n < 300; n++) {
+    const tris: number[] = [];
+    const size = n % 50 === 0 ? 40 : 1 + rand() * 3;
+    for (let t = 0; t < 1 + Math.floor(rand() * 6); t++) for (let v = 0; v < 3; v++) tris.push(rand() * size, rand() * size, rand() * 2);
+    const a = rand() * Math.PI * 2, s = n % 7 === 0 ? -1 : 1;
+    const m = Array.from(compose([rand() * 120 - 60, rand() * 120 - 60, rand() * 3], [0, 0, Math.sin(a / 2), Math.cos(a / 2)], 1));
+    // some placements mirror (which flips the faces the ray test keeps)
+    m[0] *= s; m[1] *= s; m[2] *= s;
+    sprites.push([tris, m, n % 11 === 0 ? 2 : n % 13 === 0 ? 0 : 1]);
+  }
+  const c = new CollisionMap();
+  for (const [tris, m, flags] of sprites) c.addFloor(tris, m as any, flags);
+  assert.equal(c.floors.size, 0, "nothing is placed before a query");
+  const ref = eagerFloorZ(sprites);
+  for (let y = -70; y < 110; y += 0.37) for (let x = -70; x < 110; x += 0.41) {
+    assert.equal(c.floorZ(x, y), ref(x, y), `at ${x}, ${y}`);
+    assert.equal(c.floorZ(x, y, 0x02), ref(x, y, 0x02));
+  }
+});
+
 test("a model's floor triangles include its attachments, placed by their transforms", () => {
   const leaf: LoadedModel = { path: "a", kind: "Static", parts: [], attachments: [], autoAnimations: [], animations: {}, billboards: new Map(),
     procedurals: [], skipped: [], collision: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]) };

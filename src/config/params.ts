@@ -36,6 +36,17 @@ export function parsePath(path: string): Token[][] {
   return out;
 }
 
+/** Parsed paths (read-only token lists), or null for a malformed one; the install has a few thousand. */
+const parsedPaths = new Map<string, Token[][] | null>();
+function parsed(path: string): Token[][] | null {
+  let p = parsedPaths.get(path);
+  if (p === undefined) {
+    try { p = parsePath(path); } catch { p = null; }
+    parsedPaths.set(path, p);
+  }
+  return p;
+}
+
 /** "texture_state" -> "textureState" (the inverse of StringUtil.unStudlyName). */
 export const fieldName = (s: string) => s.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
 
@@ -56,8 +67,8 @@ export function setArg(ref: any, name: string, value: unknown) {
 
 /** Writes value at path within root, creating missing intermediate objects. */
 export function setPath(root: any, path: string, value: unknown): boolean {
-  let groups: Token[][];
-  try { groups = parsePath(path); } catch { return false; }
+  const groups = parsed(path);
+  if (!groups) return false;
   let cur = root;
   for (let gi = 0; gi < groups.length; gi++) {
     const group = groups[gi];
@@ -114,7 +125,8 @@ function applyParameter(config: any, param: any, value: unknown) {
 
 /**
  * Deep-copies an imported object graph, preserving cycles and shared references but
- * sharing typed arrays (vertex and index data), which arguments never modify.
+ * sharing typed arrays (vertex and index data), which arguments never modify. Objects already
+ * in `seen` become what it maps them to (applyArguments shares parts of a config that way).
  */
 export function cloneGraph<T>(value: T, seen = new Map<unknown, unknown>()): T {
   if (value === null || typeof value !== "object" || ArrayBuffer.isView(value)) return value;
@@ -134,10 +146,90 @@ export function cloneGraph<T>(value: T, seen = new Map<unknown, unknown>()): T {
 
 export const hasArguments = (ref: any) => (ref?.arguments?.entries?.length ?? 0) > 0;
 
+/**
+ * A model's mesh sets (ModelConfig.MeshSet: bounds, visible meshes and their geometry, the
+ * collision mesh's tree) hold nearly all of a model config's objects, and only read-only data.
+ */
+const MESH_SET = "com.threerings.opengl.model.config.ModelConfig$MeshSet";
+
+/** Every property path a parameter writes (a Choice's through its directs). */
+function parameterPaths(p: any, depth = 0): string[] {
+  if (!p || depth > 8) return [];
+  return [...((p.paths ?? []) as string[]), ...((p.directs ?? []) as any[]).flatMap(d => parameterPaths(d, depth + 1))];
+}
+
+/** The existing objects setPath(root, path) would pass through (read-only; nothing is created). */
+function pathObjects(root: any, path: string, out: Set<unknown>) {
+  const groups = parsed(path);
+  if (!groups) return;
+  let cur = root;
+  for (const group of groups) {
+    for (const tok of group) {
+      if (cur == null || typeof cur !== "object") return;
+      out.add(cur);
+      cur = tok.kind === "word" ? cur[fieldName(tok.value)] : tok.kind === "index" ? (Array.isArray(cur) ? cur[tok.value] : undefined)
+        : cur.$class === CONFIG_REF ? getArg(cur, tok.value) : undefined;
+    }
+  }
+  if (cur != null && typeof cur === "object") out.add(cur);
+}
+
+/** Whether any object in `targets` is reachable from root (outer-instance links aside). */
+function reaches(root: unknown, targets: Set<unknown>): boolean {
+  const stack = [root], seen = new Set<unknown>();
+  while (stack.length) {
+    const o = stack.pop();
+    if (o === null || typeof o !== "object" || ArrayBuffer.isView(o) || seen.has(o)) continue;
+    if (targets.has(o)) return true;
+    seen.add(o);
+    if (Array.isArray(o)) { for (const v of o) stack.push(v); continue; }
+    for (const k of Object.keys(o)) if (k !== "$outer") stack.push((o as Record<string, unknown>)[k]);
+  }
+  return false;
+}
+
+/**
+ * The parts of a parameterized config applyArguments shares instead of copying: its own
+ * parameter list and its implementation's mesh sets, each unless a parameter path passes
+ * through it or reaches into it. No argument writes to those, so a clone that reads the
+ * originals reads the same data. Configs from the install are read-only and cached, so this is
+ * worked out once per config.
+ */
+interface Shared { parameters: unknown[] | null; meshSets: unknown[] }
+const sharedParts = new WeakMap<object, Shared>();
+export function sharedOf(config: any): Shared {
+  let s = sharedParts.get(config);
+  if (s) return s;
+  const onPath = new Set<unknown>();
+  for (const p of (config.parameters ?? []) as any[]) for (const path of parameterPaths(p)) pathObjects(config, path, onPath);
+  const free = (o: unknown) => !onPath.has(o) && !reaches(o, onPath);
+  const parameters = Array.isArray(config.parameters) && free(config.parameters) ? config.parameters as unknown[] : null;
+  const meshSets: unknown[] = [];
+  const stack: unknown[] = [config.implementation], seen = new Set<unknown>();
+  while (stack.length) {
+    const o = stack.pop() as any;
+    if (o === null || typeof o !== "object" || ArrayBuffer.isView(o) || seen.has(o)) continue;
+    seen.add(o);
+    if (o.$class === MESH_SET) { if (free(o)) meshSets.push(o); continue; }
+    if (Array.isArray(o)) { for (const v of o) stack.push(v); continue; }
+    for (const k of Object.keys(o)) if (k !== "$outer") stack.push(o[k]);
+  }
+  sharedParts.set(config, s = { parameters, meshSets });
+  return s;
+}
+
 /** Applies every argument in a ConfigReference to a clone of config. */
 export function applyArguments(config: any, ref: any): any {
   if (!hasArguments(ref)) return config;
-  const clone = cloneGraph(config);
+  // the parts no argument can change are shared (copying every variant's geometry and collision
+  // tree was most of a scene's load, an accessory's colour choices most of the item list's)
+  const seen = new Map<unknown, unknown>();
+  if (config !== null && typeof config === "object") {
+    const shared = sharedOf(config);
+    if (shared.parameters) seen.set(shared.parameters, shared.parameters);
+    for (const m of shared.meshSets) seen.set(m, m);
+  }
+  const clone = cloneGraph(config, seen);
   for (const [k, v] of ref?.arguments?.entries ?? []) applyArgument(clone, String(k), v);
   return clone;
 }

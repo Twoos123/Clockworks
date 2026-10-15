@@ -4,6 +4,7 @@
 
 import { execFileSync } from "node:child_process";
 import { copyFileSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join, normalize, sep } from "node:path";
@@ -144,57 +145,108 @@ export function syncArchive(install: string | null, archive = archiveDir()): num
         if (b.size === a.size && b.mtimeMs >= a.mtimeMs) continue;
       }
       copyFileSync(from, to);
+      replaced(archive, name);
       copied++;
     } catch { /* being written by the client: next sync */ }
   }
   return copied;
 }
 
+type IndexEntry = { size: number; mtime: number; name: string };
+/**
+ * Per archive: the index file's entries, and the levels whose files this process has checked
+ * against them (stat'ed). Within one run the archive changes only by syncArchive (which marks
+ * what it replaces) and by new files (tools/import-scenes.ts never overwrites), so a checked
+ * level is not stat'ed again: statting ~19k files took ~5 s on Windows for every page load.
+ */
+const indexState = new Map<string, { cache: Record<string, IndexEntry>; checked: Set<string> }>();
+/** Levels syncArchive replaced since the index last looked, per archive. */
+const replacedLevels = new Map<string, Set<string>>();
+function replaced(archive: string, id: string) {
+  let s = replacedLevels.get(archive);
+  if (!s) replacedLevels.set(archive, s = new Set());
+  s.add(id);
+}
+
+/** Runs fn over items, at most `limit` at once. */
+async function eachLimited<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) await fn(items[next++]);
+  }));
+}
+
 /**
  * Each archived level's display name, kept in a JSON file beside the archive so the game learns
  * the names of thousands of levels in one request; a level is parsed only when it is new or
- * has changed. Returns [id, name] pairs.
+ * has changed. The first index of a run checks every file (they may have changed while the
+ * server was not running), in parallel; later ones check only new and replaced files. Returns
+ * [id, name] pairs.
  */
-let indexing: Promise<[string, string][]> | null = null;
+const indexing = new Map<string, Promise<[string, string][]>>();
 export function sceneIndex(archive = archiveDir()): Promise<[string, string][]> {
-  return indexing ??= (async () => {
-    try {
-      const file = join(dirname(archive), "scene-index.json");
-      let cache: Record<string, { size: number; mtime: number; name: string }> = {};
-      try { cache = JSON.parse(readFileSync(file, "utf8")); } catch { /* first run */ }
-      const { sceneName } = await import("../src/scene");
-      const out: [string, string][] = [];
-      let changed = false;
-      for (const id of existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : []) {
-        const st = statSync(join(archive, id));
-        let e = cache[id];
-        if (!e || e.size !== st.size || e.mtime !== st.mtimeMs) {
-          let name = "";
-          try { name = await sceneName(new Uint8Array(readFileSync(join(archive, id)))); } catch { /* unreadable */ }
-          e = cache[id] = { size: st.size, mtime: st.mtimeMs, name };
-          changed = true;
-        }
-        if (e.name) out.push([id, e.name]);
-      }
-      if (changed) writeFileSync(file, JSON.stringify(cache));
-      return out;
-    } finally { setTimeout(() => { indexing = null; }, 0); }
-  })();
+  let p = indexing.get(archive);
+  if (!p) {
+    p = buildIndex(archive).finally(() => setTimeout(() => indexing.delete(archive), 0));
+    indexing.set(archive, p);
+  }
+  return p;
+}
+
+async function buildIndex(archive: string): Promise<[string, string][]> {
+  const file = join(dirname(archive), "scene-index.json");
+  let state = indexState.get(archive);
+  if (!state) {
+    let cache: Record<string, IndexEntry> = {};
+    try { cache = JSON.parse(readFileSync(file, "utf8")); } catch { /* first run */ }
+    state = { cache, checked: new Set() };
+    indexState.set(archive, state);
+  }
+  const { cache, checked } = state;
+  const again = replacedLevels.get(archive) ?? new Set<string>();
+  replacedLevels.delete(archive);
+  const ids = existsSync(archive) ? readdirSync(archive).filter(n => SCENE.test(n)) : [];
+  const { sceneName } = await import("../src/scene");
+  let changed = false;
+  await eachLimited(ids.filter(id => !checked.has(id) || again.has(id)), 64, async id => {
+    const path = join(archive, id);
+    let st;
+    try { st = await stat(path); } catch { return; }
+    const e = cache[id];
+    if (!e || e.size !== st.size || e.mtime !== st.mtimeMs) {
+      let name = "";
+      try { name = await sceneName(new Uint8Array(await readFile(path))); } catch { /* unreadable */ }
+      cache[id] = { size: st.size, mtime: st.mtimeMs, name };
+      changed = true;
+    }
+    checked.add(id);
+  });
+  if (changed) writeFileSync(file, JSON.stringify(cache));
+  const out: [string, string][] = [];
+  for (const id of ids) { const name = cache[id]?.name; if (name) out.push([id, name]); }
+  return out;
 }
 
 /** Handles /__sk requests: the install's rsrc files, scenes cache and colour definitions. */
 export function installMiddleware(dir: () => string | null, archive = archiveDir()) {
   let listing: string[] | null = null;
   const walk = (d: string, prefix: string, out: string[]) => {
-    for (const name of readdirSync(d)) {
-      const p = join(d, name);
-      if (statSync(p).isDirectory()) walk(p, prefix + name + "/", out);
-      else out.push(prefix + name);
+    // directory entries carry their type, so only links need a stat (statting each of ~16k
+    // files took over a second on Windows)
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory() || (e.isSymbolicLink() && statSync(p).isDirectory())) walk(p, prefix + e.name + "/", out);
+      else out.push(prefix + e.name);
     }
     return out;
   };
   const bundles = new BundleJar(() => { const root = dir(); return root ? join(root, "code", "projectx-config.jar") : null; });
   const send = (res: ServerResponse, file: string) => createReadStream(file).on("error", () => { res.statusCode = 404; res.end(); }).pipe(res);
+  // the level index is built as the server starts, so the page's first request finds it ready
+  setTimeout(() => {
+    try { syncArchive(dir(), archive); } catch { /* the request will try again */ }
+    sceneIndex(archive).catch(() => undefined);
+  }, 0);
   return (req: IncomingMessage, res: ServerResponse) => {
     const root = dir();
     const url = decodeURIComponent((req.url ?? "").split("?")[0]);

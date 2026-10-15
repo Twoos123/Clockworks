@@ -28,7 +28,7 @@ import { StatusConditions, type ActiveStatus } from "./status";
 import { itemName, monsterName } from "./text";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
-import { attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
+import { attackClipAt, attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
 import { heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type LabelStyle, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "./behavior";
@@ -131,7 +131,9 @@ abstract class Actor {
    * go off at their delays, a burst running on into the follow-through), which have fired,
    * whether the lunge started, and whether it plays on the upper body only.
    */
-  attack: { def: AttackDef; phase: Phase; t: number; ft: number; total?: number; fired: Set<number>; lunged: boolean; overlay: boolean; touched?: Set<Actor> } | null = null;
+  attack: { def: AttackDef; phase: Phase; t: number; ft: number; total?: number; fired: Set<number>; lunged: boolean; overlay: boolean; touched?: Set<Actor>;
+    /** The animation playing (0 start, 1 fire, 2 end; -1 before the first): see attackClipAt. */
+    clip: number } | null = null;
   /** Lunge from an attack's impulse: its displacement, seconds into it and its length. */
   lunge = { dx: 0, dy: 0, t: 0, dur: 0 };
   /** Nodes animated by the upper-body overlay (knights); null plays attacks whole-body. */
@@ -861,8 +863,13 @@ export class World implements LogicHost {
       rarity: name => eco.info(name)?.rarity ?? 0,
       depthWeight: (dw, r, d) => eco.depthWeight(dw, r, d),
     } : null);
-    // the drop pools are built once, before the first drop
-    if (eco) for (const t of ["MATERIAL", "GEAR"]) eco.autoItems(t);
+    // the drop pools are built once, when the browser is next idle after the level starts (a
+    // drop before then builds them itself), so they do not hold up the first level's load
+    if (eco) {
+      const build = () => { for (const t of ["MATERIAL", "GEAR"]) eco.autoItems(t); };
+      if (typeof requestIdleCallback === "function") requestIdleCallback(build, { timeout: 3000 });
+      else setTimeout(build, 0);
+    }
     await this.data.preload("config/status_condition.dat");
     this.conditions = new StatusConditions(this.data.library_("config/status_condition.dat"), this.data.depth);
     this.logic = new Logic(this, {
@@ -2472,9 +2479,28 @@ export class World implements LogicHost {
     if (this.probe?.attack && (a instanceof Knight || a instanceof Monster)) this.probe.attack(a, def);
     // an attack the config marks as not blended (a gun's charged shot, a sword swing) plays on
     // the whole body even for a weapon that otherwise fires on the move
-    a.attack = { def, phase: "start", t: 0, ft: 0, fired: new Set(), lunged: false, overlay: overlay && def.blended && !!a.upperBody };
-    if (def.start) this.animate(a, def.start, def.startSpeed);
-    else this.enterFire(a);
+    a.attack = { def, phase: "start", t: 0, ft: 0, fired: new Set(), lunged: false, overlay: overlay && def.blended && !!a.upperBody, clip: -1 };
+    this.syncAttackClip(a);
+    if (def.land / def.startSpeed <= 0) this.enterFire(a);
+  }
+
+  /**
+   * Plays the attack's animation for where it has got to (start, fire, end: each when the one
+   * before has finished, see attackClipAt), when that is a later one than is playing.
+   */
+  private syncAttackClip(a: Actor) {
+    const at = a.attack!, d = at.def;
+    const clips: [any, number][] = [[d.start, d.startSpeed], [d.fire, d.fireSpeed], [d.end, d.endSpeed]];
+    const lens = clips.map(([path, speed]) => {
+      if (!path) return null;
+      const c = this.clip(path);
+      return c && c.frames.length ? ((c.frames.length - 1) / c.rate / Math.max(0.01, speed)) * 1000 : 0;
+    });
+    const now = attackClipAt(lens, (at.total ?? 0) * 1000);
+    if (!now || now.clip <= at.clip) return;
+    at.clip = now.clip;
+    const [path, speed] = clips[now.clip];
+    this.animate(a, path, speed);
   }
 
   /** One-shot attack animation: upper body for walking attacks, else whole body. */
@@ -2507,7 +2533,6 @@ export class World implements LogicHost {
     at.phase = "fire";
     at.t = 0;
     at.ft = 0;
-    if (at.def.fire) this.animate(a, at.def.fire, at.def.fireSpeed);
     // the weapon's own model plays its attack (a flintlock's hammer, a diskgun's claws)
     if (a === this.knight) {
       const k = this.knight;
@@ -2550,13 +2575,14 @@ export class World implements LogicHost {
     }
     if (a === this.knight && a.lunge.t < a.lunge.dur) a.lunge.t += dt / Math.max(1e-6, this.attackRate(a));
     if (d.contact && a.lunge.t < a.lunge.dur) this.contactHits(a, at);
+    // the animations, each on from the last as it finishes, apart from the phase times
+    this.syncAttackClip(a);
     if (at.phase === "start") {
       if (at.t * 1000 >= d.land / d.startSpeed) this.enterFire(a);
     } else if (at.phase === "fire") {
       if (at.t * 1000 >= d.rearm / d.fireSpeed) {
         at.phase = "end";
         at.t = 0;
-        if (d.end) this.animate(a, d.end, d.endSpeed);
       }
     } else if (at.phase === "end" && ends && at.t * 1000 >= d.clear / d.endSpeed) {
       a.attack = null;
