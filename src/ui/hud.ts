@@ -14,6 +14,7 @@ import { ScriptRunner } from "./script";
 import { Minimap } from "./minimap";
 import { buildUi, type TipSpec } from "./screen";
 import { prestigeIcon } from "../game/missions";
+import { heatLevel } from "../game/feedback";
 
 const STATUS = "ui/hud_v2/interface_status.dat";
 const QUICKBAR = "ui/hud_v2/interface_quickbar.dat";
@@ -55,19 +56,21 @@ export interface HudTarget {
 
 /** The low-health frame shows while the trailing health is under this fraction of the maximum (client status panel). */
 const LOW_HEALTH_FRACTION = 0.3;
+
+/**
+ * Whether the low-health frame (ui/hud_v2/interface_lowhealth.dat, a pulsing red vignette)
+ * is up: the client's status panel (dungeon/client/ab.Kq) raises it while the trailing health
+ * is under 30% of the maximum, with nothing for health 0, so it stays up for the whole
+ * knockout (the recording's pink-purple edges) and fades out once a revive refills the bar.
+ */
+export function lowHealthFrame(trail: number, max: number): boolean {
+  return max > 0 && trail / max < LOW_HEALTH_FRACTION;
+}
 /** A heart pip is 40 health (ItemValueKey HEALTH), 12 pixels wide (the client's dA: health * 12 / 40). */
 const pips = (v: number) => Math.trunc(Math.max(0, v) * 12 / 40);
 /** One health row's width in pixels: 30 pips; more health stacks silver, then gold, rows over it. */
 const ROW = 360;
-/** Floor heat at or under each step lights the heat meter at that level (the client's thresholds). */
-const HEAT_STEPS = [0, 20, 70, 140, 250, 500, 800, Infinity];
-
-/** The heat meter's level for the heat collected on the floor: 0 for none, then 1 to 7. */
-export function heatLevel(amount: number): number {
-  if (!(amount > 0)) return 0;
-  const i = HEAT_STEPS.findIndex(s => amount <= s);
-  return i < 0 ? HEAT_STEPS.length : i;
-}
+export { heatLevel };
 
 const ref = (name: string, args: Record<string, unknown> = {}) =>
   ({ $class: CONFIG_REF, name, arguments: { $map: "com.threerings.config.ArgumentMap", entries: Object.entries(args) } });
@@ -763,7 +766,7 @@ export class GameHud {
       }
     }
     // the low-health frame: its add action starts the pulse; "Fade Out" removes it over 0.75 s
-    const lowNow = state.dungeon && this.options.screenFlash && this.hp.cur > 0 && this.hp.trail < state.maxHealth * LOW_HEALTH_FRACTION;
+    const lowNow = state.dungeon && this.options.screenFlash && lowHealthFrame(this.hp.trail, state.maxHealth);
     if (this.lowHealth) {
       const r = this.runner(this.lowHealth);
       if (lowNow && this.low !== "on") {

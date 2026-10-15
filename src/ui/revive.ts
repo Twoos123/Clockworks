@@ -2,13 +2,17 @@
 // knight uses a Spark of Life to get up; with none left the window switches to its "Buy" mode
 // (a spark for energy: the client's dungeonSparkOfLifeCost default, 50, src/game/energy.ts; a
 // shortfall is bought with crowns at the exchange, as the client's Get Energy panel offered
-// beside the button). Under it sits the
-// game's leave-party panel (ui/continue/interface_leaveparty.dat), whose red button gives up and
-// rides back to Haven without the floor's loot.
+// beside the button). The client's party HUD (dungeon/client/I.NY) also adds the game's
+// leave-party panel (ui/continue/interface_leaveparty.dat) to its card list on the left, 150
+// pixels down, the moment the knight is down (PartyObject.z: health 0), solo or in a party, with
+// no delay; its red button gives up and rides back to Haven without the floor's loot.
 
 import { CONFIG_REF } from "../config/params";
 import { buildInterface, dispatch, pack, render, resetInput, type Component, type GuiContext, type RenderHooks } from "./gui";
-import { text } from "../i18n";
+import { hasMessage, message, text } from "../i18n";
+
+/** The knight's home town (the client's OptionsDialog.n). */
+const HOME = "Haven";
 
 export interface ReviveActions {
   sparks(): number;
@@ -68,8 +72,9 @@ export class ReviveScreen {
       const leave = await buildInterface(this.ctx, { $class: CONFIG_REF, name: "ui/continue/interface_leaveparty.dat" });
       if (leave && !this.leave) {
         const text = leave.find("town"), btn = leave.find("leaveparty");
-        if (text) text.text = "Give up: the floor's loot is lost.";
-        if (btn) { btn.text = "Return to Haven"; btn.onAction = () => { this.actions.sound("sound/feedback/ui_dismiss.ogg"); this.close(); this.actions.giveUp(); }; }
+        // the client's I.b: m.leaveparty_return and m.return_to_town with the home town's name
+        if (text) text.text = hasMessage("dungeon", "m.leaveparty_return") ? message("dungeon", "m.leaveparty_return", HOME) : `Leave the party and return to ${HOME}.`;
+        if (btn) { btn.text = hasMessage("dungeon", "m.return_to_town") ? message("dungeon", "m.return_to_town", HOME) : `Return to ${HOME}`; btn.onAction = () => { this.actions.sound("sound/feedback/ui_dismiss.ogg"); this.close(); this.actions.giveUp(); }; }
         resetInput(leave);
         this.leave = leave;
       }

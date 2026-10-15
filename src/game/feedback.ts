@@ -203,3 +203,23 @@ export function labelPose(l: LabelStyle, age: number): { dz: number; scale: numb
   }
   return { dz, scale };
 }
+
+/** Floor heat at or under each step lights the heat meter at that level (the client's dungeon/client/ab thresholds). */
+const HEAT_STEPS = [0, 20, 70, 140, 250, 500, 800, Infinity];
+
+/** The heat meter's level for the heat collected on the floor: 0 for none, then 1 to 7. */
+export function heatLevel(amount: number): number {
+  if (!(amount > 0)) return 0;
+  const i = HEAT_STEPS.findIndex(s => amount <= s);
+  return i < 0 ? HEAT_STEPS.length : i;
+}
+
+/**
+ * The heat orbs a knocked-out knight sheds (the client's knight sprite, dungeon/client/a/i.PV):
+ * particle/heat/fx_heatexpel.dat with Count three per heat-meter level of the floor's heat, none
+ * (and no effect) without heat. The same count flies back in fx_heatrecovered.dat ("Heat
+ * Restored!") when the knight gets up (i.PU, on the revived knight's hurt_recover state).
+ */
+export function heatExpelCount(amount: number): number {
+  return heatLevel(amount) * 3;
+}

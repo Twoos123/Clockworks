@@ -30,7 +30,7 @@ import { itemName, monsterName } from "./text";
 import { dressArgs, NO_DRESSING, type Dressing } from "./accessories";
 import type { SpriteCompanion, SpriteTarget, SpriteWorld } from "./sprites";
 import { attackClipAt, attackTiming, inTargetWedge, KnightControl, quadMovement, type AttackSlot, type ControlEvent, type ControlInput, type ControlStatus, type WeaponRules } from "./knight";
-import { defenseKind, heartCount, HEART_TYPES, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type LabelStyle, type NumberStyle, type ShakeSpec } from "./feedback";
+import { defenseKind, heartCount, HEART_TYPES, heatExpelCount, hitFlash, numberLength, numberStyle, NUMBER_LAYERS, performanceOf, performanceVariant, readShake, shakeOffset, shakeScale, type LabelStyle, type NumberStyle, type ShakeSpec } from "./feedback";
 import { pickMovement, pickWeighted, startWander, stepWander, wanders, type Wander } from "./townsfolk";
 import { Agent, selfHealth, type Behavior, type BehaviorHost, type Seen, type Threat } from "./behavior";
 import { behaviorArgs, behaviorScript, monsterBehavior, type MonsterInfo } from "./monsterai";
@@ -3616,15 +3616,41 @@ export class World implements LogicHost {
     for (const st of [...k.statuses]) this.endStatus(k, st);
     // the fall (death.dat ends lying down, and holds there)
     this.play(k, this.clip("character/pc/death.dat") ? "character/pc/death.dat" : "character/pc/dead.dat", { loop: false, blend: 0.1 });
+    // the floor's heat spills out as orbs around the body until the knight gets up (the
+    // client's knight sprite on its dead state, dungeon/client/a/i.PV)
+    this.heatOrbs = heatExpelCount(this.loot.heat);
+    const token = ++this.heatExpelToken;
+    if (this.heatOrbs > 0) {
+      void this.spawnEffect(argRef("particle/heat/fx_heatexpel.dat", [["Count", this.heatOrbs]]), k.matrix(), Infinity, k).then(started => {
+        if (token === this.heatExpelToken && k.dead) this.heatExpel = started;
+        else for (const e of started) e.life = 0;
+      });
+    }
   }
 
+  /** The heat orbs shed at the knockout (fx_heatexpel.dat), and their count. */
+  private heatExpel: Effect[] = [];
+  private heatOrbs = 0;
+  private heatExpelToken = 0;
+
+  /**
+   * The knight gets up with full health (the server's revive). The client's knight sprite
+   * plays hurt_recover for the revived state and, on it (i.PU), ends the heat orbs and sends
+   * them back in particle/heat/fx_heatrecovered.dat with its "Heat Restored!" label.
+   */
   revive() {
     const k = this.knight;
     k.dead = false;
     this.defeated = false;
     k.health = k.maxHealth;
     k.invulnerable = 2;
-    this.play(k, "character/pc/idle.dat");
+    this.heatExpelToken++;
+    for (const e of this.heatExpel) e.life = 0;
+    this.heatExpel = [];
+    if (this.heatOrbs > 0) void this.spawnEffect(argRef("particle/heat/fx_heatrecovered.dat", [["Count", this.heatOrbs]]), k.matrix(), 3, k);
+    this.heatOrbs = 0;
+    this.play(k, this.clip("character/pc/hurt_recover.dat") ? "character/pc/hurt_recover.dat" : "character/pc/idle.dat", { loop: false, blend: 0.1 });
+    k.hurtTime = 0.4;
   }
 
   /**
@@ -4051,18 +4077,21 @@ export class World implements LogicHost {
 
   // ---------------------------------------------------------------- effects and drawing
 
-  private async spawnEffect(ref: any, matrix: Mat4, life: number, follow?: Actor) {
+  /** Spawns a transient; resolves to every effect it started (its model, scripts and meta layers). */
+  private async spawnEffect(ref: any, matrix: Mat4, life: number, follow?: Actor): Promise<Effect[]> {
     // a following transient keeps its place on the actor (taken now, before the model loads)
     const local = localTo(follow, matrix);
     const model = await this.loader.loadRef(ref).catch(() => null);
-    if (!model) return;
+    if (!model) return [];
     // where it is once loaded: on its actor, or where it was placed
     const at = follow ? (local ? multiply(follow.matrix(), local) : follow.matrix()) : matrix;
     this.startLabels(model, at);
-    this.startScripts(model, at, life, follow);
-    if (model.script) return;
+    const started = this.startScripts(model, at, life, follow);
+    if (model.script) return started;
     const instance = await this.instantiate(model);
-    this.effects.push({ instance, matrix, life, follow, local });
+    const effect: Effect = { instance, matrix, life, follow, local };
+    this.effects.push(effect);
+    return [...started, effect];
   }
 
   /** Runs the scripts of the particles a meta effect's scripted layers bear this tick. */
@@ -4101,20 +4130,24 @@ export class World implements LogicHost {
    * ones live as long as the effect). Meta particle layers whose particles are scripted
    * models (an area explosion's blasts) run each particle's script as it is born.
    */
-  private startScripts(model: LoadedModel, matrix: Mat4, life: number, follow?: Actor) {
+  private startScripts(model: LoadedModel, matrix: Mat4, life: number, follow?: Actor): Effect[] {
+    const started: Effect[] = [];
     const start = (m: LoadedModel, local: Mat4, depth: number) => {
       if (depth > 6) return;
       const at = multiply(matrix, local);
       if (m.script) {
         const sc = m.script;
         const end = sc.actions.length ? sc.actions[sc.actions.length - 1].time : 0;
-        this.effects.push({ instance: null, matrix: at, life: sc.loopDuration > 0 ? life : end + 0.1, follow, local: localTo(follow, at),
-          script: { actions: sc.actions, loop: sc.loopDuration, t: 0, next: 0 } });
+        const e: Effect = { instance: null, matrix: at, life: sc.loopDuration > 0 ? life : end + 0.1, follow, local: localTo(follow, at),
+          script: { actions: sc.actions, loop: sc.loopDuration, t: 0, next: 0 } };
+        this.effects.push(e);
+        started.push(e);
       }
       const meta = m.particles?.length ? MetaScripts.of(m) : null;
       if (meta) {
         const e: Effect = { instance: null, matrix: at, life: meta.endless ? life : 60, follow, local: localTo(follow, at), meta };
         this.effects.push(e);
+        started.push(e);
         // the particles a layer starts with are born with it
         this.metaBirths(e, 0);
       }
@@ -4124,6 +4157,7 @@ export class World implements LogicHost {
       }
     };
     start(model, compose([0, 0, 0], [0, 0, 0, 1], 1), 0);
+    return started;
   }
 
   /**
