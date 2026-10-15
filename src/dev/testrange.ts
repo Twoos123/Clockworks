@@ -589,8 +589,13 @@ export class TestRange {
   // ---------------------------------------------------------------- the sweep's handle
 
   private actorKind(ref: any): string | null {
-    const cfg = this.world?.data.resolveSync("config/actor.dat", ref, "actor");
+    const cfg = this.actorConfig(ref);
     return cfg ? String(cfg.$class ?? "").split("$").pop() ?? null : null;
+  }
+
+  /** A spawned actor's config, its arguments applied (what data.ts attackHarms looks into). */
+  private actorConfig(ref: any): any | null {
+    return this.world?.data.resolveSync("config/actor.dat", ref, "actor") ?? null;
   }
 
   /** window.__range (development builds): what tools/audit/sweep.ts drives. */
@@ -616,12 +621,12 @@ export class TestRange {
       /** An actor config's class ("Monster", "Bomb", "Bullet", "Orbital"...), null when there is none. */
       actorKind: (name: string) => this.actorKind({ name }),
       /** Whether an attack is a blow at the knight (data.ts attackHarms): a bark or a dodge is not. */
-      attackHarms: (a: AttackDef) => attackHarms(a, r => this.actorKind(r)),
+      attackHarms: (a: AttackDef) => attackHarms(a, r => this.actorConfig(r)),
       /** Whether the monster's behaviour aims a harming attack at the knight, and after how long (behavior.ts attackOutlook). */
       outlook: (m: Monster) => {
         const w = this.world as any;
         if (!w) return null;
-        return attackOutlook(w.brainOf(m).cfg, (i: number) => attackHarms(m.def.slots[i], r => this.actorKind(r)));
+        return attackOutlook(w.brainOf(m).cfg, (i: number) => attackHarms(m.def.slots[i], r => this.actorConfig(r)));
       },
       hits: () => this.hits,
       clearHits: () => this.clearHits(),
