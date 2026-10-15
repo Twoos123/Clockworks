@@ -3302,10 +3302,11 @@ export class World implements LogicHost {
       if (holder) add(holder, m.x, m.y, m.z, m.scale);
     }
     // props draw at their own size (Prop.matrix), so their labels hang unscaled too
+    // (a NamedStatefulEntry sprite, the casino's slot machine, has no model of its own: it
+    // animates its StatefulProp entry's, drawn with the scene, so its label waits for none)
     for (const p of this.props) {
-      if (!p.instance) continue;
       const holder = namedHolder(p.cfg);
-      if (holder) add(holder, p.x, p.y, p.z, 1);
+      if (holder && (p.instance || !(p.cfg.sprite?.model ?? p.cfg.model))) add(holder, p.x, p.y, p.z, 1);
     }
     // the scene's named placeables (machines), in their placed scale
     for (const n of this.scene.names ?? []) add(n.holder, n.x, n.y, n.z, n.scale);
