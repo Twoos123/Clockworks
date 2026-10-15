@@ -768,8 +768,10 @@ export class TwinsFight extends BossFight {
       return;
     }
     if (t.stage >= 3 && r < 0.45) {
+      // the charge plays its animations; the beam down the lane is this director's own (it
+      // stops at the toggle walls), so the attack's four Parts/Beam lasers are left out
       const charge = named(m, /Twins\/Laser Charge$/);
-      if (charge) this.w.monsterAttack(m, charge);
+      if (charge) this.w.monsterAttack(m, { ...charge, fires: charge.fires.filter(f => !f.spawn), spawn: null });
       t.laser = 3;
       t.cooldown = 3;
       this.w.say(m.x, m.y, "Laser!", "#9fe8ff");

@@ -228,6 +228,7 @@
       }
       const d = m.def;
       Object.assign(rec, { passive: m.passive, speed: d.targetedSpeed || d.speed, attackNames: d.attacks.map(a => a.name), idle: refName(d.idle), move: refName(d.move),
+        model: refName(d.model), radius: m.radius,
         react: refName(d.react), dying: refName(d.dying), reactTime: d.reactTime, minReact: d.minReactPercent });
       const face = () => { m.heading = Math.atan2(k.y - m.y, k.x - m.x); k.heading = Math.atan2(m.y - k.y, m.x - k.x); };
       face();
@@ -252,7 +253,9 @@
         const a = Math.atan2(k.y - m.y, k.x - m.x);
         // a compound region (Vanaduke's club slam) strikes ahead of it: the knight goes to the
         // middle of its nearest part
-        const part = atk.shape?.parts ? atk.shape.parts.reduce((p, q) => (q.forward < p.forward ? q : p)) : null;
+        // ...and a point (the Swarm's Consume, at its middle) strikes only who stands on it
+        const point = atk.shape && !atk.shape.parts && atk.shape.radius === 0 && atk.shape.halfWidth === 0 ? atk.shape : null;
+        const part = atk.shape?.parts ? atk.shape.parts.reduce((p, q) => (q.forward < p.forward ? q : p)) : point;
         if (part) {
           const c = Math.cos(a), sn = Math.sin(a);
           k.x = m.x + c * part.forward - sn * part.side; k.y = m.y + sn * part.forward + c * part.side;
@@ -275,7 +278,12 @@
         await step(0.5, () => ({ aim: [m.x, m.y] }));
         await sleep(200);
         const l = runLog("monster");
-        rec.forced = { name: atk.name, harms: R().attackHarms(atk), hits: R().hits().filter(h => h.to === "knight"), projectiles: l.projectiles, effects: l.effects };
+        // how far its damage regions reach when the export stripped them all (data.ts guessedShape)
+        const struck = atk.fires.filter(f => f.shape && f.damage);
+        const guessReach = struck.length && struck.every(f => f.shape.guessed)
+          ? Math.max(...struck.map(f => f.shape.forward + Math.max(f.shape.halfLength, f.shape.radius))) : null;
+        rec.forced = { name: atk.name, harms: R().attackHarms(atk), hits: R().hits().filter(h => h.to === "knight"), projectiles: l.projectiles, effects: l.effects,
+          guessReach };
         // left to its own behaviour: does it come at the knight and attack?
         // the knight 3 units off, past the forced hit's knockback; slow walkers (the Green Giant
         // crawls at 1 unit a second) get time to close the gap

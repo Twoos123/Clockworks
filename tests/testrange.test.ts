@@ -169,6 +169,33 @@ test("monster sweep false alarms: parts, absent models, non-blows, peaceful beha
     console: ["Missing file in the install: character/npc/monster/lizardman/hunter/model_nrm-r1.dat"], problems: [] }), []);
 });
 
+test("monster sweep false alarms: status-only blows, chanceless auras, borrowed clips, stripped regions", () => {
+  const base: MonsterRecord = { name: "Character/NPC/Monster/Construct/X/X 1", passive: false, speed: 3, idle: null, move: null, reactTime: 500, minReact: 0.1,
+    model: "character/npc/monster/blastcore/model.dat", radius: 2,
+    forced: { name: "Spaz", harms: true, hits: [], projectiles: [], effects: [] }, live: { attacked: true, moved: 1 },
+    reacted: true, died: true, removedAfter: 1, deathEffects: ["particle/death.dat"], shots: [], console: [], problems: [] };
+  const shock = { kind: "Shock", chance: 0.25, applied: false, duration: 3 }, curse = { kind: "Curse", chance: 0, applied: false, duration: 10 };
+  // a status-only blow (a mecha knight's shock) lands with no health taken
+  const statusOnly = hit({ to: "knight", amounts: {}, dealt: 0, statuses: [shock] });
+  assert.deepEqual(judgeMonster({ ...base, forced: { ...base.forced!, hits: [statusOnly] } }), []);
+  // a chanceless aura's ticks (a black kat's curse) are not a landed blow
+  const aura = hit({ to: "knight", amounts: {}, dealt: 0, statuses: [curse] });
+  assert.ok(judgeMonster({ ...base, forced: { ...base.forced!, hits: [aura] } }).includes("attack Spaz: no hit and no projectile"));
+  // a blow that lands and takes nothing is still caught
+  assert.ok(judgeMonster({ ...base, forced: { ...base.forced!, hits: [hit({ to: "knight", dealt: 0 })] } }).includes("attack Spaz: zero damage"));
+  // a clip from another monster's folder that moves none of the model's nodes is the config's
+  // pairing (a Crimson BossCore 3 playing the Roarmulus Twins' laser charge); its own is not
+  const shot = (clip: string) => ({ label: "wind-up", pose: { clip, targets: 2, matched: 0 } });
+  const landed = { ...base.forced!, hits: [hit({ to: "knight" })] };
+  assert.deepEqual(judgeMonster({ ...base, forced: landed, shots: [shot("character/npc/monster/twingun/animations/animation_laser-start.dat")] }), []);
+  assert.equal(judgeMonster({ ...base, forced: landed, shots: [shot("character/npc/monster/blastcore/animations/animation_guns-start.dat")] }).length, 1);
+  // a stripped region's stand-in inside the attacker's own body (Vanaduke's seat and base
+  // configs with a dark knight's slam) says nothing; one that reaches past it still must hit
+  const slam = { ...base.forced!, name: "Sword Slam", guessReach: 1.7 };
+  assert.deepEqual(judgeMonster({ ...base, radius: 1.75, forced: slam }), []);
+  assert.ok(judgeMonster({ ...base, radius: 0.6, forced: slam }).includes("attack Sword Slam: no hit and no projectile"));
+});
+
 test("knight anomalies and the report", () => {
   assert.deepEqual(judgeKnight({ actions: [{ label: "death", playing: "idle", dead: false }, { label: "revive", playing: "idle", dead: false }], shots: [], console: [], problems: [] }),
     ["death: the knight did not fall"]);

@@ -139,7 +139,17 @@ export interface MonsterRecord {
    * dodge, a deflect, a weak spot's expose, a potion or a scripted signal is not, and is made
    * only when the monster has no blow.
    */
-  forced?: { name: string; harms?: boolean; hits: HitRecord[]; projectiles: string[]; effects: string[] } | null;
+  forced?: {
+    name: string; harms?: boolean; hits: HitRecord[]; projectiles: string[]; effects: string[];
+    /**
+     * When every damage region of the attack is the stand-in for one the export stripped
+     * (data.ts guessedShape: a trojan's "Trojan - Slam"), how far that stand-in reaches.
+     */
+    guessReach?: number | null;
+  } | null;
+  /** Its model (a reference's name) and collision radius. */
+  model?: string | null;
+  radius?: number;
   /**
    * Left to its own behaviour for `window` seconds. `aims`: its behaviour starts a blow at the
    * knight at all (behavior.ts attackOutlook: healers, followers, a tortodrone until provoked do
@@ -202,7 +212,21 @@ export function bindPose(p: Pose | null): string | null {
   return null;
 }
 
-const consoleProblems = (lines: string[]) => [...new Set(lines)].slice(0, 5).map(l => `console: ${l.slice(0, 160)}`);
+/** A monster family's folder: character/npc/monster/<family>/ (a model's or a clip's). */
+const family = (path: string | null | undefined) => /^character\/npc\/monster\/[^/]+\//.exec(path ?? "")?.[0] ?? null;
+
+/**
+ * A shot whose clip, moving none of the model's nodes, comes from another monster family's
+ * folder than the model's: an animation made for other bones, matched by name as the client
+ * matches them, so the client shows the same still model.
+ */
+export function borrowedClip(p: Pose | null, model: string | null | undefined): boolean {
+  if (!p?.clip || p.targets <= 0 || p.matched > 0) return false;
+  const a = family(p.clip), b = family(model);
+  return !!a && !!b && a !== b;
+}
+
+const consoleProblems =(lines: string[]) => [...new Set(lines)].slice(0, 5).map(l => `console: ${l.slice(0, 160)}`);
 const failedEffects = (fx: string[]) => [...new Set(fx.filter(e => /\(failed\)/.test(e)))].map(e => `missing effect ${e.replace(/ \(failed\)$/, "")}`);
 
 export function judgeWeapon(r: WeaponRecord): string[] {
@@ -266,15 +290,26 @@ export function judgeMonster(r: MonsterRecord): string[] {
   // (blastcores, a boss's core, souls, a mimic's chest): only a named clip that fails counts
   for (const s of r.shots) {
     if (s.label === "idle" && !r.idle) continue;
+    // a clip from another monster's folder that moves none of this model's nodes is the
+    // config's own pairing, which the client plays the same way (a Crimson BossCore 3, a
+    // blastcore, given the Roarmulus Twins' twingun laser charge)
+    if (borrowedClip(s.pose, r.model)) continue;
     const b = bindPose(s.pose);
     if (b) p.push(`${s.label}: ${b}`);
   }
   if (!r.passive) {
     const f = r.forced;
+    // the hits that did something: health, or a condition with a chance to take (a status-only
+    // blow: a mecha knight's shock); a curse aura's chanceless ticks and fake strikes are not
+    const landed = (f?.hits ?? []).filter(h => h.dealt > 0 || (h.statuses ?? []).some(s => s.chance > 0)
+      || Object.values(h.amounts ?? {}).some(v => v > 0));
+    // a stripped region's stand-in that cannot reach past the attacker's own body (Vanaduke's
+    // throne-room seat and base configs carry a dark knight's slam) says nothing of the game
+    const unknowable = f?.guessReach != null && r.radius != null && f.guessReach <= r.radius;
     // an "attack" that is only a state change (a Glop Drop's Idle, a spawner's pause), or one
     // that is no blow (attackHarms: a bark, a dodge, a weak spot), strikes nothing by design
-    if (f && f.harms !== false && !f.hits.length && !f.projectiles.length && !/(^|[\/, ])Idle$/i.test(f.name)) p.push(`attack ${f.name}: no hit and no projectile`);
-    if (f && f.harms !== false && f.hits.length && f.hits.every(h => h.dealt <= 0)) p.push(`attack ${f.name}: zero damage`);
+    if (f && f.harms !== false && !landed.length && !f.projectiles.length && !unknowable && !/(^|[\/, ])Idle$/i.test(f.name)) p.push(`attack ${f.name}: no hit and no projectile`);
+    if (f && f.harms !== false && landed.length && landed.every(h => h.dealt <= 0 && !(h.statuses ?? []).some(s => s.chance > 0))) p.push(`attack ${f.name}: zero damage`);
     if (f) p.push(...failedEffects(f.effects).map(e => `attack ${f.name}: ${e}`));
     // only a monster whose behaviour aims a blow at the knight, soon enough to see, must attack
     const l = r.live;

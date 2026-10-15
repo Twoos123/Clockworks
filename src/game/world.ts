@@ -10,7 +10,7 @@ import { loadAnimation, type AnimationClip, type LoadedModel, type ModelLoader }
 import type { ModelInstance, Renderer } from "../render/renderer";
 import type { LoadedScene } from "../scene";
 import { collidesWith, contactPoint, separationShares, type CollisionMap } from "./collision";
-import { dealt, hitDamage, impulseShare, mainType, modifyDamage, TYPE_COLORS, type Knock } from "./combat";
+import { dealt, hitDamage, impulseShare, mainType, modifyDamage, readKnock, TYPE_COLORS, type Knock } from "./combat";
 import { GameData, type ArmorDef, type AttackDef, type DamageShape, type FireDef, type MonsterDef, type ProjectileDef, type ShieldDef, type WeaponDef } from "./data";
 import { DAMAGE_MASK, DAMAGE_TYPES, zeroAmounts, type Amounts, type DepthContext, type Difficulty } from "./depth";
 import { DIFFICULTY_SCALES } from "./difficulty";
@@ -62,6 +62,8 @@ const LABEL_MODELS = /particle\/part_component_(debuffname|itemfail)\.dat$/;
 const MONSTER_MASK = 1 | 2 | 8 | 32;
 /** The longest step an impulse moves an actor before it is pushed back out of the actors it met (World.moveAmongActors). */
 const ACTOR_SUBSTEP = 0.2;
+/** Slack in a damage region's reach, so shapes that only touch still meet (float error). */
+const TOUCH = 1e-3;
 export const STARTER_WEAPONS = ["Weapon/Sword/Proto Sword", "Weapon/Handgun/Proto Gun", "Weapon/Bomb/Proto Bomb"];
 const STARTER_SHIELD = "Gear/Shield/Proto Shield";
 const STARTER_ARMOR = ["Gear/Armor/Parts/Proto (Base)", "Gear/Helm/Parts/Proto (Base)"];
@@ -325,6 +327,8 @@ class Projectile {
   returnInstance: ModelInstance | null = null;
   /** Bursts a trail bullet has left. */
   bursts = 0;
+  /** A laser's next strike (seconds of its age). */
+  strikeAt = 0;
   constructor(readonly def: ProjectileDef, public instance: ModelInstance | null, readonly team: Team,
     public x: number, public y: number, public z: number, public heading: number, readonly ctx: DepthContext) {}
   /** The sprite's transform: turned a quarter past its heading, as Tudey's actor sprites are. */
@@ -1145,9 +1149,13 @@ export class World implements LogicHost {
           ? logic.actors.filter(e => e !== activator && !e.destroyed && (e.game instanceof Monster || e.game instanceof Prop || e === this.knightEntity)
             && Math.hypot(e.x - source.x, e.y - source.y) <= r + (e.game instanceof Monster ? e.game.radius : e === this.knightEntity ? KNIGHT_RADIUS : 0.5))
           : cfg.target ? logic.resolveTarget(cfg.target, source, activator) : activator ? [activator] : [];
+        // the push is the action's own impulse: one with none (a black kat's curse aura, which
+        // strikes every tick a knight stands in it) pushes nothing; a flat half unit shoved the
+        // knight out of the aura and out of the cat's bite
+        const push = readKnock(cfg.impulseDealt);
         for (const t of targets) {
-          if (t === this.knightEntity) this.damageKnight(amounts, 0.5, source.x, source.y);
-          else if (t.game instanceof Monster) this.damageMonster(t.game, amounts, 0.5, source.x, source.y);
+          if (t === this.knightEntity) this.damageKnight(amounts, push, source.x, source.y);
+          else if (t.game instanceof Monster) this.damageMonster(t.game, amounts, push, source.x, source.y);
           else if (t.game instanceof Prop && t.game.struck) this.damageProp(t.game, dealt(amounts, null), 1);
         }
         return true;
@@ -2670,7 +2678,13 @@ export class World implements LogicHost {
     // the animations, each on from the last as it finishes, apart from the phase times
     this.syncAttackClip(a);
     if (at.phase === "start") {
-      if (at.t * 1000 >= d.land / d.startSpeed) this.enterFire(a);
+      if (at.t * 1000 >= d.land / d.startSpeed) {
+        this.enterFire(a);
+        // what fires as it lands strikes from where the attacker stands as it lands, before
+        // an impulse starting with it moves it (a lichen's back-step took it out of reach of
+        // its own swipe a tick before the swipe resolved)
+        this.runFires(a, at);
+      }
     } else if (at.phase === "fire") {
       if (at.t * 1000 >= d.rearm / d.fireSpeed) {
         at.phase = "end";
@@ -2690,6 +2704,7 @@ export class World implements LogicHost {
       at.fired.add(i);
       if (f.spawn) void this.spawnProjectile(a, f.spawn);
       else if (f.action) this.fireAction(a, f.action);
+      else if (f.warp) this.warpBehind(a, f.warp);
       else if (f.shape) this.resolveHit(a, f);
       else if (/Merge$/.test(f.name ?? "") && a instanceof Monster && a.mergeWith) this.mergeLichens(a, a.mergeWith);
     }
@@ -2706,6 +2721,23 @@ export class World implements LogicHost {
     const target = a instanceof Monster ? a.behaviorTarget?.() ?? null : null;
     src.x = a.x; src.y = a.y; src.rotation = a.heading;
     this.logic.execute(action, src, target ?? src);
+  }
+
+  /**
+   * "Base/Warp Behind Target" (a wolver's warp): the attacker reappears at `at` (forward, side)
+   * in its target's frame (a wolver's two: 0.5 ahead and 2 to either side), facing it; a spot
+   * inside a wall keeps it put.
+   */
+  private warpBehind(a: Actor, at: [number, number]) {
+    if (!(a instanceof Monster)) return;
+    const e = a.behaviorTarget?.() ?? this.knightEntity;
+    const t: Actor | null = e === this.knightEntity ? this.knight : e?.game instanceof Monster ? e.game : null;
+    if (!t) return;
+    const c = Math.cos(t.heading), s = Math.sin(t.heading);
+    const x = t.x + at[0] * c - at[1] * s, y = t.y + at[0] * s + at[1] * c;
+    if (this.collision.collides(x, y, a.radius, MONSTER_MASK)) return;
+    a.x = x; a.y = y;
+    a.heading = Math.atan2(t.y - y, t.x - x);
   }
 
   /** A shield bash's one-time hit on every enemy the charging knight touches. */
@@ -2737,9 +2769,13 @@ export class World implements LogicHost {
   private resolveHit(a: Actor, def: FireDef) {
     const shape = def.shape!;
     const c = Math.cos(a.heading), s = Math.sin(a.heading);
+    // shapes that touch intersect (Tudey's tests are inclusive): a hair of slack keeps a target
+    // the separation left exactly at the region's edge in it (a toxilargo's punch reaches just
+    // to the knight pressed against its 1.5-unit body)
     const within = (p: DamageShape, tx: number, ty: number, r: number) => {
       const dx = tx - a.x, dy = ty - a.y;
       const lx = dx * c + dy * s - p.forward, ly = -dx * s + dy * c - p.side;
+      r += TOUCH;
       if (p.halfWidth > 0) return Math.abs(lx) <= p.halfLength + r && Math.abs(ly) <= p.halfWidth + r;
       return Math.hypot(lx, ly) <= p.radius + r;
     };
@@ -2775,6 +2811,7 @@ export class World implements LogicHost {
     if (ctx.multiplier) for (const t of DAMAGE_TYPES) a[t] *= ctx.multiplier;
     if (ctx.bonus) (a as any).bonus = ctx.bonus;
     const statuses: any[] = [];
+    let parts = 0, reacting = 0;
     const walk = (d: any, depth = 0) => {
       if (!d || depth > 6) return;
       const k = String(d.$class ?? "").split("$").pop();
@@ -2784,9 +2821,14 @@ export class World implements LogicHost {
       if (((d.flags ?? 1) & mask) === 0) return;
       if (d.majorReact) (a as any).major = true;
       if ((k === "Status" || k === "ExclusiveStatus") && d.statusCondition) statuses.push(d.statusCondition);
+      // DamageConfig Base and DepthScale shouldReact (default true)
+      if ("shouldReact" in d || "amount" in d || "depthScale" in d) { parts++; if (d.shouldReact !== false) reacting++; }
     };
     walk(damage);
     if (statuses.length) { a.statuses = statuses; a.ctx = ctx; }
+    // every part that hurts says not to react (the Swarm's Consume drains a point a tick): the
+    // victim takes it without a flinch
+    if (parts && !reacting) (a as any).still = true;
     if (ctx.tagged && Object.keys(ctx.tagged).length) (a as any).tagged = ctx.tagged;
     return a;
   }
@@ -3027,11 +3069,12 @@ export class World implements LogicHost {
   }
 
   /** A bullet or bomb a logic action spawns at a point (monster bullets, traps). */
-  private async spawnProjectileAt(ref: any, x: number, y: number, heading: number, team: Team, ctx: DepthContext) {
+  private async spawnProjectileAt(ref: any, x: number, y: number, heading: number, team: Team, ctx: DepthContext, owner: Monster | null = null) {
     const loaded = await this.projectileDef(ref);
     if (!loaded) return;
     const z = this.collision.groundZ(x, y) + loaded.def.height;
     const proj = new Projectile(loaded.def, null, team, x, y, z, heading, ctx);
+    proj.owner = owner;
     this.projectiles.push(proj);
     this.dressProjectile(proj, loaded.model);
     if (loaded.model) this.startScripts(loaded.model, proj.matrix(), loaded.def.fuse / 1000);
@@ -3142,6 +3185,7 @@ export class World implements LogicHost {
       p.instance?.advance(dt);
       const d = p.def;
       if (d.kind === "Orbital" || d.kind === "Agent") this.stepOrbital(p, dt);
+      else if (d.laser) this.stepLaser(p, d.laser);
       else if (d.kind === "Bullet") {
         const steps = Math.max(1, Math.ceil((d.speed * dt) / Math.max(0.1, d.radius)));
         for (let i = 0; i < steps && !p.done; i++) {
@@ -3167,6 +3211,39 @@ export class World implements LogicHost {
       } else if (p.age * 1000 >= d.fuse) this.detonate(p, false);
     }
     for (let i = this.projectiles.length - 1; i >= 0; i--) if (this.projectiles[i].done) this.projectiles.splice(i, 1);
+  }
+
+  /**
+   * A laser (DungeonActorConfig Laser): a beam from where it was spawned along its heading,
+   * cut short by the first wall, striking the knight in it (a monster's beam; the knight's
+   * side's beams strike monsters) every interval; at its end a warm-up beam becomes the beam
+   * its "Shutdown" names, where it stood.
+   */
+  private stepLaser(p: Projectile, l: NonNullable<ProjectileDef["laser"]>) {
+    const d = p.def;
+    if (p.age * 1000 >= d.fuse) {
+      p.done = true;
+      if (l.then) void this.spawnProjectileAt(l.then, p.x, p.y, p.heading, p.team, p.ctx, p.owner);
+      return;
+    }
+    if (d.harmless || p.age < p.strikeAt) return;
+    p.strikeAt += l.interval / 1000;
+    const c = Math.cos(p.heading), s = Math.sin(p.heading);
+    let len = 0;
+    while (len < l.length && !this.hitsWall(p, p.x + c * (len + 0.25), p.y + s * (len + 0.25))) len += 0.25;
+    const inBeam = (x: number, y: number, r: number) => {
+      const dx = x - p.x, dy = y - p.y, along = dx * c + dy * s;
+      return along >= 0 && along <= len + r && Math.abs(-dx * s + dy * c) <= d.radius + r;
+    };
+    const amounts = this.amounts(d.damage, p.ctx);
+    if (p.team === "knight") {
+      for (const m of this.monsters) {
+        if (m.state === "dying" || m.state === "spawning" || m.ally || !inBeam(m.x, m.y, m.radius)) continue;
+        this.damageMonster(m, amounts, d.knockback, p.x, p.y);
+      }
+    } else if (!this.knight.dead && inBeam(this.knight.x, this.knight.y, this.knight.radius)) {
+      this.damageKnight(amounts, d.knockback, p.x, p.y);
+    }
   }
 
   /**
@@ -3518,6 +3595,13 @@ export class World implements LogicHost {
       const shielded = (k.shielding || c.activity.kind === "shieldHit") && k.shieldBroken <= 0 && !!k.shield;
       if (!shielded) this.hitStatuses(k, amounts, 0);
       this.knock(k, fx, fy, knockback, shielded ? 0.3 : 1);
+      // the hit still lands (a mecha knight's shock, a status-only blow): the probe sees it,
+      // with the conditions it rolled
+      if (this.probe?.hitKnight) {
+        const kn = knockOf(knockback), scale = shielded ? 0.3 : 1;
+        this.probe.hitKnight({ amounts: amountsOf(amounts), dealt: 0, knock: kn ? { ...kn, distance: kn.distance * scale } : null, moved: !!kn && kn.distance > 0,
+          reacted: false, shielded, killed: false, attack: null }, { x: fx, y: fy });
+      }
       return;
     }
     // a raised shield (or one recoiling from a hit) takes hits from every direction until it breaks
@@ -3558,13 +3642,15 @@ export class World implements LogicHost {
     this.knock(k, fx, fy, knockback);
     if (this.probe?.hitKnight) {
       const kn = knockOf(knockback);
-      this.probe.hitKnight({ amounts: amountsOf(amounts), dealt: dmg, knock: kn, moved: !!kn && kn.distance > 0, reacted: k.health > 0,
+      this.probe.hitKnight({ amounts: amountsOf(amounts), dealt: dmg, knock: kn, moved: !!kn && kn.distance > 0, reacted: k.health > 0 && !(amounts as any).still,
         knockdown: k.health > 0 && !!(amounts as any).major && !!this.clip("character/pc/hurt_hard.dat"), killed: k.health <= 0, attack: null }, { x: fx, y: fy });
     }
     if (k.health <= 0) {
       this.knockOut();
       return;
     }
+    // a hit that should not make it react (DamageConfig shouldReact false) leaves it be
+    if ((amounts as any).still) return;
     // the hit reactions the client plays (the server picks them): a heavy hit knocks the
     // knight down (275, no walking) and it gets up (276, 400 ms); any other hit is a flinch
     // (274, 500 ms) that walks but cannot attack, shield or dodge. Either breaks off an
@@ -3822,6 +3908,7 @@ export class World implements LogicHost {
       if (!l) return;
       const b = l.def.orbit?.bullet;
       this.ranges.set(a, l.def.kind === "Bomb" ? Math.max(1.5, l.def.regionRadius)
+        : l.def.laser ? Math.max(2, l.def.laser.length * 0.85)
         : b ? Math.max(2, (b.flightSpeed * b.outDuration) / 1000 * 0.85)
         : l.def.kind === "Orbital" ? 2 : Math.max(2, (l.def.speed * l.def.fuse) / 1000 * 0.85));
     });

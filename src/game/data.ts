@@ -26,6 +26,11 @@ export interface DamageShape {
   radius: number;
   /** A compound region's parts (a hit lands when any of them reaches): see readShape. */
   parts?: DamageShape[];
+  /**
+   * Ours, not the config's: the export stripped the region (a trojan's "Trojan - Slam" keeps
+   * its damage and push but no shape), so this is readShape's stand-in.
+   */
+  guessed?: boolean;
 }
 
 /** One fire action of an attack: a melee hit (shape and damage) or a spawned bullet or bomb. */
@@ -39,6 +44,12 @@ export interface FireDef {
   name?: string;
   /** A fire action that runs an action (a mender's heal spawns its heal bomb). */
   action?: any;
+  /**
+   * "Base/Warp Behind Target" (a wolver's warp): the attacker reappears at this offset in its
+   * target's frame (forward, side): its default, -1 forward, is a step
+   * behind it; a wolver's are 0.5 ahead and 2 to either side.
+   */
+  warp?: [number, number];
 }
 
 /**
@@ -257,8 +268,16 @@ export interface ArmorDef {
  */
 export interface ProjectileDef {
   name: string;
-  kind: "Bullet" | "Bomb" | "Orbital" | "Agent";
+  kind: "Bullet" | "Bomb" | "Orbital" | "Agent" | "Laser";
   model: any;
+  /**
+   * DungeonActorConfig Laser (a blastcore's beam, the Roarmulus Twins'): a beam `length` long
+   * from where it was spawned along its heading, striking with its damage action every
+   * `interval` ms for its fuse (its "Duration"); a warm-up beam strikes nothing and becomes its
+   * "Shutdown" beam when it ends (its Shutdown handler's spawn, stripped from the export save
+   * for that argument).
+   */
+  laser?: { length: number; interval: number; then: any | null };
   /** Units per second; 0 for bombs. */
   speed: number;
   /** Milliseconds until a bullet fizzles or a bomb detonates. */
@@ -465,14 +484,39 @@ export class GameData {
       const spawn = actor?.name ? { actor, variance: Number(getArg(fire, "Rotation Variance") ?? 0), rotation: Number(getArg(fire, "Rotation") ?? 0) } : null;
       // "Fire Prefired" launches bullets spawned earlier in the attack; it hits nothing itself
       if (!spawn && /Prefired/.test(fire.name ?? "")) continue;
-      const delay = Number(getArg(fire, "Delay") ?? 0);
+      const fa = await this.resolve("config/fire_action.dat", fire, "action").catch(() => null);
+      // the fire action's own delay when the reference gives none (a trojan's slam: 160 ms)
+      const delay = Number(getArg(fire, "Delay") ?? fa?.delay ?? 0);
+      if (spawn) {
+        // a compound of spawns all given the one actor (a blastcore's "Burst (Relative)", its
+        // four beams): one each, their transforms server data the export strips, so they
+        // fan out evenly around the heading, or at random for a "Random" burst
+        const n = kind(fa?.action) === "Compound" ? ((fa.action.actions ?? []) as any[]).filter(a => /^Spawn/.test(kind(a))).length : 1;
+        if (n > 1) {
+          const random = /Random/.test(fire.name ?? "");
+          for (let i = 0; i < n; i++) fires.push({ delay, damage: null, shape: null, knockback: 0, name: fire.name,
+            spawn: { ...spawn, rotation: spawn.rotation + (i * 2 * Math.PI) / n, variance: random ? 2 * Math.PI : spawn.variance, index: i } });
+          continue;
+        }
+      }
       // a fire action that names its own spawns (the diskguns' and mixers' twin, triple and
       // quad disks: DungeonActionConfig MultiSpawnPrespawned, or one SpawnPrespawned)
       if (!spawn && !shapeArg) {
-        const fa = await this.resolve("config/fire_action.dat", fire, "action");
         const own = prespawns(fa?.action);
         if (own.length) {
           for (const s of own) fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: s, name: fire.name });
+          continue;
+        }
+        // "Base/Warp Behind Target": the export strips its action's class and keeps its
+        // translation, where behind its target (in the target's frame) the attacker appears
+        if (/Warp Behind Target$/.test(fire.name ?? "") && fa?.action?.translation) {
+          const t = fa.action.translation;
+          fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name, warp: [t.x ?? 0, t.y ?? 0] });
+          continue;
+        }
+        // a spawn given no actor (a wolver's warp, a blastcore's "Bullet" left empty) spawns nothing
+        if (!damage && /^Spawn/.test(kind(fa?.action)) && !fa.action.actor) {
+          fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name });
           continue;
         }
       }
@@ -491,7 +535,6 @@ export class GameData {
       // a fire action whose config does nothing (a lichen's merge) marks a moment the game's
       // own code acts on; it strikes nothing
       if (!spawn && !damage) {
-        const fa = await this.resolve("config/fire_action.dat", fire, "action");
         if (fa && !fa.action && !shapeArg) { fires.push({ delay, damage: null, shape: null, knockback: 0, spawn: null, name: fire.name }); continue; }
         // ...or strikes with a damage region of its own, its arguments filling the shape and
         // status ("Attack Shape", "Status Damage": a lumber's slam, a trojan's, a deadnaught's
@@ -499,12 +542,12 @@ export class GameData {
         const own = innerStrike(fa?.action);
         if (own?.damage) {
           const argShape = shapeArg ?? getArg(fire, "Attack Shape");
-          fires.push({ delay, damage: own.damage, shape: argShape ? readShape(argShape) : own.shape ?? readShape(undefined),
+          fires.push({ delay, damage: own.damage, shape: argShape ? readShape(argShape) : own.shape ?? guessedShape(),
             knockback: kb ? readKnock(kb) : readKnock(own.impulseDealt), spawn: null, name: fire.name });
           continue;
         }
       }
-      const shape = !spawn || shapeArg ? readShape(shapeArg) : null;
+      const shape = shapeArg ? readShape(shapeArg) : !spawn ? guessedShape() : null;
       fires.push({ delay, damage: spawn && !shapeArg ? null : damage, shape, knockback: readKnock(kb), spawn, name: fire.name });
     }
     const primary = fires[0] ?? null;
@@ -650,6 +693,7 @@ export class GameData {
     const p = full?.impl ?? null;
     const k = kind(p);
     if (/^(Orbital|RelativeOrbital|OrbitalBullet|CompoundOrbitalBullet|Agent)$/.test(k)) return orbitalDef(ref?.name ?? "", p, k);
+    if (k === "Laser") return laserDef(ref, p);
     if (k !== "Bullet" && k !== "Bomb") return null;
     // the detonation: its damage region (a Compound may hold one beside other actions), and
     // whatever else it does (a lichen bomb spawns its colony, a marker activates monsters)
@@ -745,6 +789,45 @@ function findActorRef(o: any, depth = 0, isActor?: (name: string) => boolean): a
 }
 
 /**
+ * A beam's half width, which its damage region (stripped from the export) strikes across:
+ * about the beam model's glow. Ours.
+ */
+export const LASER_HALF_WIDTH = 0.5;
+
+/**
+ * A laser's definition from its resolved actor config (DungeonActorConfig Laser: length,
+ * duration, damageInterval and the damage action it strikes with each interval), and the beam
+ * its "Shutdown" argument names, which a warm-up beam becomes when it ends.
+ */
+export function laserDef(ref: any, p: any): ProjectileDef {
+  const sprite = p.sprite ?? {};
+  const act = p.damageAction;
+  const det = /^DamageRegion|^DamageTarget/.test(kind(act)) ? act : null;
+  const then = getArg(ref, "Shutdown") as any;
+  const length = p.length ?? 15;
+  // the beam model is drawn as long as the laser (its "Length", 0 in the config)
+  const model = sprite.model?.name ? { ...sprite.model, arguments: { $map: "com.threerings.config.ArgumentMap",
+    entries: [...((sprite.model.arguments?.entries ?? []) as [string, unknown][]).filter(([k]) => k !== "Length"), ["Length", length]] } } : null;
+  return {
+    name: ref?.name ?? "", kind: "Laser",
+    model,
+    speed: 0, fuse: p.duration ?? 10000,
+    radius: LASER_HALF_WIDTH,
+    offset: [0, 0], height: sprite.height ?? p.height ?? 0.5,
+    collisionMask: 0,
+    damage: det?.damage ?? null,
+    harmless: !det?.damage,
+    actions: [],
+    regionRadius: 0,
+    knockback: readKnock(det?.impulseDealt),
+    hitFx: null, fizzleFx: null,
+    creationFx: sprite.creationTransient ?? undefined,
+    children: [], startActions: [],
+    laser: { length, interval: Math.max(50, p.damageInterval ?? 200), then: then?.name ? then : null },
+  };
+}
+
+/**
  * An orbiting projectile's definition from its resolved actor config: its orbit, its removal
  * (Shutdown handler: the damage it deals, outgoing and returning, and its other actions), and
  * its startup (the satellites a mixer core spawns, and its sounds).
@@ -805,8 +888,23 @@ export function damageHarms(d: any, mask = DAMAGE_MASK_KNIGHT, depth = 0): boole
   if (/^(Normal|Piercing|Elemental|Shadow|Unblockable|DepthUnblockable)$/.test(k)) return (d.amount ?? 0) >= 0.5;
   if (k === "DepthScale" || k === "DepthScaleMulti") return !!d.depthScale;
   if (k === "TaggedBonus") return d.damage ? damageHarms(d.damage, mask, depth + 1) : true;
+  // a condition its reference gives no chance (a CUSTOM chance of 0: the stun ring a wolver's
+  // warp leaves, a black kat's curse aura) never takes: status.ts reads the same arguments
+  if ((k === "Status" || k === "ExclusiveStatus") && statusNeverTakes(d.statusCondition)) return false;
   // Status, ExclusiveStatus, Action
   return true;
+}
+
+/**
+ * Whether a status condition reference sets its chance to nothing: a "Chance" argument of 0
+ * with no named "Status Chance" level over it (StatusConditions.get reads them so).
+ */
+export function statusNeverTakes(ref: any): boolean {
+  const level = getArg(ref, "Status Chance") as any;
+  const named = (level?.name ?? level) as string | undefined;
+  if (named && named !== "CUSTOM") return false;
+  const c = getArg(ref, "Chance");
+  return c !== undefined && c !== null && Number(c) === 0;
 }
 
 /** The knight's damage mask (depth.ts DAMAGE_MASK.KNIGHT). */
@@ -816,20 +914,45 @@ const DAMAGE_MASK_KNIGHT = 13;
 const MONSTER_KINDS = /^(Monster|ZMonster|Agent)$/;
 
 /**
+ * What an attack's spawn is, as the caller knows it: the spawned actor's resolved config (its
+ * arguments applied), or only its config class's name, or null when unknown.
+ */
+export type ActorLookup = (ref: any) => any;
+
+/**
+ * Whether a spawned actor is a blow at the knight: not a monster (a minion), and, for a bomb
+ * or bullet whose config is known, one whose detonation or handlers harm it (a mender's heal
+ * bomb only heals, a raise bomb only plays its effect). An unknown actor is taken as a blow.
+ */
+function spawnHarms(ref: any, actorOf: ActorLookup | undefined, depth: number): boolean {
+  const got = actorOf?.(ref) ?? null;
+  const cfg = got && typeof got === "object" ? got : null;
+  const k = cfg ? kind(cfg) : typeof got === "string" ? got : "";
+  if (MONSTER_KINDS.test(k)) return false;
+  if (!cfg || (k !== "Bomb" && k !== "Bullet")) return true;
+  // a "Damage" handed to it: what its bursts or flames strike with, even where the export
+  // stripped the handler that passes it on (a brandish's Burst Bullet, a flame jet's torches)
+  const given = getArg(ref, "Damage") as any;
+  if (/DamageConfig\$/.test(given?.$class ?? "") && damageHarms(given)) return true;
+  const acts = [cfg.detonationAction, ...((cfg.handlers ?? []) as any[]).map(h => h?.action)];
+  return acts.some(x => actionHarms(x, actorOf, depth + 1));
+}
+
+/**
  * Whether an action (a fire action's, looking inside compounds, random picks, conditionals and
  * delays) strikes the knight or launches something at it: a damage region or a damage to its
  * target that harms the knight, or the spawn of an actor that is not a monster (a bullet, a
- * bomb, a laser). Applying a status (a buff on allies), a flag, an effect, a heal or a
- * conversation does not. `actorKind` names a spawned actor's config class when it is known.
+ * bomb, a laser) and harms (spawnHarms). Applying a status (a buff on allies), a flag, an
+ * effect, a heal or a conversation does not. `actorOf` looks a spawned actor up when it can.
  */
-export function actionHarms(a: any, actorKind?: (ref: any) => string | null, depth = 0): boolean {
+export function actionHarms(a: any, actorOf?: ActorLookup, depth = 0): boolean {
   if (!a || typeof a !== "object" || depth > 8) return false;
-  if (Array.isArray(a)) return a.some(x => actionHarms(x, actorKind, depth + 1));
+  if (Array.isArray(a)) return a.some(x => actionHarms(x, actorOf, depth + 1));
   const k = kind(a);
   if (/^DamageRegion|^DamageTarget/.test(k)) return damageHarms(a.damage);
   if (/Spawn/.test(k) && !/TableSpawn/.test(k)) {
     const refs = [a.actor, ...((a.spawns ?? []) as any[]).map(s => s?.actor)].filter(r => r?.name);
-    return refs.some(r => !MONSTER_KINDS.test(actorKind?.(r) ?? ""));
+    return refs.some(r => spawnHarms(r, actorOf, depth));
   }
   // another fire action by name: what it does is in config/fire_action.dat, unread here
   if (k === "FireAction") return true;
@@ -837,7 +960,7 @@ export function actionHarms(a: any, actorKind?: (ref: any) => string | null, dep
   // containers (Compound, Random, Conditional, Delayed...): what they hold
   for (const [f, v] of Object.entries(a)) {
     if (f === "$class" || f === "$outer" || !v || typeof v !== "object") continue;
-    if (actionHarms(v, actorKind, depth + 1)) return true;
+    if (actionHarms(v, actorOf, depth + 1)) return true;
   }
   return false;
 }
@@ -849,13 +972,21 @@ export function actionHarms(a: any, actorKind?: (ref: any) => string | null, dep
  * blastcore weak spot's expose and hide, a potion, a scripted signal or a boss's stage swap
  * is not one: the Test Range sweep expects no hit from those.
  */
-export function attackHarms(a: AttackDef | null | undefined, actorKind?: (ref: any) => string | null): boolean {
+export function attackHarms(a: AttackDef | null | undefined, actorOf?: ActorLookup): boolean {
   if (!a) return false;
   if (a.contact && damageHarms(a.contact.damage)) return true;
   return a.fires.some(f =>
-    (f.spawn ? !MONSTER_KINDS.test(actorKind?.(f.spawn.actor) ?? "") : false)
-    || (!!f.shape && damageHarms(f.damage))
-    || actionHarms(f.action, actorKind));
+    (f.spawn ? spawnHarms(f.spawn.actor, actorOf, 0) : false)
+    || (!!f.shape && regionReaches(f.shape) && damageHarms(f.damage))
+    || actionHarms(f.action, actorOf));
+}
+
+/**
+ * Whether a damage region lies where anyone could stand: a mender's "Raise Construct" strikes
+ * a point a thousand units behind it (a strike at no one, to set its raise going).
+ */
+function regionReaches(s: DamageShape): boolean {
+  return Math.hypot(s.forward, s.side) - Math.max(s.radius, s.halfLength, s.halfWidth) < 100;
 }
 
 /**
@@ -944,7 +1075,9 @@ export function innerStrike(action: any, depth = 0): { damage: any; shape: Damag
   if (k === "Conditional") return action.condition == null ? innerStrike(action.elseAction, depth + 1) : null;
   if (!/^DamageRegion(FromPoint)?$/.test(k) || action.target) return null;
   let shape = action.region?.shape;
-  if (kind(shape) === "Compound") shape = (shape.shapes ?? []).find((s: any) => s);
+  // (a compound region's class is its default, which the export leaves out: a lichen's
+  // "Lichen Damage" is { shapes: [...] })
+  if (kind(shape) === "Compound" || (shape && !shape.$class && Array.isArray(shape.shapes))) shape = (shape.shapes ?? []).find((s: any) => s);
   const t = action.translation ?? {}, inner = shape?.transform?.translation;
   return { damage: action.damage ?? null, impulseDealt: action.impulseDealt,
     // (a region the export stripped leaves no shape)
@@ -955,6 +1088,11 @@ export function innerStrike(action: any, depth = 0): { damage: any; shape: Damag
 function actorRadius(shape: any): number {
   if (kind(shape) === "Circle") return shape.radius ?? 1;
   return shape?.radius ?? 0.5;
+}
+
+/** readShape's stand-in for a region the export stripped, marked as such. */
+export function guessedShape(): DamageShape {
+  return { ...readShape(undefined), guessed: true };
 }
 
 export function readShape(s: any): DamageShape {
@@ -977,6 +1115,9 @@ export function readShape(s: any): DamageShape {
   const base: DamageShape = { forward: t?.x ?? 0.8, side: t?.y ?? 0, halfLength: 0, halfWidth: 0, radius: 0.9 };
   if (k === "Rectangle") return { ...base, halfLength: (inner.width ?? 1) / 2, halfWidth: (inner.height ?? 1) / 2 };
   if (k === "Circle") return { ...base, radius: inner.radius ?? 1 };
+  // ShapeConfig.TransformedShape's own shape defaults to a Point: an empty one (the Swarm's
+  // "Consume") is the point under its transform, the attacker's middle when it has none
+  if (k === "Point" || (k === "TransformedShape" && !inner.shape)) return { ...base, forward: t?.x ?? 0, radius: 0 };
   return base;
 }
 
