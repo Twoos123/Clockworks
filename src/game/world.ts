@@ -861,8 +861,13 @@ export class World implements LogicHost {
       rarity: name => eco.info(name)?.rarity ?? 0,
       depthWeight: (dw, r, d) => eco.depthWeight(dw, r, d),
     } : null);
-    // the drop pools are built once, before the first drop
-    if (eco) for (const t of ["MATERIAL", "GEAR"]) eco.autoItems(t);
+    // the drop pools are built once, when the browser is next idle after the level starts (a
+    // drop before then builds them itself), so they do not hold up the first level's load
+    if (eco) {
+      const build = () => { for (const t of ["MATERIAL", "GEAR"]) eco.autoItems(t); };
+      if (typeof requestIdleCallback === "function") requestIdleCallback(build, { timeout: 3000 });
+      else setTimeout(build, 0);
+    }
     await this.data.preload("config/status_condition.dat");
     this.conditions = new StatusConditions(this.data.library_("config/status_condition.dat"), this.data.depth);
     this.logic = new Logic(this, {
