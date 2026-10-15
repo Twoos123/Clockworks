@@ -392,6 +392,41 @@ export class CollisionMap {
     }
   }
 
+  /**
+   * A floor-tile placeable's floor mesh (model-space triangles placed by `matrix`): the cells
+   * whose centres its upward faces cover, where no tile is, become floor at the placeable's
+   * elevation. The exit elevators (DungeonPlaceableConfig$ElevatorProp, floorTile) stand over
+   * a 3x3 shaft with no tiles under it, and their shape is only the shaft's walls: in the
+   * client a cell without a tile has no collision flags, so the grate is walked onto
+   * (TudeySceneModel.collides only tests tiles' flags); here a tile-less cell is a drop, so
+   * the grate's cells are made floor. Its height is still the grate's (floorZ's mesh ray).
+   */
+  addFloorPlaceableMesh(tris: ArrayLike<number>, matrix: Mat4, z: number) {
+    const m = matrix;
+    const det = m[0] * (m[5] * m[10] - m[6] * m[9]) - m[4] * (m[1] * m[10] - m[2] * m[9]) + m[8] * (m[1] * m[6] - m[2] * m[5]);
+    const sign = det < 0 ? -1 : 1;
+    const w = new Float64Array(9);
+    for (let i = 0; i + 8 < tris.length; i += 9) {
+      for (let k = 0; k < 3; k++) {
+        const x = tris[i + k * 3], y = tris[i + k * 3 + 1], zz = tris[i + k * 3 + 2];
+        w[k * 3] = m[0] * x + m[4] * y + m[8] * zz + m[12];
+        w[k * 3 + 1] = m[1] * x + m[5] * y + m[9] * zz + m[13];
+        w[k * 3 + 2] = m[2] * x + m[6] * y + m[10] * zz + m[14];
+      }
+      const nz = ((w[3] - w[0]) * (w[7] - w[1]) - (w[4] - w[1]) * (w[6] - w[0])) * sign;
+      if (nz <= 1e-9) continue;
+      const x0 = Math.floor(Math.min(w[0], w[3], w[6])), x1 = Math.floor(Math.max(w[0], w[3], w[6]));
+      const y0 = Math.floor(Math.min(w[1], w[4], w[7])), y1 = Math.floor(Math.max(w[1], w[4], w[7]));
+      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 256) continue;
+      for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) {
+        if (rayDownZ(w, cx + 0.5, cy + 0.5) === -Infinity) continue;
+        // only where no tile lies (a tile keeps its own floor, walls their flags)
+        const k = CollisionMap.key(cx, cy);
+        if (!this.cells.has(k)) this.cells.set(k, { flags: 0, floor: true, z });
+      }
+    }
+  }
+
   /** Ground height under (x, y): the floor the client stands actors and effects on. */
   groundZ(x: number, y: number): number {
     return this.floorZ(x, y);

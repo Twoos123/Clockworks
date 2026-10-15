@@ -217,7 +217,7 @@ export class SceneLoader {
     const tileImpls = await Promise.all(mappings.map(m => m ? this.resolveImpl("config/tile.dat", m.tile, "tile") : null));
     const granularity = s.tiles?.granularity ?? 3, mask = (1 << granularity) - 1, empty = s.tiles?.empty ?? -1;
     // floor: the sprite's floor flags (TileConfig/PlaceableConfig floorFlags, default 0x01)
-    const jobs: { ref: any; matrix: Mat4; floor: number; elevator?: SceneObject["elevator"] }[] = [];
+    const jobs: { ref: any; matrix: Mat4; floor: number; floorTile?: boolean; elevator?: SceneObject["elevator"] }[] = [];
     for (const [coord, cell] of s.tiles?.cells?.entries ?? []) {
       const values: Int32Array = cell.values;
       for (let i = 0; i < values.length; i++) {
@@ -303,7 +303,7 @@ export class SceneLoader {
         const actor = await this.resolveImpl("config/actor.dat", impl.actor, "actor");
         if (actor?.$class?.endsWith("DungeonActorConfig$Elevator")) elevator = { ref: modelRef, dissolve: !!actor.dissolveParty };
       }
-      jobs.push({ ref: modelRef, matrix: toMatrix(t), floor: impl.floorFlags ?? 1, ...(elevator ? { elevator } : {}) });
+      jobs.push({ ref: modelRef, matrix: toMatrix(t), floor: impl.floorFlags ?? 1, floorTile: !!impl.floorTile, ...(elevator ? { elevator } : {}) });
       stats.placeables++;
       grow(t.t[0], t.t[1]);
     }
@@ -320,6 +320,9 @@ export class SceneLoader {
         const lift = job.floor ? floorLift(model) : undefined;
         objects.push({ model, matrix: job.matrix, ...(lift ? { lift } : {}), ...(job.elevator ? { elevator: job.elevator } : {}) }); unique.add(model);
         if (job.floor) collision.addFloor(floorTriangles(model), job.matrix, job.floor, lift);
+        // a floor tile placeable's grate (the exit elevators', whose shape is only their walls)
+        // is floor over its shaft, where no tile is
+        if (job.floorTile) collision.addFloorPlaceableMesh(floorTriangles(model), job.matrix, job.matrix[14]);
       } else stats.unresolved++;
       if (++done % 200 === 0) onProgress?.(done, jobs.length);
     }
